@@ -5,13 +5,23 @@
 //! Video and GIF encoding pipes raw RGBA frames into `ffmpeg`; a PNG sequence
 //! needs no external tool.
 
+mod job;
+pub use job::{ExportJob, FrameSink, GifSink, JobState, PngZipSink};
+
 use anyhow::{bail, Context, Result};
-use ez_core::{AudioEnvelope, EvalCtx, Project};
+use ez_core::AudioEnvelope;
+#[cfg(not(target_arch = "wasm32"))]
+use ez_core::{EvalCtx, Project};
+#[cfg(not(target_arch = "wasm32"))]
 use ez_render::gpu::Gpu;
+#[cfg(not(target_arch = "wasm32"))]
 use ez_render::Renderer;
+#[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
 use std::path::{Path, PathBuf};
+#[cfg(not(target_arch = "wasm32"))]
 use std::process::{Command, Stdio};
+#[cfg(not(target_arch = "wasm32"))]
 use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -106,6 +116,7 @@ pub struct Progress {
 }
 
 /// Finds a working ffmpeg: the explicit path first, then `ffmpeg` on PATH.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn find_ffmpeg(explicit: Option<&Path>) -> Option<PathBuf> {
     let exe_name = if cfg!(windows) {
         "ffmpeg.exe"
@@ -136,10 +147,19 @@ pub fn find_ffmpeg(explicit: Option<&Path>) -> Option<PathBuf> {
 
 /// Decode an audio file and build loudness envelopes (100 samples/s).
 pub fn analyze_audio(path: &Path) -> Result<AudioEnvelope> {
+    analyze_audio_asset(&path.to_string_lossy())
+}
+
+/// [`analyze_audio`] for an asset path (file or in-memory `mem://` asset).
+pub fn analyze_audio_asset(path: &str) -> Result<AudioEnvelope> {
+    let bytes = ez_core::store::read(path).with_context(|| format!("opening {path}"))?;
+    analyze_audio_bytes(bytes.to_vec()).with_context(|| format!("decoding {path}"))
+}
+
+/// Decode audio held in memory and build loudness envelopes.
+pub fn analyze_audio_bytes(bytes: Vec<u8>) -> Result<AudioEnvelope> {
     use rodio::Source;
-    let file = std::fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
-    let dec =
-        rodio::Decoder::try_from(file).with_context(|| format!("decoding {}", path.display()))?;
+    let dec = rodio::Decoder::new(std::io::Cursor::new(bytes))?;
     let channels = dec.channels().get() as usize;
     let rate = dec.sample_rate().get() as f32;
     let env_rate = 100.0;
@@ -173,7 +193,7 @@ pub fn analyze_audio(path: &Path) -> Result<AudioEnvelope> {
         }
     }
     if level.is_empty() {
-        bail!("{} contains no audio", path.display());
+        bail!("the file contains no audio");
     }
     let norm = |v: &mut Vec<f32>| {
         let mut sorted = v.clone();
@@ -196,6 +216,7 @@ pub fn analyze_audio(path: &Path) -> Result<AudioEnvelope> {
 
 /// Render the loop and write it out. `progress` is called after every frame;
 /// setting `cancel` aborts the export.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn export(
     project: &Project,
     settings: &ExportSettings,
@@ -355,6 +376,7 @@ pub fn export(
 }
 
 /// Render a single still frame to a PNG.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn render_still(
     project: &Project,
     phase: f32,
@@ -372,7 +394,7 @@ pub fn render_still(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
     use ez_core::presets;

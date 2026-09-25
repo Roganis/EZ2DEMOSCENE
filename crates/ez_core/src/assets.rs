@@ -8,7 +8,7 @@
 use crate::graph::NodeKind;
 use crate::scene::*;
 use std::io::{Read, Write};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Component, Path};
 
 pub const PACK_EXTENSION: &str = "ez2pack";
 const PACK_PROJECT: &str = "project.ez2.json";
@@ -185,59 +185,91 @@ pub struct PackReport {
     pub missing: Vec<String>,
 }
 
-/// Write `project` and copies of all its assets into a `.ez2pack` zip.
-pub fn pack(project: &Project, out: &Path) -> Result<PackReport, AssetError> {
+/// Build a `.ez2pack` (zip) in memory with `project` and copies of all its
+/// assets (read through [`crate::store`], so in-memory assets work too).
+pub fn pack_to_bytes(project: &Project) -> Result<(Vec<u8>, PackReport), AssetError> {
     let mut p = project.clone();
     p.version = PROJECT_VERSION;
     let mut report = PackReport::default();
-    let mut entries: Vec<(String, PathBuf)> = Vec::new();
+    let mut entries: Vec<(String, String)> = Vec::new(); // (zip name, source path)
     p.for_each_asset_path(|path| {
         if path.is_empty() {
             return;
         }
-        if let Some((name, _)) = entries
-            .iter()
-            .find(|(_, src)| src.as_path() == Path::new(path.as_str()))
-        {
+        if let Some((name, _)) = entries.iter().find(|(_, src)| src == path) {
             *path = name.clone();
             return;
         }
-        let src = PathBuf::from(path.as_str());
-        if !src.is_file() {
+        if !crate::store::exists(path) {
             report.missing.push(path.clone());
             return;
         }
-        let file = src
-            .file_name()
-            .map(|f| f.to_string_lossy().to_string())
-            .unwrap_or_else(|| "asset".into());
+        let file = crate::store::file_name(path).to_string();
         let mut name = format!("assets/{file}");
         let mut k = 2;
         while entries.iter().any(|(n, _)| *n == name) {
             name = format!("assets/{k}_{file}");
             k += 1;
         }
-        entries.push((name.clone(), src));
+        entries.push((name.clone(), path.clone()));
         *path = name;
     });
-    let tmp = out.with_extension("tmp~");
-    {
-        let f = std::fs::File::create(&tmp)?;
-        let mut zip = zip::ZipWriter::new(f);
-        let opts = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Deflated);
-        zip.start_file(PACK_PROJECT, opts)?;
-        zip.write_all(p.to_json().as_bytes())?;
-        for (name, src) in &entries {
-            zip.start_file(name.as_str(), opts)?;
-            let mut f = std::fs::File::open(src)?;
-            std::io::copy(&mut f, &mut zip)?;
-            report.packed += 1;
-        }
-        zip.finish()?;
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let opts = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    zip.start_file(PACK_PROJECT, opts)?;
+    zip.write_all(p.to_json().as_bytes())?;
+    for (name, src) in &entries {
+        zip.start_file(name.as_str(), opts)?;
+        zip.write_all(&crate::store::read(src)?)?;
+        report.packed += 1;
     }
-    std::fs::rename(&tmp, out)?;
+    let bytes = zip.finish()?.into_inner();
+    Ok((bytes, report))
+}
+
+/// Write `project` and copies of all its assets into a `.ez2pack` file.
+pub fn pack(project: &Project, out: &Path) -> Result<PackReport, AssetError> {
+    let (bytes, report) = pack_to_bytes(project)?;
+    write_atomic(out, &bytes)?;
     Ok(report)
+}
+
+/// Open a `.ez2pack` held in memory: its assets are put in the in-memory
+/// [`crate::store`] under `mem://<prefix>/…` and the project points at them.
+pub fn unpack_bytes(bytes: &[u8], prefix: &str) -> Result<Project, AssetError> {
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes))?;
+    let mut json = None;
+    let mut mapping: Vec<(String, String)> = Vec::new();
+    for i in 0..zip.len() {
+        let mut entry = zip.by_index(i)?;
+        let Some(rel) = entry.enclosed_name() else {
+            continue;
+        };
+        if entry.is_dir() {
+            continue;
+        }
+        let rel = to_slash(&rel);
+        let mut data = Vec::new();
+        entry.read_to_end(&mut data)?;
+        if rel == PACK_PROJECT {
+            json = Some(String::from_utf8_lossy(&data).to_string());
+        } else {
+            let path = format!("{}{prefix}/{rel}", crate::store::MEM_PREFIX);
+            crate::store::insert(&path, data);
+            mapping.push((rel, path));
+        }
+    }
+    let json =
+        json.ok_or_else(|| AssetError::Invalid(format!("{PACK_PROJECT} missing in pack")))?;
+    let mut p = Project::from_json(&json)?;
+    p.migrate();
+    p.for_each_asset_path(|path| {
+        if let Some((_, m)) = mapping.iter().find(|(rel, _)| rel == path) {
+            *path = m.clone();
+        }
+    });
+    Ok(p)
 }
 
 /// Extract a `.ez2pack` into `dest` and load the project from it.
@@ -280,6 +312,7 @@ pub fn unpack(pack_path: &Path, dest: &Path) -> Result<Project, AssetError> {
 mod tests {
     use super::*;
     use crate::presets;
+    use std::path::PathBuf;
 
     fn tmpdir(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join("ez2_assets_tests").join(name);
@@ -365,6 +398,23 @@ mod tests {
             std::fs::read(&obj).unwrap(),
             std::fs::read(dir.join("models/ship.obj")).unwrap()
         );
+    }
+
+    #[test]
+    fn pack_bytes_roundtrip_in_memory() {
+        let logo = crate::store::insert_new("logo.png", b"PNGDATA".to_vec());
+        let mut p = presets::empty();
+        p.textures.push(UserTexture {
+            name: "logo".into(),
+            path: logo.clone(),
+            retro: None,
+        });
+        let (bytes, report) = pack_to_bytes(&p).unwrap();
+        assert_eq!(report.packed, 1);
+        let back = unpack_bytes(&bytes, "test-pack").unwrap();
+        let path = &back.textures[0].path;
+        assert!(crate::store::is_mem(path), "{path}");
+        assert_eq!(&*crate::store::read(path).unwrap(), b"PNGDATA");
     }
 
     #[test]

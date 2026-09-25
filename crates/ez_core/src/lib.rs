@@ -18,6 +18,7 @@ pub mod presets;
 pub mod randomize;
 pub mod rng;
 pub mod scene;
+pub mod store;
 
 pub use audio::AudioEnvelope;
 pub use clock::{EvalCtx, Timing};

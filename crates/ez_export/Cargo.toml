@@ -13,5 +13,8 @@ wgpu.workspace = true
 image.workspace = true
 anyhow.workspace = true
 log.workspace = true
-pollster.workspace = true
+zip.workspace = true
 rodio = { workspace = true, features = ["symphonia-all"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+pollster.workspace = true

@@ -1003,6 +1003,7 @@ dependencies = [
  "pollster 0.4.0",
  "rodio",
  "wgpu",
+ "zip",
 ]
 
 [[package]]

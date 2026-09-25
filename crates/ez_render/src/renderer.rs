@@ -1,4 +1,4 @@
-use crate::import::load_mesh;
+use crate::import::load_mesh_asset;
 use crate::mesh::{primitive, MeshData, Vertex};
 use crate::texgen;
 use bytemuck::{Pod, Zeroable};
@@ -13,8 +13,8 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::f32::consts::TAU;
 use std::hash::{Hash, Hasher};
-use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
 pub const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
@@ -745,7 +745,10 @@ impl Renderer {
         if self.textures.contains_key(&key) {
             return key;
         }
-        match image::open(&path) {
+        let decoded = ez_core::store::read(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|b| image::load_from_memory(&b).map_err(|e| e.to_string()));
+        match decoded {
             Ok(img) => {
                 let mut img = img.to_rgba8();
                 if let Some(r) = &retro {
@@ -805,7 +808,7 @@ impl Renderer {
         }
         let data = match source {
             MeshSource::Primitive(p) => primitive(p),
-            MeshSource::File { path } => match load_mesh(Path::new(path)) {
+            MeshSource::File { path } => match load_mesh_asset(path) {
                 Ok(m) => {
                     self.errors.remove(&key);
                     m
@@ -1659,8 +1662,10 @@ impl Renderer {
         }
     }
 
-    /// Copy the final image back to the CPU as tightly packed sRGB RGBA8.
-    pub fn read_pixels(&self, target: &RenderTarget) -> Vec<u8> {
+    /// Start copying the final image of `target` back to the CPU without
+    /// waiting (required on the web, where blocking is impossible). Poll the
+    /// returned [`Readback`] until it is ready.
+    pub fn start_readback(&self, target: &RenderTarget) -> Readback {
         let (w, h) = (target.width, target.height);
         let row = 4 * w;
         let padded =
@@ -1694,18 +1699,34 @@ impl Renderer {
             },
         );
         self.queue.submit([enc.finish()]);
-        let slice = buf.slice(..);
-        slice.map_async(wgpu::MapMode::Read, |_| {});
-        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
-        let data = slice.get_mapped_range().expect("mapping readback buffer");
-        let mut out = Vec::with_capacity((row * h) as usize);
-        for y in 0..h {
-            let s = (y * padded) as usize;
-            out.extend_from_slice(&data[s..s + row as usize]);
+        let ready = Arc::new(AtomicBool::new(false));
+        let flag = ready.clone();
+        buf.slice(..).map_async(wgpu::MapMode::Read, move |r| {
+            if r.is_ok() {
+                flag.store(true, Ordering::Release);
+            }
+        });
+        Readback {
+            buf,
+            ready,
+            width: w,
+            height: h,
+            padded,
         }
-        drop(data);
-        buf.unmap();
-        out
+    }
+
+    /// Copy the final image back to the CPU as tightly packed sRGB RGBA8
+    /// (blocking; desktop only).
+    pub fn read_pixels(&self, target: &RenderTarget) -> Vec<u8> {
+        let rb = self.start_readback(target);
+        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+        rb.take().expect("readback finished")
+    }
+
+    /// Lets pending GPU work (e.g. readbacks) make progress without
+    /// blocking. On the web the browser does this by itself.
+    pub fn poll(&self) {
+        let _ = self.device.poll(wgpu::PollType::Poll);
     }
 
     /// Convenience: render and read back as an image.
@@ -1718,5 +1739,53 @@ impl Renderer {
         self.render(project, ctx, target);
         RgbaImage::from_raw(target.width, target.height, self.read_pixels(target))
             .expect("pixel buffer size")
+    }
+}
+
+/// A pending GPU -> CPU copy of a rendered frame.
+pub struct Readback {
+    buf: wgpu::Buffer,
+    ready: Arc<AtomicBool>,
+    pub width: u32,
+    pub height: u32,
+    padded: u32,
+}
+
+impl Readback {
+    pub fn is_ready(&self) -> bool {
+        self.ready.load(Ordering::Acquire)
+    }
+
+    /// Tightly packed RGBA8 pixels, or `None` if not finished yet.
+    pub fn take(self) -> Option<Vec<u8>> {
+        if !self.is_ready() {
+            return None;
+        }
+        let row = (4 * self.width) as usize;
+        let data = self.buf.slice(..).get_mapped_range().ok()?;
+        let mut out = Vec::with_capacity(row * self.height as usize);
+        for y in 0..self.height as usize {
+            let s = y * self.padded as usize;
+            out.extend_from_slice(&data[s..s + row]);
+        }
+        drop(data);
+        self.buf.unmap();
+        Some(out)
+    }
+}
+
+/// Highest MSAA sample count (4 or 1) the adapter supports for the HDR
+/// scene targets. WebGL2 devices often can't multisample float targets.
+pub fn supported_msaa(adapter: &wgpu::Adapter) -> u32 {
+    let f = adapter.get_texture_format_features(HDR_FORMAT);
+    let d = adapter.get_texture_format_features(DEPTH_FORMAT);
+    if f.flags.sample_count_supported(4)
+        && d.flags.sample_count_supported(4)
+        && f.allowed_usages
+            .contains(wgpu::TextureUsages::RENDER_ATTACHMENT)
+    {
+        4
+    } else {
+        1
     }
 }
