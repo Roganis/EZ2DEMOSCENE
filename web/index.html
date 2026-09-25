@@ -27,7 +27,20 @@
   <style>
     html, body { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; background: #121218; color: #ddd;
       font-family: system-ui, sans-serif; touch-action: none; }
-    canvas#ez2_canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; outline: none; }
+    /* Keep the editor clear of the status bar, gesture bar and camera cutouts.
+       The Android app (Capacitor 8, edge-to-edge) sets --safe-area-inset-*;
+       browsers provide env(safe-area-inset-*) thanks to viewport-fit=cover. */
+    :root {
+      --ez2-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+      --ez2-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
+      --ez2-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+      --ez2-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
+    }
+    /* A canvas is a replaced element, so size it explicitly (width: auto
+       would fall back to its pixel size). */
+    canvas#ez2_canvas { position: absolute; top: var(--ez2-top); left: var(--ez2-left);
+      width: calc(100% - var(--ez2-left) - var(--ez2-right)); height: calc(100% - var(--ez2-top) - var(--ez2-bottom));
+      display: block; outline: none; }
     #ez2_loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
       gap: 12px; text-align: center; padding: 24px; }
     #ez2_loading h1 { margin: 0; color: #ff468c; letter-spacing: 2px; font-size: 28px; }
