@@ -5,6 +5,7 @@ mod audio;
 mod cli;
 mod export_ui;
 mod inspector;
+mod library;
 mod nodes;
 mod viewport;
 mod widgets;

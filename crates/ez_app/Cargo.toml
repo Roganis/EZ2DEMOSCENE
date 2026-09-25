@@ -25,3 +25,5 @@ rodio = { workspace = true, features = ["playback", "symphonia-all"] }
 anyhow.workspace = true
 log.workspace = true
 env_logger.workspace = true
+directories.workspace = true
+serde_json.workspace = true

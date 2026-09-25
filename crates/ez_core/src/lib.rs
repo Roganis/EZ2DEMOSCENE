@@ -6,6 +6,7 @@
 //! of the loop *phase* (0..1) with integer cycle counts, which makes every
 //! scene seamlessly loopable by construction.
 
+pub mod assets;
 pub mod audio;
 pub mod clock;
 pub mod color;

@@ -935,9 +935,20 @@ fn mirror_ui(ui: &mut Ui, f: &mut MirrorFloor, textures: &mut Vec<UserTexture>) 
     });
 }
 
-/// Templates offered in the "Add layer" menu.
-pub fn add_layer_menu(ui: &mut Ui) -> Option<Layer> {
+/// Templates offered in the "Add layer" menu, plus the user's own saved
+/// layer templates.
+pub fn add_layer_menu(ui: &mut Ui, templates: &[Layer]) -> Option<Layer> {
     let mut out = None;
+    if !templates.is_empty() {
+        ui.menu_button("⭐ My templates", |ui| {
+            for t in templates {
+                if ui.button(format!("{} {}", layer_icon(t), t.name)).clicked() {
+                    out = Some(t.clone());
+                }
+            }
+        });
+        ui.separator();
+    }
     ui.menu_button("🔷 Shape", |ui| {
         for p in Primitive::all_defaults() {
             if ui.button(p.label()).clicked() {

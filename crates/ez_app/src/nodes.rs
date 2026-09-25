@@ -65,9 +65,10 @@ impl NodeEditor {
         Graph { nodes, wires }
     }
 
-    pub fn show(&mut self, ui: &mut Ui) {
+    pub fn show(&mut self, ui: &mut Ui, templates: &[Layer]) {
         let mut viewer = Viewer {
             selected: &mut self.selected,
+            templates,
         };
         self.snarl.show(&mut viewer, &self.style, "ez2-graph", ui);
     }
@@ -84,6 +85,7 @@ impl NodeEditor {
 
 struct Viewer<'a> {
     selected: &'a mut Option<NodeId>,
+    templates: &'a [Layer],
 }
 
 fn pin_color(kind: &NodeKind) -> Color32 {
@@ -261,7 +263,7 @@ impl SnarlViewer<NodeKind> for Viewer<'_> {
 
     fn show_graph_menu(&mut self, pos: egui::Pos2, ui: &mut Ui, snarl: &mut Snarl<NodeKind>) {
         ui.label("Add node");
-        if let Some(layer) = crate::inspector::add_layer_menu(ui) {
+        if let Some(layer) = crate::inspector::add_layer_menu(ui, self.templates) {
             let id = snarl.insert_node(pos, NodeKind::Source { layer });
             *self.selected = Some(id);
             ui.close();

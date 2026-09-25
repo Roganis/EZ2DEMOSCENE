@@ -3,6 +3,7 @@
 use crate::audio::AudioPlayer;
 use crate::export_ui::{slug, ExportUi};
 use crate::inspector::{self, IMAGE_EXTENSIONS, MODEL_EXTENSIONS};
+use crate::library::Library;
 use crate::nodes::NodeEditor;
 use crate::viewport::Viewport;
 use crate::widgets::ACCENT;
@@ -68,7 +69,15 @@ pub struct EzApp {
     status: Option<(String, bool, f64)>,
     /// Wall-clock seconds (egui input time).
     now: f64,
+    library: Library,
+    last_autosave: f64,
+    gallery_tab: usize,
+    /// Name typed in the "save as my preset" dialog (Some = dialog open).
+    preset_name: Option<String>,
 }
+
+const AUTOSAVE_SECONDS: f64 = 30.0;
+const PROJECT_FILTER: &[&str] = &["json", ez_core::assets::PACK_EXTENSION];
 
 impl EzApp {
     pub fn new(cc: &eframe::CreationContext<'_>, initial: Option<PathBuf>) -> EzApp {
@@ -104,10 +113,14 @@ impl EzApp {
             help_open: false,
             status: None,
             now: 0.0,
+            library: Library::open(&cc.egui_ctx),
+            last_autosave: 0.0,
+            gallery_tab: 0,
+            preset_name: None,
         };
         match initial {
             Some(p) => app.open_path(&p),
-            None => app.presets_open = true,
+            None => app.presets_open = app.library.recovery.is_none(),
         }
         app
     }
@@ -146,10 +159,19 @@ impl EzApp {
     }
 
     fn open_path(&mut self, path: &Path) {
-        match std::fs::read_to_string(path)
-            .map_err(|e| e.to_string())
-            .and_then(|s| Project::from_json(&s).map_err(|e| e.to_string()))
-        {
+        if ez_core::assets::is_pack(path) {
+            let dest = self.library.unpack_dir(path);
+            match ez_core::assets::unpack(path, &dest) {
+                Ok(p) => {
+                    // A pack has no editable location: "Save" asks where to put it.
+                    self.load_project(p, None);
+                    self.set_status(format!("Opened pack {}", path.display()), false);
+                }
+                Err(e) => self.set_status(format!("Could not open {}: {e}", path.display()), true),
+            }
+            return;
+        }
+        match Project::load(path) {
             Ok(p) => {
                 self.load_project(p, Some(path.to_path_buf()));
                 self.set_status(format!("Opened {}", path.display()), false);
@@ -158,9 +180,52 @@ impl EzApp {
         }
     }
 
+    fn save_pack(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("EZ2 pack", &[ez_core::assets::PACK_EXTENSION])
+            .set_file_name(format!("{}.{}", slug(&self.project.name), ez_core::assets::PACK_EXTENSION))
+            .save_file()
+        else {
+            return;
+        };
+        match ez_core::assets::pack(&self.project, &path) {
+            Ok(r) if r.missing.is_empty() => {
+                self.set_status(format!("Packed {} with {} asset(s)", path.display(), r.packed), false)
+            }
+            Ok(r) => self.set_status(
+                format!("Packed, but {} file(s) were missing: {}", r.missing.len(), r.missing.join(", ")),
+                true,
+            ),
+            Err(e) => self.set_status(format!("Pack failed: {e}"), true),
+        }
+    }
+
+    fn autosave(&mut self) {
+        if self.now - self.last_autosave < AUTOSAVE_SECONDS {
+            return;
+        }
+        self.last_autosave = self.now;
+        if self.project != self.saved {
+            if let Err(e) = self.library.autosave(&self.project) {
+                self.set_status(format!("Autosave failed: {e}"), true);
+            }
+        }
+    }
+
+    fn save_user_preset(&mut self, ctx: &egui::Context, name: String) {
+        let mut p = self.project.clone();
+        p.name = name;
+        let target = self.viewport.renderer.create_target(320, 180);
+        let thumb = self.viewport.renderer.render_image(&p, &EvalCtx::new(&p.timing, self.phase(), None), &target);
+        match self.library.save_preset(ctx, &p, &thumb) {
+            Ok(()) => self.set_status(format!("Saved '{}' to My presets", p.name), false),
+            Err(e) => self.set_status(format!("Could not save preset: {e}"), true),
+        }
+    }
+
     fn open_dialog(&mut self) {
         if let Some(p) = rfd::FileDialog::new()
-            .add_filter("EZ2 project", &["json"])
+            .add_filter("EZ2 project or pack", PROJECT_FILTER)
             .pick_file()
         {
             self.open_path(&p);
@@ -180,7 +245,7 @@ impl EzApp {
                 .save_file(),
         };
         let Some(path) = path else { return };
-        match std::fs::write(&path, self.project.to_json()) {
+        match self.project.save(&path) {
             Ok(()) => {
                 self.saved = self.project.clone();
                 self.set_status(format!("Saved {}", path.display()), false);
@@ -298,6 +363,18 @@ impl EzApp {
                 }
                 if ui.button("Save as…").clicked() {
                     self.save(true);
+                    ui.close();
+                }
+                if ui
+                    .button("Save as pack (.ez2pack)…")
+                    .on_hover_text("One file with the project and all its models, images and music, to share or move to another computer")
+                    .clicked()
+                {
+                    self.save_pack();
+                    ui.close();
+                }
+                if ui.button("Save as my preset…").clicked() {
+                    self.preset_name = Some(self.project.name.clone());
                     ui.close();
                 }
                 ui.separator();
@@ -446,6 +523,7 @@ impl EzApp {
     }
 
     fn scene_panel(&mut self, ui: &mut Ui) {
+        let templates = self.library.template_layers();
         ui.add_space(4.0);
         ui.horizontal(|ui| {
             ui.label("Name");
@@ -469,7 +547,7 @@ impl EzApp {
             ui.strong("Layers");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.menu_button(RichText::new("+ Add").color(ACCENT), |ui| {
-                    if let Some(l) = inspector::add_layer_menu(ui) {
+                    if let Some(l) = inspector::add_layer_menu(ui, &templates) {
                         self.project.layers.push(l);
                         self.selection = Selection::Layer(self.project.layers.len() - 1);
                         ui.close();
@@ -514,6 +592,14 @@ impl EzApp {
                                 action = Some((i, 2));
                                 ui.close();
                             }
+                            if ui
+                                .button("Save as template")
+                                .on_hover_text("Reuse this layer in other projects (+ Add → My templates)")
+                                .clicked()
+                            {
+                                action = Some((i, 4));
+                                ui.close();
+                            }
                             if ui.button("Delete").clicked() {
                                 action = Some((i, 3));
                                 ui.close();
@@ -537,6 +623,14 @@ impl EzApp {
                     action = Some((i, 3));
                 }
             });
+        }
+        if let Some((i, 4)) = action {
+            let layer = self.project.layers[i].clone();
+            match self.library.save_template(ui.ctx(), &layer) {
+                Ok(()) => self.set_status(format!("Saved '{}' as a template", layer.name), false),
+                Err(e) => self.set_status(format!("Could not save template: {e}"), true),
+            }
+            action = None;
         }
         if let Some((i, op)) = action {
             let layers = &mut self.project.layers;
@@ -857,43 +951,176 @@ impl EzApp {
             }
         }
         let mut open = true;
-        let mut chosen = None;
+        let mut chosen_builtin = None;
+        let mut chosen_user = None;
+        let mut delete_user = None;
+        let mut delete_template = None;
+        let card = |ui: &mut Ui, tex: Option<egui::TextureId>, name: &str, tip: &str| -> bool {
+            let mut clicked = false;
+            ui.vertical(|ui| {
+                let size = egui::vec2(213.0, 120.0);
+                let r = match tex {
+                    Some(t) => ui.add(
+                        egui::Image::new(egui::load::SizedTexture::new(t, size))
+                            .corner_radius(4.0)
+                            .sense(egui::Sense::click()),
+                    ),
+                    None => ui.add_sized(size, egui::Button::new("no preview")),
+                };
+                let r = if tip.is_empty() { r } else { r.on_hover_text(tip) };
+                clicked = r.clicked();
+                if r.hovered() {
+                    ui.painter().rect_stroke(r.rect, 4.0, egui::Stroke::new(2.0, ACCENT), egui::StrokeKind::Outside);
+                }
+                ui.strong(name);
+            });
+            clicked
+        };
         egui::Window::new("Start from a preset")
             .open(&mut open)
             .collapsible(false)
             .default_width(720.0)
             .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
             .show(ctx, |ui| {
-                ui.label("Pick a starting point, then tweak layers on the left and values on the right. Everything loops automatically.");
-                ui.add_space(6.0);
-                egui::Grid::new("presets").spacing([10.0, 10.0]).show(ui, |ui| {
-                    for (i, t) in self.thumbs.iter().enumerate() {
-                        ui.vertical(|ui| {
-                            let img = egui::Image::new(egui::load::SizedTexture::new(t.texture, egui::vec2(213.0, 120.0)))
-                                .corner_radius(4.0)
-                                .sense(egui::Sense::click());
-                            let r = ui.add(img).on_hover_text(t.description);
-                            if r.clicked() {
-                                chosen = Some(i);
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut self.gallery_tab, 0, "Built-in");
+                    ui.selectable_value(&mut self.gallery_tab, 1, format!("My presets ({})", self.library.presets.len()));
+                    ui.selectable_value(&mut self.gallery_tab, 2, format!("My layer templates ({})", self.library.templates.len()));
+                });
+                ui.separator();
+                match self.gallery_tab {
+                    0 => {
+                        ui.label("Pick a starting point, then tweak layers on the left and values on the right. Everything loops automatically.");
+                        ui.add_space(6.0);
+                        egui::Grid::new("presets").spacing([10.0, 10.0]).show(ui, |ui| {
+                            for (i, t) in self.thumbs.iter().enumerate() {
+                                if card(ui, Some(t.texture), t.name, t.description) {
+                                    chosen_builtin = Some(i);
+                                }
+                                if i % 3 == 2 {
+                                    ui.end_row();
+                                }
                             }
-                            if r.hovered() {
-                                ui.painter().rect_stroke(r.rect, 4.0, egui::Stroke::new(2.0, ACCENT), egui::StrokeKind::Outside);
-                            }
-                            ui.strong(t.name);
                         });
-                        if i % 3 == 2 {
-                            ui.end_row();
+                    }
+                    1 => {
+                        if self.library.presets.is_empty() {
+                            ui.label("No presets yet. Use File → Save as my preset… to add the current scene here.");
+                        }
+                        egui::ScrollArea::vertical().max_height(520.0).show(ui, |ui| {
+                            egui::Grid::new("user presets").spacing([10.0, 10.0]).show(ui, |ui| {
+                                for (i, p) in self.library.presets.iter().enumerate() {
+                                    ui.vertical(|ui| {
+                                        if card(ui, p.thumb.as_ref().map(|t| t.id()), &p.name, "") {
+                                            chosen_user = Some(i);
+                                        }
+                                        if ui.small_button("🗑 delete").clicked() {
+                                            delete_user = Some(i);
+                                        }
+                                    });
+                                    if i % 3 == 2 {
+                                        ui.end_row();
+                                    }
+                                }
+                            });
+                        });
+                    }
+                    _ => {
+                        ui.label("Layers you saved with right-click → Save as template. Add them with + Add → My templates.");
+                        for (i, t) in self.library.templates.iter().enumerate() {
+                            ui.horizontal(|ui| {
+                                ui.label(format!("{} {}", inspector::layer_icon(&t.layer), t.layer.name));
+                                ui.label(RichText::new(t.layer.type_label()).weak());
+                                if ui.small_button("🗑").on_hover_text("Delete template").clicked() {
+                                    delete_template = Some(i);
+                                }
+                            });
                         }
                     }
-                });
+                }
             });
-        if let Some(i) = chosen {
+        if let Some(i) = chosen_builtin {
             let p = presets::all().into_iter().nth(i).unwrap();
             self.load_project(p.project, None);
             self.presets_open = false;
         }
+        if let Some(i) = chosen_user {
+            let path = self.library.presets[i].path.clone();
+            match Project::load(&path) {
+                // Loaded as a new, unsaved project so the preset isn't overwritten.
+                Ok(p) => {
+                    self.load_project(p, None);
+                    self.presets_open = false;
+                }
+                Err(e) => self.set_status(format!("Could not load preset: {e}"), true),
+            }
+        }
+        if let Some(i) = delete_user {
+            self.library.delete_preset(ctx, i);
+        }
+        if let Some(i) = delete_template {
+            self.library.delete_template(ctx, i);
+        }
         if !open {
             self.presets_open = false;
+        }
+    }
+
+    fn recovery_window(&mut self, ctx: &egui::Context) {
+        if self.library.recovery.is_none() {
+            return;
+        }
+        let mut choice = None;
+        egui::Window::new("Recover unsaved work?")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+            .show(ctx, |ui| {
+                let name = self.library.recovery.as_ref().map(|p| p.name.clone()).unwrap_or_default();
+                ui.label(format!("EZ2DEMOSCENE did not close properly last time. An autosave of '{name}' was found."));
+                ui.horizontal(|ui| {
+                    if ui.button(RichText::new("Recover").strong()).clicked() {
+                        choice = Some(true);
+                    }
+                    if ui.button("Discard").clicked() {
+                        choice = Some(false);
+                    }
+                });
+            });
+        match choice {
+            Some(true) => {
+                let p = self.library.recovery.take().unwrap();
+                self.load_project(p, None);
+                self.set_status("Recovered your unsaved work — save it with Ctrl+S", false);
+            }
+            Some(false) => {
+                self.library.discard_recovery();
+                self.presets_open = true;
+            }
+            None => {}
+        }
+    }
+
+    fn preset_name_window(&mut self, ctx: &egui::Context) {
+        let Some(mut name) = self.preset_name.take() else { return };
+        let mut open = true;
+        let mut save = false;
+        egui::Window::new("Save as my preset")
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.label("It will appear in the gallery under My presets, with a thumbnail of the current frame.");
+                let r = ui.text_edit_singleline(&mut name);
+                r.request_focus();
+                if ui.button("Save").clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    save = true;
+                }
+            });
+        if save && !name.trim().is_empty() {
+            self.save_user_preset(ctx, name.trim().to_string());
+        } else if open {
+            self.preset_name = Some(name);
         }
     }
 
@@ -973,6 +1200,10 @@ impl EzApp {
 }
 
 impl eframe::App for EzApp {
+    fn on_exit(&mut self) {
+        self.library.clean_exit();
+    }
+
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         let dt = ctx.input(|i| i.stable_dt).min(0.1) as f64;
@@ -1049,7 +1280,7 @@ impl eframe::App for EzApp {
                         }
                     });
                     if let Some(n) = &mut self.nodes {
-                        n.show(ui);
+                        n.show(ui, &self.library.template_layers());
                     }
                 });
             egui::CentralPanel::default().show(ui, |ui| self.viewport_ui(ui));
@@ -1062,6 +1293,9 @@ impl eframe::App for EzApp {
         }
 
         self.presets_window(&ctx);
+        self.recovery_window(&ctx);
+        self.preset_name_window(&ctx);
+        self.autosave();
         self.randomize_window(&ctx);
         self.help_window(&ctx);
         self.export
