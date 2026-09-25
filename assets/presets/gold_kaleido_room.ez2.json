@@ -1,0 +1,801 @@
+{
+  "version": 1,
+  "name": "Gold Kaleido Room",
+  "timing": {
+    "bpm": 110.0,
+    "loop_beats": 16
+  },
+  "camera": {
+    "mode": "Pendulum",
+    "target": [
+      0.0,
+      3.0,
+      -4.0
+    ],
+    "distance": {
+      "base": 11.0,
+      "amp": 1.5,
+      "wave": "Sine",
+      "cycles": 1,
+      "offset": 0.0,
+      "audio": 0.0
+    },
+    "height": {
+      "base": 3.2,
+      "amp": 0.6,
+      "wave": "Sine",
+      "cycles": 2,
+      "offset": 0.0,
+      "audio": 0.0
+    },
+    "angle": 0.0,
+    "orbit_turns": 1,
+    "swing": 16.0,
+    "fov": 75.0,
+    "roll": 0.0,
+    "beat_shake": 0.0
+  },
+  "environment": {
+    "fog_color": [
+      0.04231141,
+      0.020288562,
+      0.002428216
+    ],
+    "fog_density": 0.012,
+    "sky_color": [
+      1.0,
+      0.8713672,
+      0.5271152
+    ],
+    "ground_color": [
+      0.19461781,
+      0.08021983,
+      0.005181517
+    ],
+    "light_dir": [
+      0.0,
+      1.0,
+      0.5
+    ],
+    "light_color": [
+      1.0,
+      0.80695236,
+      0.4341537
+    ],
+    "light_intensity": 1.8,
+    "ambient": 0.45
+  },
+  "layers": [
+    {
+      "name": "Warm glow",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Backdrop",
+        "kind": "Gradient",
+        "color_a": [
+          0.04231141,
+          0.014443844,
+          0.0
+        ],
+        "color_b": [
+          0.5271152,
+          0.25415218,
+          0.029556833
+        ],
+        "color_c": [
+          1.0,
+          0.8713672,
+          0.5271152
+        ],
+        "speed": 1,
+        "intensity": 1.0,
+        "detail": 1.0,
+        "texture": null
+      }
+    },
+    {
+      "name": "LED mirror floor",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mirror",
+        "size": 30.0,
+        "base_color": [
+          0.10224175,
+          0.04231141,
+          0.002428216
+        ],
+        "reflectivity": 0.85,
+        "blur": 0.1,
+        "tint": [
+          1.0,
+          0.68668544,
+          0.27889434
+        ],
+        "texture": "led_grid",
+        "texture_scale": 0.35,
+        "grid": {
+          "base": 0.6,
+          "amp": 0.4,
+          "wave": "Sine",
+          "cycles": 4,
+          "offset": 0.0,
+          "audio": 0.0
+        },
+        "grid_color": [
+          1.0,
+          0.6307572,
+          0.1620294
+        ],
+        "grid_scale": 0.5,
+        "grid_scroll": 2
+      }
+    },
+    {
+      "name": "Orb wall",
+      "enabled": true,
+      "transform": {
+        "position": [
+          6.5,
+          0.5,
+          -3.0
+        ],
+        "rotation": [
+          0.0,
+          90.0,
+          0.0
+        ],
+        "scale": 0.33,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "MirrorX"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Sphere",
+          "detail": 2
+        },
+        "material": {
+          "base_color": [
+            0.32314324,
+            0.06847818,
+            0.009134057
+          ],
+          "metallic": 1.0,
+          "roughness": 0.25,
+          "emissive_color": [
+            1.0,
+            0.27889434,
+            0.051269468
+          ],
+          "emissive": 0.4,
+          "emissive_mode": "Full",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": false,
+          "rim": 0.6,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Wall",
+          "cols": 14,
+          "rows": 5,
+          "spacing": 0.75,
+          "curve": 50.0
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.06,
+          "spin": 0,
+          "ripple": 0.12,
+          "ripple_cycles": 4,
+          "ripple_spread": 1.5,
+          "chase": 0.6
+        }
+      }
+    },
+    {
+      "name": "Speaker stacks",
+      "enabled": true,
+      "transform": {
+        "position": [
+          3.0,
+          1.5,
+          -7.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.1,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "MirrorX"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Cube"
+        },
+        "material": {
+          "base_color": [
+            0.04231141,
+            0.023153365,
+            0.005181517
+          ],
+          "metallic": 1.0,
+          "roughness": 0.25,
+          "emissive_color": [
+            1.0,
+            0.5271152,
+            0.08021983
+          ],
+          "emissive": {
+            "base": 0.5,
+            "amp": 1.0,
+            "wave": "Pulse",
+            "cycles": 16,
+            "offset": 0.0,
+            "audio": 0.0
+          },
+          "emissive_mode": "Edges",
+          "texture": "speaker",
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": false,
+          "rim": 0.6,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Grid",
+          "counts": [
+            2,
+            3,
+            1
+          ],
+          "spacing": [
+            1.3,
+            1.3,
+            1.0
+          ]
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.06,
+          "ripple_cycles": 16,
+          "ripple_spread": 0.0,
+          "chase": 0.0
+        }
+      }
+    },
+    {
+      "name": "Light panels",
+      "enabled": true,
+      "transform": {
+        "position": [
+          9.0,
+          3.5,
+          -2.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          0.2,
+          5.0,
+          4.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "MirrorX"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Panel",
+          "bevel": 0.05
+        },
+        "material": {
+          "base_color": [
+            1.0,
+            0.8713672,
+            0.5271152
+          ],
+          "metallic": 1.0,
+          "roughness": 0.25,
+          "emissive_color": [
+            1.0,
+            0.79129803,
+            0.3515327
+          ],
+          "emissive": {
+            "base": 3.0,
+            "amp": 0.8,
+            "wave": "Sine",
+            "cycles": 8,
+            "offset": 0.0,
+            "audio": 0.0
+          },
+          "emissive_mode": "Texture",
+          "texture": "led_grid",
+          "texture_scale": 3.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": false,
+          "rim": 0.6,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Single"
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    },
+    {
+      "name": "Back portal",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          3.0,
+          -9.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          3.0,
+          4.0,
+          0.2
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Panel",
+          "bevel": 0.05
+        },
+        "material": {
+          "base_color": [
+            0.65837485,
+            0.3515327,
+            0.023153365
+          ],
+          "metallic": 1.0,
+          "roughness": 0.25,
+          "emissive_color": [
+            1.0,
+            0.90466136,
+            0.6307572
+          ],
+          "emissive": 4.0,
+          "emissive_mode": "Stripes",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": false,
+          "rim": 0.6,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Single"
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    },
+    {
+      "name": "Ceiling frame",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          8.5,
+          -3.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          9.0,
+          0.3,
+          12.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Panel",
+          "bevel": 0.1
+        },
+        "material": {
+          "base_color": [
+            0.65837485,
+            0.3515327,
+            0.023153365
+          ],
+          "metallic": 1.0,
+          "roughness": 0.25,
+          "emissive_color": [
+            1.0,
+            0.5271152,
+            0.11697067
+          ],
+          "emissive": 0.25,
+          "emissive_mode": "Full",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": false,
+          "rim": 0.6,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Single"
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    },
+    {
+      "name": "Chandelier",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          6.2,
+          -3.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 0.18,
+        "stretch": [
+          1.0,
+          1.8,
+          1.0
+        ],
+        "spin": [
+          0,
+          1,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Octahedron"
+        },
+        "material": {
+          "base_color": [
+            1.0,
+            0.9386859,
+            0.74540436
+          ],
+          "metallic": 0.3,
+          "roughness": 0.05,
+          "emissive_color": [
+            1.0,
+            0.8713672,
+            0.5271152
+          ],
+          "emissive": 1.5,
+          "emissive_mode": "Full",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": true,
+          "rim": 0.6,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Spiral",
+          "count": 90,
+          "radius": 1.6,
+          "height": 3.0,
+          "turns": 6.0
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 2,
+          "ripple_spread": 3.0,
+          "chase": 1.0
+        }
+      }
+    },
+    {
+      "name": "Glitter",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          4.0,
+          -3.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Particles",
+        "emitter": "Snow",
+        "count": 1200,
+        "lifetimes": 1,
+        "size": 0.05,
+        "speed": 1.0,
+        "radius": 8.0,
+        "color_a": [
+          1.0,
+          0.8713672,
+          0.5271152
+        ],
+        "color_b": [
+          1.0,
+          0.3515327,
+          0.051269468
+        ],
+        "intensity": 2.5,
+        "trail": 0,
+        "trail_spacing": 0.01,
+        "sprite": "Star",
+        "seed": 9
+      }
+    }
+  ],
+  "post": {
+    "bloom": {
+      "enabled": true,
+      "intensity": 1.0,
+      "threshold": 1.0,
+      "radius": 0.8
+    },
+    "kaleido": {
+      "enabled": false,
+      "segments": 6,
+      "angle": 0.0,
+      "turns": 0,
+      "zoom": 1.0,
+      "center": [
+        0.5,
+        0.5
+      ]
+    },
+    "mirror": {
+      "enabled": true,
+      "mode": "LeftToRight"
+    },
+    "chroma": {
+      "enabled": false,
+      "amount": 0.004
+    },
+    "pixelate": {
+      "enabled": false,
+      "size": 4.0
+    },
+    "palette": {
+      "enabled": false,
+      "palette": "Ega",
+      "dither": 0.6
+    },
+    "crt": {
+      "enabled": false,
+      "scanlines": 0.5,
+      "curvature": 0.15,
+      "noise": 0.1
+    },
+    "grade": {
+      "exposure": 1.1,
+      "contrast": 1.05,
+      "saturation": 1.05,
+      "vignette": 0.3,
+      "grain": 0.03,
+      "beat_flash": 0.0
+    }
+  },
+  "textures": [],
+  "audio": null,
+  "graph": null,
+  "use_graph": false
+}

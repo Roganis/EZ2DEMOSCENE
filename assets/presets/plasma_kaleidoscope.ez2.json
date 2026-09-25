@@ -1,0 +1,352 @@
+{
+  "version": 1,
+  "name": "Plasma Kaleidoscope",
+  "timing": {
+    "bpm": 125.0,
+    "loop_beats": 16
+  },
+  "camera": {
+    "mode": "Orbit",
+    "target": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "distance": 8.0,
+    "height": {
+      "base": 2.0,
+      "amp": 2.0,
+      "wave": "Sine",
+      "cycles": 1,
+      "offset": 0.0,
+      "audio": 0.0
+    },
+    "angle": 0.0,
+    "orbit_turns": 1,
+    "swing": 30.0,
+    "fov": 55.0,
+    "roll": 0.0,
+    "beat_shake": 0.0
+  },
+  "environment": {
+    "fog_color": [
+      0.005181517,
+      0.0,
+      0.014443844
+    ],
+    "fog_density": 0.01,
+    "sky_color": [
+      1.0,
+      0.21586053,
+      1.0
+    ],
+    "ground_color": [
+      0.014443844,
+      0.0,
+      0.051269468
+    ],
+    "light_dir": [
+      0.4,
+      1.0,
+      0.3
+    ],
+    "light_color": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "light_intensity": 1.5,
+    "ambient": 0.3
+  },
+  "layers": [
+    {
+      "name": "Plasma",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Backdrop",
+        "kind": "Plasma",
+        "color_a": [
+          0.005181517,
+          0.0,
+          0.04231141
+        ],
+        "color_b": [
+          1.0,
+          0.014443844,
+          0.27889434
+        ],
+        "color_c": [
+          0.014443844,
+          0.74540436,
+          1.0
+        ],
+        "speed": 2,
+        "intensity": 0.9,
+        "detail": 1.0,
+        "texture": null
+      }
+    },
+    {
+      "name": "Tori",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          1,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Torus",
+          "thickness": 0.25,
+          "segments": 32
+        },
+        "material": {
+          "base_color": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "metallic": 0.6,
+          "roughness": 0.2,
+          "emissive_color": [
+            1.0,
+            0.11697067,
+            1.0
+          ],
+          "emissive": 0.6,
+          "emissive_mode": "Stripes",
+          "texture": "plasma",
+          "texture_scale": 1.0,
+          "scroll": [
+            1,
+            1
+          ],
+          "pixelated": false,
+          "flat_shading": false,
+          "rim": 0.3,
+          "hue_shift": {
+            "base": 0.0,
+            "amp": 0.5,
+            "wave": "Saw",
+            "cycles": 1,
+            "offset": 0.0,
+            "audio": 0.0
+          }
+        },
+        "instancer": {
+          "type": "Radial",
+          "count": 6,
+          "radius": 2.5
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.4,
+          "spin": 1,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    },
+    {
+      "name": "Core",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          1,
+          2,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Icosahedron"
+        },
+        "material": {
+          "base_color": [
+            0.014443844,
+            0.014443844,
+            0.014443844
+          ],
+          "metallic": 1.0,
+          "roughness": 0.1,
+          "emissive_color": [
+            0.051269468,
+            1.0,
+            1.0
+          ],
+          "emissive": {
+            "base": 2.0,
+            "amp": 3.0,
+            "wave": "Pulse",
+            "cycles": 16,
+            "offset": 0.0,
+            "audio": 0.0
+          },
+          "emissive_mode": "Edges",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": true,
+          "rim": 0.3,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Single"
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    }
+  ],
+  "post": {
+    "bloom": {
+      "enabled": true,
+      "intensity": 0.8,
+      "threshold": 0.8,
+      "radius": 0.7
+    },
+    "kaleido": {
+      "enabled": true,
+      "segments": 8,
+      "angle": 0.0,
+      "turns": 1,
+      "zoom": {
+        "base": 1.0,
+        "amp": 0.2,
+        "wave": "Sine",
+        "cycles": 2,
+        "offset": 0.0,
+        "audio": 0.0
+      },
+      "center": [
+        0.5,
+        0.5
+      ]
+    },
+    "mirror": {
+      "enabled": false,
+      "mode": "LeftToRight"
+    },
+    "chroma": {
+      "enabled": false,
+      "amount": 0.004
+    },
+    "pixelate": {
+      "enabled": false,
+      "size": 4.0
+    },
+    "palette": {
+      "enabled": false,
+      "palette": "Ega",
+      "dither": 0.6
+    },
+    "crt": {
+      "enabled": false,
+      "scanlines": 0.5,
+      "curvature": 0.15,
+      "noise": 0.1
+    },
+    "grade": {
+      "exposure": 1.0,
+      "contrast": 1.05,
+      "saturation": 1.1,
+      "vignette": 0.35,
+      "grain": 0.03,
+      "beat_flash": 0.0
+    }
+  },
+  "textures": [],
+  "audio": null,
+  "graph": null,
+  "use_graph": false
+}
