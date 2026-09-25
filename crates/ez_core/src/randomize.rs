@@ -51,9 +51,8 @@ pub fn randomize(project: &mut Project, seed: u64, opt: RandomizeOptions) {
             LayerKind::Mesh(m) => {
                 if opt.shapes {
                     if rng.chance(0.3 * k) {
-                        m.source = MeshSource::Primitive(
-                            rng.pick(&Primitive::all_defaults()[..10]).clone(),
-                        );
+                        m.source =
+                            MeshSource::Primitive(rng.pick(&Primitive::random_pool()).clone());
                     }
                     m.variation.seed = rng.next_u32() % 1000;
                     m.variation.scale =
@@ -99,8 +98,46 @@ pub fn randomize(project: &mut Project, seed: u64, opt: RandomizeOptions) {
                 }
             }
             LayerKind::Mirror(_) => {}
+            LayerKind::Terrain(t) => {
+                if opt.shapes {
+                    t.seed = rng.next_u32() % 1000;
+                    if rng.chance(0.3 * k) {
+                        t.hills = rng.range_u32(2, 8);
+                    }
+                }
+                if opt.motion && rng.chance(0.3 * k) {
+                    t.scroll = rng.range_u32(1, 3) as i32;
+                }
+            }
+            LayerKind::Lasers(z) => {
+                if opt.shapes && rng.chance(0.3 * k) {
+                    z.pattern = *rng.pick(&LaserPattern::ALL);
+                }
+                if opt.motion {
+                    z.sweep_cycles = rng.range_u32(1, 4) as i32;
+                }
+                z.seed = rng.next_u32() % 1000;
+            }
+            LayerKind::Ribbon(r) => {
+                if opt.shapes && rng.chance(0.4 * k) {
+                    r.curve = *rng.pick(&RibbonCurve::ALL);
+                    r.freq = [
+                        rng.range_u32(1, 5),
+                        rng.range_u32(1, 5),
+                        rng.range_u32(1, 6),
+                    ];
+                }
+                if opt.motion && rng.chance(0.4 * k) {
+                    r.pulse_speed = *rng.pick(&[-2, -1, 1, 2]);
+                }
+            }
         }
-        if opt.shapes && !matches!(l.kind, LayerKind::Backdrop(_) | LayerKind::Mirror(_)) {
+        if opt.shapes
+            && !matches!(
+                l.kind,
+                LayerKind::Backdrop(_) | LayerKind::Mirror(_) | LayerKind::Terrain(_)
+            )
+        {
             l.symmetry = match l.symmetry {
                 Symmetry::Radial { .. } => Symmetry::Radial {
                     count: rng.range_u32(3, 12),

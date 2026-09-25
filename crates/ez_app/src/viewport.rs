@@ -57,6 +57,11 @@ impl Viewport {
         self.texture_id.expect("texture id")
     }
 
+    /// The GPU adapter the app runs on (for the Graphics window).
+    pub fn adapter_info(&self) -> wgpu::AdapterInfo {
+        self.render_state.adapter.get_info()
+    }
+
     /// The texture of the last rendered frame, if any.
     pub fn last_texture(&self) -> Option<egui::TextureId> {
         self.texture_id

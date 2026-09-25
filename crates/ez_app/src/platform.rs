@@ -225,6 +225,87 @@ pub fn query_param(name: &str) -> Option<String> {
     }
 }
 
+/// Graphics backend choice for the web build, kept in `localStorage`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum GpuBackendPref {
+    /// WebGPU where the browser has it, otherwise WebGL2.
+    Auto,
+    WebGl,
+    WebGpu,
+}
+
+#[allow(dead_code)]
+const BACKEND_KEY: &str = "ez2_gpu_backend";
+
+impl GpuBackendPref {
+    pub fn label(self) -> &'static str {
+        match self {
+            GpuBackendPref::Auto => "Automatic",
+            GpuBackendPref::WebGl => "WebGL2",
+            GpuBackendPref::WebGpu => "WebGPU",
+        }
+    }
+
+    /// What `Auto` means here: WebGL2 on Android, where WebGPU drivers
+    /// (e.g. Mali-G615) corrupt the picture; WebGPU with a WebGL2
+    /// fallback everywhere else.
+    pub fn auto_uses_webgl() -> bool {
+        is_android()
+    }
+
+    /// The saved choice (always `Auto` outside the browser).
+    pub fn load() -> GpuBackendPref {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let v = web_sys::window()
+                .and_then(|w| w.local_storage().ok().flatten())
+                .and_then(|s| s.get_item(BACKEND_KEY).ok().flatten());
+            match v.as_deref() {
+                Some("webgl") => GpuBackendPref::WebGl,
+                Some("webgpu") => GpuBackendPref::WebGpu,
+                _ => GpuBackendPref::Auto,
+            }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        GpuBackendPref::Auto
+    }
+
+    /// Remember the choice; it takes effect the next time the app starts.
+    pub fn save(self) {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(s) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+            let v = match self {
+                GpuBackendPref::Auto => "auto",
+                GpuBackendPref::WebGl => "webgl",
+                GpuBackendPref::WebGpu => "webgpu",
+            };
+            let _ = s.set_item(BACKEND_KEY, v);
+        }
+    }
+}
+
+/// True when running in Android's browser or the Android app.
+pub fn is_android() -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_sys::window()
+            .and_then(|w| w.navigator().user_agent().ok())
+            .is_some_and(|ua| ua.contains("Android"))
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        false
+    }
+}
+
+/// Restart the web app (reload the page). Does nothing on desktop.
+pub fn reload() {
+    #[cfg(target_arch = "wasm32")]
+    if let Some(w) = web_sys::window() {
+        let _ = w.location().reload();
+    }
+}
+
 /// Window title (desktop) or browser tab title (web).
 pub fn set_title(ctx: &egui::Context, title: &str) {
     #[cfg(not(target_arch = "wasm32"))]

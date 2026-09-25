@@ -260,6 +260,75 @@ impl SnarlViewer<NodeKind> for Viewer<'_> {
                     }
                     ui.add(egui::DragValue::new(rotate_y).speed(0.5).suffix("° each"));
                 }
+                NodeKind::Jitter {
+                    position,
+                    rotation,
+                    seed,
+                } => {
+                    ui.add(egui::Slider::new(position, 0.0..=10.0).text("move"));
+                    ui.add(egui::Slider::new(rotation, 0.0..=180.0).text("turn °"));
+                    ui.add(egui::DragValue::new(seed).range(0..=9999).prefix("seed "));
+                }
+                NodeKind::Mirror { axis, at } => {
+                    ui.horizontal(|ui| {
+                        for (i, a) in ["X", "Y", "Z"].iter().enumerate() {
+                            ui.selectable_value(axis, i as u8, *a);
+                        }
+                    });
+                    ui.add(egui::DragValue::new(at).speed(0.05).prefix("plane at "));
+                }
+                NodeKind::Strobe { blink } => {
+                    ui.push_id(("strobe", node.0), |ui| {
+                        crate::inspector::blink_ui(ui, blink)
+                    });
+                }
+                NodeKind::Material {
+                    color,
+                    glow,
+                    texture,
+                    wireframe,
+                    glitch,
+                    glitch_style,
+                } => {
+                    ui.horizontal(|ui| {
+                        let mut on = color.is_some();
+                        if ui.checkbox(&mut on, "colour").changed() {
+                            *color = on.then_some([0.0, 0.9, 1.0]);
+                        }
+                        if let Some(c) = color {
+                            ui.color_edit_button_rgb(c);
+                        }
+                    });
+                    ui.add(egui::Slider::new(glow, 0.0..=4.0).text("glow ×"));
+                    egui::ComboBox::from_id_salt(("mat_tex", node.0))
+                        .selected_text(texture.as_deref().unwrap_or("texture: keep"))
+                        .height(300.0)
+                        .show_ui(ui, |ui| {
+                            if ui.selectable_label(texture.is_none(), "keep").clicked() {
+                                *texture = None;
+                            }
+                            for (name, desc) in ez_render::texgen::BUILTIN {
+                                if ui
+                                    .selectable_label(texture.as_deref() == Some(*name), *name)
+                                    .on_hover_text(*desc)
+                                    .clicked()
+                                {
+                                    *texture = Some(name.to_string());
+                                }
+                            }
+                        });
+                    ui.checkbox(wireframe, "neon wireframe");
+                    ui.add(egui::Slider::new(glitch, 0.0..=2.0).text("glitch"));
+                    if *glitch > 0.0 {
+                        egui::ComboBox::from_id_salt(("mat_glitch", node.0))
+                            .selected_text(glitch_style.label())
+                            .show_ui(ui, |ui| {
+                                for g in GlitchStyle::ALL {
+                                    ui.selectable_value(glitch_style, g, g.label());
+                                }
+                            });
+                    }
+                }
                 NodeKind::Merge | NodeKind::Output => {}
             }
         });

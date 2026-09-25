@@ -111,7 +111,7 @@
   <img src="img/cover.jpg" alt="">
   <div class="fade"></div>
   <div class="title">
-    <div class="kicker">USER MANUAL · VERSION 0.3</div>
+    <div class="kicker">USER MANUAL · VERSION 0.4</div>
     <h1>EZ2DEMOSCENE</h1>
     <p>Build seamless, stylised 3D loops the demoscene way: neon, mirrors, particles and retro pixels. No code needed.</p>
   </div>
@@ -158,6 +158,8 @@ pickers and menus. When you like it, you export an MP4, WebM, GIF or a folder of
   <div class="card"><img src="img/p_retro_tunnel.jpg"><div class="t">Retro Tunnel</div><div class="d">XOR tunnel, EGA palette, CRT.</div></div>
   <div class="card"><img src="img/p_plasma_kaleidoscope.jpg"><div class="t">Plasma Kaleidoscope</div><div class="d">Oldschool plasma, spinning tori.</div></div>
   <div class="card"><img src="img/p_synth_sunset.jpg"><div class="t">Synth Sunset</div><div class="d">Striped sun, neon grid, pyramids.</div></div>
+  <div class="card"><img src="img/p_vector_valley.jpg"><div class="t">Vector Valley</div><div class="d">Wireframe landscape, laser fans, neon ribbon.</div></div>
+  <div class="card"><img src="img/p_glitch_shrine.jpg"><div class="t">Glitch Shrine</div><div class="d">Glitching sponge, flashing gems, pulsing rose.</div></div>
 </div>
 
 <h2>The one big idea: everything loops</h2>
@@ -291,7 +293,7 @@ selected layer, and <b>right-clicking</b> a layer shows the same options.</p>
 
 <h2>5.3 Shapes</h2>
 <figure><img src="img/mesh.jpg"><figcaption>A shape layer (Tech panels): Shape, Material, Copies, Variation, Placement &amp; motion, Symmetry.</figcaption></figure>
-<p>In <span class="ui">Shape</span> choose one of 14 built-in shapes, or a 3D file:</p>
+<p>In <span class="ui">Shape</span> choose one of 25 built-in shapes, or a 3D file:</p>
 <table>
   <tr><th style="width:28%">Shape</th><th>Good for</th></tr>
   <tr><td>Cube, Tetrahedron, Octahedron, Dodecahedron, Icosahedron</td><td>Classic demo solids. Try them with <span class="ui">Faceted</span> on and
@@ -302,7 +304,12 @@ selected layer, and <b>right-clicking</b> a layer shows the same options.</p>
   <tr><td>Shard, Crystal cluster</td><td>Sharp spikes and crystal mountains. <span class="ui">Seed</span> gives a different random shape.</td></tr>
   <tr><td>Panel (Bevel)</td><td>Sci-fi plates, light panels, screens.</td></tr>
   <tr><td>Ring band (Arc, Width, Height)</td><td>Neon rings and arcs. Set Arc below 360° for partial arcs and chevrons.</td></tr>
-  <tr><td>Plane, Pyramid</td><td>Simple building blocks.</td></tr>
+  <tr><td>Plane, Pyramid, Cone</td><td>Simple building blocks.</td></tr>
+  <tr><td>Capsule (Length), Rounded cube (Roundness)</td><td>Soft, toy-like objects and pills.</td></tr>
+  <tr><td>Torus knot (Loops, Twists), Spring (Turns), Möbius strip</td><td>Twisty tubes and bands. Knots with more loops and twists get more intricate.</td></tr>
+  <tr><td>Star (Points, Inner radius), Gear (Teeth), Heart</td><td>Flat extruded logos and badges (<span class="ui">Depth</span> sets the thickness).</td></tr>
+  <tr><td>Gem (Facets)</td><td>A brilliant-cut diamond. Lovely with <span class="ui">Glow where: Edges</span>.</td></tr>
+  <tr><td>Menger sponge (Level 0–3)</td><td>The classic fractal cube. Level 3 has 8,000 cubes, so use it sparingly.</td></tr>
   <tr><td>3D model file</td><td>Your own <code>.gltf</code>, <code>.glb</code> or <code>.obj</code>. It is centred and scaled to fit automatically, and
   uses the layer's material.</td></tr>
 </table>
@@ -368,7 +375,35 @@ The look is controlled by <span class="ui">Sprite</span> (soft glow, pixel squar
 <div class="tip"><b>Performance</b>Particles are cheap. Tens of thousands are fine on a normal GPU. Trails multiply the count, so
 <i>count × (trail + 1)</i> is what gets drawn.</div>
 
-<div class="keep"><h2>5.6 Placing objects in the viewport</h2>
+<h2>5.6 Terrain</h2>
+<p>An endless landscape that rushes towards the camera, in the retro vector style. Add it with <span class="ui">+ Add → 🗻 Terrain</span>.</p>
+<table>
+  <tr><th style="width:24%">Setting</th><th>Meaning</th></tr>
+  <tr><td>Style</td><td><b>Wireframe</b> (glowing grid lines only; things behind show through), <b>Solid</b> (lit ground) or <b>Solid + lines</b>.</td></tr>
+  <tr><td>Height, Hills, Roughness</td><td>How tall the mountains are, how many hills fit across the terrain, and how bumpy they are.</td></tr>
+  <tr><td>Valley</td><td>Flattens a road down the middle (0 = none), the classic synthwave look.</td></tr>
+  <tr><td>Scroll / loop</td><td>How many times the landscape scrolls past per loop. It repeats exactly, so the loop stays seamless. 0 stands still.</td></tr>
+  <tr><td>Line colour, Line glow, Ground colour</td><td>The look. Animate Line glow with a Pulse for beat flashes.</td></tr>
+  <tr><td>Size, Grid cells</td><td>Its extent and resolution. More cells is smoother but slower.</td></tr>
+</table>
+<h2>5.7 Laser beams</h2>
+<p>Club-style beams shooting from the layer's position along its up axis. Turn the layer with <span class="ui">Rotation</span> to aim them,
+and use <span class="ui">Mirror X</span> symmetry for a pair of laser rigs.</p>
+<table>
+  <tr><th style="width:24%">Setting</th><th>Meaning</th></tr>
+  <tr><td>Pattern</td><td><b>Fan</b> (a flat fan that sweeps side to side), <b>Rotating cone</b> or <b>Scatter</b> (random directions that wobble).</td></tr>
+  <tr><td>Beams, Spread, Length, Width</td><td>How many beams, how wide the fan or cone opens (degrees), and their size.</td></tr>
+  <tr><td>Colour (first/last)</td><td>The beams blend from the first colour to the last.</td></tr>
+  <tr><td>Sweep, Sweeps / loop</td><td>How far the beams swing, and how often per loop (for the cone, also how fast it turns).</td></tr>
+  <tr><td>Beat strobe</td><td>Makes the beams flash on every beat and fade until the next one.</td></tr>
+</table>
+<h2>5.8 Neon ribbon</h2>
+<p>A glowing tube along a closed curve, with pulses of light running along it. Choose a <span class="ui">Curve</span>
+(<b>Lissajous</b>, <b>Knot</b>, <b>Figure eight</b>, <b>Wavy ring</b>, <b>Rose</b>) and its wave counts, then set <span class="ui">Pulses</span>,
+<span class="ui">Laps / loop</span> (negative runs backwards), <span class="ui">Pulse length</span> and <span class="ui">Pulse glow</span>.
+Ribbons reflect in mirror floors and can take symmetry.</p>
+
+<div class="keep"><h2>5.9 Placing objects in the viewport</h2>
 <figure><img src="img/gizmo.jpg"><figcaption>The Dodecahedron is selected: the Move handles appear on it, and the ground grid is on.</figcaption></figure></div>
 <ul>
   <li><b>Select</b> a shape or particle layer by clicking it in the viewport, or in the layer list.</li>
@@ -407,6 +442,19 @@ step for <kbd>Ctrl</kbd>+<kbd>Z</kbd>.</div>
 </table>
 <p><span class="ui">Hue shift</span> rotates all the colours of the layer. Animate it with a Saw wave for rainbow cycling.</p>
 
+<h2>Glitch</h2>
+<p>The <span class="ui">Glitch</span> section of a shape layer corrupts its geometry, like a broken signal. Set an <span class="ui">Amount</span>
+and a <span class="ui">Style</span>:</p>
+<table>
+  <tr><th style="width:24%">Style</th><th>Result</th></tr>
+  <tr><td>Jitter</td><td>The corners shake to random positions; the shape crumples without tearing.</td></tr>
+  <tr><td>Slices (VHS)</td><td>Horizontal bands of the object jump sideways.</td></tr>
+  <tr><td>Shatter</td><td>The faces fly apart along their directions.</td></tr>
+</table>
+<p><span class="ui">Changes / loop</span> is how many new random patterns appear per loop, and <span class="ui">Chance</span> is how many of
+those moments actually glitch (1 = all the time, 0.3 = short bursts). Like everything else, the glitch pattern repeats exactly every loop.
+Animate <span class="ui">Amount</span> with a Pulse for hits on the beat.</p>
+
 <h2>Textures</h2>
 <p>Pick a <span class="ui">Texture</span> from the built-in retro pack or from your own images. <span class="ui">Tiling</span> repeats it,
 <span class="ui">Scroll / loop</span> slides it by whole tiles per loop, and <span class="ui">Chunky pixels</span> keeps the pixels sharp
@@ -432,6 +480,19 @@ instead of smoothing them.</p>
   <div><img src="../../assets/textures/stars.png">stars</div>
   <div><img src="../../assets/textures/lava.png">lava</div>
   <div><img src="../../assets/textures/dither.png">dither</div>
+  <div><img src="../../assets/textures/tron_grid.png">tron_grid</div>
+  <div><img src="../../assets/textures/rainbow.png">rainbow</div>
+  <div><img src="../../assets/textures/polka.png">polka</div>
+  <div><img src="../../assets/textures/truchet.png">truchet</div>
+  <div><img src="../../assets/textures/maze.png">maze</div>
+  <div><img src="../../assets/textures/caustics.png">caustics</div>
+  <div><img src="../../assets/textures/carbon.png">carbon</div>
+  <div><img src="../../assets/textures/wood.png">wood</div>
+  <div><img src="../../assets/textures/crt_mask.png">crt_mask</div>
+  <div><img src="../../assets/textures/rings.png">rings</div>
+  <div><img src="../../assets/textures/mosaic.png">mosaic</div>
+  <div><img src="../../assets/textures/clouds.png">clouds</div>
+  <div><img src="../../assets/textures/matrix.png">matrix</div>
 </div>
 <h2>Your own images &amp; "retro-ize"</h2>
 <p>Import images (PNG, JPG, BMP, GIF, TGA) in any of these ways: from a texture menu (<span class="ui">Import image…</span>), from
@@ -464,6 +525,16 @@ Click it to open the animation panel:</p>
   <li><b>Floating object:</b> Bob → Sine, amount 0.5, ×/loop 2.</li>
   <li><b>Strobe:</b> Glow → Square, ×/loop 32.</li>
 </ul>
+<h2>Blink / strobe</h2>
+<p>Every layer has a <span class="ui">Blink / strobe</span> section that makes the <b>whole layer</b> appear and disappear, or flash:</p>
+<table>
+  <tr><th style="width:22%">Mode</th><th>What it does</th></tr>
+  <tr><td>Blink</td><td>On and off in a regular rhythm. <span class="ui">On time</span> is the fraction of each blink it stays visible.</td></tr>
+  <tr><td>Random blink</td><td>On and off at random moments. <span class="ui">Chance on</span> sets how often it is visible.</td></tr>
+  <tr><td>Flash</td><td>Stays visible but its glow flashes and fades. <span class="ui">Dim level</span> is the brightness between flashes.</td></tr>
+</table>
+<p><span class="ui">Times / loop</span> sets the rhythm (16 = every beat of a 16-beat loop) and <span class="ui">Offset</span> shifts it,
+so two layers can blink in turn.</p>
 
 <!-- ===================================================== 8 -->
 <h1 id="camera"><span class="num">8</span>Camera, light &amp; fog</h1>
@@ -590,6 +661,10 @@ through <b>modifiers</b> into an <b>Output</b>. Everything connected to Output i
   <tr><td>Scale</td><td>Multiplies the size.</td></tr>
   <tr><td>Tint</td><td>Rotates hues and scales the glow.</td></tr>
   <tr><td>Array</td><td>Repeats the incoming layers N times, stepping the position and rotation for each copy.</td></tr>
+  <tr><td>Jitter</td><td>Moves and turns every incoming layer by a random amount (<span class="ui">seed</span> reshuffles).</td></tr>
+  <tr><td>Mirror</td><td>Adds a mirrored copy of every incoming layer, across the X, Y or Z plane at a chosen position.</td></tr>
+  <tr><td>Strobe</td><td>Sets the Blink / strobe of every incoming layer (chapter 7).</td></tr>
+  <tr><td>Colour / material</td><td>Sets the glow colour, multiplies the glow, and for shapes can set a texture, a neon wireframe look and a glitch.</td></tr>
   <tr><td>Merge</td><td>Combines up to 4 streams.</td></tr>
   <tr><td>Output</td><td>Up to 8 inputs. Everything here is drawn.</td></tr>
 </table>
@@ -723,9 +798,14 @@ compact timeline sits above a <b>tab bar</b> with three tabs:</p>
 </table>
 <p>The preview pauses while exporting so the device can concentrate on the frames. Phones are slower than desktop PCs, so start with 720p or
 less, and keep the tab open until the download starts.</p>
-<div class="note"><b>WebGPU and WebGL</b>Recent Chrome and Edge render with <b>WebGPU</b>, the fastest path. Other browsers fall back to
-<b>WebGL2</b>, which looks the same but may be slower with heavy backdrops such as the fractal and the tunnel. If a scene stutters, lower
-<span class="ui">Preview</span> to 50% in the View tab; exports are unaffected.</div>
+<div class="note"><b>WebGPU and WebGL</b>On computers, recent Chrome and Edge render with <b>WebGPU</b>, the fastest path. Other browsers,
+and all Android phones and tablets, use <b>WebGL2</b>, which looks the same (some phone GPUs corrupt the picture with WebGPU). If a scene
+stutters, lower <span class="ui">Preview</span> to 50% in the View tab; exports are unaffected.</div>
+<h2>Graphics settings</h2>
+<p><span class="ui">☰ → 🖥 Graphics</span> (the <span class="ui">🖥</span> button on a computer) shows which backend, GPU and driver the app is
+using; <span class="ui">📋 Copy</span> copies the details for a bug report. On the web and in the Android app you can also force
+<b>WebGL2</b> or <b>WebGPU</b> there. The change applies after <span class="ui">⟳ Restart now</span>. If the chosen backend can't start,
+the app goes back to <b>Automatic</b> by itself.</p>
 
 <!-- ===================================================== 16 -->
 <h1 id="recipes"><span class="num">16</span>Recipes</h1>
@@ -804,6 +884,8 @@ lower the preview quality, which only affects the preview and never your exports
   <span class="ui">Edit → Reload models &amp; images</span> after fixing the file.</td></tr>
   <tr><td>No sound</td><td>No audio output device was found. The music is still used for sync, ♪ modulation and export.</td></tr>
   <tr><td>Video export fails</td><td>Check ffmpeg (chapter 13), or export a PNG sequence instead.</td></tr>
+  <tr><td>The picture corrupts or flickers on a phone or in a browser</td><td>Open <span class="ui">🖥 Graphics</span> and switch to the other
+  backend (WebGL2 or WebGPU), then restart (chapter 15).</td></tr>
   <tr><td>The app doesn't start</td><td>Update your graphics drivers. On Linux, install Vulkan drivers (e.g. <code>mesa-vulkan-drivers</code>).</td></tr>
 </table>
 <h2>Project files</h2>

@@ -1,73 +1,59 @@
 {
   "version": 2,
-  "name": "Orbiting Solid",
+  "name": "Glitch Shrine",
   "timing": {
-    "bpm": 120.0,
-    "loop_beats": 8
+    "bpm": 128.0,
+    "loop_beats": 16
   },
   "camera": {
-    "mode": "Pendulum",
+    "mode": "Orbit",
     "target": [
       0.0,
-      0.0,
+      2.0,
       0.0
     ],
-    "distance": {
-      "base": 7.0,
-      "amp": 0.8,
-      "wave": "Sine",
-      "cycles": 1,
-      "offset": 0.0,
-      "audio": 0.0
-    },
-    "height": {
-      "base": 1.5,
-      "amp": 1.0,
-      "wave": "Sine",
-      "cycles": 1,
-      "offset": 0.0,
-      "audio": 0.0
-    },
+    "distance": 11.0,
+    "height": 3.5,
     "angle": 0.0,
     "orbit_turns": 1,
-    "swing": 25.0,
-    "fov": 50.0,
+    "swing": 30.0,
+    "fov": 55.0,
     "roll": 0.0,
     "beat_shake": 0.0
   },
   "environment": {
     "fog_color": [
-      0.0,
-      0.000607054,
-      0.002428216
+      0.001821162,
+      0.000910581,
+      0.003676507
     ],
-    "fog_density": 0.01,
+    "fog_density": 0.03,
     "sky_color": [
-      0.21586053,
-      0.5271152,
+      0.051269468,
+      0.3515327,
       1.0
     ],
     "ground_color": [
+      0.005181517,
       0.0,
-      0.0,
-      0.0
+      0.005181517
     ],
     "light_dir": [
-      -0.5,
-      0.8,
-      0.6
+      0.3,
+      1.0,
+      0.4
     ],
     "light_color": [
-      0.74540436,
-      0.8713672,
+      1.0,
+      1.0,
       1.0
     ],
-    "light_intensity": 2.2,
-    "ambient": 0.15
+    "light_intensity": 1.3,
+    "ambient": 0.25
   },
   "layers": [
     {
-      "name": "Deep space",
+      "name": "Nebula",
       "enabled": true,
       "transform": {
         "position": [
@@ -98,115 +84,30 @@
       },
       "kind": {
         "type": "Backdrop",
-        "kind": "Starfield",
+        "kind": "Nebula",
         "color_a": [
+          0.000607054,
           0.0,
-          0.0,
-          0.000910581
+          0.002428216
         ],
         "color_b": [
-          0.001821162,
-          0.0074990317,
-          0.029556833
+          0.029556833,
+          0.005181517,
+          0.3515327
         ],
         "color_c": [
-          0.21586053,
-          0.4341537,
+          0.0,
+          0.5271152,
           1.0
         ],
         "speed": 1,
-        "intensity": 0.6,
+        "intensity": 0.7,
         "detail": 1.0,
         "texture": null
       }
     },
     {
-      "name": "Dodecahedron",
-      "enabled": true,
-      "transform": {
-        "position": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "scale": 1.6,
-        "stretch": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "spin": [
-          1,
-          1,
-          0
-        ],
-        "bob": 0.0
-      },
-      "symmetry": {
-        "type": "None"
-      },
-      "kind": {
-        "type": "Mesh",
-        "source": {
-          "type": "Primitive",
-          "shape": "Dodecahedron"
-        },
-        "material": {
-          "base_color": [
-            0.010329823,
-            0.1620294,
-            0.68668544
-          ],
-          "metallic": 0.5,
-          "roughness": 0.18,
-          "emissive_color": [
-            0.051269468,
-            0.3515327,
-            1.0
-          ],
-          "emissive": {
-            "base": 0.15,
-            "amp": 0.5,
-            "wave": "Pulse",
-            "cycles": 8,
-            "offset": 0.0,
-            "audio": 0.0
-          },
-          "emissive_mode": "Full",
-          "texture": "noise",
-          "texture_scale": 1.0,
-          "scroll": [
-            0,
-            0
-          ],
-          "pixelated": false,
-          "flat_shading": true,
-          "rim": 0.9,
-          "hue_shift": 0.0
-        },
-        "instancer": {
-          "type": "Single"
-        },
-        "variation": {
-          "seed": 1,
-          "rotation": 0.0,
-          "scale": 0.0,
-          "hue": 0.0,
-          "spin": 0,
-          "ripple": 0.0,
-          "ripple_cycles": 1,
-          "ripple_spread": 1.0,
-          "chase": 0.0
-        }
-      }
-    },
-    {
-      "name": "Debris swarm",
+      "name": "Floor",
       "enabled": true,
       "transform": {
         "position": [
@@ -221,9 +122,9 @@
         ],
         "scale": 1.0,
         "stretch": [
-          0.12,
-          0.12,
-          0.5
+          1.0,
+          1.0,
+          1.0
         ],
         "spin": [
           0,
@@ -236,26 +137,84 @@
         "type": "None"
       },
       "kind": {
+        "type": "Mirror",
+        "size": 60.0,
+        "base_color": [
+          0.001214108,
+          0.001214108,
+          0.002428216
+        ],
+        "reflectivity": 0.6,
+        "blur": 0.2,
+        "tint": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "texture": null,
+        "texture_scale": 1.0,
+        "grid": 0.6,
+        "grid_color": [
+          0.0,
+          0.5271152,
+          1.0
+        ],
+        "grid_scale": 1.0,
+        "grid_scroll": 0
+      }
+    },
+    {
+      "name": "Sponge",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          2.4,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 2.6,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          1,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
         "type": "Mesh",
         "source": {
           "type": "Primitive",
-          "shape": "Cube"
+          "shape": "Menger",
+          "level": 2
         },
         "material": {
           "base_color": [
-            0.80695236,
-            0.8713672,
+            0.002428216,
+            0.002428216,
+            0.003676507
+          ],
+          "metallic": 0.8,
+          "roughness": 0.15,
+          "emissive_color": [
+            0.0,
+            0.7835379,
             1.0
           ],
-          "metallic": 0.2,
-          "roughness": 0.3,
-          "emissive_color": [
-            1.0,
-            0.029556833,
-            0.014443844
-          ],
-          "emissive": 0.0,
-          "emissive_mode": "Full",
+          "emissive": 2.0,
+          "emissive_mode": "Edges",
           "texture": null,
           "texture_scale": 1.0,
           "scroll": [
@@ -265,95 +224,14 @@
           "pixelated": false,
           "flat_shading": true,
           "rim": 0.3,
-          "hue_shift": 0.0
-        },
-        "instancer": {
-          "type": "Orbit",
-          "count": 70,
-          "radius": 3.2,
-          "spread": 0.9,
-          "speed": 1,
-          "seed": 2
-        },
-        "variation": {
-          "seed": 1,
-          "rotation": 90.0,
-          "scale": 0.6,
-          "hue": 0.0,
-          "spin": 0,
-          "ripple": 0.0,
-          "ripple_cycles": 1,
-          "ripple_spread": 1.0,
-          "chase": 0.0
-        }
-      }
-    },
-    {
-      "name": "Blue orbit rings",
-      "enabled": true,
-      "transform": {
-        "position": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "rotation": [
-          20.0,
-          0.0,
-          10.0
-        ],
-        "scale": 2.9,
-        "stretch": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "spin": [
-          0,
-          2,
-          0
-        ],
-        "bob": 0.0
-      },
-      "symmetry": {
-        "type": "Kaleido",
-        "count": 2
-      },
-      "kind": {
-        "type": "Mesh",
-        "source": {
-          "type": "Primitive",
-          "shape": "Ring",
-          "arc": 250.0,
-          "width": 0.06,
-          "height": 0.03,
-          "segments": 96
-        },
-        "material": {
-          "base_color": [
-            0.4341537,
-            0.4341537,
-            0.47932023
-          ],
-          "metallic": 0.2,
-          "roughness": 0.4,
-          "emissive_color": [
-            0.014443844,
-            0.21586053,
-            1.0
-          ],
-          "emissive": 5.0,
-          "emissive_mode": "Full",
-          "texture": null,
-          "texture_scale": 1.0,
-          "scroll": [
-            0,
-            0
-          ],
-          "pixelated": false,
-          "flat_shading": false,
-          "rim": 0.3,
-          "hue_shift": 0.0
+          "hue_shift": 0.0,
+          "glitch": {
+            "amount": 0.35,
+            "style": "Slices",
+            "rate": 32,
+            "chance": 0.3,
+            "seed": 4
+          }
         },
         "instancer": {
           "type": "Single"
@@ -372,20 +250,20 @@
       }
     },
     {
-      "name": "White arc",
+      "name": "Gems",
       "enabled": true,
       "transform": {
         "position": [
           0.0,
-          0.0,
+          1.0,
           0.0
         ],
         "rotation": [
-          -15.0,
           0.0,
-          -20.0
+          0.0,
+          0.0
         ],
-        "scale": 4.2,
+        "scale": 0.6,
         "stretch": [
           1.0,
           1.0,
@@ -401,31 +279,35 @@
       "symmetry": {
         "type": "None"
       },
+      "blink": {
+        "mode": "Flash",
+        "per_loop": 16,
+        "duty": 0.25,
+        "offset": 0.0,
+        "seed": 1
+      },
       "kind": {
         "type": "Mesh",
         "source": {
           "type": "Primitive",
-          "shape": "Ring",
-          "arc": 120.0,
-          "width": 0.2,
-          "height": 0.05,
-          "segments": 48
+          "shape": "Gem",
+          "facets": 8
         },
         "material": {
           "base_color": [
-            1.0,
-            1.0,
-            1.0
+            0.014443844,
+            0.002428216,
+            0.009134057
           ],
-          "metallic": 0.2,
-          "roughness": 0.4,
+          "metallic": 0.5,
+          "roughness": 0.1,
           "emissive_color": [
-            0.6307572,
-            0.80695236,
-            1.0
+            1.0,
+            0.014443844,
+            0.27889434
           ],
           "emissive": 1.5,
-          "emissive_mode": "Full",
+          "emissive_mode": "Edges",
           "texture": null,
           "texture_scale": 1.0,
           "scroll": [
@@ -433,12 +315,14 @@
             0
           ],
           "pixelated": false,
-          "flat_shading": false,
+          "flat_shading": true,
           "rim": 0.3,
           "hue_shift": 0.0
         },
         "instancer": {
-          "type": "Single"
+          "type": "Radial",
+          "count": 8,
+          "radius": 5.0
         },
         "variation": {
           "seed": 1,
@@ -454,7 +338,58 @@
       }
     },
     {
-      "name": "Sparks",
+      "name": "Rose",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.3,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 4.5,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Ribbon",
+        "curve": "Rose",
+        "freq": [
+          4,
+          3,
+          1
+        ],
+        "thickness": 0.02,
+        "color": [
+          1.0,
+          0.5271152,
+          0.051269468
+        ],
+        "glow": 0.6,
+        "pulses": 2,
+        "pulse_speed": 1,
+        "pulse_length": 0.1,
+        "pulse_glow": 6.0
+      }
+    },
+    {
+      "name": "Cone lasers",
       "enabled": true,
       "transform": {
         "position": [
@@ -463,7 +398,7 @@
           0.0
         ],
         "rotation": [
-          15.0,
+          0.0,
           0.0,
           0.0
         ],
@@ -484,36 +419,35 @@
         "type": "None"
       },
       "kind": {
-        "type": "Particles",
-        "emitter": "Ring",
-        "count": 600,
-        "lifetimes": 1,
-        "size": 0.04,
-        "speed": 1.0,
-        "radius": 3.6,
+        "type": "Lasers",
+        "count": 12,
+        "pattern": "Cone",
+        "spread": 40.0,
+        "length": 30.0,
+        "width": 0.05,
         "color_a": [
-          0.4341537,
-          0.68668544,
-          1.0
+          1.0,
+          0.014443844,
+          0.27889434
         ],
         "color_b": [
-          0.014443844,
-          0.11697067,
+          0.0,
+          0.7835379,
           1.0
         ],
-        "intensity": 2.5,
-        "trail": 3,
-        "trail_spacing": 0.004,
-        "sprite": "Glow",
-        "seed": 3
+        "intensity": 2.0,
+        "sweep": 20.0,
+        "sweep_cycles": 1,
+        "strobe": 0.3,
+        "seed": 1
       }
     }
   ],
   "post": {
     "bloom": {
       "enabled": true,
-      "intensity": 0.9,
-      "threshold": 0.9,
+      "intensity": 1.0,
+      "threshold": 0.8,
       "radius": 0.7
     },
     "kaleido": {
@@ -532,8 +466,8 @@
       "mode": "LeftToRight"
     },
     "chroma": {
-      "enabled": true,
-      "amount": 0.003
+      "enabled": false,
+      "amount": 0.004
     },
     "pixelate": {
       "enabled": false,
@@ -552,9 +486,9 @@
     },
     "grade": {
       "exposure": 1.0,
-      "contrast": 1.1,
+      "contrast": 1.05,
       "saturation": 1.1,
-      "vignette": 0.5,
+      "vignette": 0.35,
       "grain": 0.03,
       "beat_flash": 0.0
     }

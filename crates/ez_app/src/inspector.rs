@@ -441,8 +441,14 @@ pub fn layer_ui(ui: &mut Ui, layer: &mut Layer, textures: &[UserTexture], lref: 
         LayerKind::Particles(p) => particles_ui(ui, p),
         LayerKind::Backdrop(b) => backdrop_ui(ui, b, textures, lref),
         LayerKind::Mirror(f) => mirror_ui(ui, f, textures, lref),
+        LayerKind::Terrain(t) => terrain_ui(ui, t),
+        LayerKind::Lasers(z) => lasers_ui(ui, z),
+        LayerKind::Ribbon(r) => ribbon_ui(ui, r),
     }
-    let is_mesh_like = matches!(layer.kind, LayerKind::Mesh(_) | LayerKind::Particles(_));
+    let is_mesh_like = matches!(
+        layer.kind,
+        LayerKind::Mesh(_) | LayerKind::Particles(_) | LayerKind::Lasers(_) | LayerKind::Ribbon(_)
+    );
     let is_backdrop = matches!(layer.kind, LayerKind::Backdrop(_));
     if !is_backdrop {
         section(ui, "Placement & motion", true, |ui| {
@@ -481,6 +487,34 @@ pub fn layer_ui(ui: &mut Ui, layer: &mut Layer, textures: &[UserTexture], lref: 
         section(ui, "Symmetry", true, |ui| {
             symmetry_ui(ui, &mut layer.symmetry)
         });
+    }
+    section(ui, "Blink / strobe", false, |ui| {
+        blink_ui(ui, &mut layer.blink)
+    });
+}
+
+/// Blink / strobe settings (also used by the Strobe node).
+pub fn blink_ui(ui: &mut Ui, b: &mut Blink) {
+    combo(ui, "Mode", "", &mut b.mode, &BlinkMode::ALL, |m| m.label());
+    if b.mode == BlinkMode::Off {
+        return;
+    }
+    drag_u(
+        ui,
+        "Times / loop",
+        "Blinks per loop (16 = every beat of a 16-beat loop)",
+        &mut b.per_loop,
+        1..=256,
+    );
+    let duty_label = match b.mode {
+        BlinkMode::Blink => "On time",
+        BlinkMode::Random => "Chance on",
+        _ => "Dim level",
+    };
+    slider(ui, duty_label, "", &mut b.duty, 0.0..=1.0);
+    slider(ui, "Offset", "Shift the rhythm", &mut b.offset, 0.0..=1.0);
+    if b.mode == BlinkMode::Random {
+        drag_u(ui, "Seed", "Different random rhythm", &mut b.seed, 0..=9999);
     }
 }
 
@@ -562,6 +596,56 @@ fn primitive_params_ui(ui: &mut Ui, p: &mut Primitive) {
             slider(ui, "Height", "", height, 0.005..=1.0);
             drag_u(ui, "Segments", "", segments, 2..=256);
         }
+        Primitive::Cone { segments } => {
+            drag_u(ui, "Sides", "", segments, 3..=64);
+        }
+        Primitive::Capsule { length, segments } => {
+            slider(
+                ui,
+                "Length",
+                "Straight middle part (0 = sphere)",
+                length,
+                0.0..=4.0,
+            );
+            drag_u(ui, "Segments", "", segments, 6..=64);
+        }
+        Primitive::TorusKnot { p, q, thickness } => {
+            drag_u(ui, "Loops (p)", "Times around the ring", p, 1..=12);
+            drag_u(ui, "Twists (q)", "Times through the hole", q, 1..=12);
+            slider(ui, "Thickness", "", thickness, 0.01..=0.3);
+        }
+        Primitive::Star {
+            points,
+            inner,
+            depth,
+        } => {
+            drag_u(ui, "Points", "", points, 3..=32);
+            slider(ui, "Inner radius", "", inner, 0.05..=0.95);
+            slider(ui, "Depth", "Thickness of the extrusion", depth, 0.01..=2.0);
+        }
+        Primitive::Gear { teeth, depth } => {
+            drag_u(ui, "Teeth", "", teeth, 4..=64);
+            slider(ui, "Depth", "Thickness of the extrusion", depth, 0.01..=2.0);
+        }
+        Primitive::Spring { turns, thickness } => {
+            slider(ui, "Turns", "", turns, 0.5..=20.0);
+            slider(ui, "Thickness", "", thickness, 0.01..=0.3);
+        }
+        Primitive::Menger { level } => {
+            drag_u(ui, "Level", "Fractal depth (3 = 8000 cubes)", level, 0..=3);
+        }
+        Primitive::RoundedCube { radius } => {
+            slider(ui, "Roundness", "", radius, 0.0..=0.5);
+        }
+        Primitive::Gem { facets } => {
+            drag_u(ui, "Facets", "", facets, 4..=32);
+        }
+        Primitive::Heart { depth } => {
+            slider(ui, "Depth", "Thickness of the extrusion", depth, 0.01..=2.0);
+        }
+        Primitive::Mobius { width } => {
+            slider(ui, "Width", "", width, 0.05..=0.9);
+        }
         _ => {}
     }
 }
@@ -597,6 +681,9 @@ fn mesh_ui(ui: &mut Ui, m: &mut MeshLayer, textures: &[UserTexture], lref: Layer
     section(ui, "Material", true, |ui| {
         material_ui(ui, &mut m.material, textures, lref)
     });
+    section(ui, "Glitch", false, |ui| {
+        glitch_ui(ui, &mut m.material.glitch)
+    });
     section(ui, "Copies (instancing)", true, |ui| {
         instancer_ui(ui, &mut m.instancer)
     });
@@ -605,6 +692,40 @@ fn mesh_ui(ui: &mut Ui, m: &mut MeshLayer, textures: &[UserTexture], lref: Layer
             variation_ui(ui, &mut m.variation)
         });
     }
+}
+
+fn glitch_ui(ui: &mut Ui, g: &mut Glitch) {
+    param(
+        ui,
+        "Amount",
+        "Corrupt the shape (0 = off). Animate it for bursts.",
+        &mut g.amount,
+        0.0..=2.0,
+    );
+    combo(ui, "Style", "", &mut g.style, &GlitchStyle::ALL, |s| {
+        s.label()
+    });
+    drag_u(
+        ui,
+        "Changes / loop",
+        "How many new random patterns per loop",
+        &mut g.rate,
+        1..=128,
+    );
+    slider(
+        ui,
+        "Chance",
+        "Fraction of those moments that glitch (1 = always)",
+        &mut g.chance,
+        0.0..=1.0,
+    );
+    drag_u(
+        ui,
+        "Seed",
+        "Different random pattern",
+        &mut g.seed,
+        0..=9999,
+    );
 }
 
 fn material_ui(ui: &mut Ui, mat: &mut Material, textures: &[UserTexture], lref: LayerRef) {
@@ -898,6 +1019,158 @@ fn backdrop_ui(ui: &mut Ui, b: &mut Backdrop, textures: &[UserTexture], lref: La
     });
 }
 
+fn terrain_ui(ui: &mut Ui, t: &mut Terrain) {
+    section(ui, "Landscape", true, |ui| {
+        combo(ui, "Style", "", &mut t.style, &TerrainStyle::ALL, |s| {
+            s.label()
+        });
+        param(ui, "Height", "Mountain height", &mut t.height, 0.0..=20.0);
+        drag_u(
+            ui,
+            "Hills",
+            "Hills across the terrain",
+            &mut t.hills,
+            1..=32,
+        );
+        slider(
+            ui,
+            "Roughness",
+            "More small bumps",
+            &mut t.roughness,
+            0.0..=1.0,
+        );
+        slider(
+            ui,
+            "Valley",
+            "Flat road down the middle (0 = none)",
+            &mut t.valley,
+            0.0..=1.0,
+        );
+        drag_i(
+            ui,
+            "Scroll / loop",
+            "Times the landscape scrolls past per loop (0 = still)",
+            &mut t.scroll,
+            -8..=8,
+        );
+        drag_u(ui, "Seed", "Different landscape", &mut t.seed, 0..=9999);
+    });
+    section(ui, "Look", true, |ui| {
+        if t.style != TerrainStyle::Solid {
+            color(ui, "Line colour", "", &mut t.line_color);
+            param(ui, "Line glow", "", &mut t.glow, 0.0..=10.0);
+        }
+        if t.style != TerrainStyle::Wireframe {
+            color(ui, "Ground colour", "", &mut t.fill_color);
+        }
+        slider(ui, "Size", "Width and depth", &mut t.size, 5.0..=200.0);
+        drag_u(
+            ui,
+            "Grid cells",
+            "Resolution (more = smoother, slower)",
+            &mut t.cells,
+            4..=256,
+        );
+    });
+}
+
+fn lasers_ui(ui: &mut Ui, z: &mut Lasers) {
+    section(ui, "Beams", true, |ui| {
+        combo(ui, "Pattern", "", &mut z.pattern, &LaserPattern::ALL, |p| {
+            p.label()
+        });
+        drag_u(ui, "Beams", "", &mut z.count, 1..=128);
+        slider(
+            ui,
+            "Spread",
+            "Opening angle (degrees)",
+            &mut z.spread,
+            0.0..=180.0,
+        );
+        slider(ui, "Length", "", &mut z.length, 1.0..=200.0);
+        slider(ui, "Width", "", &mut z.width, 0.005..=1.0);
+        if z.pattern == LaserPattern::Scatter {
+            drag_u(ui, "Seed", "Different directions", &mut z.seed, 0..=9999);
+        }
+    });
+    section(ui, "Look & motion", true, |ui| {
+        color(ui, "Colour (first)", "", &mut z.color_a);
+        color(
+            ui,
+            "Colour (last)",
+            "Beams blend between the two colours",
+            &mut z.color_b,
+        );
+        param(ui, "Brightness", "", &mut z.intensity, 0.0..=20.0);
+        slider(
+            ui,
+            "Sweep",
+            "How far the beams swing (degrees)",
+            &mut z.sweep,
+            0.0..=90.0,
+        );
+        drag_i(
+            ui,
+            "Sweeps / loop",
+            "Swings (and cone turns) per loop",
+            &mut z.sweep_cycles,
+            -16..=16,
+        );
+        slider(
+            ui,
+            "Beat strobe",
+            "Flash on every beat (0 = steady)",
+            &mut z.strobe,
+            0.0..=1.0,
+        );
+    });
+}
+
+fn ribbon_ui(ui: &mut Ui, r: &mut Ribbon) {
+    section(ui, "Curve", true, |ui| {
+        combo(ui, "Curve", "", &mut r.curve, &RibbonCurve::ALL, |c| {
+            c.label()
+        });
+        let names: &[&str] = match r.curve {
+            RibbonCurve::Lissajous => &["X waves", "Y waves", "Z waves"],
+            RibbonCurve::Knot => &["Loops", "Twists"],
+            RibbonCurve::Infinity => &["Height waves"],
+            RibbonCurve::Wave => &["Waves"],
+            RibbonCurve::Rose => &["Petals", "Height waves"],
+        };
+        for (name, f) in names.iter().zip(r.freq.iter_mut()) {
+            drag_u(ui, name, "", f, 1..=16);
+        }
+        slider(ui, "Thickness", "", &mut r.thickness, 0.002..=0.3);
+    });
+    section(ui, "Glow & pulses", true, |ui| {
+        color(ui, "Colour", "", &mut r.color);
+        param(
+            ui,
+            "Glow",
+            "Glow of the whole tube",
+            &mut r.glow,
+            0.0..=10.0,
+        );
+        drag_u(
+            ui,
+            "Pulses",
+            "Light pulses running along the tube",
+            &mut r.pulses,
+            0..=32,
+        );
+        drag_i(
+            ui,
+            "Laps / loop",
+            "How fast the pulses run (negative = backwards)",
+            &mut r.pulse_speed,
+            -16..=16,
+        );
+        slider(ui, "Pulse length", "", &mut r.pulse_length, 0.005..=0.5);
+        slider(ui, "Pulse glow", "", &mut r.pulse_glow, 0.0..=20.0);
+    });
+}
+
 fn mirror_ui(ui: &mut Ui, f: &mut MirrorFloor, textures: &[UserTexture], lref: LayerRef) {
     section(ui, "Mirror floor", true, |ui| {
         ui.label(RichText::new("Only the first mirror floor in the list reflects.").weak());
@@ -1005,7 +1278,43 @@ pub fn add_layer_menu(ui: &mut Ui, templates: &[Layer]) -> Option<Layer> {
             }
         }
     });
-    if ui.button("🪞 Mirror floor").clicked() {
+    if ui.button("🗻 Terrain").clicked() {
+        out = Some(Layer::new(
+            "Terrain",
+            LayerKind::Terrain(Terrain::default()),
+        ));
+    }
+    ui.menu_button("🔦 Laser beams", |ui| {
+        for p in LaserPattern::ALL {
+            if ui.button(p.label()).clicked() {
+                out = Some(Layer::new(
+                    "Lasers",
+                    LayerKind::Lasers(Lasers {
+                        pattern: p,
+                        ..Default::default()
+                    }),
+                ));
+            }
+        }
+    });
+    ui.menu_button("〰 Neon ribbon", |ui| {
+        for c in RibbonCurve::ALL {
+            if ui.button(c.label()).clicked() {
+                out = Some(
+                    Layer::new(
+                        c.label(),
+                        LayerKind::Ribbon(Ribbon {
+                            curve: c,
+                            ..Default::default()
+                        }),
+                    )
+                    .at([0.0, 2.0, 0.0])
+                    .scaled(3.0),
+                );
+            }
+        }
+    });
+    if ui.button("⊞ Mirror floor").clicked() {
         out = Some(Layer::new(
             "Mirror floor",
             LayerKind::Mirror(MirrorFloor::default()),
@@ -1044,6 +1353,9 @@ pub fn layer_icon(l: &Layer) -> &'static str {
         LayerKind::Mesh(_) => "🔷",
         LayerKind::Particles(_) => "✨",
         LayerKind::Backdrop(_) => "🌌",
-        LayerKind::Mirror(_) => "🪞",
+        LayerKind::Mirror(_) => "⊞",
+        LayerKind::Terrain(_) => "🗻",
+        LayerKind::Lasers(_) => "🔦",
+        LayerKind::Ribbon(_) => "〰",
     }
 }

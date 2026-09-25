@@ -95,6 +95,14 @@ enum Cmd {
         slot: u32,
         count: u32,
     },
+    Terrain {
+        slot: u32,
+        vertices: u32,
+    },
+    Lasers {
+        slot: u32,
+        beams: u32,
+    },
 }
 
 /// Rendering cost of one layer in the last frame.
@@ -149,6 +157,8 @@ struct ScenePipes {
     backdrop: wgpu::RenderPipeline,
     mesh: wgpu::RenderPipeline,
     particles: wgpu::RenderPipeline,
+    terrain: wgpu::RenderPipeline,
+    lasers: wgpu::RenderPipeline,
 }
 
 pub struct Renderer {
@@ -456,6 +466,13 @@ impl Renderer {
             true,
         );
         let sh_floor = shader(device, "floor", include_str!("shaders/floor.wgsl"), true);
+        let sh_terrain = shader(
+            device,
+            "terrain",
+            include_str!("shaders/terrain.wgsl"),
+            true,
+        );
+        let sh_lasers = shader(device, "lasers", include_str!("shaders/lasers.wgsl"), true);
         let sh_post = shader(device, "post", include_str!("shaders/post.wgsl"), false);
 
         let vertex_layout = wgpu::VertexBufferLayout {
@@ -505,6 +522,34 @@ impl Renderer {
                     label: "particles",
                     layout: &particle_layout,
                     module: &sh_particles,
+                    fs: "fs_main",
+                    buffers: &[],
+                    format: HDR_FORMAT,
+                    samples,
+                    depth: Some((false, wgpu::CompareFunction::Less)),
+                    blend: Some(ADDITIVE),
+                },
+            ),
+            terrain: make_pipeline(
+                device,
+                PipeDesc {
+                    label: "terrain",
+                    layout: &particle_layout,
+                    module: &sh_terrain,
+                    fs: "fs_main",
+                    buffers: &[],
+                    format: HDR_FORMAT,
+                    samples,
+                    depth: Some((true, wgpu::CompareFunction::Less)),
+                    blend: None,
+                },
+            ),
+            lasers: make_pipeline(
+                device,
+                PipeDesc {
+                    label: "lasers",
+                    layout: &particle_layout,
+                    module: &sh_lasers,
                     fs: "fs_main",
                     buffers: &[],
                     format: HDR_FORMAT,
@@ -823,6 +868,19 @@ impl Renderer {
         key
     }
 
+    /// Geometry of a neon ribbon, generated on first use.
+    fn ribbon_key(&mut self, r: &Ribbon) -> String {
+        let key = format!(
+            "r:{}",
+            serde_json::to_string(&(r.curve, r.freq, r.thickness)).unwrap_or_default()
+        );
+        if !self.meshes.contains_key(&key) {
+            let data = crate::mesh::ribbon(r);
+            self.upload_mesh(key.clone(), &data);
+        }
+        key
+    }
+
     fn upload_mesh(&mut self, key: String, data: &MeshData) {
         let vbuf = self
             .device
@@ -926,6 +984,10 @@ impl Renderer {
         let mut stats = FrameStats::default();
 
         for (li, layer) in layers.iter().enumerate().filter(|(_, l)| l.enabled) {
+            // Blinking layers can be hidden right now; flashing ones glow more.
+            let Some(flash) = layer.blink.eval(ctx.phase) else {
+                continue;
+            };
             let mut ls = LayerStats {
                 index: li,
                 name: layer.name.clone(),
@@ -939,7 +1001,7 @@ impl Renderer {
                     blk[0] = [
                         b.kind.index() as f32,
                         b.speed as f32,
-                        b.intensity.eval(ctx),
+                        b.intensity.eval(ctx) * flash,
                         b.detail,
                     ];
                     blk[1] = c4(b.color_a, 0.0);
@@ -992,7 +1054,7 @@ impl Renderer {
                     ls.load = ls.triangles as f32 / 150_000.0 + count as f32 / 20_000.0;
                     let mut blk: Block = Zeroable::zeroed();
                     blk[0] = c4(mat.base_color, mat.metallic);
-                    let e = mat.emissive.eval(ctx).max(0.0);
+                    let e = mat.emissive.eval(ctx).max(0.0) * flash;
                     blk[1] = c4(color::scale(mat.emissive_color, e), mat.roughness);
                     let mode = EmissiveMode::ALL
                         .iter()
@@ -1010,6 +1072,14 @@ impl Renderer {
                         mat.rim,
                         mat.hue_shift.eval(ctx),
                     ];
+                    let g = &mat.glitch;
+                    blk[4] = [
+                        g.amount.eval(ctx).max(0.0),
+                        g.style.index() as f32,
+                        g.rate.max(1) as f32,
+                        g.chance.clamp(0.0, 1.0),
+                    ];
+                    blk[5] = [g.seed as f32, 0.0, 0.0, 0.0];
                     cmds.push(Cmd::Mesh {
                         slot: blocks.len() as u32,
                         mesh,
@@ -1036,7 +1106,7 @@ impl Renderer {
                             p.seed as f32,
                         ];
                         blk[1] = c4(p.color_a, p.size.eval(ctx).max(0.0));
-                        blk[2] = c4(p.color_b, p.intensity.eval(ctx).max(0.0));
+                        blk[2] = c4(p.color_b, p.intensity.eval(ctx).max(0.0) * flash);
                         blk[3] = [p.speed, p.radius, p.trail.min(16) as f32, p.trail_spacing];
                         blk[4] = [p.sprite.index() as f32, 0.0, 0.0, 0.0];
                         let model = m4(sym * lm);
@@ -1047,6 +1117,121 @@ impl Renderer {
                         });
                         blocks.push(blk);
                     }
+                }
+                LayerKind::Terrain(t) => {
+                    let lm = layer_matrix(&layer.transform, ctx);
+                    let cells = t.cells.clamp(4, 256);
+                    let syms = symmetry_matrices(&layer.symmetry);
+                    ls.triangles = (cells * cells * 2) as u64 * syms.len() as u64;
+                    ls.draws = syms.len() as u32;
+                    ls.load = ls.triangles as f32 / 150_000.0 + 0.05;
+                    for sym in syms {
+                        let mut blk: Block = Zeroable::zeroed();
+                        blk[0] = [
+                            t.size.max(1.0),
+                            cells as f32,
+                            t.height.eval(ctx),
+                            t.hills.clamp(1, 64) as f32,
+                        ];
+                        blk[1] = [
+                            t.roughness,
+                            (ctx.phase * t.scroll as f32).rem_euclid(1.0),
+                            t.valley.clamp(0.0, 1.0),
+                            t.style.index() as f32,
+                        ];
+                        blk[2] = c4(
+                            color::scale(t.line_color, t.glow.eval(ctx).max(0.0) * flash),
+                            (t.seed % 65536) as f32,
+                        );
+                        blk[3] = c4(t.fill_color, 0.0);
+                        blk[8..12].copy_from_slice(&m4(sym * lm));
+                        cmds.push(Cmd::Terrain {
+                            slot: blocks.len() as u32,
+                            vertices: cells * cells * 6,
+                        });
+                        blocks.push(blk);
+                    }
+                }
+                LayerKind::Lasers(z) => {
+                    let lm = layer_matrix(&layer.transform, ctx);
+                    let beams = z.count.clamp(1, 256);
+                    let syms = symmetry_matrices(&layer.symmetry);
+                    ls.draws = syms.len() as u32;
+                    ls.triangles = beams as u64 * 2 * syms.len() as u64;
+                    ls.load = 0.05 * syms.len() as f32;
+                    // Beat strobe: full on each beat, decaying until the next.
+                    let beat_flash = (1.0 - ctx.beat_frac()).powi(3);
+                    let strobe = z.strobe.clamp(0.0, 1.0);
+                    let bright = z.intensity.eval(ctx).max(0.0)
+                        * (1.0 - strobe + strobe * beat_flash)
+                        * flash;
+                    for sym in syms {
+                        let mut blk: Block = Zeroable::zeroed();
+                        blk[0] = [
+                            beams as f32,
+                            z.pattern.index() as f32,
+                            z.spread.to_radians(),
+                            z.length.max(0.0),
+                        ];
+                        blk[1] = c4(z.color_a, z.width.max(0.001));
+                        blk[2] = c4(z.color_b, bright);
+                        let cycles = z.sweep_cycles as f32;
+                        blk[3] = [
+                            z.sweep.to_radians(),
+                            (ctx.phase * cycles).rem_euclid(1.0),
+                            (z.seed % 65536) as f32,
+                            (ctx.phase * cycles.max(1.0)).rem_euclid(1.0),
+                        ];
+                        blk[8..12].copy_from_slice(&m4(sym * lm));
+                        cmds.push(Cmd::Lasers {
+                            slot: blocks.len() as u32,
+                            beams,
+                        });
+                        blocks.push(blk);
+                    }
+                }
+                LayerKind::Ribbon(r) => {
+                    let mesh = self.ribbon_key(r);
+                    let tex = self.texture_key(project, None);
+                    self.tex_bind_group(&tex, false);
+                    let lm = layer_matrix(&layer.transform, ctx);
+                    let first = instances.len() as u32;
+                    let syms = symmetry_matrices(&layer.symmetry);
+                    for sym in &syms {
+                        instances.push(InstanceRaw {
+                            model: m4(*sym * lm),
+                            inst: [0.0, 1.0, 0.0, 0.0],
+                        });
+                    }
+                    let tris = self
+                        .meshes
+                        .get(&mesh)
+                        .map(|g| g.count as u64 / 3)
+                        .unwrap_or(0);
+                    ls.triangles = tris * syms.len() as u64;
+                    ls.draws = 1;
+                    ls.load = ls.triangles as f32 / 150_000.0;
+                    let mut blk: Block = Zeroable::zeroed();
+                    blk[0] = [0.02, 0.02, 0.03, 0.6];
+                    blk[1] = c4(r.color, 0.25);
+                    blk[2] = [4.0, 0.0, 1.0, 0.0];
+                    blk[3] = [0.0, 0.0, 0.2, 0.0];
+                    blk[6] = [
+                        r.pulses as f32,
+                        (ctx.phase * r.pulse_speed as f32).rem_euclid(1.0),
+                        r.pulse_length.clamp(0.001, 1.0),
+                        r.pulse_glow.max(0.0) * flash,
+                    ];
+                    blk[7] = [r.glow.eval(ctx).max(0.0) * flash, 0.0, 0.0, 0.0];
+                    cmds.push(Cmd::Mesh {
+                        slot: blocks.len() as u32,
+                        mesh,
+                        tex,
+                        pixelated: false,
+                        first,
+                        count: syms.len() as u32,
+                    });
+                    blocks.push(blk);
                 }
                 LayerKind::Mirror(f) => {
                     if floor.is_some() {
@@ -1059,7 +1244,7 @@ impl Renderer {
                     blk[1] = c4(f.base_color, if f.texture.is_some() { 1.0 } else { 0.0 });
                     blk[2] = c4(f.tint, f.texture_scale);
                     blk[3] = c4(
-                        color::scale(f.grid_color, f.grid.eval(ctx).max(0.0)),
+                        color::scale(f.grid_color, f.grid.eval(ctx).max(0.0) * flash),
                         f.grid_scale,
                     );
                     blk[4] = [-ctx.phase * f.grid_scroll as f32, 0.0, 0.0, 0.0];
@@ -1368,6 +1553,18 @@ impl Renderer {
                     pass.set_bind_group(0, &self.globals_bg[globals], &[]);
                     pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
                     pass.draw(0..6, 0..*count);
+                }
+                Cmd::Terrain { slot, vertices } => {
+                    pass.set_pipeline(&pipes.terrain);
+                    pass.set_bind_group(0, &self.globals_bg[globals], &[]);
+                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                    pass.draw(0..*vertices, 0..1);
+                }
+                Cmd::Lasers { slot, beams } => {
+                    pass.set_pipeline(&pipes.lasers);
+                    pass.set_bind_group(0, &self.globals_bg[globals], &[]);
+                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                    pass.draw(0..6, 0..*beams);
                 }
             }
         }

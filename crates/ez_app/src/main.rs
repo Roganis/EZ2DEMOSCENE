@@ -57,10 +57,25 @@ fn main() {
             .expect("missing <canvas id=\"ez2_canvas\">")
             .dyn_into::<web_sys::HtmlCanvasElement>()
             .expect("ez2_canvas is not a canvas");
+        // The user can force WebGL2 or WebGPU from the Graphics window
+        // (useful when a phone's driver misbehaves with one of them).
+        let pref = platform::GpuBackendPref::load();
+        let mut options = eframe::WebOptions::default();
+        if let egui_wgpu::WgpuSetup::CreateNew(setup) = &mut options.wgpu_options.wgpu_setup {
+            match pref {
+                platform::GpuBackendPref::Auto if !platform::GpuBackendPref::auto_uses_webgl() => {}
+                platform::GpuBackendPref::Auto | platform::GpuBackendPref::WebGl => {
+                    setup.instance_descriptor.backends = wgpu::Backends::GL
+                }
+                platform::GpuBackendPref::WebGpu => {
+                    setup.instance_descriptor.backends = wgpu::Backends::BROWSER_WEBGPU
+                }
+            }
+        }
         let result = eframe::WebRunner::new()
             .start(
                 canvas,
-                eframe::WebOptions::default(),
+                options,
                 Box::new(|cc| Ok(Box::new(app::EzApp::new(cc, None)))),
             )
             .await;
@@ -68,6 +83,15 @@ fn main() {
         if let Some(el) = document.get_element_by_id("ez2_loading") {
             match result {
                 Ok(()) => el.remove(),
+                Err(e) if pref != platform::GpuBackendPref::Auto => {
+                    // A forced backend that isn't available: go back to
+                    // automatic so the next start works.
+                    platform::GpuBackendPref::Auto.save();
+                    el.set_inner_html(&format!(
+                        "<p>EZ2DEMOSCENE could not start with {}: {e:?}</p><p>The graphics setting is back on Automatic. <a href=\"javascript:location.reload()\">Reload</a> to start again.</p>",
+                        pref.label()
+                    ))
+                }
                 Err(e) => el.set_inner_html(&format!(
                     "<p>EZ2DEMOSCENE could not start: {e:?}</p><p>It needs a browser with WebGPU or WebGL2 (recent Chrome, Edge, Firefox or Safari).</p>"
                 )),
