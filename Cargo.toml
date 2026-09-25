@@ -1,0 +1,39 @@
+[workspace]
+resolver = "2"
+members = ["crates/ez_core", "crates/ez_render", "crates/ez_export", "crates/ez_app"]
+default-members = ["crates/ez_app"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/roganis/ez2demoscene"
+
+[workspace.dependencies]
+ez_core = { path = "crates/ez_core" }
+ez_render = { path = "crates/ez_render" }
+ez_export = { path = "crates/ez_export" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+glam = { version = "0.30", features = ["bytemuck", "serde"] }
+bytemuck = { version = "1", features = ["derive"] }
+wgpu = "30"
+eframe = { version = "0.36", default-features = false, features = ["wgpu", "default_fonts", "x11", "wayland"] }
+egui = "0.36"
+egui-wgpu = "0.36"
+egui-snarl = { version = "0.12", features = ["serde"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif", "tga"] }
+gltf = "1.4"
+tobj = "4"
+rodio = { version = "0.22", default-features = false }
+rfd = "0.17"
+pollster = "0.4"
+anyhow = "1"
+log = "0.4"
+env_logger = "0.11"
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+lto = "thin"

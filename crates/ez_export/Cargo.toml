@@ -1,0 +1,16 @@
+[package]
+name = "ez_export"
+description = "Offline loop export (PNG / ffmpeg) for EZ2DEMOSCENE"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ez_core.workspace = true
+ez_render.workspace = true
+wgpu.workspace = true
+image.workspace = true
+anyhow.workspace = true
+log.workspace = true
+pollster.workspace = true
+rodio = { workspace = true, features = ["symphonia-all"] }
