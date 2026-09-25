@@ -461,6 +461,332 @@ fn ring(arc: f32, width: f32, height: f32, segments: u32) -> MeshData {
     m
 }
 
+/// Extrude a closed outline in the XY plane (star-shaped around the
+/// origin) along Z, centred on z = 0. Caps and every side get neon edges.
+fn extrude(outline: &[Vec2], depth: f32) -> MeshData {
+    let d = depth.max(0.01) * 0.5;
+    let front: Vec<Vec3> = outline.iter().map(|p| Vec3::new(p.x, p.y, d)).collect();
+    let back: Vec<Vec3> = outline.iter().map(|p| Vec3::new(p.x, p.y, -d)).collect();
+    let mut m = MeshData::default();
+    m.polygon(&front);
+    m.polygon(&back.iter().rev().copied().collect::<Vec<_>>());
+    for i in 0..outline.len() {
+        let j = (i + 1) % outline.len();
+        m.polygon(&[front[i], front[j], back[j], back[i]]);
+    }
+    fix_winding(&mut m);
+    m
+}
+
+/// A round tube of `radius` swept along `curve(t)`, t in 0..1. Uses a
+/// rotation-minimising frame; closed curves get a twist correction so the
+/// seam lines up.
+pub fn tube(
+    curve: impl Fn(f32) -> Vec3,
+    closed: bool,
+    radius: f32,
+    along: u32,
+    around: u32,
+) -> MeshData {
+    let n = along.max(3);
+    let pts: Vec<Vec3> = (0..=n).map(|i| curve(i as f32 / n as f32)).collect();
+    let tangent = |i: usize| -> Vec3 {
+        let (a, b) = if closed {
+            (
+                pts[(i + n as usize - 1) % n as usize],
+                pts[(i + 1) % n as usize],
+            )
+        } else {
+            (pts[i.saturating_sub(1)], pts[(i + 1).min(n as usize)])
+        };
+        (b - a).normalize_or(Vec3::Y)
+    };
+    let t0 = tangent(0);
+    let seed = if t0.y.abs() < 0.9 { Vec3::Y } else { Vec3::X };
+    let mut normals = vec![seed.reject_from(t0).normalize()];
+    for i in 1..=n as usize {
+        let prev = normals[i - 1];
+        let t = tangent(i);
+        normals.push(prev.reject_from(t).normalize_or(prev));
+    }
+    // Spread the leftover twist of a closed loop evenly along it.
+    let twist = if closed {
+        let a = normals[0];
+        let b = normals[n as usize];
+        let ang = a.cross(b).dot(t0).atan2(a.dot(b));
+        -ang
+    } else {
+        0.0
+    };
+    let mut m = MeshData::default();
+    m.grid(n, around.max(3), |u, v| {
+        let i = ((u * n as f32).round() as usize).min(n as usize);
+        let t = tangent(i);
+        let nrm = Quat::from_axis_angle(t, twist * u) * normals[i];
+        let bin = t.cross(nrm);
+        let a = v * TAU;
+        let dir = nrm * a.cos() + bin * a.sin();
+        (pts[i] + dir * radius, dir)
+    });
+    m
+}
+
+fn cone(segments: u32) -> MeshData {
+    let n = segments.clamp(3, 128);
+    let base: Vec<Vec3> = (0..n)
+        .map(|i| {
+            let a = TAU * i as f32 / n as f32;
+            Vec3::new(a.cos() * 0.5, -0.5, a.sin() * 0.5)
+        })
+        .collect();
+    let mut m = pyramid_like(&base, Vec3::new(0.0, 0.5, 0.0));
+    fix_winding_about(&mut m, Vec3::new(0.0, -0.2, 0.0));
+    m
+}
+
+fn capsule(length: f32, segments: u32) -> MeshData {
+    let seg = segments.clamp(6, 128);
+    let half = length.clamp(0.0, 4.0) * 0.5;
+    // Scale so the whole capsule fits in a unit sphere.
+    let r = 1.0 / (1.0 + half);
+    let hb = (seg / 4).max(3);
+    // Rows 0..=hb: bottom cap (pole to equator); rows hb+1..=2hb+1: top cap.
+    // The single row in between is the straight part.
+    let mut m = MeshData::default();
+    m.grid(seg, 2 * hb + 1, |u, v| {
+        let a = u * TAU;
+        let k = (v * (2 * hb + 1) as f32).round() as u32;
+        let (phi, off) = if k <= hb {
+            (-0.5 * PI + 0.5 * PI * k as f32 / hb as f32, -half)
+        } else {
+            (0.5 * PI * (k - hb - 1) as f32 / hb as f32, half)
+        };
+        let n = Vec3::new(a.cos() * phi.cos(), phi.sin(), a.sin() * phi.cos());
+        ((n + Vec3::Y * off) * r, n)
+    });
+    m
+}
+
+fn torus_knot(p: u32, q: u32, thickness: f32) -> MeshData {
+    let (p, q) = (p.clamp(1, 12) as f32, q.clamp(1, 12) as f32);
+    let curve = |t: f32| {
+        let a = t * TAU;
+        let r = 0.62 + 0.28 * (q * a).cos();
+        Vec3::new(r * (p * a).cos(), 0.28 * (q * a).sin(), r * (p * a).sin())
+    };
+    let along = (64.0 * (p + q)).min(1024.0) as u32;
+    tube(curve, true, thickness.clamp(0.01, 0.3), along, 12)
+}
+
+fn star(points: u32, inner: f32, depth: f32) -> MeshData {
+    let n = points.clamp(3, 32);
+    let inner = inner.clamp(0.05, 0.95);
+    let outline: Vec<Vec2> = (0..n * 2)
+        .map(|i| {
+            let a = PI * i as f32 / n as f32 + PI * 0.5;
+            let r = if i % 2 == 0 { 1.0 } else { inner };
+            Vec2::new(a.cos(), a.sin()) * r
+        })
+        .collect();
+    // The caps are fanned from the centroid (the origin), which keeps the
+    // concave outline correct.
+    extrude(&outline, depth)
+}
+
+fn gear(teeth: u32, depth: f32) -> MeshData {
+    let n = teeth.clamp(4, 64);
+    let mut outline = Vec::new();
+    for i in 0..n {
+        let a = TAU * i as f32 / n as f32;
+        let w = TAU / n as f32;
+        for (f, r) in [(0.0, 0.78), (0.2, 1.0), (0.5, 1.0), (0.7, 0.78)] {
+            let b = a + w * f;
+            outline.push(Vec2::new(b.cos(), b.sin()) * r);
+        }
+    }
+    extrude(&outline, depth)
+}
+
+fn spring(turns: f32, thickness: f32) -> MeshData {
+    let turns = turns.clamp(0.5, 20.0);
+    let curve = move |t: f32| {
+        let a = t * turns * TAU;
+        Vec3::new(a.cos() * 0.6, t * 1.6 - 0.8, a.sin() * 0.6)
+    };
+    tube(
+        curve,
+        false,
+        thickness.clamp(0.01, 0.3),
+        (48.0 * turns) as u32,
+        10,
+    )
+}
+
+fn menger(level: u32) -> MeshData {
+    let level = level.min(3);
+    let mut cubes = vec![(Vec3::ZERO, 1.0f32)];
+    for _ in 0..level {
+        let mut next = Vec::with_capacity(cubes.len() * 20);
+        for (c, s) in &cubes {
+            let t = s / 3.0;
+            for x in -1..=1i32 {
+                for y in -1..=1i32 {
+                    for z in -1..=1i32 {
+                        let zeros = (x == 0) as u32 + (y == 0) as u32 + (z == 0) as u32;
+                        if zeros < 2 {
+                            next.push((*c + Vec3::new(x as f32, y as f32, z as f32) * t, t));
+                        }
+                    }
+                }
+            }
+        }
+        cubes = next;
+    }
+    let unit = primitive(&Primitive::Cube);
+    let mut m = MeshData::default();
+    for (c, s) in cubes {
+        let mut k = unit.clone();
+        k.transform(Quat::IDENTITY, Vec3::splat(s), c);
+        m.append(&k);
+    }
+    m
+}
+
+fn rounded_cube(radius: f32) -> MeshData {
+    let r = radius.clamp(0.0, 0.5);
+    let inner = 0.5 - r;
+    let mut m = MeshData::default();
+    let n = 12;
+    // Six subdivided faces pushed onto the rounded box surface.
+    for (axis, sign) in [
+        (0, 1.0),
+        (0, -1.0),
+        (1, 1.0),
+        (1, -1.0),
+        (2, 1.0),
+        (2, -1.0),
+    ] {
+        m.grid(n, n, |u, v| {
+            let (a, b) = (u - 0.5, v - 0.5);
+            let p = match axis {
+                0 => Vec3::new(0.5 * sign, a, b * sign),
+                1 => Vec3::new(b * sign, 0.5 * sign, a),
+                _ => Vec3::new(a * sign, b, 0.5 * sign),
+            };
+            let core = p.clamp(Vec3::splat(-inner), Vec3::splat(inner));
+            let d = (p - core).normalize_or(p.normalize());
+            (core + d * r, d)
+        });
+    }
+    m
+}
+
+fn gem(facets: u32) -> MeshData {
+    let n = facets.clamp(4, 32);
+    let ring = |r: f32, y: f32, off: f32| -> Vec<Vec3> {
+        (0..n)
+            .map(|i| {
+                let a = TAU * (i as f32 + off) / n as f32;
+                Vec3::new(a.cos() * r, y, a.sin() * r)
+            })
+            .collect()
+    };
+    let table = ring(0.55, 0.45, 0.0);
+    let crown = ring(1.0, 0.15, 0.5);
+    let girdle = ring(1.0, 0.05, 0.5);
+    let culet = Vec3::new(0.0, -0.95, 0.0);
+    let mut m = MeshData::default();
+    m.polygon(&table);
+    for i in 0..n as usize {
+        let j = (i + 1) % n as usize;
+        m.polygon(&[table[i], crown[i], table[j]]);
+        let k = (i + n as usize - 1) % n as usize;
+        m.polygon(&[table[i], crown[k], crown[i]]);
+        m.polygon(&[crown[i], girdle[i], girdle[j], crown[j]]);
+        m.polygon(&[girdle[i], culet, girdle[j]]);
+    }
+    fix_winding_about(&mut m, Vec3::new(0.0, 0.0, 0.0));
+    m
+}
+
+fn heart(depth: f32) -> MeshData {
+    let n = 64;
+    let outline: Vec<Vec2> = (0..n)
+        .map(|i| {
+            let t = TAU * i as f32 / n as f32;
+            let x = 16.0 * t.sin().powi(3);
+            let y =
+                13.0 * t.cos() - 5.0 * (2.0 * t).cos() - 2.0 * (3.0 * t).cos() - (4.0 * t).cos();
+            Vec2::new(x, y + 3.0) / 17.0
+        })
+        .collect();
+    extrude(&outline, depth)
+}
+
+fn mobius(width: f32) -> MeshData {
+    // A thin bar with a half twist: a solid (not a one-sided surface), so
+    // every face has a proper outward normal and lights correctly.
+    let w = width.clamp(0.05, 0.9) * 0.5;
+    let t = 0.04;
+    let frame = |u: f32| {
+        let a = u * TAU;
+        let radial = Vec3::new(a.cos(), 0.0, a.sin());
+        let half = a * 0.5;
+        let across = radial * half.cos() + Vec3::Y * half.sin();
+        let tangent = Vec3::new(-a.sin(), 0.0, a.cos());
+        let thick = tangent.cross(across).normalize_or(Vec3::Y);
+        (radial * 0.75, across, thick)
+    };
+    let mut m = MeshData::default();
+    // Four sides of the bar's cross-section: (offset along `across`, along
+    // `thick`) for the side's two ends, and its outward direction.
+    let sides: [([f32; 2], [f32; 2], [f32; 2]); 4] = [
+        ([-w, t], [w, t], [0.0, 1.0]),
+        ([w, -t], [-w, -t], [0.0, -1.0]),
+        ([w, t], [w, -t], [1.0, 0.0]),
+        ([-w, -t], [-w, t], [-1.0, 0.0]),
+    ];
+    for (s0, s1, n) in sides {
+        m.grid(160, 1, |u, v| {
+            let (c, across, thick) = frame(u);
+            let a = s0[0] + (s1[0] - s0[0]) * v;
+            let b = s0[1] + (s1[1] - s0[1]) * v;
+            let normal = (across * n[0] + thick * n[1]).normalize_or(Vec3::Y);
+            (c + across * a + thick * b, normal)
+        });
+    }
+    m
+}
+
+/// Tube geometry of a neon ribbon (U runs along the curve, for the pulses).
+pub fn ribbon(r: &ez_core::Ribbon) -> MeshData {
+    use ez_core::RibbonCurve;
+    let [a, b, c] = r.freq.map(|f| f.clamp(1, 16) as f32);
+    let kind = r.curve;
+    let curve = move |t: f32| {
+        let x = t * TAU;
+        match kind {
+            RibbonCurve::Lissajous => Vec3::new(
+                (a * x + 0.5 * PI).sin(),
+                (b * x).sin() * 0.6,
+                (c * x + 0.25 * PI).sin(),
+            ),
+            RibbonCurve::Knot => {
+                let rr = 0.62 + 0.28 * (b * x).cos();
+                Vec3::new(rr * (a * x).cos(), 0.28 * (b * x).sin(), rr * (a * x).sin())
+            }
+            RibbonCurve::Infinity => Vec3::new(x.sin(), 0.15 * (a * x).sin(), x.sin() * x.cos()),
+            RibbonCurve::Wave => Vec3::new(x.cos(), 0.3 * (a * x).sin(), x.sin()),
+            RibbonCurve::Rose => {
+                let rr = (a * x).cos();
+                Vec3::new(rr * x.cos(), 0.1 * (b * x).sin(), rr * x.sin())
+            }
+        }
+    };
+    let along = (256.0 * a.max(b).max(c)).clamp(256.0, 2048.0) as u32;
+    tube(curve, true, r.thickness.clamp(0.002, 0.5), along, 8)
+}
+
 /// Generate geometry for a primitive. Shapes fit roughly in a unit sphere.
 pub fn primitive(p: &Primitive) -> MeshData {
     match p {
@@ -577,6 +903,21 @@ pub fn primitive(p: &Primitive) -> MeshData {
             fix_winding_about(&mut m, Vec3::new(0.0, -0.2, 0.0));
             m
         }
+        Primitive::Cone { segments } => cone(*segments),
+        Primitive::Capsule { length, segments } => capsule(*length, *segments),
+        Primitive::TorusKnot { p, q, thickness } => torus_knot(*p, *q, *thickness),
+        Primitive::Star {
+            points,
+            inner,
+            depth,
+        } => star(*points, *inner, *depth),
+        Primitive::Gear { teeth, depth } => gear(*teeth, *depth),
+        Primitive::Spring { turns, thickness } => spring(*turns, *thickness),
+        Primitive::Menger { level } => menger(*level),
+        Primitive::RoundedCube { radius } => rounded_cube(*radius),
+        Primitive::Gem { facets } => gem(*facets),
+        Primitive::Heart { depth } => heart(*depth),
+        Primitive::Mobius { width } => mobius(*width),
     }
 }
 
@@ -596,6 +937,35 @@ mod tests {
                 .iter()
                 .all(|v| v.pos.iter().all(|c| c.is_finite())));
         }
+    }
+
+    #[test]
+    fn primitives_fit_roughly_in_unit_sphere() {
+        for p in Primitive::all_defaults() {
+            let m = primitive(&p);
+            let r = m
+                .vertices
+                .iter()
+                .map(|v| Vec3::from(v.pos).length())
+                .fold(0.0f32, f32::max);
+            assert!((0.3..=1.5).contains(&r), "{} radius {r}", p.label());
+            assert!(
+                m.vertices
+                    .iter()
+                    .all(|v| v.normal.iter().all(|c| c.is_finite())),
+                "{}",
+                p.label()
+            );
+        }
+    }
+
+    #[test]
+    fn menger_level_2_has_400_cubes() {
+        let cube = primitive(&Primitive::Cube).vertices.len();
+        assert_eq!(
+            primitive(&Primitive::Menger { level: 2 }).vertices.len(),
+            400 * cube
+        );
     }
 
     #[test]

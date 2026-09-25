@@ -8,6 +8,12 @@ use crate::param::Param;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 
+/// Keeps project files short: optional features left at their defaults
+/// are not written.
+fn is_default<T: Default + PartialEq>(v: &T) -> bool {
+    *v == T::default()
+}
+
 /// 2: asset paths may be relative to the project file.
 pub const PROJECT_VERSION: u32 = 2;
 
@@ -172,6 +178,9 @@ pub struct Layer {
     pub enabled: bool,
     pub transform: Transform,
     pub symmetry: Symmetry,
+    /// Blinking / flashing over the loop.
+    #[serde(skip_serializing_if = "is_default")]
+    pub blink: Blink,
     pub kind: LayerKind,
 }
 
@@ -182,7 +191,91 @@ impl Default for Layer {
             enabled: true,
             transform: Transform::default(),
             symmetry: Symmetry::None,
+            blink: Blink::default(),
             kind: LayerKind::Mesh(MeshLayer::default()),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum BlinkMode {
+    /// Always visible.
+    #[default]
+    Off,
+    /// On/off in a regular rhythm.
+    Blink,
+    /// On/off at random moments.
+    Random,
+    /// Glow flashes and fades (the layer stays visible).
+    Flash,
+}
+
+impl BlinkMode {
+    pub const ALL: [BlinkMode; 4] = [
+        BlinkMode::Off,
+        BlinkMode::Blink,
+        BlinkMode::Random,
+        BlinkMode::Flash,
+    ];
+    pub fn label(self) -> &'static str {
+        match self {
+            BlinkMode::Off => "Off",
+            BlinkMode::Blink => "Blink",
+            BlinkMode::Random => "Random blink",
+            BlinkMode::Flash => "Flash",
+        }
+    }
+}
+
+/// Loop-safe strobe: the rhythm repeats `per_loop` times per loop.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Blink {
+    pub mode: BlinkMode,
+    /// Blinks / flashes per loop (e.g. 16 = every beat of a 16-beat loop).
+    pub per_loop: u32,
+    /// Blink: fraction of the time on. Random: chance of being on.
+    /// Flash: brightness between flashes.
+    pub duty: f32,
+    /// Shift of the rhythm (fraction of one blink).
+    pub offset: f32,
+    pub seed: u32,
+}
+
+impl Default for Blink {
+    fn default() -> Self {
+        Blink {
+            mode: BlinkMode::Off,
+            per_loop: 16,
+            duty: 0.5,
+            offset: 0.0,
+            seed: 1,
+        }
+    }
+}
+
+impl Blink {
+    /// `None` when the layer is hidden at this moment, otherwise a glow
+    /// multiplier.
+    pub fn eval(&self, phase: f32) -> Option<f32> {
+        let n = self.per_loop.max(1) as f32;
+        let x = phase.rem_euclid(1.0) * n + self.offset;
+        let duty = self.duty.clamp(0.0, 1.0);
+        match self.mode {
+            BlinkMode::Off => Some(1.0),
+            BlinkMode::Blink => (x.rem_euclid(1.0) < duty).then_some(1.0),
+            BlinkMode::Random => {
+                let step = x.floor().rem_euclid(n) as u32;
+                let r = crate::rng::hash_u32(
+                    step.wrapping_mul(0x9e37_79b9) ^ self.seed.wrapping_mul(0x85eb_ca6b),
+                );
+                let r = (r >> 8) as f32 / (1u32 << 24) as f32;
+                (r < duty).then_some(1.0)
+            }
+            BlinkMode::Flash => {
+                let t = 1.0 - x.rem_euclid(1.0);
+                Some(duty + (1.0 - duty) * t.powi(4) + t.powi(12) * 2.0)
+            }
         }
     }
 }
@@ -232,6 +325,9 @@ impl Layer {
             LayerKind::Particles(_) => "Particles",
             LayerKind::Backdrop(_) => "Backdrop",
             LayerKind::Mirror(_) => "Mirror floor",
+            LayerKind::Terrain(_) => "Terrain",
+            LayerKind::Lasers(_) => "Laser beams",
+            LayerKind::Ribbon(_) => "Neon ribbon",
         }
     }
 }
@@ -243,6 +339,9 @@ pub enum LayerKind {
     Particles(ParticleLayer),
     Backdrop(Backdrop),
     Mirror(MirrorFloor),
+    Terrain(Terrain),
+    Lasers(Lasers),
+    Ribbon(Ribbon),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -382,6 +481,58 @@ pub enum Primitive {
     Plane,
     /// Pyramid with a square base.
     Pyramid,
+    Cone {
+        segments: u32,
+    },
+    /// Cylinder with round caps.
+    Capsule {
+        /// Length of the straight middle part (0 = sphere).
+        length: f32,
+        segments: u32,
+    },
+    /// Tube winding `p` times around and `q` times through a torus.
+    TorusKnot {
+        p: u32,
+        q: u32,
+        thickness: f32,
+    },
+    /// Flat extruded star.
+    Star {
+        points: u32,
+        /// Inner radius (fraction of the outer one).
+        inner: f32,
+        depth: f32,
+    },
+    /// Flat extruded cog wheel.
+    Gear {
+        teeth: u32,
+        depth: f32,
+    },
+    /// Coil spring (helical tube).
+    Spring {
+        turns: f32,
+        thickness: f32,
+    },
+    /// Menger sponge fractal cube.
+    Menger {
+        level: u32,
+    },
+    /// Cube with rounded edges.
+    RoundedCube {
+        radius: f32,
+    },
+    /// Brilliant-cut diamond.
+    Gem {
+        facets: u32,
+    },
+    /// Flat extruded heart.
+    Heart {
+        depth: f32,
+    },
+    /// Band with a half twist.
+    Mobius {
+        width: f32,
+    },
 }
 
 impl Primitive {
@@ -409,7 +560,48 @@ impl Primitive {
             },
             Primitive::Plane,
             Primitive::Pyramid,
+            Primitive::Cone { segments: 24 },
+            Primitive::Capsule {
+                length: 1.0,
+                segments: 24,
+            },
+            Primitive::TorusKnot {
+                p: 2,
+                q: 3,
+                thickness: 0.12,
+            },
+            Primitive::Star {
+                points: 5,
+                inner: 0.45,
+                depth: 0.25,
+            },
+            Primitive::Gear {
+                teeth: 12,
+                depth: 0.25,
+            },
+            Primitive::Spring {
+                turns: 5.0,
+                thickness: 0.08,
+            },
+            Primitive::Menger { level: 2 },
+            Primitive::RoundedCube { radius: 0.15 },
+            Primitive::Gem { facets: 8 },
+            Primitive::Heart { depth: 0.3 },
+            Primitive::Mobius { width: 0.35 },
         ]
+    }
+
+    /// Shapes the randomizer picks from (solid, recognisable ones).
+    pub fn random_pool() -> Vec<Primitive> {
+        Primitive::all_defaults()
+            .into_iter()
+            .filter(|p| {
+                !matches!(
+                    p,
+                    Primitive::Plane | Primitive::Panel { .. } | Primitive::Ring { .. }
+                )
+            })
+            .collect()
     }
 
     pub fn label(&self) -> &'static str {
@@ -428,6 +620,17 @@ impl Primitive {
             Primitive::Ring { .. } => "Ring band",
             Primitive::Plane => "Plane",
             Primitive::Pyramid => "Pyramid",
+            Primitive::Cone { .. } => "Cone",
+            Primitive::Capsule { .. } => "Capsule",
+            Primitive::TorusKnot { .. } => "Torus knot",
+            Primitive::Star { .. } => "Star",
+            Primitive::Gear { .. } => "Gear",
+            Primitive::Spring { .. } => "Spring",
+            Primitive::Menger { .. } => "Menger sponge",
+            Primitive::RoundedCube { .. } => "Rounded cube",
+            Primitive::Gem { .. } => "Gem",
+            Primitive::Heart { .. } => "Heart",
+            Primitive::Mobius { .. } => "Möbius strip",
         }
     }
 
@@ -629,6 +832,69 @@ pub struct Material {
     pub rim: f32,
     /// Hue rotation over the loop (animatable, in turns).
     pub hue_shift: Param,
+    /// Geometry corruption (off when the amount is 0).
+    #[serde(skip_serializing_if = "is_default")]
+    pub glitch: Glitch,
+}
+
+/// How a glitched mesh is corrupted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum GlitchStyle {
+    /// Vertices shake to random positions.
+    #[default]
+    Jitter,
+    /// Horizontal bands shift sideways (VHS tearing).
+    Slices,
+    /// Faces fly apart along their normals.
+    Shatter,
+}
+
+impl GlitchStyle {
+    pub const ALL: [GlitchStyle; 3] = [
+        GlitchStyle::Jitter,
+        GlitchStyle::Slices,
+        GlitchStyle::Shatter,
+    ];
+    pub fn label(self) -> &'static str {
+        match self {
+            GlitchStyle::Jitter => "Jitter",
+            GlitchStyle::Slices => "Slices (VHS)",
+            GlitchStyle::Shatter => "Shatter",
+        }
+    }
+    pub fn index(self) -> u32 {
+        GlitchStyle::ALL
+            .iter()
+            .position(|g| *g == self)
+            .unwrap_or(0) as u32
+    }
+}
+
+/// Loop-safe geometry corruption: the pattern changes `rate` times per
+/// loop, and only `chance` of those steps are glitched.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Glitch {
+    /// Strength (animatable). 0 = off.
+    pub amount: Param,
+    pub style: GlitchStyle,
+    /// New random pattern this many times per loop.
+    pub rate: u32,
+    /// Fraction of the steps that glitch (1 = always).
+    pub chance: f32,
+    pub seed: u32,
+}
+
+impl Default for Glitch {
+    fn default() -> Self {
+        Glitch {
+            amount: Param::new(0.0),
+            style: GlitchStyle::Jitter,
+            rate: 16,
+            chance: 0.5,
+            seed: 1,
+        }
+    }
 }
 
 impl Default for Material {
@@ -647,6 +913,7 @@ impl Default for Material {
             flat_shading: false,
             rim: 0.3,
             hue_shift: Param::new(0.0),
+            glitch: Glitch::default(),
         }
     }
 }
@@ -1134,5 +1401,233 @@ mod tests {
         assert_eq!(p.layers.len(), 1);
         assert!(matches!(p.layers[0].kind, LayerKind::Particles(_)));
         assert_eq!(p.timing, Timing::default());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Terrain (scrolling landscape)
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum TerrainStyle {
+    /// Glowing grid lines only.
+    #[default]
+    Wireframe,
+    /// Lit solid ground.
+    Solid,
+    /// Solid ground with glowing grid lines.
+    Both,
+}
+
+impl TerrainStyle {
+    pub const ALL: [TerrainStyle; 3] = [
+        TerrainStyle::Wireframe,
+        TerrainStyle::Solid,
+        TerrainStyle::Both,
+    ];
+    pub fn label(self) -> &'static str {
+        match self {
+            TerrainStyle::Wireframe => "Wireframe",
+            TerrainStyle::Solid => "Solid",
+            TerrainStyle::Both => "Solid + lines",
+        }
+    }
+    pub fn index(self) -> u32 {
+        TerrainStyle::ALL
+            .iter()
+            .position(|t| *t == self)
+            .unwrap_or(0) as u32
+    }
+}
+
+/// An endless landscape that scrolls towards the camera and repeats
+/// exactly once per `scroll` unit, so the loop is seamless.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Terrain {
+    /// Width and depth in world units.
+    pub size: f32,
+    /// Grid cells along each side.
+    pub cells: u32,
+    /// Mountain height (animatable).
+    pub height: Param,
+    /// Hills across the terrain (whole number, keeps it tileable).
+    pub hills: u32,
+    /// Sharpness: more octaves of detail.
+    pub roughness: f32,
+    /// How many times the landscape scrolls past per loop.
+    pub scroll: i32,
+    /// Flat valley down the middle (0 = none, 1 = wide).
+    pub valley: f32,
+    pub style: TerrainStyle,
+    pub line_color: Rgb,
+    /// Line glow (animatable).
+    pub glow: Param,
+    pub fill_color: Rgb,
+    pub seed: u32,
+}
+
+impl Default for Terrain {
+    fn default() -> Self {
+        Terrain {
+            size: 60.0,
+            cells: 64,
+            height: Param::new(4.0),
+            hills: 4,
+            roughness: 0.5,
+            scroll: 1,
+            valley: 0.3,
+            style: TerrainStyle::Wireframe,
+            line_color: hex(0xff2bd6),
+            glow: Param::new(1.0),
+            fill_color: hex(0x0a0418),
+            seed: 1,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Laser beams
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum LaserPattern {
+    /// Flat fan of beams.
+    #[default]
+    Fan,
+    /// Beams on a rotating cone.
+    Cone,
+    /// Random directions that wobble.
+    Scatter,
+}
+
+impl LaserPattern {
+    pub const ALL: [LaserPattern; 3] =
+        [LaserPattern::Fan, LaserPattern::Cone, LaserPattern::Scatter];
+    pub fn label(self) -> &'static str {
+        match self {
+            LaserPattern::Fan => "Fan",
+            LaserPattern::Cone => "Rotating cone",
+            LaserPattern::Scatter => "Scatter",
+        }
+    }
+    pub fn index(self) -> u32 {
+        LaserPattern::ALL
+            .iter()
+            .position(|t| *t == self)
+            .unwrap_or(0) as u32
+    }
+}
+
+/// Beams shooting from the layer's origin along its +Y axis.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Lasers {
+    pub count: u32,
+    pub pattern: LaserPattern,
+    /// Opening angle in degrees.
+    pub spread: f32,
+    pub length: f32,
+    pub width: f32,
+    pub color_a: Rgb,
+    pub color_b: Rgb,
+    /// Brightness (animatable).
+    pub intensity: Param,
+    /// Sweep angle in degrees.
+    pub sweep: f32,
+    /// Sweeps per loop.
+    pub sweep_cycles: i32,
+    /// Flash on every beat (0 = steady, 1 = full strobe).
+    pub strobe: f32,
+    pub seed: u32,
+}
+
+impl Default for Lasers {
+    fn default() -> Self {
+        Lasers {
+            count: 8,
+            pattern: LaserPattern::Fan,
+            spread: 70.0,
+            length: 40.0,
+            width: 0.08,
+            color_a: hex(0x20ff60),
+            color_b: hex(0x20a0ff),
+            intensity: Param::new(3.0),
+            sweep: 25.0,
+            sweep_cycles: 1,
+            strobe: 0.0,
+            seed: 1,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Neon ribbon
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum RibbonCurve {
+    /// 3D Lissajous figure (uses the three frequencies).
+    #[default]
+    Lissajous,
+    /// Torus knot (uses the first two frequencies).
+    Knot,
+    /// Figure eight.
+    Infinity,
+    /// Circle that waves up and down (first frequency = waves).
+    Wave,
+    /// Flower / rose curve (first frequency = petals).
+    Rose,
+}
+
+impl RibbonCurve {
+    pub const ALL: [RibbonCurve; 5] = [
+        RibbonCurve::Lissajous,
+        RibbonCurve::Knot,
+        RibbonCurve::Infinity,
+        RibbonCurve::Wave,
+        RibbonCurve::Rose,
+    ];
+    pub fn label(self) -> &'static str {
+        match self {
+            RibbonCurve::Lissajous => "Lissajous",
+            RibbonCurve::Knot => "Knot",
+            RibbonCurve::Infinity => "Figure eight",
+            RibbonCurve::Wave => "Wavy ring",
+            RibbonCurve::Rose => "Rose",
+        }
+    }
+}
+
+/// A glowing tube along a closed curve with light pulses running along it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Ribbon {
+    pub curve: RibbonCurve,
+    pub freq: [u32; 3],
+    pub thickness: f32,
+    pub color: Rgb,
+    /// Glow of the whole tube (animatable).
+    pub glow: Param,
+    /// Light pulses travelling along the tube.
+    pub pulses: u32,
+    /// Laps each pulse makes per loop (negative = backwards).
+    pub pulse_speed: i32,
+    /// Pulse length (fraction of the tube).
+    pub pulse_length: f32,
+    /// Extra brightness of the pulses.
+    pub pulse_glow: f32,
+}
+
+impl Default for Ribbon {
+    fn default() -> Self {
+        Ribbon {
+            curve: RibbonCurve::Lissajous,
+            freq: [3, 2, 5],
+            thickness: 0.04,
+            color: hex(0x00e5ff),
+            glow: Param::new(1.0),
+            pulses: 3,
+            pulse_speed: 1,
+            pulse_length: 0.08,
+            pulse_glow: 6.0,
+        }
     }
 }

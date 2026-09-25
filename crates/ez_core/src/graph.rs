@@ -4,7 +4,8 @@
 //! to a plain `Vec<Layer>`, so the renderer never needs to know whether a
 //! scene was made in simple mode or with nodes.
 
-use crate::color::hue_rotate;
+use crate::color::{hue_rotate, Rgb};
+use crate::rng::Rng;
 use crate::scene::*;
 use serde::{Deserialize, Serialize};
 
@@ -30,6 +31,31 @@ pub enum NodeKind {
         step: [f32; 3],
         rotate_y: f32,
     },
+    /// Randomly moves and turns every incoming layer.
+    Jitter {
+        position: f32,
+        /// Degrees.
+        rotation: f32,
+        seed: u32,
+    },
+    /// Adds a mirrored copy of every incoming layer.
+    Mirror {
+        /// 0 = X, 1 = Y, 2 = Z.
+        axis: u8,
+        /// Position of the mirror plane along the axis.
+        at: f32,
+    },
+    /// Makes every incoming layer blink or flash.
+    Strobe { blink: Blink },
+    /// Overrides colour, glow, texture, wireframe look and glitch.
+    Material {
+        color: Option<Rgb>,
+        glow: f32,
+        texture: Option<String>,
+        wireframe: bool,
+        glitch: f32,
+        glitch_style: GlitchStyle,
+    },
     /// Concatenates any number of streams.
     Merge,
     /// Final output: everything connected here is rendered.
@@ -46,6 +72,10 @@ impl NodeKind {
             NodeKind::Scale { .. } => "Scale".into(),
             NodeKind::Tint { .. } => "Tint".into(),
             NodeKind::Array { .. } => "Array".into(),
+            NodeKind::Jitter { .. } => "Jitter".into(),
+            NodeKind::Mirror { .. } => "Mirror".into(),
+            NodeKind::Strobe { .. } => "Strobe".into(),
+            NodeKind::Material { .. } => "Colour / material".into(),
             NodeKind::Merge => "Merge".into(),
             NodeKind::Output => "Output".into(),
         }
@@ -88,6 +118,27 @@ impl NodeKind {
                 count: 3,
                 step: [0.0, 2.0, 0.0],
                 rotate_y: 30.0,
+            },
+            NodeKind::Jitter {
+                position: 1.0,
+                rotation: 30.0,
+                seed: 1,
+            },
+            NodeKind::Mirror { axis: 0, at: 0.0 },
+            NodeKind::Strobe {
+                blink: Blink {
+                    mode: BlinkMode::Flash,
+                    duty: 0.3,
+                    ..Default::default()
+                },
+            },
+            NodeKind::Material {
+                color: Some(crate::color::hex(0x00e5ff)),
+                glow: 1.0,
+                texture: None,
+                wireframe: false,
+                glitch: 0.0,
+                glitch_style: GlitchStyle::Jitter,
             },
             NodeKind::Merge,
         ]
@@ -155,7 +206,115 @@ impl NodeKind {
                 }
                 out
             }
+            NodeKind::Jitter {
+                position,
+                rotation,
+                seed,
+            } => input
+                .into_iter()
+                .enumerate()
+                .map(|(i, mut l)| {
+                    let mut rng = Rng::new(((*seed as u64) << 20) ^ (i as u64 * 7919 + 17));
+                    for p in &mut l.transform.position {
+                        *p += rng.signed() * position;
+                    }
+                    for r in &mut l.transform.rotation {
+                        *r += rng.signed() * rotation;
+                    }
+                    l
+                })
+                .collect(),
+            NodeKind::Mirror { axis, at } => {
+                let mut out = input.clone();
+                out.extend(
+                    input
+                        .into_iter()
+                        .map(|l| mirror_layer(l, *axis as usize, *at)),
+                );
+                out
+            }
+            NodeKind::Strobe { blink } => input
+                .into_iter()
+                .map(|mut l| {
+                    l.blink = *blink;
+                    l
+                })
+                .collect(),
+            NodeKind::Material {
+                color,
+                glow,
+                texture,
+                wireframe,
+                glitch,
+                glitch_style,
+            } => input
+                .into_iter()
+                .map(|mut l| {
+                    if let Some(c) = color {
+                        set_layer_color(&mut l, *c);
+                    }
+                    tint_layer(&mut l, 0.0, *glow);
+                    if let LayerKind::Mesh(m) = &mut l.kind {
+                        if texture.is_some() {
+                            m.material.texture = texture.clone();
+                        }
+                        if *wireframe {
+                            m.material.emissive_mode = EmissiveMode::Edges;
+                            m.material.flat_shading = true;
+                            m.material.base_color = [0.01, 0.01, 0.012];
+                            if m.material.emissive.base <= 0.0 {
+                                m.material.emissive.base = 1.5 * glow;
+                            }
+                        }
+                        if *glitch > 0.0 {
+                            m.material.glitch.amount = crate::Param::new(*glitch);
+                            m.material.glitch.style = *glitch_style;
+                        }
+                    }
+                    l
+                })
+                .collect(),
         }
+    }
+}
+
+/// A copy of `l` reflected across the plane `axis = at`.
+pub fn mirror_layer(mut l: Layer, axis: usize, at: f32) -> Layer {
+    let axis = axis.min(2);
+    let t = &mut l.transform;
+    t.position[axis] = 2.0 * at - t.position[axis];
+    t.stretch[axis] = -t.stretch[axis];
+    // Reflecting a rotation negates its components about the other axes.
+    for a in 0..3 {
+        if a != axis {
+            t.rotation[a] = -t.rotation[a];
+            t.spin[a] = -t.spin[a];
+        }
+    }
+    if axis == 1 {
+        t.bob.base = -t.bob.base;
+        t.bob.amp = -t.bob.amp;
+    }
+    l.name = format!("{} (mirror)", l.name);
+    l
+}
+
+/// Set the main glow colour of a layer.
+pub fn set_layer_color(l: &mut Layer, c: Rgb) {
+    match &mut l.kind {
+        LayerKind::Mesh(m) => m.material.emissive_color = c,
+        LayerKind::Particles(p) => {
+            p.color_a = c;
+            p.color_b = c;
+        }
+        LayerKind::Backdrop(b) => b.color_b = c,
+        LayerKind::Mirror(m) => m.grid_color = c,
+        LayerKind::Terrain(t) => t.line_color = c,
+        LayerKind::Lasers(z) => {
+            z.color_a = c;
+            z.color_b = c;
+        }
+        LayerKind::Ribbon(r) => r.color = c,
     }
 }
 
@@ -184,6 +343,23 @@ pub fn tint_layer(l: &mut Layer, hue: f32, glow: f32) {
             m.tint = hue_rotate(m.tint, hue);
             m.grid_color = hue_rotate(m.grid_color, hue);
             m.grid.base *= glow;
+        }
+        LayerKind::Terrain(t) => {
+            t.line_color = hue_rotate(t.line_color, hue);
+            t.fill_color = hue_rotate(t.fill_color, hue);
+            t.glow.base *= glow;
+            t.glow.amp *= glow;
+        }
+        LayerKind::Lasers(z) => {
+            z.color_a = hue_rotate(z.color_a, hue);
+            z.color_b = hue_rotate(z.color_b, hue);
+            z.intensity.base *= glow;
+            z.intensity.amp *= glow;
+        }
+        LayerKind::Ribbon(r) => {
+            r.color = hue_rotate(r.color, hue);
+            r.glow.base *= glow;
+            r.glow.amp *= glow;
         }
     }
 }
@@ -330,6 +506,56 @@ mod tests {
         assert_eq!(layers.len(), 3);
         assert_eq!(layers[2].transform.position[0], 2.0);
         assert!(layers.iter().all(|l| l.symmetry == Symmetry::MirrorX));
+    }
+
+    #[test]
+    fn mirror_and_strobe_nodes() {
+        let mut g = Graph::default();
+        let out = g.add(NodeKind::Output, [0.0; 2]);
+        let mut layer = Layer::default()
+            .at([2.0, 1.0, 0.0])
+            .rotated([10.0, 20.0, 30.0]);
+        layer.transform.spin = [1, 2, 3];
+        let src = g.add(NodeKind::Source { layer }, [0.0; 2]);
+        let mir = g.add(NodeKind::Mirror { axis: 0, at: 0.5 }, [0.0; 2]);
+        let strobe = g.add(
+            NodeKind::Strobe {
+                blink: Blink {
+                    mode: BlinkMode::Blink,
+                    ..Default::default()
+                },
+            },
+            [0.0; 2],
+        );
+        g.connect(src, 0, mir, 0);
+        g.connect(mir, 0, strobe, 0);
+        g.connect(strobe, 0, out, 0);
+        let layers = g.compile();
+        assert_eq!(layers.len(), 2);
+        let m = &layers[1].transform;
+        assert_eq!(m.position, [-1.0, 1.0, 0.0]);
+        assert_eq!(m.stretch, [-1.0, 1.0, 1.0]);
+        assert_eq!(m.rotation, [10.0, -20.0, -30.0]);
+        assert_eq!(m.spin, [1, -2, -3]);
+        assert!(layers.iter().all(|l| l.blink.mode == BlinkMode::Blink));
+    }
+
+    #[test]
+    fn mirror_matches_world_reflection() {
+        use crate::eval::layer_matrix;
+        use glam::{Mat4, Vec3};
+        let mut l = Layer::default()
+            .at([1.0, 2.0, 3.0])
+            .rotated([15.0, 40.0, -25.0]);
+        l.transform.spin = [1, 1, 2];
+        let ctx = crate::EvalCtx::new(&Default::default(), 0.3, None);
+        for axis in 0..3 {
+            let mut s = Vec3::ONE;
+            s[axis] = -1.0;
+            let want = Mat4::from_scale(s) * layer_matrix(&l.transform, &ctx);
+            let got = layer_matrix(&mirror_layer(l.clone(), axis, 0.0).transform, &ctx);
+            assert!(want.abs_diff_eq(got, 1e-4), "axis {axis}");
+        }
     }
 
     #[test]

@@ -5,7 +5,7 @@ use ez_core::palette::{quantize, PaletteId};
 use ez_core::rng::hash_u32;
 use ez_core::RetroProcess;
 use image::{imageops::FilterType, RgbaImage};
-use std::f32::consts::TAU;
+use std::f32::consts::{PI, TAU};
 
 pub const TEX_SIZE: u32 = 256;
 
@@ -31,6 +31,19 @@ pub const BUILTIN: &[(&str, &str)] = &[
     ("stars", "Tiny star specks"),
     ("lava", "Glowing lava cracks"),
     ("dither", "Bayer-dithered gradient"),
+    ("tron_grid", "Glowing cyan grid lines"),
+    ("rainbow", "Diagonal rainbow sweep"),
+    ("polka", "Polka dots"),
+    ("truchet", "Truchet tiles of quarter-circle arcs"),
+    ("maze", "The C64 10 PRINT maze"),
+    ("caustics", "Underwater light caustics"),
+    ("carbon", "Carbon fibre weave"),
+    ("wood", "Pixel wood planks"),
+    ("crt_mask", "CRT phosphor triads"),
+    ("rings", "Concentric target rings"),
+    ("mosaic", "Random coloured mosaic tiles"),
+    ("clouds", "Soft clouds on a blue sky"),
+    ("matrix", "Falling green glyph rain"),
 ];
 
 pub fn is_builtin(name: &str) -> bool {
@@ -376,6 +389,154 @@ fn pixel(name: &str, x: u32, y: u32, u: f32, v: f32) -> [f32; 3] {
             let levels = 4.0;
             let q = ((t * levels + d - 0.5).round() / levels).clamp(0.0, 1.0);
             ramp(&[(0.0, 0x100030), (0.5, 0x8030c0), (1.0, 0xffc0ff)], q)
+        }
+        "tron_grid" => {
+            let d = |t: u32| {
+                let m = t % 32;
+                m.min(32 - m) as f32
+            };
+            let dist = d(x).min(d(y));
+            let line = (-dist * 0.9).exp();
+            let glow = (-dist * 0.2).exp() * 0.25;
+            mix([0.01, 0.02, 0.05], [0.4, 1.0, 1.0], (line + glow).min(1.0))
+        }
+        "rainbow" => {
+            let h = (u + v).fract();
+            [
+                0.5 + 0.5 * (h * TAU).cos(),
+                0.5 + 0.5 * (h * TAU - 2.094).cos(),
+                0.5 + 0.5 * (h * TAU + 2.094).cos(),
+            ]
+        }
+        "polka" => {
+            let row = y / 32;
+            let ox = if row.is_multiple_of(2) { 0 } else { 16 };
+            let cx = ((x + ox) % 32) as f32 - 15.5;
+            let cy = (y % 32) as f32 - 15.5;
+            let dot = 1.0 - smooth(8.0, 9.5, (cx * cx + cy * cy).sqrt());
+            mix(rgb(0x1a0830), rgb(0xff5ab4), dot)
+        }
+        "truchet" => {
+            let (cx, cy) = ((x / 32) as i32, (y / 32) as i32);
+            let flip = h2(cx, cy, 5) > 0.5;
+            let mut fx = (x % 32) as f32 / 32.0;
+            let fy = (y % 32) as f32 / 32.0;
+            if flip {
+                fx = 1.0 - fx;
+            }
+            let d1 = ((fx * fx + fy * fy).sqrt() - 0.5).abs();
+            let d2 = (((1.0 - fx).powi(2) + (1.0 - fy).powi(2)).sqrt() - 0.5).abs();
+            let line = 1.0 - smooth(0.06, 0.1, d1.min(d2));
+            mix(rgb(0x101828), rgb(0xffb020), line)
+        }
+        "maze" => {
+            // 10 PRINT CHR$(205.5+RND(1)); : one diagonal per 16 px cell.
+            let (cx, cy) = ((x / 16) as i32, (y / 16) as i32);
+            let (fx, fy) = ((x % 16) as i32, (y % 16) as i32);
+            let d = if h2(cx, cy, 10) > 0.5 {
+                fx - fy
+            } else {
+                fx + fy - 15
+            };
+            if d.abs() <= 1 {
+                rgb(0xa0a0ff)
+            } else {
+                rgb(0x40318d)
+            }
+        }
+        "caustics" => {
+            let a = fbm(u, v, 4, 3, 31);
+            let b = fbm(u + 0.37, v + 0.21, 4, 3, 47);
+            let r = (1.0 - (a - 0.5).abs() * 6.0).max(0.0).powi(3)
+                + (1.0 - (b - 0.5).abs() * 6.0).max(0.0).powi(3);
+            mix(rgb(0x063a5a), rgb(0xd8ffff), r.min(1.0))
+        }
+        "carbon" => {
+            let (cx, cy) = (x / 8, y / 8);
+            let horiz = (cx + cy) % 2 == 0;
+            let f = if horiz {
+                (y % 8) as f32
+            } else {
+                (x % 8) as f32
+            } / 8.0;
+            let shade = 0.1 + 0.35 * (f * PI).sin().powf(0.7);
+            let k = if horiz { 1.0 } else { 0.6 };
+            [shade * k, shade * k, shade * k * 1.1]
+        }
+        "wood" => {
+            let plank = y / 32;
+            let off = h2(plank as i32, 0, 3);
+            let grain = fbm((u + off).fract(), v, 4, 3, 9 + plank);
+            let rings = ((v * 64.0 + grain * 6.0) * PI).sin() * 0.5 + 0.5;
+            let seam = if y.is_multiple_of(32) { 0.4 } else { 1.0 };
+            let c = ramp(
+                &[(0.0, 0x5a3218), (1.0, 0xb07840)],
+                rings * 0.7 + grain * 0.3,
+            );
+            [c[0] * seam, c[1] * seam, c[2] * seam]
+        }
+        "crt_mask" => {
+            let col = (x / 2) % 3;
+            let row_gap = y % 4 == 3;
+            let stagger = ((x / 6) % 2) * 2;
+            let dark = row_gap || (y + stagger) % 4 == 3;
+            let v = if dark { 0.15 } else { 1.0 };
+            match col {
+                0 => [v, 0.05, 0.05],
+                1 => [0.05, v, 0.05],
+                _ => [0.05, 0.05, v],
+            }
+        }
+        "rings" => {
+            let cx = (x % 64) as f32 - 31.5;
+            let cy = (y % 64) as f32 - 31.5;
+            let r = (cx * cx + cy * cy).sqrt();
+            if ((r / 5.0) as u32).is_multiple_of(2) {
+                rgb(0xf0f0f0)
+            } else {
+                rgb(0xe02040)
+            }
+        }
+        "mosaic" => {
+            let (cx, cy) = ((x / 16) as i32, (y / 16) as i32);
+            let grout = x.is_multiple_of(16) || y.is_multiple_of(16);
+            if grout {
+                [0.85, 0.85, 0.8]
+            } else {
+                let pal = [0x1f7a8c, 0xe07a5f, 0xf2cc8f, 0x81b29a, 0x3d405b, 0xf4f1de];
+                let i = (h2(cx, cy, 13) * pal.len() as f32) as usize % pal.len();
+                let c = rgb(pal[i]);
+                let k = 0.9 + h2(x as i32, y as i32, 2) * 0.1;
+                [c[0] * k, c[1] * k, c[2] * k]
+            }
+        }
+        "clouds" => {
+            let t = smooth(0.45, 0.8, fbm(u, v, 4, 5, 55));
+            mix(rgb(0x3a7bd5), [1.0, 1.0, 1.0], t)
+        }
+        "matrix" => {
+            let (col, row) = ((x / 8) as i32, (y / 8) as i32);
+            // A bright head falling down each column, with a fading tail.
+            let head = h2(col, 0, 71) * 32.0;
+            let dist = (row as f32 - head).rem_euclid(32.0);
+            let tail = (1.0 - dist / 14.0).max(0.0);
+            let glyph = h2(
+                col * 8 + (x % 8) as i32 / 2,
+                row * 8 + (y % 8) as i32 / 2,
+                6,
+            ) > 0.5
+                && x % 8 != 7
+                && y % 8 != 7;
+            if glyph && tail > 0.0 {
+                let b = tail.powf(1.5);
+                if dist < 1.0 {
+                    [0.8, 1.0, 0.8]
+                } else {
+                    [0.05 * b, b, 0.25 * b]
+                }
+            } else {
+                [0.0, 0.02, 0.0]
+            }
         }
         _ => {
             if ((x / 16) + (y / 16)).is_multiple_of(2) {

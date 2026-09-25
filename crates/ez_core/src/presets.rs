@@ -46,6 +46,16 @@ pub fn all() -> Vec<Preset> {
             project: synth_sunset(),
         },
         Preset {
+            name: "Vector Valley",
+            description: "Wireframe landscape rushing past, laser fans and a neon ribbon.",
+            project: vector_valley(),
+        },
+        Preset {
+            name: "Glitch Shrine",
+            description: "A glitching Menger sponge, flashing gems and a pulsing rose.",
+            project: glitch_shrine(),
+        },
+        Preset {
             name: "Empty",
             description: "A blank stage with a floor and a sky.",
             project: empty(),
@@ -1075,6 +1085,275 @@ pub fn synth_sunset() -> Project {
                 scanlines: 0.25,
                 curvature: 0.0,
                 noise: 0.03,
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+pub fn vector_valley() -> Project {
+    Project {
+        name: "Vector Valley".into(),
+        timing: crate::Timing {
+            bpm: 120.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Pendulum,
+            swing: 8.0,
+            target: [0.0, 3.0, -12.0],
+            distance: Param::new(16.0),
+            height: Param::new(2.5),
+            fov: Param::new(65.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0x07021a),
+            fog_density: Param::new(0.025),
+            sky_color: hex(0x6040ff),
+            ground_color: hex(0x080010),
+            light_dir: [0.0, 0.4, -1.0],
+            light_color: hex(0xc080ff),
+            light_intensity: 1.2,
+            ambient: 0.3,
+        },
+        layers: vec![
+            Layer::new(
+                "Stars",
+                LayerKind::Backdrop(Backdrop {
+                    kind: BackdropKind::Starfield,
+                    color_a: hex(0x02000a),
+                    color_b: hex(0x301060),
+                    color_c: hex(0xa0c0ff),
+                    speed: 1,
+                    intensity: Param::new(1.0),
+                    detail: 1.0,
+                    texture: None,
+                }),
+            ),
+            Layer::new(
+                "Valley",
+                LayerKind::Terrain(Terrain {
+                    size: 80.0,
+                    cells: 80,
+                    height: Param::new(7.0),
+                    hills: 5,
+                    roughness: 0.45,
+                    scroll: 2,
+                    valley: 0.35,
+                    style: TerrainStyle::Both,
+                    line_color: hex(0xff2bd6),
+                    glow: Param::new(1.2).osc(Wave::Pulse, 0.6, 16),
+                    fill_color: hex(0x0a0418),
+                    seed: 7,
+                }),
+            )
+            .at([0.0, -0.5, -20.0]),
+            Layer::new(
+                "Lasers",
+                LayerKind::Lasers(Lasers {
+                    count: 10,
+                    spread: 80.0,
+                    length: 60.0,
+                    width: 0.1,
+                    color_a: hex(0x20ffa0),
+                    color_b: hex(0x20a0ff),
+                    intensity: Param::new(3.0),
+                    sweep: 20.0,
+                    sweep_cycles: 2,
+                    strobe: 0.6,
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, 0.5, -45.0])
+            .rotated([-20.0, 0.0, 0.0])
+            .sym(Symmetry::MirrorX),
+            Layer::new(
+                "Ribbon",
+                LayerKind::Ribbon(Ribbon {
+                    curve: RibbonCurve::Wave,
+                    freq: [5, 1, 1],
+                    thickness: 0.03,
+                    color: hex(0x00e5ff),
+                    glow: Param::new(0.8),
+                    pulses: 4,
+                    pulse_speed: 2,
+                    pulse_length: 0.06,
+                    pulse_glow: 8.0,
+                }),
+            )
+            .scaled(4.0)
+            .at([0.0, 6.0, -14.0])
+            .spin([0, 1, 0]),
+        ],
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                intensity: Param::new(1.1),
+                threshold: 0.8,
+                radius: 0.8,
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+pub fn glitch_shrine() -> Project {
+    Project {
+        name: "Glitch Shrine".into(),
+        timing: crate::Timing {
+            bpm: 128.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Orbit,
+            target: [0.0, 2.0, 0.0],
+            distance: Param::new(11.0),
+            height: Param::new(3.5),
+            orbit_turns: 1,
+            fov: Param::new(55.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0x06030c),
+            fog_density: Param::new(0.03),
+            sky_color: hex(0x40a0ff),
+            ground_color: hex(0x100010),
+            light_dir: [0.3, 1.0, 0.4],
+            light_color: hex(0xffffff),
+            light_intensity: 1.3,
+            ambient: 0.25,
+        },
+        layers: vec![
+            Layer::new(
+                "Nebula",
+                LayerKind::Backdrop(Backdrop {
+                    kind: BackdropKind::Nebula,
+                    color_a: hex(0x020008),
+                    color_b: hex(0x3010a0),
+                    color_c: hex(0x00c0ff),
+                    speed: 1,
+                    intensity: Param::new(0.7),
+                    detail: 1.0,
+                    texture: None,
+                }),
+            ),
+            Layer::new(
+                "Floor",
+                LayerKind::Mirror(MirrorFloor {
+                    size: 60.0,
+                    base_color: hex(0x040408),
+                    reflectivity: 0.6,
+                    blur: 0.2,
+                    grid: Param::new(0.6),
+                    grid_color: hex(0x00c0ff),
+                    grid_scale: 1.0,
+                    ..Default::default()
+                }),
+            ),
+            Layer::new(
+                "Sponge",
+                LayerKind::Mesh(mesh(
+                    Primitive::Menger { level: 2 },
+                    Material {
+                        base_color: hex(0x08080c),
+                        metallic: 0.8,
+                        roughness: 0.15,
+                        flat_shading: true,
+                        emissive_color: hex(0x00e5ff),
+                        emissive: Param::new(2.0),
+                        emissive_mode: EmissiveMode::Edges,
+                        glitch: Glitch {
+                            amount: Param::new(0.35),
+                            style: GlitchStyle::Slices,
+                            rate: 32,
+                            chance: 0.3,
+                            seed: 4,
+                        },
+                        ..Default::default()
+                    },
+                )),
+            )
+            .scaled(2.6)
+            .at([0.0, 2.4, 0.0])
+            .spin([0, 1, 0]),
+            {
+                let mut gems = Layer::new(
+                    "Gems",
+                    LayerKind::Mesh(MeshLayer {
+                        instancer: Instancer::Radial {
+                            count: 8,
+                            radius: 5.0,
+                        },
+                        ..mesh(
+                            Primitive::Gem { facets: 8 },
+                            Material {
+                                base_color: hex(0x200818),
+                                metallic: 0.5,
+                                roughness: 0.1,
+                                flat_shading: true,
+                                emissive_color: hex(0xff2090),
+                                emissive: Param::new(1.5),
+                                emissive_mode: EmissiveMode::Edges,
+                                ..Default::default()
+                            },
+                        )
+                    }),
+                )
+                .scaled(0.6)
+                .at([0.0, 1.0, 0.0])
+                .spin([0, -1, 0]);
+                gems.blink = Blink {
+                    mode: BlinkMode::Flash,
+                    per_loop: 16,
+                    duty: 0.25,
+                    ..Default::default()
+                };
+                gems
+            },
+            Layer::new(
+                "Rose",
+                LayerKind::Ribbon(Ribbon {
+                    curve: RibbonCurve::Rose,
+                    freq: [4, 3, 1],
+                    thickness: 0.02,
+                    color: hex(0xffc040),
+                    glow: Param::new(0.6),
+                    pulses: 2,
+                    pulse_speed: 1,
+                    pulse_length: 0.1,
+                    pulse_glow: 6.0,
+                }),
+            )
+            .scaled(4.5)
+            .at([0.0, 0.3, 0.0]),
+            Layer::new(
+                "Cone lasers",
+                LayerKind::Lasers(Lasers {
+                    count: 12,
+                    pattern: LaserPattern::Cone,
+                    spread: 40.0,
+                    length: 30.0,
+                    width: 0.05,
+                    color_a: hex(0xff2090),
+                    color_b: hex(0x00e5ff),
+                    intensity: Param::new(2.0),
+                    sweep: 20.0,
+                    sweep_cycles: 1,
+                    strobe: 0.3,
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, 0.0, 0.0]),
+        ],
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                intensity: Param::new(1.0),
+                threshold: 0.8,
+                radius: 0.7,
             },
             ..Default::default()
         },

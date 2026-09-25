@@ -24,8 +24,10 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     fractal (Kaliset), oldschool plasma, synthwave sun & grid.
   - Mirror floor: real planar reflections, blur, a glowing neon grid and
     LED textures.
-  - Shapes: platonic solids, crystals, shards, beveled tech panels, neon
-    ring bands, tori, pyramids, and your own **glTF/GLB/OBJ** models.
+  - Shapes: 25 built-ins (platonic solids, crystals, shards, beveled tech
+    panels, neon ring bands, tori, torus knots, springs, gears, stars,
+    gems, hearts, a Möbius strip, a Menger sponge…) and your own
+    **glTF/GLB/OBJ** models.
   - Copies (instancing): grid, radial, scatter, orbit swarm, curved wall,
     spiral. Each has random tilt, size and hue, plus *size waves* and
     *light chases* that travel across the copies.
@@ -33,12 +35,23 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   - Particles: burst, drift, ring orbit, fountain, warp stars, vortex and
     glitter, with trails. They are fully deterministic on the GPU, so
     scrubbing and exports are exact.
+  - Terrain: an endless wireframe or solid landscape that scrolls past and
+    repeats exactly every loop.
+  - Laser beams: fans, rotating cones or scattered beams that sweep and
+    strobe on the beat.
+  - Neon ribbons: glowing tubes along Lissajous, knot, figure-eight, wave
+    or rose curves, with light pulses running along them.
+  - Blink / strobe on any layer: rhythmic or random blinking and beat
+    flashes.
 - **Materials.** Glossy/metallic surfaces with fake studio reflections,
   flat-shaded facets, rim light, and neon glow on the whole surface, along
-  polygon edges (Tron look), in stripes, or from a texture.
-- **Retro PC textures.** 20 built-in tileable textures (XOR, plasma,
+  polygon edges (Tron look), in stripes, or from a texture. **Glitch**
+  corrupts a shape's geometry (jitter, VHS slices, shatter) in loop-safe
+  bursts.
+- **Retro PC textures.** 33 built-in tileable textures (XOR, plasma,
   checkerboard, circuit, tech panel, LED grid, speaker grille, Win9x, copper
-  bars, Sierpinski…). Imported images can be *retro-ized*: downscaled,
+  bars, Sierpinski, Tron grid, Truchet, the C64 10 PRINT maze, Matrix rain,
+  CRT phosphors…). Imported images can be *retro-ized*: downscaled,
   palette-reduced and dithered.
 - **Post FX.** Bloom, kaleidoscope, mirror split, chromatic aberration,
   pixelation, palette reduction with Bayer dithering (EGA, CGA, C64, Game
@@ -54,7 +67,8 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   rotation, bounded counts, loop-safe motion), and every change can be
   undone.
 - **Node graph (advanced mode).** Source layers flow through modifiers
-  (Symmetry, Array, Spin, Offset, Scale, Tint, Merge) into Output. The
+  (Symmetry, Array, Spin, Offset, Scale, Tint, Jitter, Mirror, Strobe,
+  Colour/material, Merge) into Output. The
   graph compiles to the same layer list the simple mode uses, and *Bake to
   layers* brings it back into simple mode.
 - **Project files.** Readable `.ez2.json` files. Static values are saved as
