@@ -1011,8 +1011,11 @@ impl EzApp {
             .inner;
         // Gizmo, picking and mouse camera control.
         let cam_state = self.project.camera.eval(&ctx);
-        let proj = Projector::new(&cam_state, resp.rect);
-        let painter = ui.painter_at(resp.rect);
+        // The response covers the whole centred area; the picture itself is
+        // `size`, centred in it.
+        let image_rect = egui::Rect::from_center_size(resp.rect.center(), size);
+        let proj = Projector::new(&cam_state, image_rect);
+        let painter = ui.painter_at(image_rect);
         if self.gizmo.grid {
             gizmo::draw_grid(&painter, &proj, 0.0);
         }
@@ -1025,7 +1028,10 @@ impl EzApp {
                 }
             }
             if resp.clicked() && !on_gizmo {
-                if let Some(pos) = resp.interact_pointer_pos() {
+                if let Some(pos) = resp
+                    .interact_pointer_pos()
+                    .filter(|p| image_rect.contains(*p))
+                {
                     if let Some(i) = gizmo::pick(&self.project.layers, &ctx, &proj, pos) {
                         self.selection = Selection::Layer(i);
                     }
