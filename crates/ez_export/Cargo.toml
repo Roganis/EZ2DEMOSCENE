@@ -4,6 +4,7 @@ description = "Offline loop export (PNG / ffmpeg) for EZ2DEMOSCENE"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 ez_core.workspace = true

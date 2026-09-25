@@ -62,7 +62,10 @@ fn visit_node(node: &gltf::Node, parent: Mat4, buffers: &[gltf::buffer::Data], o
                 let wp = world.transform_point3(Vec3::from(*p));
                 let n = normals
                     .as_ref()
-                    .map(|n| nmat.transform_vector3(Vec3::from(n[i])).normalize_or(Vec3::Y))
+                    .map(|n| {
+                        nmat.transform_vector3(Vec3::from(n[i]))
+                            .normalize_or(Vec3::Y)
+                    })
                     .unwrap_or(Vec3::ZERO);
                 out.vertices.push(Vertex {
                     pos: wp.into(),
@@ -102,7 +105,11 @@ fn load_obj(path: &Path) -> Result<MeshData> {
                 [0.0; 2]
             };
             out.vertices.push(Vertex {
-                pos: [m.positions[i * 3], m.positions[i * 3 + 1], m.positions[i * 3 + 2]],
+                pos: [
+                    m.positions[i * 3],
+                    m.positions[i * 3 + 1],
+                    m.positions[i * 3 + 2],
+                ],
                 normal,
                 uv,
                 edge: 1.0,
@@ -115,7 +122,10 @@ fn load_obj(path: &Path) -> Result<MeshData> {
 
 /// Compute smooth normals for vertices that have none.
 fn fill_missing_normals(m: &mut MeshData) {
-    if m.vertices.iter().all(|v| Vec3::from(v.normal).length_squared() > 0.0) {
+    if m.vertices
+        .iter()
+        .all(|v| Vec3::from(v.normal).length_squared() > 0.0)
+    {
         return;
     }
     let mut acc = vec![Vec3::ZERO; m.vertices.len()];
@@ -152,7 +162,10 @@ mod tests {
         assert_eq!(m.vertices.len(), 3);
         assert_eq!(m.indices.len(), 3);
         // fitted into a unit sphere
-        assert!(m.vertices.iter().all(|v| Vec3::from(v.pos).length() <= 1.0001));
+        assert!(m
+            .vertices
+            .iter()
+            .all(|v| Vec3::from(v.pos).length() <= 1.0001));
         assert!(Vec3::from(m.vertices[0].normal).z.abs() > 0.99);
     }
 }

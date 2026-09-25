@@ -306,7 +306,11 @@ pub fn mesh_instances(layer: &Layer, mesh: &MeshLayer, ctx: &EvalCtx, out: &mut 
         } else {
             1.0
         };
-        let hue = if v.hue != 0.0 { v.hue * (r(10) - 0.5) } else { 0.0 };
+        let hue = if v.hue != 0.0 {
+            v.hue * (r(10) - 0.5)
+        } else {
+            0.0
+        };
         for sym in &syms {
             out.push(Instance {
                 model: *sym * l * *local * var * size,
@@ -331,9 +335,11 @@ mod tests {
 
     #[test]
     fn camera_loops() {
-        let mut cam = Camera::default();
-        cam.orbit_turns = 2;
-        cam.beat_shake = 1.0;
+        let mut cam = Camera {
+            orbit_turns: 2,
+            beat_shake: 1.0,
+            ..Default::default()
+        };
         for mode in CameraMode::ALL {
             cam.mode = mode;
             let a = cam.eval(&EvalCtx::at(0.0));

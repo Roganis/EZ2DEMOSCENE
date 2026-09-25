@@ -128,7 +128,8 @@ pub fn find_ffmpeg(explicit: Option<&Path>) -> Option<PathBuf> {
 pub fn analyze_audio(path: &Path) -> Result<AudioEnvelope> {
     use rodio::Source;
     let file = std::fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
-    let dec = rodio::Decoder::try_from(file).with_context(|| format!("decoding {}", path.display()))?;
+    let dec =
+        rodio::Decoder::try_from(file).with_context(|| format!("decoding {}", path.display()))?;
     let channels = dec.channels().get() as usize;
     let rate = dec.sample_rate().get() as f32;
     let env_rate = 100.0;
@@ -142,7 +143,6 @@ pub fn analyze_audio(path: &Path) -> Result<AudioEnvelope> {
     let mut frame_sum = 0.0f32;
     let mut ch = 0usize;
     for s in dec {
-        let s = s as f32;
         acc += s * s;
         frame_sum += s;
         ch += 1;
@@ -225,7 +225,10 @@ pub fn export(
                 let path = dir.join(format!("frame_{i:05}.png"));
                 image::save_buffer(&path, &px, w, h, image::ExtendedColorType::Rgba8)
                     .with_context(|| format!("writing {}", path.display()))?;
-                progress(Progress { frame: i + 1, total });
+                progress(Progress {
+                    frame: i + 1,
+                    total,
+                });
             }
             Ok(dir.clone())
         }
@@ -250,11 +253,22 @@ pub fn export(
             }
             match fmt {
                 ExportFormat::Mp4 => {
-                    cmd.args(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "16", "-preset", "slow"])
-                        .args(["-movflags", "+faststart"]);
+                    cmd.args([
+                        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "16", "-preset", "slow",
+                    ])
+                    .args(["-movflags", "+faststart"]);
                 }
                 ExportFormat::WebM => {
-                    cmd.args(["-c:v", "libvpx-vp9", "-pix_fmt", "yuv420p", "-crf", "24", "-b:v", "0"]);
+                    cmd.args([
+                        "-c:v",
+                        "libvpx-vp9",
+                        "-pix_fmt",
+                        "yuv420p",
+                        "-crf",
+                        "24",
+                        "-b:v",
+                        "0",
+                    ]);
                 }
                 ExportFormat::Gif => {
                     cmd.args([
@@ -268,12 +282,20 @@ pub fn export(
             }
             if audio_path.is_some() {
                 cmd.args(["-map", "0:v", "-map", "1:a", "-c:a"]);
-                cmd.arg(if fmt == ExportFormat::WebM { "libopus" } else { "aac" });
+                cmd.arg(if fmt == ExportFormat::WebM {
+                    "libopus"
+                } else {
+                    "aac"
+                });
                 cmd.args(["-t", &format!("{}", loop_secs * repeats as f32)]);
             }
             cmd.arg(&settings.output);
-            cmd.stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::piped());
-            let mut child = cmd.spawn().with_context(|| format!("starting {}", ffmpeg.display()))?;
+            cmd.stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped());
+            let mut child = cmd
+                .spawn()
+                .with_context(|| format!("starting {}", ffmpeg.display()))?;
             let mut stdin = child.stdin.take().expect("piped stdin");
             // Frames are identical across repeats: render one loop, reuse it
             // when it fits in memory (< 2 GiB), otherwise re-render.
@@ -303,13 +325,19 @@ pub fn export(
                 if let (true, Some(p)) = (cache_ok, px) {
                     cache.push(p);
                 }
-                progress(Progress { frame: i + 1, total });
+                progress(Progress {
+                    frame: i + 1,
+                    total,
+                });
             }
             drop(stdin);
             let out = child.wait_with_output()?;
             result?;
             if !out.status.success() {
-                bail!("ffmpeg failed: {}", String::from_utf8_lossy(&out.stderr).trim());
+                bail!(
+                    "ffmpeg failed: {}",
+                    String::from_utf8_lossy(&out.stderr).trim()
+                );
             }
             Ok(settings.output.clone())
         }
@@ -317,13 +345,20 @@ pub fn export(
 }
 
 /// Render a single still frame to a PNG.
-pub fn render_still(project: &Project, phase: f32, width: u32, height: u32, path: &Path) -> Result<()> {
+pub fn render_still(
+    project: &Project,
+    phase: f32,
+    width: u32,
+    height: u32,
+    path: &Path,
+) -> Result<()> {
     let gpu = Gpu::headless()?;
     let mut renderer = Renderer::new(&gpu.device, &gpu.queue, 4);
     let target = renderer.create_target(width, height);
     let ctx = EvalCtx::new(&project.timing, phase, None);
     let img = renderer.render_image(project, &ctx, &target);
-    img.save(path).with_context(|| format!("writing {}", path.display()))?;
+    img.save(path)
+        .with_context(|| format!("writing {}", path.display()))?;
     Ok(())
 }
 
@@ -340,8 +375,14 @@ mod tests {
 
     #[test]
     fn format_from_path() {
-        assert_eq!(ExportFormat::from_path(Path::new("a.GIF")), ExportFormat::Gif);
-        assert_eq!(ExportFormat::from_path(Path::new("out")), ExportFormat::PngSequence);
+        assert_eq!(
+            ExportFormat::from_path(Path::new("a.GIF")),
+            ExportFormat::Gif
+        );
+        assert_eq!(
+            ExportFormat::from_path(Path::new("out")),
+            ExportFormat::PngSequence
+        );
     }
 
     #[test]

@@ -54,7 +54,10 @@ pub fn all() -> Vec<Preset> {
 }
 
 pub fn by_name(name: &str) -> Option<Project> {
-    all().into_iter().find(|p| p.name == name).map(|p| p.project)
+    all()
+        .into_iter()
+        .find(|p| p.name == name)
+        .map(|p| p.project)
 }
 
 fn mesh(prim: Primitive, material: Material) -> MeshLayer {
@@ -197,7 +200,11 @@ pub fn neon_arena() -> Project {
                         height: 0.12,
                         segments: 160,
                     },
-                    neon(red, Param::new(4.0).osc(Wave::Sine, 1.0, 4), EmissiveMode::Full),
+                    neon(
+                        red,
+                        Param::new(4.0).osc(Wave::Sine, 1.0, 4),
+                        EmissiveMode::Full,
+                    ),
                 )),
             )
             .stretched([16.0, 1.0, 16.0])

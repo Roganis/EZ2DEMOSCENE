@@ -44,7 +44,10 @@ fn presets_render_and_loop_seamlessly() {
         mid.save(dir.join(format!("{slug}_mid.png"))).unwrap();
         let seam = mean_abs_diff(a.as_raw(), b.as_raw());
         let motion = mean_abs_diff(a.as_raw(), mid.as_raw());
-        eprintln!("{:<22} seam diff {seam:.3}  motion {motion:.2}", preset.name);
+        eprintln!(
+            "{:<22} seam diff {seam:.3}  motion {motion:.2}",
+            preset.name
+        );
         assert!(seam < 0.6, "{} does not loop: diff {seam}", preset.name);
         // The image must not be black.
         let lum: f32 = a.as_raw().iter().map(|v| *v as f32).sum::<f32>() / a.as_raw().len() as f32;

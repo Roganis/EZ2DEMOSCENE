@@ -76,7 +76,10 @@ struct GpuTexture {
 
 #[derive(Clone)]
 enum Cmd {
-    Backdrop { slot: u32, tex: String },
+    Backdrop {
+        slot: u32,
+        tex: String,
+    },
     Mesh {
         slot: u32,
         mesh: String,
@@ -85,7 +88,10 @@ enum Cmd {
         first: u32,
         count: u32,
     },
-    Particles { slot: u32, count: u32 },
+    Particles {
+        slot: u32,
+        count: u32,
+    },
 }
 
 struct ScenePipes {
@@ -303,7 +309,12 @@ impl Renderer {
         });
         let bgl_floor = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("floor"),
-            entries: &[tex_entry(0), sampler_entry(1), tex_entry(2), sampler_entry(3)],
+            entries: &[
+                tex_entry(0),
+                sampler_entry(1),
+                tex_entry(2),
+                sampler_entry(3),
+            ],
         });
         let bgl_post = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("post"),
@@ -317,7 +328,11 @@ impl Renderer {
 
         let globals_buf = [0, 1].map(|i| {
             device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some(if i == 0 { "globals main" } else { "globals refl" }),
+                label: Some(if i == 0 {
+                    "globals main"
+                } else {
+                    "globals refl"
+                }),
                 size: globals_size,
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
@@ -366,9 +381,19 @@ impl Renderer {
             immediate_size: 0,
         });
 
-        let sh_backdrop = shader(device, "backdrop", include_str!("shaders/backdrop.wgsl"), true);
+        let sh_backdrop = shader(
+            device,
+            "backdrop",
+            include_str!("shaders/backdrop.wgsl"),
+            true,
+        );
         let sh_mesh = shader(device, "mesh", include_str!("shaders/mesh.wgsl"), true);
-        let sh_particles = shader(device, "particles", include_str!("shaders/particles.wgsl"), true);
+        let sh_particles = shader(
+            device,
+            "particles",
+            include_str!("shaders/particles.wgsl"),
+            true,
+        );
         let sh_floor = shader(device, "floor", include_str!("shaders/floor.wgsl"), true);
         let sh_post = shader(device, "post", include_str!("shaders/post.wgsl"), false);
 
@@ -542,7 +567,11 @@ impl Renderer {
         })
     }
 
-    fn make_draw_bg(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, buf: &wgpu::Buffer) -> wgpu::BindGroup {
+    fn make_draw_bg(
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+        buf: &wgpu::Buffer,
+    ) -> wgpu::BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("draw"),
             layout,
@@ -715,7 +744,8 @@ impl Renderer {
                     m
                 }
                 Err(e) => {
-                    self.errors.insert(key.clone(), format!("model {path}: {e:#}"));
+                    self.errors
+                        .insert(key.clone(), format!("model {path}: {e:#}"));
                     primitive(&Primitive::Cube)
                 }
             },
@@ -725,16 +755,20 @@ impl Renderer {
     }
 
     fn upload_mesh(&mut self, key: String, data: &MeshData) {
-        let vbuf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("mesh vertices"),
-            contents: bytemuck::cast_slice(&data.vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-        let ibuf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("mesh indices"),
-            contents: bytemuck::cast_slice(&data.indices),
-            usage: wgpu::BufferUsages::INDEX,
-        });
+        let vbuf = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("mesh vertices"),
+                contents: bytemuck::cast_slice(&data.vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+        let ibuf = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("mesh indices"),
+                contents: bytemuck::cast_slice(&data.indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
         self.meshes.insert(
             key,
             GpuMesh {
@@ -778,7 +812,12 @@ impl Renderer {
             cam_pos: v4(eye, 1.0),
             cam_right: v4(right, 0.0),
             cam_up: v4(up, 0.0),
-            time: [ctx.phase, ctx.beat(), ctx.beat_frac(), ctx.loop_beats as f32],
+            time: [
+                ctx.phase,
+                ctx.beat(),
+                ctx.beat_frac(),
+                ctx.loop_beats as f32,
+            ],
             res: [
                 res.0 as f32,
                 res.1 as f32,
@@ -941,7 +980,8 @@ impl Renderer {
         self.queue
             .write_buffer(&self.globals_buf[0], 0, bytemuck::bytes_of(&main_globals));
         if let Some((_, _, fh, _)) = &floor {
-            let mirror = Mat4::from_translation(Vec3::Y * 2.0 * fh) * Mat4::from_scale(Vec3::new(1.0, -1.0, 1.0));
+            let mirror = Mat4::from_translation(Vec3::Y * 2.0 * fh)
+                * Mat4::from_scale(Vec3::new(1.0, -1.0, 1.0));
             let rview = view * mirror;
             let reye = mirror.transform_point3(cam.eye);
             let g = Self::globals(
@@ -956,7 +996,12 @@ impl Renderer {
             self.queue
                 .write_buffer(&self.globals_buf[1], 0, bytemuck::bytes_of(&g));
         }
-        self.write_post_params(project, ctx, target, floor.as_ref().map(|f| f.3).unwrap_or(0.0));
+        self.write_post_params(
+            project,
+            ctx,
+            target,
+            floor.as_ref().map(|f| f.3).unwrap_or(0.0),
+        );
 
         // Floor bind group (references the target's reflection texture).
         let floor_bg = floor.as_ref().map(|(_, tex, _, _)| {
@@ -986,7 +1031,9 @@ impl Renderer {
 
         let mut enc = self
             .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("ez2 frame") });
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("ez2 frame"),
+            });
 
         // --- reflection -------------------------------------------------------
         if floor.is_some() {
@@ -1016,8 +1063,24 @@ impl Renderer {
                 });
                 self.draw_scene(&mut pass, &self.refl_pipes, 1, &cmds);
             }
-            self.post_pass(&mut enc, "blur h", &self.blur_pipe, &target.refl_tmp, &target.bg_blur_h, SLOT_BLUR_H, false);
-            self.post_pass(&mut enc, "blur v", &self.blur_pipe, &target.refl_blur, &target.bg_blur_v, SLOT_BLUR_V, false);
+            self.post_pass(
+                &mut enc,
+                "blur h",
+                &self.blur_pipe,
+                &target.refl_tmp,
+                &target.bg_blur_h,
+                SLOT_BLUR_H,
+                false,
+            );
+            self.post_pass(
+                &mut enc,
+                "blur v",
+                &self.blur_pipe,
+                &target.refl_blur,
+                &target.bg_blur_v,
+                SLOT_BLUR_V,
+                false,
+            );
         }
 
         // --- main scene -------------------------------------------------------
@@ -1059,8 +1122,10 @@ impl Renderer {
                 multiview_mask: None,
             });
             // Backdrops first, then the floor, then everything else.
-            let (back, rest): (Vec<Cmd>, Vec<Cmd>) =
-                cmds.iter().cloned().partition(|c| matches!(c, Cmd::Backdrop { .. }));
+            let (back, rest): (Vec<Cmd>, Vec<Cmd>) = cmds
+                .iter()
+                .cloned()
+                .partition(|c| matches!(c, Cmd::Backdrop { .. }));
             self.draw_scene(&mut pass, &self.main_pipes, 0, &back);
             if let (Some((slot, _, _, _)), Some(bg)) = (&floor, &floor_bg) {
                 pass.set_pipeline(&self.floor_pipe);
@@ -1073,7 +1138,15 @@ impl Renderer {
         }
 
         // --- post ---------------------------------------------------------------
-        self.post_pass(&mut enc, "warp", &self.warp_pipe, &target.hdr2, &target.bg_warp, SLOT_WARP, false);
+        self.post_pass(
+            &mut enc,
+            "warp",
+            &self.warp_pipe,
+            &target.hdr2,
+            &target.bg_warp,
+            SLOT_WARP,
+            false,
+        );
         if project.post.bloom.enabled {
             for i in 0..BLOOM_LEVELS {
                 self.post_pass(
@@ -1098,11 +1171,25 @@ impl Renderer {
                 );
             }
         }
-        self.post_pass(&mut enc, "final", &self.final_pipe, &target.output_view, &target.bg_final, SLOT_FINAL, false);
+        self.post_pass(
+            &mut enc,
+            "final",
+            &self.final_pipe,
+            &target.output_view,
+            &target.bg_final,
+            SLOT_FINAL,
+            false,
+        );
         self.queue.submit([enc.finish()]);
     }
 
-    fn draw_scene(&self, pass: &mut wgpu::RenderPass<'_>, pipes: &ScenePipes, globals: usize, cmds: &[Cmd]) {
+    fn draw_scene(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        pipes: &ScenePipes,
+        globals: usize,
+        cmds: &[Cmd],
+    ) {
         for cmd in cmds {
             match cmd {
                 Cmd::Backdrop { slot, tex } => {
@@ -1179,7 +1266,13 @@ impl Renderer {
         pass.draw(0..3, 0..1);
     }
 
-    fn write_post_params(&self, project: &Project, ctx: &EvalCtx, target: &RenderTarget, blur: f32) {
+    fn write_post_params(
+        &self,
+        project: &Project,
+        ctx: &EvalCtx,
+        target: &RenderTarget,
+        blur: f32,
+    ) {
         let post = &project.post;
         let mut slots: Vec<PostBlock> = vec![Zeroable::zeroed(); SLOT_FINAL as usize + 1];
         let (rw, rh) = target.refl_size;
@@ -1238,8 +1331,17 @@ impl Renderer {
             1.0 / target.width as f32,
             1.0 / target.height as f32,
         ];
-        f[1] = [g.exposure.eval(ctx).max(0.0), g.contrast, g.saturation, g.vignette];
-        let bloom_k = if b.enabled { b.intensity.eval(ctx).max(0.0) * 0.5 } else { 0.0 };
+        f[1] = [
+            g.exposure.eval(ctx).max(0.0),
+            g.contrast,
+            g.saturation,
+            g.vignette,
+        ];
+        let bloom_k = if b.enabled {
+            b.intensity.eval(ctx).max(0.0) * 0.5
+        } else {
+            0.0
+        };
         f[2] = [
             g.grain,
             g.beat_flash,
@@ -1291,26 +1393,28 @@ impl Renderer {
     pub fn create_target(&self, width: u32, height: u32) -> RenderTarget {
         let (w, h) = (width.max(8), height.max(8));
         let dev = &self.device;
-        let tex = |label: &str, w: u32, h: u32, format, samples: u32, extra: wgpu::TextureUsages| {
-            dev.create_texture(&wgpu::TextureDescriptor {
-                label: Some(label),
-                size: wgpu::Extent3d {
-                    width: w,
-                    height: h,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: samples,
-                dimension: wgpu::TextureDimension::D2,
-                format,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | extra,
-                view_formats: &[],
-            })
-            .create_view(&Default::default())
-        };
+        let tex =
+            |label: &str, w: u32, h: u32, format, samples: u32, extra: wgpu::TextureUsages| {
+                dev.create_texture(&wgpu::TextureDescriptor {
+                    label: Some(label),
+                    size: wgpu::Extent3d {
+                        width: w,
+                        height: h,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: samples,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT | extra,
+                    view_formats: &[],
+                })
+                .create_view(&Default::default())
+            };
         let sampled = wgpu::TextureUsages::TEXTURE_BINDING;
         let none = wgpu::TextureUsages::empty();
-        let msaa_color = (self.msaa > 1).then(|| tex("msaa color", w, h, HDR_FORMAT, self.msaa, none));
+        let msaa_color =
+            (self.msaa > 1).then(|| tex("msaa color", w, h, HDR_FORMAT, self.msaa, none));
         let depth = tex("depth", w, h, DEPTH_FORMAT, self.msaa, none);
         let hdr = tex("hdr", w, h, HDR_FORMAT, 1, sampled);
         let hdr2 = tex("hdr2", w, h, HDR_FORMAT, 1, sampled);
@@ -1417,7 +1521,8 @@ impl Renderer {
     pub fn read_pixels(&self, target: &RenderTarget) -> Vec<u8> {
         let (w, h) = (target.width, target.height);
         let row = 4 * w;
-        let padded = row.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let padded =
+            row.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
         let buf = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("readback"),
             size: (padded * h) as u64,
@@ -1462,7 +1567,12 @@ impl Renderer {
     }
 
     /// Convenience: render and read back as an image.
-    pub fn render_image(&mut self, project: &Project, ctx: &EvalCtx, target: &RenderTarget) -> RgbaImage {
+    pub fn render_image(
+        &mut self,
+        project: &Project,
+        ctx: &EvalCtx,
+        target: &RenderTarget,
+    ) -> RgbaImage {
         self.render(project, ctx, target);
         RgbaImage::from_raw(target.width, target.height, self.read_pixels(target))
             .expect("pixel buffer size")

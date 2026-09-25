@@ -81,12 +81,7 @@ impl MeshData {
     }
 
     /// Smooth quad grid (u wraps if `wrap_u`), used for spheres/tori/bands.
-    fn grid(
-        &mut self,
-        nu: u32,
-        nv: u32,
-        f: impl Fn(f32, f32) -> (Vec3, Vec3),
-    ) {
+    fn grid(&mut self, nu: u32, nv: u32, f: impl Fn(f32, f32) -> (Vec3, Vec3)) {
         let base = self.vertices.len() as u32;
         for j in 0..=nv {
             for i in 0..=nu {
@@ -213,7 +208,9 @@ fn dual(verts: &[Vec3], faces: &[[usize; 3]]) -> (Vec<Vec3>, Vec<Vec<usize>>) {
         .collect();
     let mut out_faces = Vec::new();
     for (vi, v) in verts.iter().enumerate() {
-        let mut around: Vec<usize> = (0..faces.len()).filter(|&fi| faces[fi].contains(&vi)).collect();
+        let mut around: Vec<usize> = (0..faces.len())
+            .filter(|&fi| faces[fi].contains(&vi))
+            .collect();
         // Sort around the vertex normal.
         let n = v.normalize();
         let t = (centers[around[0]] - *v).normalize();
@@ -497,7 +494,10 @@ pub fn primitive(p: &Primitive) -> MeshData {
                 Vec3::new(-1.0, -1.0, 1.0),
             ]
             .map(|p| p.normalize());
-            let mut m = polyhedron(&v, &[vec![0, 1, 2], vec![0, 3, 1], vec![0, 2, 3], vec![1, 3, 2]]);
+            let mut m = polyhedron(
+                &v,
+                &[vec![0, 1, 2], vec![0, 3, 1], vec![0, 2, 3], vec![1, 3, 2]],
+            );
             fix_winding(&mut m);
             m
         }
@@ -591,7 +591,10 @@ mod tests {
             assert!(!m.vertices.is_empty(), "{p:?}");
             assert_eq!(m.indices.len() % 3, 0);
             assert!(m.indices.iter().all(|&i| (i as usize) < m.vertices.len()));
-            assert!(m.vertices.iter().all(|v| v.pos.iter().all(|c| c.is_finite())));
+            assert!(m
+                .vertices
+                .iter()
+                .all(|v| v.pos.iter().all(|c| c.is_finite())));
         }
     }
 

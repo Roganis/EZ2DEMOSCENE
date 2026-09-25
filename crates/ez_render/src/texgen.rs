@@ -38,7 +38,9 @@ pub fn is_builtin(name: &str) -> bool {
 }
 
 fn h2(x: i32, y: i32, seed: u32) -> f32 {
-    let v = hash_u32((x as u32).wrapping_mul(0x8da6_b343) ^ (y as u32).wrapping_mul(0xd816_3841) ^ seed);
+    let v = hash_u32(
+        (x as u32).wrapping_mul(0x8da6_b343) ^ (y as u32).wrapping_mul(0xd816_3841) ^ seed,
+    );
     (v >> 8) as f32 / (1u32 << 24) as f32
 }
 
@@ -139,7 +141,15 @@ fn pixel(name: &str, x: u32, y: u32, u: f32, v: f32) -> [f32; 3] {
         }
         "xor" => {
             let t = ((x ^ y) & 255) as f32 / 255.0;
-            ramp(&[(0.0, 0x000010), (0.5, 0x2040ff), (0.8, 0xff40c0), (1.0, 0xffffff)], t)
+            ramp(
+                &[
+                    (0.0, 0x000010),
+                    (0.5, 0x2040ff),
+                    (0.8, 0xff40c0),
+                    (1.0, 0xffffff),
+                ],
+                t,
+            )
         }
         "plasma" => {
             let a = (u * TAU * 2.0).sin()
@@ -161,13 +171,22 @@ fn pixel(name: &str, x: u32, y: u32, u: f32, v: f32) -> [f32; 3] {
         "marble" => {
             let t = fbm(u, v, 4, 5, 3);
             let s = 0.5 + 0.5 * ((u * 2.0 + t * 3.0) * TAU).sin();
-            ramp(&[(0.0, 0x202028), (0.6, 0xc8c4bc), (1.0, 0xffffff)], s.powf(0.6))
+            ramp(
+                &[(0.0, 0x202028), (0.6, 0xc8c4bc), (1.0, 0xffffff)],
+                s.powf(0.6),
+            )
         }
         "fire" => {
             let t = fbm(u, v, 6, 4, 5);
             let h = (1.0 - v) * 0.9 + t * 0.5 - 0.2;
             ramp(
-                &[(0.0, 0x000000), (0.3, 0x600000), (0.55, 0xff3000), (0.8, 0xffc000), (1.0, 0xffffc0)],
+                &[
+                    (0.0, 0x000000),
+                    (0.3, 0x600000),
+                    (0.55, 0xff3000),
+                    (0.8, 0xffc000),
+                    (1.0, 0xffffc0),
+                ],
                 h,
             )
         }
@@ -177,8 +196,13 @@ fn pixel(name: &str, x: u32, y: u32, u: f32, v: f32) -> [f32; 3] {
             let (lx, ly) = (x % cell, y % cell);
             let r = h2(cx, cy, 99);
             let horiz = r < 0.5;
-            let on_trace = if horiz { ly == 7 || ly == 8 } else { lx == 7 || lx == 8 };
-            let pad = (lx as i32 - 8).abs() <= 2 && (ly as i32 - 8).abs() <= 2 && h2(cx, cy, 5) < 0.25;
+            let on_trace = if horiz {
+                ly == 7 || ly == 8
+            } else {
+                lx == 7 || lx == 8
+            };
+            let pad =
+                (lx as i32 - 8).abs() <= 2 && (ly as i32 - 8).abs() <= 2 && h2(cx, cy, 5) < 0.25;
             let base = [0.02, 0.05, 0.03];
             if pad {
                 [0.9, 1.0, 0.8]
@@ -236,7 +260,7 @@ fn pixel(name: &str, x: u32, y: u32, u: f32, v: f32) -> [f32; 3] {
         }
         "brick" => {
             let row = y / 16;
-            let off = if row % 2 == 0 { 0 } else { 16 };
+            let off = if row.is_multiple_of(2) { 0 } else { 16 };
             let bx = (x + off) % 32;
             let by = y % 16;
             let mortar = bx < 2 || by < 2;
@@ -275,7 +299,7 @@ fn pixel(name: &str, x: u32, y: u32, u: f32, v: f32) -> [f32; 3] {
             mix([0.05, 0.08, 0.12], [0.3, 0.9, 1.0], line)
         }
         "stripes" => {
-            if ((x + y) / 32) % 2 == 0 {
+            if ((x + y) / 32).is_multiple_of(2) {
                 [1.0, 0.8, 0.0]
             } else {
                 [0.05, 0.05, 0.05]
@@ -354,7 +378,7 @@ fn pixel(name: &str, x: u32, y: u32, u: f32, v: f32) -> [f32; 3] {
             ramp(&[(0.0, 0x100030), (0.5, 0x8030c0), (1.0, 0xffc0ff)], q)
         }
         _ => {
-            if ((x / 16) + (y / 16)) % 2 == 0 {
+            if ((x / 16) + (y / 16)).is_multiple_of(2) {
                 [1.0, 0.0, 1.0]
             } else {
                 [0.0, 0.0, 0.0]

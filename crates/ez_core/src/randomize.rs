@@ -56,7 +56,8 @@ pub fn randomize(project: &mut Project, seed: u64, opt: RandomizeOptions) {
                         );
                     }
                     m.variation.seed = rng.next_u32() % 1000;
-                    m.variation.scale = (m.variation.scale + rng.signed() * 0.3 * k).clamp(0.0, 0.9);
+                    m.variation.scale =
+                        (m.variation.scale + rng.signed() * 0.3 * k).clamp(0.0, 0.9);
                     m.variation.rotation =
                         (m.variation.rotation + rng.signed() * 40.0 * k).clamp(0.0, 180.0);
                     scale_counts(&mut m.instancer, &mut rng, k);
@@ -69,7 +70,11 @@ pub fn randomize(project: &mut Project, seed: u64, opt: RandomizeOptions) {
                     }
                     let e = &mut m.material.emissive;
                     if e.base > 0.0 && rng.chance(0.3 * k) {
-                        e.wave = *rng.pick(&[crate::Wave::Pulse, crate::Wave::Sine, crate::Wave::Square]);
+                        e.wave = *rng.pick(&[
+                            crate::Wave::Pulse,
+                            crate::Wave::Sine,
+                            crate::Wave::Square,
+                        ]);
                         e.cycles = *rng.pick(&[4, 8, 16]);
                         e.amp = e.base * rng.range(0.3, 1.0);
                     }

@@ -29,7 +29,12 @@ fn main() -> anyhow::Result<()> {
             println!("{i}: without bloom");
         }
         let img = r.render_image(&p, &ctx, &target);
-        image::imageops::overlay(&mut sheet, &img, ((i % cols) as u32 * w) as i64, ((i / cols) as u32 * h) as i64);
+        image::imageops::overlay(
+            &mut sheet,
+            &img,
+            ((i % cols) as u32 * w) as i64,
+            ((i / cols) as u32 * h) as i64,
+        );
     }
     sheet.save(&out)?;
     Ok(())

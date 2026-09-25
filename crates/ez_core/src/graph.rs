@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "node")]
+#[allow(clippy::large_enum_variant)]
 pub enum NodeKind {
     /// Emits one layer.
     Source { layer: Layer },
@@ -24,7 +25,11 @@ pub enum NodeKind {
     /// Rotates hues and scales glow of every incoming layer.
     Tint { hue: f32, glow: f32 },
     /// Repeats the incoming layers `count` times, offsetting each copy.
-    Array { count: u32, step: [f32; 3], rotate_y: f32 },
+    Array {
+        count: u32,
+        step: [f32; 3],
+        rotate_y: f32,
+    },
     /// Concatenates any number of streams.
     Merge,
     /// Final output: everything connected here is rendered.
@@ -75,7 +80,10 @@ impl NodeKind {
             },
             NodeKind::Spin { turns: [0, 1, 0] },
             NodeKind::Scale { factor: 1.5 },
-            NodeKind::Tint { hue: 0.1, glow: 1.0 },
+            NodeKind::Tint {
+                hue: 0.1,
+                glow: 1.0,
+            },
             NodeKind::Array {
                 count: 3,
                 step: [0.0, 2.0, 0.0],
@@ -99,8 +107,8 @@ impl NodeKind {
             NodeKind::Offset { offset } => input
                 .into_iter()
                 .map(|mut l| {
-                    for i in 0..3 {
-                        l.transform.position[i] += offset[i];
+                    for (p, o) in l.transform.position.iter_mut().zip(offset) {
+                        *p += o;
                     }
                     l
                 })
@@ -108,8 +116,8 @@ impl NodeKind {
             NodeKind::Spin { turns } => input
                 .into_iter()
                 .map(|mut l| {
-                    for i in 0..3 {
-                        l.transform.spin[i] += turns[i];
+                    for (s, t) in l.transform.spin.iter_mut().zip(turns) {
+                        *s += t;
                     }
                     l
                 })
@@ -138,8 +146,8 @@ impl NodeKind {
                 for k in 0..(*count).clamp(1, 64) {
                     for l in &input {
                         let mut l = l.clone();
-                        for i in 0..3 {
-                            l.transform.position[i] += step[i] * k as f32;
+                        for (p, s) in l.transform.position.iter_mut().zip(step) {
+                            *p += s * k as f32;
                         }
                         l.transform.rotation[1] += rotate_y * k as f32;
                         out.push(l);
@@ -208,13 +216,13 @@ impl Graph {
     /// feeding the output.
     pub fn from_layers(layers: &[Layer]) -> Graph {
         let mut g = Graph::default();
-        let out = g.add(NodeKind::Output, [700.0, 200.0]);
+        let out = g.add(NodeKind::Output, [620.0, 120.0]);
         let per_merge = 4;
         for (chunk_i, chunk) in layers.chunks(per_merge).enumerate() {
-            let merge = g.add(NodeKind::Merge, [450.0, 60.0 + chunk_i as f32 * 260.0]);
+            let merge = g.add(NodeKind::Merge, [380.0, 40.0 + chunk_i as f32 * 440.0]);
             g.connect(merge, 0, out, chunk_i.min(7));
             for (j, l) in chunk.iter().enumerate() {
-                let y = 20.0 + (chunk_i * per_merge + j) as f32 * 70.0;
+                let y = 20.0 + (chunk_i * per_merge + j) as f32 * 110.0;
                 let s = g.add(NodeKind::Source { layer: l.clone() }, [80.0, y]);
                 g.connect(s, 0, merge, j);
             }
@@ -248,7 +256,11 @@ impl Graph {
 
     /// Compile the graph to a layer list (cycles are ignored).
     pub fn compile(&self) -> Vec<Layer> {
-        let Some(out) = self.nodes.iter().find(|n| matches!(n.kind, NodeKind::Output)) else {
+        let Some(out) = self
+            .nodes
+            .iter()
+            .find(|n| matches!(n.kind, NodeKind::Output))
+        else {
             return Vec::new();
         };
         let mut visiting = Vec::new();

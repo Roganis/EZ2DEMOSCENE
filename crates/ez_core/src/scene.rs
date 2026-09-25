@@ -333,7 +333,9 @@ impl Default for MeshLayer {
 pub enum MeshSource {
     Primitive(Primitive),
     /// A glTF/GLB or OBJ file.
-    File { path: String },
+    File {
+        path: String,
+    },
 }
 
 /// Built-in procedural meshes.
@@ -345,17 +347,36 @@ pub enum Primitive {
     Octahedron,
     Dodecahedron,
     Icosahedron,
-    Sphere { detail: u32 },
-    Torus { thickness: f32, segments: u32 },
-    Cylinder { segments: u32 },
+    Sphere {
+        detail: u32,
+    },
+    Torus {
+        thickness: f32,
+        segments: u32,
+    },
+    Cylinder {
+        segments: u32,
+    },
     /// Tall faceted spike.
-    Shard { seed: u32 },
+    Shard {
+        seed: u32,
+    },
     /// Cluster of spikes growing from a base.
-    Crystal { spikes: u32, seed: u32 },
+    Crystal {
+        spikes: u32,
+        seed: u32,
+    },
     /// Beveled slab (UVs make "edges"/"stripes" emissive modes look like light strips).
-    Panel { bevel: f32 },
+    Panel {
+        bevel: f32,
+    },
     /// Curved band segment (neon rings, arena walls).
-    Ring { arc: f32, width: f32, height: f32, segments: u32 },
+    Ring {
+        arc: f32,
+        width: f32,
+        height: f32,
+        segments: u32,
+    },
     /// Flat square in XZ.
     Plane,
     /// Pyramid with a square base.
@@ -425,9 +446,17 @@ pub enum Instancer {
         spacing: [f32; 3],
     },
     /// Copies on a circle around Y, facing outward.
-    Radial { count: u32, radius: f32 },
+    Radial {
+        count: u32,
+        radius: f32,
+    },
     /// Random points inside a sphere (or on its shell).
-    Scatter { count: u32, radius: f32, shell: bool, seed: u32 },
+    Scatter {
+        count: u32,
+        radius: f32,
+        shell: bool,
+        seed: u32,
+    },
     /// Debris swarm: each copy orbits on its own tilted circle.
     Orbit {
         count: u32,
@@ -771,7 +800,10 @@ impl BackdropKind {
         }
     }
     pub fn index(self) -> u32 {
-        BackdropKind::ALL.iter().position(|e| *e == self).unwrap_or(0) as u32
+        BackdropKind::ALL
+            .iter()
+            .position(|e| *e == self)
+            .unwrap_or(0) as u32
     }
 }
 
@@ -853,6 +885,7 @@ impl Default for MirrorFloor {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct PostStack {
     pub bloom: Bloom,
     pub kaleido: Kaleido,
@@ -862,21 +895,6 @@ pub struct PostStack {
     pub palette: PaletteFx,
     pub crt: Crt,
     pub grade: Grade,
-}
-
-impl Default for PostStack {
-    fn default() -> Self {
-        PostStack {
-            bloom: Bloom::default(),
-            kaleido: Kaleido::default(),
-            mirror: MirrorSplit::default(),
-            chroma: Chroma::default(),
-            pixelate: Pixelate::default(),
-            palette: PaletteFx::default(),
-            crt: Crt::default(),
-            grade: Grade::default(),
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1108,8 +1126,10 @@ mod tests {
 
     #[test]
     fn missing_fields_use_defaults() {
-        let p = Project::from_json(r#"{"name":"x","layers":[{"name":"a","kind":{"type":"Particles"}}]}"#)
-            .unwrap();
+        let p = Project::from_json(
+            r#"{"name":"x","layers":[{"name":"a","kind":{"type":"Particles"}}]}"#,
+        )
+        .unwrap();
         assert_eq!(p.layers.len(), 1);
         assert!(matches!(p.layers[0].kind, LayerKind::Particles(_)));
         assert_eq!(p.timing, Timing::default());
