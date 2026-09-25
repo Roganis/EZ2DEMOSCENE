@@ -1,0 +1,9 @@
+{
+  "appId": "io.github.roganis.ez2demoscene",
+  "appName": "EZ2DEMOSCENE",
+  "webDir": "../dist",
+  "android": {
+    "backgroundColor": "#121218",
+    "allowMixedContent": false
+  }
+}

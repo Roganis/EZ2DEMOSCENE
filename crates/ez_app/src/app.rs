@@ -1,18 +1,24 @@
 //! The editor application.
 
 use crate::audio::AudioPlayer;
-use crate::export_ui::{slug, ExportUi};
+use crate::export_ui::ExportUi;
+use crate::gizmo::{self, Gizmo, GizmoMode, Projector};
 use crate::inspector::{self, IMAGE_EXTENSIONS, MODEL_EXTENSIONS};
+use crate::library::Library;
 use crate::nodes::NodeEditor;
+use crate::platform::slug;
+use crate::platform::{self, LayerRef, Purpose};
 use crate::viewport::Viewport;
 use crate::widgets::ACCENT;
 use egui::{Color32, RichText, Ui};
 use ez_core::graph::Graph;
 use ez_core::randomize::{randomize, RandomizeOptions};
 use ez_core::*;
-use std::path::{Path, PathBuf};
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::Path;
+use std::path::PathBuf;
 
-const AUDIO_EXTENSIONS: &[&str] = &["mp3", "wav", "ogg", "flac", "m4a", "aac"];
+pub const AUDIO_EXTENSIONS: &[&str] = &["mp3", "wav", "ogg", "flac", "m4a", "aac"];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Selection {
@@ -22,6 +28,21 @@ enum Selection {
     Post,
     Textures,
     Layer(usize),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Tab {
+    View,
+    Layers,
+    Edit,
+}
+
+/// Below this width (in points) the phone layout is used.
+const NARROW_WIDTH: f32 = 820.0;
+
+enum Capture {
+    PresetThumb,
+    Still,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -68,6 +89,35 @@ pub struct EzApp {
     status: Option<(String, bool, f64)>,
     /// Wall-clock seconds (egui input time).
     now: f64,
+    library: Library,
+    last_autosave: f64,
+    gallery_tab: usize,
+    /// Name typed in the "save as my preset" dialog (Some = dialog open).
+    preset_name: Option<String>,
+    gizmo: Gizmo,
+    /// Pending GPU captures (preset thumbnails, stills).
+    captures: Vec<(ez_render::Readback, Project, Capture)>,
+    /// Pending automated test (`?ez2test=…` in the browser).
+    test: Option<String>,
+    title: String,
+    /// Phone layout active this frame.
+    narrow: bool,
+    tab: Tab,
+    last_node_selection: Option<usize>,
+    /// Smoothed frame time in milliseconds.
+    frame_ms: f32,
+}
+
+const AUTOSAVE_SECONDS: f64 = 30.0;
+/// Layer load above which the layer list shows a warning.
+const HEAVY_LAYER: f32 = 1.0;
+
+fn human(n: u64) -> String {
+    match n {
+        0..=9_999 => n.to_string(),
+        10_000..=999_999 => format!("{:.1}k", n as f64 / 1e3),
+        _ => format!("{:.2}M", n as f64 / 1e6),
+    }
 }
 
 impl EzApp {
@@ -77,6 +127,16 @@ impl EzApp {
             .as_ref()
             .expect("EZ2DEMOSCENE needs the wgpu renderer");
         setup_style(&cc.egui_ctx);
+        let touch = platform::is_touch_device();
+        if touch {
+            // Finger-sized controls.
+            cc.egui_ctx.global_style_mut(|s| {
+                s.spacing.interact_size.y = 30.0;
+                s.spacing.button_padding = egui::vec2(8.0, 6.0);
+                s.spacing.item_spacing = egui::vec2(8.0, 8.0);
+                s.spacing.slider_width = 150.0;
+            });
+        }
         let project = presets::neon_arena();
         let mut app = EzApp {
             saved: project.clone(),
@@ -104,12 +164,51 @@ impl EzApp {
             help_open: false,
             status: None,
             now: 0.0,
+            library: Library::open(&cc.egui_ctx),
+            last_autosave: 0.0,
+            gallery_tab: 0,
+            preset_name: None,
+            gizmo: Gizmo::new(touch),
+            captures: Vec::new(),
+            test: None,
+            title: String::new(),
+            narrow: false,
+            tab: Tab::View,
+            last_node_selection: None,
+            frame_ms: 16.0,
         };
         match initial {
-            Some(p) => app.open_path(&p),
-            None => app.presets_open = true,
+            Some(p) => {
+                let name = p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                app.open_asset(&p.to_string_lossy(), &name)
+            }
+            None => app.presets_open = app.library.recovery.is_none(),
         }
+        app.test = platform::query_param("ez2test");
         app
+    }
+
+    /// Automated browser test hook: `?ez2test=gif|zip|mp4|webm` loads a
+    /// preset and exports it at a small size (see web/tests).
+    fn run_test_hook(&mut self) {
+        let Some(format) = self.test.take() else {
+            return;
+        };
+        if !self.library.is_loaded() {
+            self.test = Some(format);
+            return;
+        }
+        let preset = platform::query_param("preset").unwrap_or_else(|| "Orbiting Solid".into());
+        if let Some(p) = presets::by_name(&preset) {
+            self.load_project(p, None);
+        }
+        self.presets_open = false;
+        self.library.discard_recovery();
+        self.export
+            .start_test(&format, &self.project, self.audio_env.as_ref());
     }
 
     fn set_status(&mut self, msg: impl Into<String>, error: bool) {
@@ -145,53 +244,219 @@ impl EzApp {
         self.reload_audio();
     }
 
-    fn open_path(&mut self, path: &Path) {
-        match std::fs::read_to_string(path)
-            .map_err(|e| e.to_string())
-            .and_then(|s| Project::from_json(&s).map_err(|e| e.to_string()))
-        {
-            Ok(p) => {
-                self.load_project(p, Some(path.to_path_buf()));
-                self.set_status(format!("Opened {}", path.display()), false);
+    /// Open a project or pack by asset path (a file on desktop, a `mem://`
+    /// asset in the browser).
+    fn open_asset(&mut self, path: &str, name: &str) {
+        let is_pack = ez_core::store::extension(path) == ez_core::assets::PACK_EXTENSION;
+        #[cfg(not(target_arch = "wasm32"))]
+        if !ez_core::store::is_mem(path) {
+            let p = Path::new(path);
+            if is_pack {
+                let dest = self.library.unpack_dir(p);
+                match ez_core::assets::unpack(p, &dest) {
+                    // A pack has no editable location: "Save" asks where to put it.
+                    Ok(pr) => {
+                        self.load_project(pr, None);
+                        self.set_status(format!("Opened pack {name}"), false);
+                    }
+                    Err(e) => self.set_status(format!("Could not open {name}: {e}"), true),
+                }
+            } else {
+                match Project::load(p) {
+                    Ok(pr) => {
+                        self.load_project(pr, Some(p.to_path_buf()));
+                        self.set_status(format!("Opened {name}"), false);
+                    }
+                    Err(e) => self.set_status(format!("Could not open {name}: {e}"), true),
+                }
             }
-            Err(e) => self.set_status(format!("Could not open {}: {e}", path.display()), true),
+            return;
         }
+        // In memory (browser): the file's bytes are in the asset store.
+        let result = ez_core::store::read(path)
+            .map_err(|e| e.to_string())
+            .and_then(|bytes| {
+                if is_pack {
+                    let prefix = format!("pack-{}", slug(name));
+                    ez_core::assets::unpack_bytes(&bytes, &prefix).map_err(|e| e.to_string())
+                } else {
+                    let mut p = Project::from_json(&String::from_utf8_lossy(&bytes))
+                        .map_err(|e| e.to_string())?;
+                    p.migrate();
+                    Ok(p)
+                }
+            });
+        ez_core::store::remove(path);
+        match result {
+            Ok(p) => {
+                // Keep unpacked assets across page reloads.
+                for a in p.asset_paths() {
+                    crate::library::persist_asset(&a);
+                }
+                self.load_project(p, None);
+                self.set_status(format!("Opened {name}"), false);
+            }
+            Err(e) => self.set_status(format!("Could not open {name}: {e}"), true),
+        }
+    }
+
+    fn save_pack(&mut self) {
+        let name = format!(
+            "{}.{}",
+            slug(&self.project.name),
+            ez_core::assets::PACK_EXTENSION
+        );
+        match ez_core::assets::pack_to_bytes(&self.project) {
+            Ok((bytes, report)) => {
+                match platform::save_file(
+                    &name,
+                    ("EZ2 pack", &[ez_core::assets::PACK_EXTENSION]),
+                    &bytes,
+                ) {
+                    Ok(Some(where_)) if report.missing.is_empty() => {
+                        if platform::IS_WEB {
+                            self.saved = self.project.clone();
+                            self.library.discard_recovery();
+                        }
+                        self.set_status(
+                            format!("Saved pack ({} asset(s)): {where_}", report.packed),
+                            false,
+                        )
+                    }
+                    Ok(Some(_)) => self.set_status(
+                        format!(
+                            "Packed, but {} file(s) were missing: {}",
+                            report.missing.len(),
+                            report.missing.join(", ")
+                        ),
+                        true,
+                    ),
+                    Ok(None) => {}
+                    Err(e) => self.set_status(format!("Save failed: {e}"), true),
+                }
+            }
+            Err(e) => self.set_status(format!("Pack failed: {e}"), true),
+        }
+    }
+
+    fn autosave(&mut self) {
+        if self.now - self.last_autosave < AUTOSAVE_SECONDS || !self.library.is_loaded() {
+            return;
+        }
+        self.last_autosave = self.now;
+        if self.project != self.saved {
+            if let Err(e) = self.library.autosave(&self.project) {
+                self.set_status(format!("Autosave failed: {e}"), true);
+            }
+        }
+    }
+
+    /// Render `project` at `(w, h)` and read it back without blocking; the
+    /// result is handled by [`Self::finish_captures`].
+    fn capture(&mut self, project: Project, w: u32, h: u32, what: Capture) {
+        let target = self.viewport.renderer.create_target(w, h);
+        let ctx = EvalCtx::new(&project.timing, self.phase(), self.audio_env.as_ref());
+        self.viewport.renderer.render(&project, &ctx, &target);
+        let rb = self.viewport.renderer.start_readback(&target);
+        self.captures.push((rb, project, what));
+    }
+
+    fn finish_captures(&mut self, ctx: &egui::Context) {
+        if self.captures.is_empty() {
+            return;
+        }
+        self.viewport.renderer.poll();
+        let pending = std::mem::take(&mut self.captures);
+        for (rb, project, what) in pending {
+            if !rb.is_ready() {
+                self.captures.push((rb, project, what));
+                continue;
+            }
+            let (w, h) = (rb.width, rb.height);
+            let Some(img) = rb
+                .take()
+                .and_then(|px| image::RgbaImage::from_raw(w, h, px))
+            else {
+                self.set_status("Capturing the image failed", true);
+                continue;
+            };
+            match what {
+                Capture::PresetThumb => match self.library.save_preset(ctx, &project, &img) {
+                    Ok(()) => {
+                        self.set_status(format!("Saved '{}' to My presets", project.name), false)
+                    }
+                    Err(e) => self.set_status(format!("Could not save preset: {e}"), true),
+                },
+                Capture::Still => {
+                    let mut png = Vec::new();
+                    let r = img
+                        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+                        .map_err(|e| e.to_string())
+                        .and_then(|_| {
+                            platform::save_file(
+                                &format!("{}.png", slug(&project.name)),
+                                ("PNG", &["png"]),
+                                &png,
+                            )
+                        });
+                    match r {
+                        Ok(Some(where_)) => {
+                            self.set_status(format!("Saved still: {where_}"), false)
+                        }
+                        Ok(None) => {}
+                        Err(e) => self.set_status(format!("Could not save the still: {e}"), true),
+                    }
+                }
+            }
+        }
+        ctx.request_repaint();
+    }
+
+    fn save_user_preset(&mut self, name: String) {
+        let mut p = self.project.clone();
+        p.name = name;
+        self.capture(p, 320, 180, Capture::PresetThumb);
     }
 
     fn open_dialog(&mut self) {
-        if let Some(p) = rfd::FileDialog::new()
-            .add_filter("EZ2 project", &["json"])
-            .pick_file()
-        {
-            self.open_path(&p);
-        }
+        platform::pick(Purpose::OpenProject);
     }
 
     fn save(&mut self, save_as: bool) {
-        let path = match (&self.path, save_as) {
-            (Some(p), false) => Some(p.clone()),
-            _ => rfd::FileDialog::new()
-                .add_filter("EZ2 project", &["json"])
-                .set_file_name(format!(
-                    "{}.{}",
-                    slug(&self.project.name),
-                    PROJECT_EXTENSION
-                ))
-                .save_file(),
-        };
-        let Some(path) = path else { return };
-        match std::fs::write(&path, self.project.to_json()) {
-            Ok(()) => {
-                self.saved = self.project.clone();
-                self.set_status(format!("Saved {}", path.display()), false);
-                self.path = Some(path);
-            }
-            Err(e) => self.set_status(format!("Save failed: {e}"), true),
+        // In the browser a project is saved as a pack download: in-memory
+        // assets have no file path a plain project could point to.
+        if platform::IS_WEB {
+            self.save_pack();
+            return;
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let path = match (&self.path, save_as) {
+                (Some(p), false) => Some(p.clone()),
+                _ => rfd::FileDialog::new()
+                    .add_filter("EZ2 project", &["json"])
+                    .set_file_name(format!(
+                        "{}.{}",
+                        slug(&self.project.name),
+                        PROJECT_EXTENSION
+                    ))
+                    .save_file(),
+            };
+            let Some(path) = path else { return };
+            match self.project.save(&path) {
+                Ok(()) => {
+                    self.saved = self.project.clone();
+                    self.set_status(format!("Saved {}", path.display()), false);
+                    self.path = Some(path);
+                }
+                Err(e) => self.set_status(format!("Save failed: {e}"), true),
+            }
+        }
+        let _ = save_as;
     }
 
-    fn set_audio(&mut self, path: Option<PathBuf>) {
-        self.project.audio = path.map(|p| p.to_string_lossy().to_string());
+    fn set_audio(&mut self, path: Option<String>) {
+        self.project.audio = path;
         self.reload_audio();
     }
 
@@ -201,8 +466,7 @@ impl EzApp {
         let Some(path) = self.project.audio.clone() else {
             return;
         };
-        let path = PathBuf::from(path);
-        match ez_export::analyze_audio(&path) {
+        match ez_export::analyze_audio_asset(&path) {
             Ok(env) => self.audio_env = Some(env),
             Err(e) => {
                 self.set_status(format!("Music: {e:#}"), true);
@@ -218,32 +482,74 @@ impl EzApp {
         }
     }
 
-    fn handle_dropped(&mut self, files: Vec<PathBuf>) {
-        for f in files {
-            let ext = f
-                .extension()
-                .map(|e| e.to_string_lossy().to_ascii_lowercase())
-                .unwrap_or_default();
-            if ext == "json" {
-                self.open_path(&f);
-            } else if MODEL_EXTENSIONS.contains(&ext.as_str()) {
-                self.project.layers.push(inspector::model_layer(&f));
-                self.selection = Selection::Layer(self.project.layers.len() - 1);
-                self.set_status(format!("Added model {}", f.display()), false);
-            } else if IMAGE_EXTENSIONS.contains(&ext.as_str()) {
-                let name = inspector::add_user_texture(&mut self.project.textures, &f);
-                if let Selection::Layer(i) = self.selection {
-                    if let Some(LayerKind::Mesh(m)) =
-                        self.project.layers.get_mut(i).map(|l| &mut l.kind)
-                    {
-                        m.material.texture = Some(name.clone());
+    /// Mutable access to the layer an import was meant for.
+    fn layer_for(&mut self, lref: LayerRef) -> Option<&mut Layer> {
+        match lref {
+            LayerRef::Layer(i) => self.project.layers.get_mut(i),
+            LayerRef::Node(id) => self.nodes.as_mut().and_then(|n| n.layer_mut(id)),
+        }
+    }
+
+    /// Apply files picked in a dialog or dropped on the window.
+    fn handle_picked(&mut self) {
+        for p in platform::take_picked() {
+            let ext = ez_core::store::extension(&p.path);
+            let purpose = match p.purpose {
+                Purpose::Dropped => {
+                    if ext == "json" || ext == ez_core::assets::PACK_EXTENSION {
+                        Purpose::OpenProject
+                    } else if MODEL_EXTENSIONS.contains(&ext.as_str()) {
+                        Purpose::AddModelLayer
+                    } else if IMAGE_EXTENSIONS.contains(&ext.as_str()) {
+                        match self.selection {
+                            Selection::Layer(i) if self.mode == Mode::Simple => {
+                                Purpose::SetTexture(LayerRef::Layer(i), platform::TexSlot::Material)
+                            }
+                            _ => Purpose::AddImages,
+                        }
+                    } else if AUDIO_EXTENSIONS.contains(&ext.as_str()) {
+                        Purpose::LoadMusic
+                    } else {
+                        self.set_status(format!("Don't know what to do with {}", p.name), true);
+                        continue;
                     }
                 }
-                self.set_status(format!("Added image '{name}'"), false);
-            } else if AUDIO_EXTENSIONS.contains(&ext.as_str()) {
-                self.set_audio(Some(f));
-            } else {
-                self.set_status(format!("Don't know what to do with {}", f.display()), true);
+                other => other,
+            };
+            match purpose {
+                Purpose::OpenProject => self.open_asset(&p.path, &p.name),
+                Purpose::AddModelLayer => {
+                    self.project.layers.push(inspector::model_layer(&p.path));
+                    self.selection = Selection::Layer(self.project.layers.len() - 1);
+                    self.set_status(format!("Added model {}", p.name), false);
+                }
+                Purpose::SetModel(lref) => {
+                    if let Some(LayerKind::Mesh(m)) = self.layer_for(lref).map(|l| &mut l.kind) {
+                        m.source = MeshSource::File {
+                            path: p.path.clone(),
+                        };
+                    }
+                }
+                Purpose::AddImages => {
+                    let name =
+                        inspector::add_user_texture(&mut self.project.textures, &p.path, &p.name);
+                    self.set_status(format!("Added image '{name}'"), false);
+                }
+                Purpose::SetTexture(lref, slot) => {
+                    let name =
+                        inspector::add_user_texture(&mut self.project.textures, &p.path, &p.name);
+                    if let Some(layer) = self.layer_for(lref) {
+                        match (&mut layer.kind, slot) {
+                            (LayerKind::Mesh(m), _) => m.material.texture = Some(name.clone()),
+                            (LayerKind::Backdrop(b), _) => b.texture = Some(name.clone()),
+                            (LayerKind::Mirror(f), _) => f.texture = Some(name.clone()),
+                            _ => {}
+                        }
+                    }
+                    self.set_status(format!("Added image '{name}'"), false);
+                }
+                Purpose::LoadMusic => self.set_audio(Some(p.path.clone())),
+                Purpose::Dropped => {}
             }
         }
     }
@@ -279,93 +585,154 @@ impl EzApp {
     // ---------------------------------------------------------------
     // UI pieces
 
-    fn top_bar(&mut self, ui: &mut Ui) {
+    fn file_menu(&mut self, ui: &mut Ui) {
+        if ui.button("New from preset…").clicked() {
+            self.presets_open = true;
+            ui.close();
+        }
+        if ui.button("Open…  (Ctrl+O)").clicked() {
+            self.open_dialog();
+            ui.close();
+        }
+        if ui.button("Save  (Ctrl+S)").clicked() {
+            self.save(false);
+            ui.close();
+        }
+        if !platform::IS_WEB && ui.button("Save as…").clicked() {
+            self.save(true);
+            ui.close();
+        }
+        if ui
+            .button("Save as pack (.ez2pack)…")
+            .on_hover_text("One file with the project and all its models, images and music, to share or move to another computer")
+            .clicked()
+        {
+            self.save_pack();
+            ui.close();
+        }
+        if ui.button("Save as my preset…").clicked() {
+            self.preset_name = Some(self.project.name.clone());
+            ui.close();
+        }
+        ui.separator();
+        if ui.button("Import 3D model…").clicked() {
+            platform::pick(Purpose::AddModelLayer);
+            ui.close();
+        }
+        if ui.button("Import image…").clicked() {
+            platform::pick(Purpose::AddImages);
+            ui.close();
+        }
+        if ui.button("Load music…").clicked() {
+            platform::pick(Purpose::LoadMusic);
+            ui.close();
+        }
+        ui.separator();
+        if ui.button("Save still image…").clicked() {
+            self.save_still();
+            ui.close();
+        }
+        if ui.button("Export loop…  (Ctrl+E)").clicked() {
+            self.export.open = true;
+            ui.close();
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            ui.separator();
+            if ui.button("Quit").clicked() {
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+        }
+    }
+
+    fn edit_menu(&mut self, ui: &mut Ui) {
+        if ui
+            .add_enabled(!self.undo.is_empty(), egui::Button::new("Undo  (Ctrl+Z)"))
+            .clicked()
+        {
+            self.undo();
+            ui.close();
+        }
+        if ui
+            .add_enabled(
+                !self.redo.is_empty(),
+                egui::Button::new("Redo  (Ctrl+Shift+Z)"),
+            )
+            .clicked()
+        {
+            self.redo();
+            ui.close();
+        }
+        ui.separator();
+        if ui.button("Reload models & images").clicked() {
+            self.viewport.renderer.reload_assets();
+            ui.close();
+        }
+    }
+
+    fn randomize_now(&mut self) {
+        self.rand_seed = self.rand_seed.wrapping_add(1);
+        randomize(&mut self.project, self.rand_seed, self.rand_opts);
+    }
+
+    fn top_bar(&mut self, ui: &mut Ui, narrow: bool) {
+        if narrow {
+            // Phone layout: one menu button, play, export.
+            egui::MenuBar::new().ui(ui, |ui| {
+                ui.menu_button(RichText::new("☰").size(20.0), |ui| {
+                    ui.menu_button("File", |ui| self.file_menu(ui));
+                    ui.menu_button("Edit", |ui| self.edit_menu(ui));
+                    if ui.button("Presets").clicked() {
+                        self.presets_open = true;
+                        ui.close();
+                    }
+                    if ui.button("🎲 Randomize").clicked() {
+                        self.randomize_now();
+                        ui.close();
+                    }
+                    if ui.button("⚙ Randomizer settings").clicked() {
+                        self.randomize_open = true;
+                        ui.close();
+                    }
+                    if ui.button("✨ Surprise me").clicked() {
+                        self.surprise();
+                        ui.close();
+                    }
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        ui.selectable_value(&mut self.mode, Mode::Simple, "Simple");
+                        ui.selectable_value(&mut self.mode, Mode::Nodes, "Nodes");
+                    });
+                    ui.separator();
+                    if ui.button("? Help").clicked() {
+                        self.help_open = true;
+                        ui.close();
+                    }
+                });
+                ui.label(RichText::new("EZ2").strong().color(ACCENT));
+                let icon = if self.playing { "⏸" } else { "▶" };
+                if ui.button(RichText::new(icon).size(18.0)).clicked() {
+                    self.playing = !self.playing;
+                }
+                if ui.button("🎲").clicked() {
+                    self.randomize_now();
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .button(RichText::new("⏺ Export").color(ACCENT).strong())
+                        .clicked()
+                    {
+                        self.export.open = true;
+                    }
+                });
+            });
+            return;
+        }
         egui::MenuBar::new().ui(ui, |ui| {
             ui.label(RichText::new("EZ2DEMOSCENE").strong().color(ACCENT));
             ui.separator();
-            ui.menu_button("File", |ui| {
-                if ui.button("New from preset…").clicked() {
-                    self.presets_open = true;
-                    ui.close();
-                }
-                if ui.button("Open…  (Ctrl+O)").clicked() {
-                    self.open_dialog();
-                    ui.close();
-                }
-                if ui.button("Save  (Ctrl+S)").clicked() {
-                    self.save(false);
-                    ui.close();
-                }
-                if ui.button("Save as…").clicked() {
-                    self.save(true);
-                    ui.close();
-                }
-                ui.separator();
-                if ui.button("Import 3D model…").clicked() {
-                    if let Some(p) = rfd::FileDialog::new()
-                        .add_filter("3D models", MODEL_EXTENSIONS)
-                        .pick_file()
-                    {
-                        self.handle_dropped(vec![p]);
-                    }
-                    ui.close();
-                }
-                if ui.button("Import image…").clicked() {
-                    if let Some(p) = rfd::FileDialog::new()
-                        .add_filter("Images", IMAGE_EXTENSIONS)
-                        .pick_file()
-                    {
-                        self.handle_dropped(vec![p]);
-                    }
-                    ui.close();
-                }
-                if ui.button("Load music…").clicked() {
-                    if let Some(p) = rfd::FileDialog::new()
-                        .add_filter("Audio", AUDIO_EXTENSIONS)
-                        .pick_file()
-                    {
-                        self.set_audio(Some(p));
-                    }
-                    ui.close();
-                }
-                ui.separator();
-                if ui.button("Save still image…").clicked() {
-                    self.save_still();
-                    ui.close();
-                }
-                if ui.button("Export loop…  (Ctrl+E)").clicked() {
-                    self.export.open = true;
-                    ui.close();
-                }
-                ui.separator();
-                if ui.button("Quit").clicked() {
-                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
-                }
-            });
-            ui.menu_button("Edit", |ui| {
-                if ui
-                    .add_enabled(!self.undo.is_empty(), egui::Button::new("Undo  (Ctrl+Z)"))
-                    .clicked()
-                {
-                    self.undo();
-                    ui.close();
-                }
-                if ui
-                    .add_enabled(
-                        !self.redo.is_empty(),
-                        egui::Button::new("Redo  (Ctrl+Shift+Z)"),
-                    )
-                    .clicked()
-                {
-                    self.redo();
-                    ui.close();
-                }
-                ui.separator();
-                if ui.button("Reload models & images").clicked() {
-                    self.viewport.renderer.reload_assets();
-                    ui.close();
-                }
-            });
+            ui.menu_button("File", |ui| self.file_menu(ui));
+            ui.menu_button("Edit", |ui| self.edit_menu(ui));
             if ui.button("Presets").clicked() {
                 self.presets_open = true;
             }
@@ -374,8 +741,7 @@ impl EzApp {
                 .on_hover_text("Shuffle colours, shapes and motion")
                 .clicked()
             {
-                self.rand_seed = self.rand_seed.wrapping_add(1);
-                randomize(&mut self.project, self.rand_seed, self.rand_opts);
+                self.randomize_now();
             }
             if ui
                 .small_button("⚙")
@@ -409,6 +775,67 @@ impl EzApp {
         });
     }
 
+    fn graph_panel(&mut self, ui: &mut Ui) {
+        ui.horizontal_wrapped(|ui| {
+            ui.strong("Node graph");
+            ui.checkbox(&mut self.project.use_graph, "render the graph");
+            if ui
+                .button("Rebuild from layers")
+                .on_hover_text("Replace the graph with one node per layer")
+                .clicked()
+            {
+                self.nodes = Some(NodeEditor::from_graph(&Graph::from_layers(
+                    &self.project.layers,
+                )));
+            }
+            if ui
+                .button("Bake to layers")
+                .on_hover_text("Turn the graph result into plain layers and go back to Simple mode")
+                .clicked()
+            {
+                if let Some(g) = &self.project.graph {
+                    self.project.layers = g.compile();
+                }
+                self.project.use_graph = false;
+                self.mode = Mode::Simple;
+            }
+        });
+        let templates = self.library.template_layers();
+        if let Some(n) = &mut self.nodes {
+            n.show(ui, &templates);
+        }
+    }
+
+    fn tab_bar(&mut self, ui: &mut Ui) {
+        let layers_label = if self.mode == Mode::Nodes {
+            "🕸\nGraph"
+        } else {
+            "☰\nLayers"
+        };
+        ui.columns(3, |cols| {
+            for (col, (tab, label)) in cols.iter_mut().zip([
+                (Tab::View, "🎬\nView"),
+                (Tab::Layers, layers_label),
+                (Tab::Edit, "✏\nEdit"),
+            ]) {
+                let selected = self.tab == tab;
+                let text = RichText::new(label).size(15.0);
+                let text = if selected {
+                    text.color(ACCENT).strong()
+                } else {
+                    text
+                };
+                let r = col.add_sized(
+                    [col.available_width(), 46.0],
+                    egui::Button::selectable(selected, text),
+                );
+                if r.clicked() {
+                    self.tab = tab;
+                }
+            }
+        });
+    }
+
     fn surprise(&mut self) {
         let all = presets::all();
         self.rand_seed = self
@@ -431,21 +858,12 @@ impl EzApp {
     }
 
     fn save_still(&mut self) {
-        let Some(path) = rfd::FileDialog::new()
-            .add_filter("PNG", &["png"])
-            .set_file_name(format!("{}.png", slug(&self.project.name)))
-            .save_file()
-        else {
-            return;
-        };
-        let (w, h) = (self.export.settings.width, self.export.settings.height);
-        match ez_export::render_still(&self.project, self.phase(), w, h, &path) {
-            Ok(()) => self.set_status(format!("Saved {}", path.display()), false),
-            Err(e) => self.set_status(format!("{e:#}"), true),
-        }
+        let (w, h) = self.export.still_size();
+        self.capture(self.project.clone(), w, h, Capture::Still);
     }
 
     fn scene_panel(&mut self, ui: &mut Ui) {
+        let templates = self.library.template_layers();
         ui.add_space(4.0);
         ui.horizontal(|ui| {
             ui.label("Name");
@@ -462,6 +880,9 @@ impl EzApp {
         for (sel, label) in items {
             if ui.selectable_label(self.selection == sel, label).clicked() {
                 self.selection = sel;
+                if self.narrow {
+                    self.tab = Tab::Edit;
+                }
             }
         }
         ui.separator();
@@ -469,7 +890,7 @@ impl EzApp {
             ui.strong("Layers");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.menu_button(RichText::new("+ Add").color(ACCENT), |ui| {
-                    if let Some(l) = inspector::add_layer_menu(ui) {
+                    if let Some(l) = inspector::add_layer_menu(ui, &templates) {
                         self.project.layers.push(l);
                         self.selection = Selection::Layer(self.project.layers.len() - 1);
                         ui.close();
@@ -500,6 +921,21 @@ impl EzApp {
                         );
                         if r.clicked() {
                             self.selection = Selection::Layer(i);
+                            if self.narrow {
+                                self.tab = Tab::Edit;
+                            }
+                        }
+                        if !self.project.use_graph {
+                            if let Some(st) = self.viewport.renderer.stats().layers.iter().find(|s| s.index == i) {
+                                if st.load > HEAVY_LAYER {
+                                    ui.label(RichText::new("⚠").color(Color32::from_rgb(255, 170, 60)))
+                                        .on_hover_text(format!(
+                                            "Heavy layer: {} triangles, {} particles. Lower the count, detail or trail if playback stutters.",
+                                            human(st.triangles),
+                                            human(st.particles)
+                                        ));
+                                }
+                            }
                         }
                         r.context_menu(|ui| {
                             if ui.button("Move up").clicked() {
@@ -512,6 +948,16 @@ impl EzApp {
                             }
                             if ui.button("Duplicate").clicked() {
                                 action = Some((i, 2));
+                                ui.close();
+                            }
+                            if ui
+                                .button("Save as template")
+                                .on_hover_text(
+                                    "Reuse this layer in other projects (+ Add → My templates)",
+                                )
+                                .clicked()
+                            {
+                                action = Some((i, 4));
                                 ui.close();
                             }
                             if ui.button("Delete").clicked() {
@@ -537,6 +983,14 @@ impl EzApp {
                     action = Some((i, 3));
                 }
             });
+        }
+        if let Some((i, 4)) = action {
+            let layer = self.project.layers[i].clone();
+            match self.library.save_template(ui.ctx(), &layer) {
+                Ok(()) => self.set_status(format!("Saved '{}' as a template", layer.name), false),
+                Err(e) => self.set_status(format!("Could not save template: {e}"), true),
+            }
+            action = None;
         }
         if let Some((i, op)) = action {
             let layers = &mut self.project.layers;
@@ -574,7 +1028,7 @@ impl EzApp {
             if self.mode == Mode::Nodes {
                 let textures = &mut self.project.textures;
                 match self.nodes.as_mut().and_then(|n| n.selected_layer_mut()) {
-                    Some(layer) => inspector::layer_ui(ui, layer, textures),
+                    Some((id, layer)) => inspector::layer_ui(ui, layer, textures, LayerRef::Node(id)),
                     None => {
                         ui.heading("Node graph");
                         ui.label("Right-click the canvas to add nodes. Drag from an output to an input to connect.");
@@ -598,7 +1052,7 @@ impl EzApp {
                 Selection::Layer(i) => {
                     let Project { layers, textures, .. } = &mut self.project;
                     match layers.get_mut(i) {
-                        Some(l) => inspector::layer_ui(ui, l, textures),
+                        Some(l) => inspector::layer_ui(ui, l, textures, LayerRef::Layer(i)),
                         None => self.selection = Selection::Camera,
                     }
                 }
@@ -617,15 +1071,7 @@ impl EzApp {
         ui.heading("Music");
         match self.project.audio.clone() {
             Some(p) => {
-                ui.label(
-                    RichText::new(
-                        Path::new(&p)
-                            .file_name()
-                            .map(|f| f.to_string_lossy().to_string())
-                            .unwrap_or(p),
-                    )
-                    .strong(),
-                );
+                ui.label(RichText::new(ez_core::store::file_name(&p).to_string()).strong());
                 if let Some(a) = &mut self.audio {
                     ui.add(egui::Slider::new(&mut a.volume, 0.0..=1.0).text("volume"));
                 }
@@ -651,12 +1097,7 @@ impl EzApp {
             None => {
                 ui.label(RichText::new("Optional: drop an MP3/WAV/OGG/FLAC here or pick one. The loop plays with it and values can pulse with it.").weak());
                 if ui.button("Load music…").clicked() {
-                    if let Some(p) = rfd::FileDialog::new()
-                        .add_filter("Audio", AUDIO_EXTENSIONS)
-                        .pick_file()
-                    {
-                        self.set_audio(Some(p));
-                    }
+                    platform::pick(Purpose::LoadMusic);
                 }
             }
         }
@@ -681,7 +1122,8 @@ impl EzApp {
                 self.time = 0.0;
             }
             // Scrubber with beat ticks.
-            let width = ui.available_width() - 330.0;
+            let reserve = if self.narrow { 110.0 } else { 330.0 };
+            let width = ui.available_width() - reserve;
             let (rect, resp) = ui.allocate_exact_size(
                 egui::vec2(width.max(100.0), 26.0),
                 egui::Sense::click_and_drag(),
@@ -746,6 +1188,11 @@ impl EzApp {
                 self.time = f as f64 * loop_s;
             }
             let beat = ph * beats as f32;
+            if self.narrow {
+                // Tempo and length live in "Timing & music" on phones.
+                ui.label(RichText::new(format!("{:>4.1}/{beats}", beat + 1.0)).monospace());
+                return;
+            }
             ui.label(RichText::new(format!("beat {:>5.2} / {beats}", beat + 1.0)).monospace());
             ui.separator();
             ui.add(
@@ -793,6 +1240,53 @@ impl EzApp {
                 })
                 .response
                 .on_hover_text("Lower the preview resolution if playback stutters");
+            {
+                let st = self.viewport.renderer.stats();
+                let fps = 1000.0 / self.frame_ms.max(0.1);
+                let color = if fps < 24.0 {
+                    Color32::from_rgb(255, 170, 60)
+                } else {
+                    Color32::GRAY
+                };
+                ui.label(RichText::new(format!("{fps:.0} fps")).color(color).small())
+                    .on_hover_ui(|ui| {
+                        ui.label(format!("Frame time: {:.1} ms", self.frame_ms));
+                        ui.label(format!("Triangles: {}", human(st.triangles)));
+                        ui.label(format!("Particles: {}", human(st.particles)));
+                        ui.label(format!("Draw calls: {}", st.draw_calls));
+                        ui.label(format!(
+                            "Mirror reflection pass: {}",
+                            if st.reflection {
+                                "yes (scene drawn twice)"
+                            } else {
+                                "no"
+                            }
+                        ));
+                        ui.label(format!(
+                            "Estimated load: {:.2} (above ~3 may stutter on a laptop GPU)",
+                            st.load
+                        ));
+                        ui.separator();
+                        let mut layers = st.layers.clone();
+                        layers.sort_by(|a, b| b.load.partial_cmp(&a.load).unwrap());
+                        for l in layers.iter().take(5) {
+                            ui.label(format!("{:>5.2}  {}", l.load, l.name));
+                        }
+                    });
+            }
+            ui.separator();
+            for (mode, label, key) in [
+                (GizmoMode::Move, "✥ Move", "W"),
+                (GizmoMode::Rotate, "⟲ Rotate", "E"),
+                (GizmoMode::Scale, "⤢ Scale", "R"),
+            ] {
+                ui.selectable_value(&mut self.gizmo.mode, mode, label)
+                    .on_hover_text(format!(
+                        "{key} — drag the handles of the selected layer. Hold Ctrl to snap."
+                    ));
+            }
+            ui.checkbox(&mut self.gizmo.grid, "Grid")
+                .on_hover_text("G — show a ground grid (1 unit squares)");
             if let Some((msg, err, t)) = &self.status {
                 if self.now - t < 6.0 || (*err && self.now - t < 20.0) {
                     ui.label(RichText::new(msg).color(if *err {
@@ -815,7 +1309,12 @@ impl EzApp {
             (size.y * ppp * self.preview_scale) as u32,
         ];
         let ctx = EvalCtx::new(&self.project.timing, self.phase(), self.audio_env.as_ref());
-        let tex = self.viewport.render(&self.project, &ctx, px);
+        // While exporting, keep showing the last picture: the GPU time goes
+        // to the export instead (this matters a lot on phones).
+        let tex = match self.viewport.last_texture() {
+            Some(t) if self.export.is_running() => t,
+            _ => self.viewport.render(&self.project, &ctx, px),
+        };
         let resp = ui
             .centered_and_justified(|ui| {
                 ui.add(
@@ -825,12 +1324,53 @@ impl EzApp {
                 )
             })
             .inner;
-        // Mouse camera control.
-        if resp.dragged() {
+        // Gizmo, picking and mouse camera control.
+        let cam_state = self.project.camera.eval(&ctx);
+        // The response covers the whole centred area; the picture itself is
+        // `size`, centred in it.
+        let image_rect = egui::Rect::from_center_size(resp.rect.center(), size);
+        let proj = Projector::new(&cam_state, image_rect);
+        let painter = ui.painter_at(image_rect);
+        if self.gizmo.grid {
+            gizmo::draw_grid(&painter, &proj, 0.0);
+        }
+        let snapping = ui.input(|i| i.modifiers.command);
+        let mut on_gizmo = false;
+        if self.mode == Mode::Simple && !self.project.use_graph {
+            if let Selection::Layer(i) = self.selection {
+                if let Some(layer) = self.project.layers.get_mut(i) {
+                    on_gizmo = self.gizmo.show(&painter, &resp, &proj, layer, snapping);
+                }
+            }
+            if resp.clicked() && !on_gizmo {
+                if let Some(pos) = resp
+                    .interact_pointer_pos()
+                    .filter(|p| image_rect.contains(*p))
+                {
+                    if let Some(i) = gizmo::pick(&self.project.layers, &ctx, &proj, pos) {
+                        self.selection = Selection::Layer(i);
+                    }
+                }
+            }
+        }
+        let multi = ui.input(|i| i.multi_touch().is_some());
+        if resp.dragged() && !on_gizmo && !self.gizmo.is_dragging() && !multi {
             let d = resp.drag_delta();
             let cam = &mut self.project.camera;
             cam.angle = (cam.angle - d.x * 0.4 + 540.0).rem_euclid(360.0) - 180.0;
             cam.height.base += d.y * 0.03;
+        }
+        // Two fingers: pinch to zoom, twist to turn, drag up/down for height.
+        if let Some(mt) = ui.input(|i| i.multi_touch()) {
+            if resp.rect.contains(mt.center_pos) {
+                let cam = &mut self.project.camera;
+                if mt.zoom_delta > 0.0 {
+                    cam.distance.base = (cam.distance.base / mt.zoom_delta).clamp(0.3, 200.0);
+                }
+                cam.angle =
+                    (cam.angle - mt.rotation_delta.to_degrees() + 540.0).rem_euclid(360.0) - 180.0;
+                cam.height.base += mt.translation_delta.y * 0.03;
+            }
         }
         if resp.hovered() {
             let scroll = ui.input(|i| i.smooth_scroll_delta.y);
@@ -857,43 +1397,218 @@ impl EzApp {
             }
         }
         let mut open = true;
-        let mut chosen = None;
-        egui::Window::new("Start from a preset")
+        let mut chosen_builtin = None;
+        let mut chosen_user = None;
+        let mut delete_user = None;
+        let mut delete_template = None;
+        // Three columns on desktop; on phones, as many as fit the screen.
+        let screen = ctx.content_rect().size();
+        let win_w = (screen.x - 24.0).min(720.0);
+        let cols = if win_w >= 680.0 {
+            3
+        } else if win_w >= 330.0 {
+            2
+        } else {
+            1
+        };
+        let card_w = if cols == 3 {
+            213.0
+        } else {
+            ((win_w - 24.0 - 10.0 * (cols as f32 - 1.0)) / cols as f32).floor()
+        };
+        let card = |ui: &mut Ui, tex: Option<egui::TextureId>, name: &str, tip: &str| -> bool {
+            let mut clicked = false;
+            ui.vertical(|ui| {
+                let size = egui::vec2(card_w, card_w * 9.0 / 16.0);
+                let r = match tex {
+                    Some(t) => ui.add(
+                        egui::Image::new(egui::load::SizedTexture::new(t, size))
+                            .corner_radius(4.0)
+                            .sense(egui::Sense::click()),
+                    ),
+                    None => ui.add_sized(size, egui::Button::new("no preview")),
+                };
+                let r = if tip.is_empty() {
+                    r
+                } else {
+                    r.on_hover_text(tip)
+                };
+                clicked = r.clicked();
+                if r.hovered() {
+                    ui.painter().rect_stroke(
+                        r.rect,
+                        4.0,
+                        egui::Stroke::new(2.0, ACCENT),
+                        egui::StrokeKind::Outside,
+                    );
+                }
+                // The name is part of the card too (easier to hit on phones).
+                if ui
+                    .add(egui::Label::new(RichText::new(name).strong()).sense(egui::Sense::click()))
+                    .clicked()
+                {
+                    clicked = true;
+                }
+            });
+            clicked
+        };
+        let mut window = egui::Window::new("Start from a preset")
             .open(&mut open)
             .collapsible(false)
-            .default_width(720.0)
-            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
-            .show(ctx, |ui| {
-                ui.label("Pick a starting point, then tweak layers on the left and values on the right. Everything loops automatically.");
-                ui.add_space(6.0);
-                egui::Grid::new("presets").spacing([10.0, 10.0]).show(ui, |ui| {
-                    for (i, t) in self.thumbs.iter().enumerate() {
-                        ui.vertical(|ui| {
-                            let img = egui::Image::new(egui::load::SizedTexture::new(t.texture, egui::vec2(213.0, 120.0)))
-                                .corner_radius(4.0)
-                                .sense(egui::Sense::click());
-                            let r = ui.add(img).on_hover_text(t.description);
-                            if r.clicked() {
-                                chosen = Some(i);
-                            }
-                            if r.hovered() {
-                                ui.painter().rect_stroke(r.rect, 4.0, egui::Stroke::new(2.0, ACCENT), egui::StrokeKind::Outside);
-                            }
-                            ui.strong(t.name);
+            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0));
+        window = if cols == 3 {
+            window.default_width(720.0)
+        } else {
+            window.fixed_size(egui::vec2(win_w - 12.0, screen.y - 140.0))
+        };
+        let list_height = if cols == 3 { 520.0 } else { screen.y - 260.0 };
+        window.show(ctx, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.selectable_value(&mut self.gallery_tab, 0, "Built-in");
+                    ui.selectable_value(&mut self.gallery_tab, 1, format!("My presets ({})", self.library.presets.len()));
+                    ui.selectable_value(&mut self.gallery_tab, 2, format!("My layer templates ({})", self.library.templates.len()));
+                });
+                ui.separator();
+                match self.gallery_tab {
+                    0 => {
+                        ui.label("Pick a starting point, then tweak layers on the left and values on the right. Everything loops automatically.");
+                        ui.add_space(6.0);
+                        egui::ScrollArea::vertical().max_height(list_height).show(ui, |ui| {
+                            egui::Grid::new("presets").spacing([10.0, 10.0]).show(ui, |ui| {
+                                for (i, t) in self.thumbs.iter().enumerate() {
+                                    if card(ui, Some(t.texture), t.name, t.description) {
+                                        chosen_builtin = Some(i);
+                                    }
+                                    if i % cols == cols - 1 {
+                                        ui.end_row();
+                                    }
+                                }
+                            });
                         });
-                        if i % 3 == 2 {
-                            ui.end_row();
+                    }
+                    1 => {
+                        if self.library.presets.is_empty() {
+                            ui.label("No presets yet. Use File → Save as my preset… to add the current scene here.");
+                        }
+                        egui::ScrollArea::vertical().max_height(list_height).show(ui, |ui| {
+                            egui::Grid::new("user presets").spacing([10.0, 10.0]).show(ui, |ui| {
+                                for (i, p) in self.library.presets.iter().enumerate() {
+                                    ui.vertical(|ui| {
+                                        if card(ui, p.thumb.as_ref().map(|t| t.id()), &p.name, "") {
+                                            chosen_user = Some(i);
+                                        }
+                                        if ui.small_button("🗑 delete").clicked() {
+                                            delete_user = Some(i);
+                                        }
+                                    });
+                                    if i % cols == cols - 1 {
+                                        ui.end_row();
+                                    }
+                                }
+                            });
+                        });
+                    }
+                    _ => {
+                        ui.label("Layers you saved with right-click → Save as template. Add them with + Add → My templates.");
+                        for (i, t) in self.library.templates.iter().enumerate() {
+                            ui.horizontal(|ui| {
+                                ui.label(format!("{} {}", inspector::layer_icon(&t.layer), t.layer.name));
+                                ui.label(RichText::new(t.layer.type_label()).weak());
+                                if ui.small_button("🗑").on_hover_text("Delete template").clicked() {
+                                    delete_template = Some(i);
+                                }
+                            });
                         }
                     }
-                });
+                }
             });
-        if let Some(i) = chosen {
+        if let Some(i) = chosen_builtin {
             let p = presets::all().into_iter().nth(i).unwrap();
             self.load_project(p.project, None);
             self.presets_open = false;
         }
+        if let Some(i) = chosen_user {
+            match self.library.load_preset(i) {
+                // Loaded as a new, unsaved project so the preset isn't overwritten.
+                Ok(p) => {
+                    self.load_project(p, None);
+                    self.presets_open = false;
+                }
+                Err(e) => self.set_status(format!("Could not load preset: {e}"), true),
+            }
+        }
+        if let Some(i) = delete_user {
+            self.library.delete_preset(ctx, i);
+        }
+        if let Some(i) = delete_template {
+            self.library.delete_template(ctx, i);
+        }
         if !open {
             self.presets_open = false;
+        }
+    }
+
+    fn recovery_window(&mut self, ctx: &egui::Context) {
+        if self.library.recovery.is_none() {
+            return;
+        }
+        let mut choice = None;
+        egui::Window::new("Recover unsaved work?")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+            .show(ctx, |ui| {
+                let name = self.library.recovery.as_ref().map(|p| p.name.clone()).unwrap_or_default();
+                if platform::IS_WEB {
+                    ui.label(format!("Unsaved changes to '{name}' from your last visit were found."));
+                } else {
+                    ui.label(format!("EZ2DEMOSCENE did not close properly last time. An autosave of '{name}' was found."));
+                }
+                ui.horizontal(|ui| {
+                    if ui.button(RichText::new("Recover").strong()).clicked() {
+                        choice = Some(true);
+                    }
+                    if ui.button("Discard").clicked() {
+                        choice = Some(false);
+                    }
+                });
+            });
+        match choice {
+            Some(true) => {
+                let p = self.library.recovery.take().unwrap();
+                self.load_project(p, None);
+                self.set_status("Recovered your unsaved work — save it with Ctrl+S", false);
+            }
+            Some(false) => {
+                self.library.discard_recovery();
+                self.presets_open = true;
+            }
+            None => {}
+        }
+    }
+
+    fn preset_name_window(&mut self, ctx: &egui::Context) {
+        let Some(mut name) = self.preset_name.take() else {
+            return;
+        };
+        let mut open = true;
+        let mut save = false;
+        egui::Window::new("Save as my preset")
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.label("It will appear in the gallery under My presets, with a thumbnail of the current frame.");
+                let r = ui.text_edit_singleline(&mut name);
+                r.request_focus();
+                if ui.button("Save").clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    save = true;
+                }
+            });
+        if save && !name.trim().is_empty() {
+            self.save_user_preset(name.trim().to_string());
+        } else if open {
+            self.preset_name = Some(name);
         }
     }
 
@@ -954,6 +1669,24 @@ impl EzApp {
         if space {
             self.playing = !self.playing;
         }
+        if !typing {
+            ctx.input(|i| {
+                if !i.modifiers.command {
+                    if i.key_pressed(egui::Key::W) {
+                        self.gizmo.mode = GizmoMode::Move;
+                    }
+                    if i.key_pressed(egui::Key::E) {
+                        self.gizmo.mode = GizmoMode::Rotate;
+                    }
+                    if i.key_pressed(egui::Key::R) {
+                        self.gizmo.mode = GizmoMode::Scale;
+                    }
+                    if i.key_pressed(egui::Key::G) {
+                        self.gizmo.grid = !self.gizmo.grid;
+                    }
+                }
+            });
+        }
         if save {
             self.save(false);
         }
@@ -973,10 +1706,16 @@ impl EzApp {
 }
 
 impl eframe::App for EzApp {
+    fn on_exit(&mut self) {
+        self.library.clean_exit();
+    }
+
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         let dt = ctx.input(|i| i.stable_dt).min(0.1) as f64;
         self.now = ctx.input(|i| i.time);
+        let raw_dt = ctx.input(|i| i.unstable_dt) * 1000.0;
+        self.frame_ms += (raw_dt.clamp(0.0, 1000.0) - self.frame_ms) * 0.1;
         if self.playing {
             self.time = (self.time + dt).rem_euclid(self.loop_seconds().max(0.01));
         }
@@ -986,16 +1725,19 @@ impl eframe::App for EzApp {
             a.sync(self.playing, t);
         }
 
-        let dropped: Vec<PathBuf> = ctx.input(|i| {
-            i.raw
-                .dropped_files
-                .iter()
-                .map(|f| f.path().to_path_buf())
-                .collect()
-        });
-        if !dropped.is_empty() {
-            self.handle_dropped(dropped);
+        let dropped: Vec<egui::DroppedFileHandle> = ctx.input(|i| i.raw.dropped_files.clone());
+        for f in dropped {
+            platform::handle_drop(f);
         }
+        self.handle_picked();
+        let was_loaded = self.library.is_loaded();
+        self.library.poll(&ctx);
+        if !was_loaded && self.library.is_loaded() && self.library.recovery.is_some() {
+            self.presets_open = false;
+        }
+        self.run_test_hook();
+        self.finish_captures(&ctx);
+        self.export.tick(&mut self.viewport.renderer);
         self.shortcuts(&ctx);
 
         // Node mode: keep graph and editor in sync.
@@ -1011,57 +1753,72 @@ impl eframe::App for EzApp {
             self.project.use_graph = true;
         }
 
-        egui::Panel::top("top").show(ui, |ui| self.top_bar(ui));
-        egui::Panel::bottom("timeline")
-            .exact_size(40.0)
-            .show(ui, |ui| {
-                ui.add_space(6.0);
-                self.timeline(ui)
-            });
-        egui::Panel::right("inspector")
-            .resizable(true)
-            .default_size(340.0)
-            .show(ui, |ui| self.inspector_panel(ui));
-        if self.mode == Mode::Simple {
-            egui::Panel::left("scene")
-                .resizable(true)
-                .default_size(230.0)
-                .show(ui, |ui| self.scene_panel(ui));
-            egui::CentralPanel::default().show(ui, |ui| self.viewport_ui(ui));
-        } else {
-            egui::Panel::bottom("graph")
-                .resizable(true)
-                .min_size(220.0)
-                .default_size(380.0)
+        self.narrow = ctx.content_rect().width() < NARROW_WIDTH;
+        let narrow = self.narrow;
+        egui::Panel::top("top").show(ui, |ui| self.top_bar(ui, narrow));
+        if narrow {
+            // Phone layout: one panel at a time, chosen with a bottom tab bar.
+            egui::Panel::bottom("tabs")
+                .exact_size(52.0)
+                .show(ui, |ui| self.tab_bar(ui));
+            egui::Panel::bottom("timeline")
+                .exact_size(40.0)
                 .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.strong("Node graph");
-                        ui.checkbox(&mut self.project.use_graph, "render the graph");
-                        if ui.button("Rebuild from layers").on_hover_text("Replace the graph with one node per layer").clicked() {
-                            self.nodes = Some(NodeEditor::from_graph(&Graph::from_layers(&self.project.layers)));
-                        }
-                        if ui.button("Bake to layers").on_hover_text("Turn the graph result into plain layers and go back to Simple mode").clicked() {
-                            if let Some(g) = &self.project.graph {
-                                self.project.layers = g.compile();
-                            }
-                            self.project.use_graph = false;
-                            self.mode = Mode::Simple;
-                        }
-                    });
-                    if let Some(n) = &mut self.nodes {
-                        n.show(ui);
-                    }
+                    ui.add_space(6.0);
+                    self.timeline(ui)
                 });
+            egui::CentralPanel::default().show(ui, |ui| match (self.tab, self.mode) {
+                (Tab::View, _) => self.viewport_ui(ui),
+                (Tab::Layers, Mode::Simple) => self.scene_panel(ui),
+                (Tab::Layers, Mode::Nodes) => self.graph_panel(ui),
+                (Tab::Edit, _) => self.inspector_panel(ui),
+            });
+        } else {
+            egui::Panel::bottom("timeline")
+                .exact_size(40.0)
+                .show(ui, |ui| {
+                    ui.add_space(6.0);
+                    self.timeline(ui)
+                });
+            egui::Panel::right("inspector")
+                .resizable(true)
+                .default_size(340.0)
+                .show(ui, |ui| self.inspector_panel(ui));
+            if self.mode == Mode::Simple {
+                egui::Panel::left("scene")
+                    .resizable(true)
+                    .default_size(230.0)
+                    .show(ui, |ui| self.scene_panel(ui));
+            } else {
+                egui::Panel::bottom("graph")
+                    .resizable(true)
+                    .min_size(220.0)
+                    .default_size(380.0)
+                    .show(ui, |ui| self.graph_panel(ui));
+            }
             egui::CentralPanel::default().show(ui, |ui| self.viewport_ui(ui));
+        }
+        if self.mode == Mode::Nodes {
             if let Some(n) = &self.nodes {
                 let g = n.to_graph();
                 if self.project.graph.as_ref() != Some(&g) {
                     self.project.graph = Some(g);
                 }
+                // Choosing "edit in inspector" on a phone jumps to the Edit tab.
+                let sel = n.selected.map(|id| id.0);
+                if sel != self.last_node_selection {
+                    self.last_node_selection = sel;
+                    if sel.is_some() && self.narrow {
+                        self.tab = Tab::Edit;
+                    }
+                }
             }
         }
 
         self.presets_window(&ctx);
+        self.recovery_window(&ctx);
+        self.preset_name_window(&ctx);
+        self.autosave();
         self.randomize_window(&ctx);
         self.help_window(&ctx);
         self.export
@@ -1075,10 +1832,11 @@ impl eframe::App for EzApp {
         } else {
             ""
         };
-        ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
-            "EZ2DEMOSCENE — {}{dirty}",
-            self.project.name
-        )));
+        let title = format!("EZ2DEMOSCENE — {}{dirty}", self.project.name);
+        if title != self.title {
+            platform::set_title(&ctx, &title);
+            self.title = title;
+        }
         if self.playing || self.export.is_running() {
             ctx.request_repaint();
         }
@@ -1086,6 +1844,8 @@ impl eframe::App for EzApp {
 }
 
 fn setup_style(ctx: &egui::Context) {
+    // Always dark, whatever the OS/browser theme.
+    ctx.options_mut(|o| o.theme_preference = egui::ThemePreference::Dark);
     let mut v = egui::Visuals::dark();
     v.selection.bg_fill = Color32::from_rgb(150, 30, 90);
     v.selection.stroke = egui::Stroke::new(1.0, ACCENT);

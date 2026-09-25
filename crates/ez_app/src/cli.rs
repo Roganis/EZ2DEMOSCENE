@@ -18,14 +18,17 @@ USAGE:
     ez2demoscene --write-presets DIR              save built-in presets as projects
     ez2demoscene --write-textures DIR             save the built-in texture pack as PNGs
 
-SCENE is a project file or the name of a built-in preset (e.g. \"Neon Arena\").
+SCENE is a project file, an .ez2pack, or the name of a built-in preset (e.g. \"Neon Arena\").
 ";
 
 fn load_scene(s: &str) -> Result<Project> {
     let p = Path::new(s);
     if p.exists() {
-        let txt = std::fs::read_to_string(p).with_context(|| format!("reading {s}"))?;
-        return Project::from_json(&txt).with_context(|| format!("parsing {s}"));
+        if ez_core::assets::is_pack(p) {
+            let dest = std::env::temp_dir().join(format!("ez2-pack-{}", std::process::id()));
+            return ez_core::assets::unpack(p, &dest).with_context(|| format!("unpacking {s}"));
+        }
+        return Project::load(p).with_context(|| format!("loading {s}"));
     }
     presets::all()
         .into_iter()

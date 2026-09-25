@@ -1,0 +1,16 @@
+{
+  "name": "EZ2DEMOSCENE",
+  "short_name": "EZ2DEMO",
+  "description": "Build seamless, stylised 3D demoscene loops: neon, mirrors, particles and retro pixels.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#121218",
+  "theme_color": "#121218",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

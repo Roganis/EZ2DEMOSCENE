@@ -8,7 +8,8 @@ use crate::param::Param;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 
-pub const PROJECT_VERSION: u32 = 1;
+/// 2: asset paths may be relative to the project file.
+pub const PROJECT_VERSION: u32 = 2;
 
 /// A complete loopable scene.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

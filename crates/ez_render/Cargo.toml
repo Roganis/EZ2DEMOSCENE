@@ -17,3 +17,9 @@ tobj.workspace = true
 anyhow.workspace = true
 log.workspace = true
 pollster.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+# Same naga as wgpu uses, with every backend, to check the shaders translate
+# for D3D12 (HLSL), Metal (MSL) and WebGL2 (GLSL ES) on any host.
+naga = { version = "30.0.1", features = ["wgsl-in", "hlsl-out", "msl-out", "glsl-out"] }

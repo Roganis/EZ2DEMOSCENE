@@ -31,6 +31,7 @@
     break-before: page;
   }
   h1 .num { color: var(--accent); margin-right: 3mm; }
+  h2, h3 { break-after: avoid; }
   h2 { font-size: 13.5pt; margin: 7mm 0 2mm; color: #2a2833; }
   h3 { font-size: 11pt; margin: 5mm 0 1.5mm; }
   p { margin: 0 0 2.6mm; }
@@ -110,11 +111,11 @@
   <img src="img/cover.jpg" alt="">
   <div class="fade"></div>
   <div class="title">
-    <div class="kicker">USER MANUAL · VERSION 0.1</div>
+    <div class="kicker">USER MANUAL · VERSION 0.3</div>
     <h1>EZ2DEMOSCENE</h1>
     <p>Build seamless, stylised 3D loops the demoscene way: neon, mirrors, particles and retro pixels. No code needed.</p>
   </div>
-  <div class="foot">For Windows &amp; Linux · Covers the editor, the node graph, exporting and the command line</div>
+  <div class="foot">For Windows, Linux, macOS, the web &amp; Android · Covers the editor, the node graph, exporting and the command line</div>
 </section>
 
 <!-- ===================================================== TOC -->
@@ -134,8 +135,10 @@
     <li><span class="n">11</span><a href="#random">Randomize, Surprise me &amp; undo</a></li>
     <li><span class="n">12</span><a href="#nodes">Nodes mode (advanced)</a></li>
     <li><span class="n">13</span><a href="#export">Exporting your loop</a></li>
-    <li><span class="n">14</span><a href="#recipes">Recipes</a></li>
-    <li><span class="n">15</span><a href="#reference">Reference: shortcuts, troubleshooting, glossary</a></li>
+    <li><span class="n">14</span><a href="#library">Saving, sharing &amp; your library</a></li>
+    <li><span class="n">15</span><a href="#web">Phones, tablets &amp; the web</a></li>
+    <li><span class="n">16</span><a href="#recipes">Recipes</a></li>
+    <li><span class="n">17</span><a href="#reference">Reference: shortcuts, performance, troubleshooting, glossary</a></li>
   </ol>
 </section>
 
@@ -179,19 +182,25 @@ final look (glow, kaleidoscope, retro palettes, CRT…).</p>
 
 <!-- ===================================================== 2 -->
 <h1 id="install"><span class="num">2</span>Installing &amp; launching</h1>
+<div class="tip"><b>No install needed</b>You can also use EZ2DEMOSCENE in a web browser or on an Android phone. See chapter 15.</div>
 <h2>What you need</h2>
 <table>
   <tr><th style="width:32%">Item</th><th>Details</th></tr>
   <tr><td>A graphics card</td><td>Any GPU with Vulkan, DirectX 12 or Metal support (most GPUs from 2015 onward). A software
   renderer also works, only slower.</td></tr>
-  <tr><td>Rust 1.95 or newer</td><td>Needed to build the app from source. Install it from <code>rustup.rs</code>, or update with
+  <tr><td>Rust 1.95 or newer <i>(source builds only)</i></td><td>Needed to build the app from source. Install it from <code>rustup.rs</code>, or update with
   <code>rustup update stable</code>.</td></tr>
   <tr><td>ffmpeg <i>(optional)</i></td><td>Needed only for MP4, WebM and GIF export. Download it from <code>ffmpeg.org</code> and make sure the
   <code>ffmpeg</code> command works in a terminal. PNG sequences need nothing extra.</td></tr>
   <tr><td>Linux only</td><td><code>sudo apt install libasound2-dev libxkbcommon-dev libwayland-dev</code></td></tr>
 </table>
 
-<h2>Building and starting</h2>
+<h2>The easy way: download a release</h2>
+<p>Ready-made downloads are published on the project's GitHub <b>Releases</b> page for Windows, Linux and macOS. Unzip the
+archive and run <code>ez2demoscene</code> (<code>ez2demoscene.exe</code> on Windows). The Windows and Linux downloads include
+<b>ffmpeg</b>, so video and GIF export work straight away. On macOS, install it with <code>brew install ffmpeg</code>.
+The archive also contains this manual, the presets and the texture pack.</p>
+<h2>Building from source</h2>
 <pre>git clone https://github.com/Roganis/EZ2DEMOSCENE
 cd EZ2DEMOSCENE
 cargo run --release                   # opens the editor
@@ -213,8 +222,9 @@ program is <code>target/release/ez2demoscene</code> (<code>ez2demoscene.exe</cod
   <span class="ui">Camera</span>, <span class="ui">Light &amp; fog</span>, <span class="ui">Post effects</span>, <span class="ui">Your images</span>);
   and the <b>layer list</b> with <span class="ui">+ Add</span>.</td></tr>
   <tr><td><b>Viewport</b> (centre)</td><td>A live preview. <b>Drag</b> to turn the camera and <b>scroll</b> to zoom. Above it you can pick the
-  <b>aspect ratio</b> (16:9, 4:3, 1:1, 9:16, 21:9) and <b>preview quality</b> (lower it if playback stutters). Status
-  messages also appear here.</td></tr>
+  <b>aspect ratio</b> (16:9, 4:3, 1:1, 9:16, 21:9), the <b>preview quality</b>, a live <b>fps</b> readout,
+  the <b>Move / Rotate / Scale</b> tools and the <b>Grid</b> switch (see 5.6). Click an object to select it. Status messages also
+  appear here.</td></tr>
   <tr><td><b>Inspector</b> (right)</td><td>All the settings of whatever is selected on the left.</td></tr>
   <tr><td><b>Timeline</b> (bottom)</td><td>Play/pause, back to start, a scrubber with <b>beat ticks</b> (tall ticks mark every 4
   beats), the current beat, BPM and loop length.</td></tr>
@@ -357,6 +367,21 @@ The look is controlled by <span class="ui">Sprite</span> (soft glow, pixel squar
 (young → old), <span class="ui">Brightness</span> and <span class="ui">Trail</span> (ghost copies behind each particle).</p>
 <div class="tip"><b>Performance</b>Particles are cheap. Tens of thousands are fine on a normal GPU. Trails multiply the count, so
 <i>count × (trail + 1)</i> is what gets drawn.</div>
+
+<div class="keep"><h2>5.6 Placing objects in the viewport</h2>
+<figure><img src="img/gizmo.jpg"><figcaption>The Dodecahedron is selected: the Move handles appear on it, and the ground grid is on.</figcaption></figure></div>
+<ul>
+  <li><b>Select</b> a shape or particle layer by clicking it in the viewport, or in the layer list.</li>
+  <li>Pick a tool above the viewport: <span class="ui">Move</span> (<kbd>W</kbd>), <span class="ui">Rotate</span> (<kbd>E</kbd>) or
+  <span class="ui">Scale</span> (<kbd>R</kbd>).</li>
+  <li><b>Drag a handle</b>. Red is X, green is Y (up) and blue is Z. With Move, the white circle in the middle slides the object along the floor.
+  With Rotate, drag one of the three rings. With Scale, the coloured squares stretch one axis and the middle circle changes the overall size.</li>
+  <li>Hold <kbd>Ctrl</kbd> while dragging to <b>snap</b>: moves go in 0.25 steps, rotations in 15° steps and sizes in 0.1 steps.</li>
+  <li><span class="ui">Grid</span> (<kbd>G</kbd>) shows the ground grid, where one square is one unit.</li>
+  <li>Dragging anywhere else still turns the camera, and the mouse wheel still zooms.</li>
+</ul>
+<div class="tip"><b>Tip</b>Pause first (<kbd>Space</kbd>) when placing spinning or orbiting things. Every handle drag counts as a single
+step for <kbd>Ctrl</kbd>+<kbd>Z</kbd>.</div>
 
 <!-- ===================================================== 6 -->
 <h1 id="materials"><span class="num">6</span>Materials, glow &amp; textures</h1>
@@ -599,6 +624,7 @@ film grain, which makes GIFs much larger.</div>
 <h2>Command line</h2>
 <p>You can render without opening the window, which is handy for batch jobs:</p>
 <pre>ez2demoscene --list-presets
+ez2demoscene --export friend_scene.ez2pack loop.mp4   # packs work too
 ez2demoscene --render "Neon Arena" still.png --phase 0.25 --size 1920x1080
 ez2demoscene --export "Gold Kaleido Room" loop.mp4 --size 1920x1080 --fps 60 --repeats 4
 ez2demoscene --export my.ez2.json frames/          # PNG sequence into a folder
@@ -606,8 +632,103 @@ ez2demoscene --write-presets my_presets/           # presets as editable project
 ez2demoscene --write-textures my_textures/         # the retro texture pack as PNGs</pre>
 <p><code>--phase</code> is a position in the loop from 0 to 1 (0.5 is the middle).</p>
 
-<!-- ===================================================== 14 -->
-<h1 id="recipes"><span class="num">14</span>Recipes</h1>
+<!-- ===================================================== LIBRARY -->
+<h1 id="library"><span class="num">14</span>Saving, sharing &amp; your library</h1>
+<h2>Project files</h2>
+<p><span class="ui">File → Save</span> (<kbd>Ctrl</kbd>+<kbd>S</kbd>) writes a <code>.ez2.json</code> project. Models, images and
+music stored <b>inside the project's folder</b> (or its sub-folders) are remembered <b>relative to the project</b>. You can move
+or copy the whole folder, even to another computer, and everything is still found. Files elsewhere on your disk are remembered
+by their full path.</p>
+<h2>Packs: one file with everything</h2>
+<p><span class="ui">File → Save as pack (.ez2pack)…</span> writes a single file containing the project <b>and copies of every model,
+image and music file it uses</b>. It's the best way to send a scene to a friend or archive it. Open a pack with
+<span class="ui">File → Open…</span> or by dropping it on the window. It is unpacked into your library folder, and
+<span class="ui">Save</span> then asks where to keep the project. If some files were missing when packing, the status bar lists them.</p>
+<h2>Autosave &amp; crash recovery</h2>
+<p>While you work, unsaved changes are autosaved every 30 seconds. If the program or computer crashes, the next start offers to
+<b>recover</b> them:</p>
+<figure><img src="img/recover.jpg" style="max-height:30mm"><figcaption>Shown after a crash. <b>Recover</b> brings back the scene; <b>Discard</b> throws the autosave away.</figcaption></figure>
+<p>After recovering, save the project somewhere with <kbd>Ctrl</kbd>+<kbd>S</kbd>. When you quit normally, the autosave is deleted.</p>
+<h2>My presets</h2>
+<p><span class="ui">File → Save as my preset…</span> adds the current scene to the gallery with a thumbnail of the current frame.
+Find it under <span class="ui">Presets → My presets</span>. Clicking one opens it as a new untitled project, so your preset is never
+overwritten by accident. The <span class="ui">🗑 delete</span> button removes it.</p>
+<figure><img src="img/mypresets.jpg" style="max-height:55mm"><figcaption>The gallery's <span class="ui">My presets</span> tab.</figcaption></figure>
+<h2>Layer templates</h2>
+<p>Built a great particle effect or neon ring? <b>Right-click the layer → Save as template</b>. It then appears in
+<span class="ui">+ Add → ⭐ My templates</span> in every project, and also in the node graph's right-click menu. Manage your templates in
+<span class="ui">Presets → My layer templates</span>.</p>
+<div class="note"><b>Where is my library?</b>Your presets, templates, unpacked packs and autosave live in your user data folder:
+<code>%APPDATA%\ez2demoscene\EZ2DEMOSCENE\data</code> on Windows, <code>~/.local/share/ez2demoscene</code> on Linux,
+and <code>~/Library/Application Support/org.ez2demoscene.EZ2DEMOSCENE</code> on macOS. Copy it to back everything up.</div>
+
+<!-- ===================================================== 15 -->
+<h1 id="web"><span class="num">15</span>Phones, tablets &amp; the web</h1>
+<p>EZ2DEMOSCENE also runs <b>in a web browser</b>, with nothing to install. It's the same editor with the same presets, layers, node
+graph and exports. Open <code>https://roganis.github.io/ez2demoscene/</code> in Chrome, Edge or Firefox on a computer, or in
+Chrome on an Android phone or tablet. On Android you can also install the <b>EZ2DEMOSCENE app (APK)</b>, which bundles the same
+editor and works offline.</p>
+<h2>Installing</h2>
+<table>
+  <tr><th>How</th><th>Steps</th></tr>
+  <tr><td>Browser</td><td>Just open the link. The first visit downloads about 5 MB; after that it loads from the cache and also works offline.</td></tr>
+  <tr><td>Home-screen app (PWA)</td><td>In Chrome, open the <span class="ui">⋮</span> menu → <span class="ui">Add to Home screen</span> / <span class="ui">Install app</span>. It opens full-screen like a normal app.</td></tr>
+  <tr><td>Android APK</td><td>Download <code>app-debug.apk</code> (or the signed release APK) from the project's GitHub Releases page, open it and allow
+  "install unknown apps" for your browser or file manager when Android asks.</td></tr>
+</table>
+<h2>The phone layout</h2>
+<p>When the window is narrower than about 820 pixels, as on a phone held upright, the editor switches to a <b>one-panel layout</b>. The top
+bar holds <span class="ui">☰</span> (all menus), play/pause, <span class="ui">🎲</span> (Surprise me) and <span class="ui">Export</span>. A
+compact timeline sits above a <b>tab bar</b> with three tabs:</p>
+<ul>
+  <li><b>View</b>: the live preview, with the Move/Rotate gizmos.</li>
+  <li><b>Layers</b>: the scene settings and layer list (or the <b>Graph</b> in Nodes mode).</li>
+  <li><b>Edit</b>: the inspector for whatever you selected. Tapping a layer, a scene item or a node jumps here automatically.</li>
+</ul>
+<div class="grid3">
+  <figure><img src="img/phone_presets.jpg"><figcaption>Preset gallery on a phone.</figcaption></figure>
+  <figure><img src="img/phone_view.jpg"><figcaption>The <b>View</b> tab.</figcaption></figure>
+  <figure><img src="img/phone_layers.jpg"><figcaption>The <b>Layers</b> tab.</figcaption></figure>
+</div>
+<p>Turn a tablet sideways (or use a desktop browser) to get the full desktop layout with all panels side by side.</p>
+<h2>Touch gestures in the preview</h2>
+<table>
+  <tr><th>Gesture</th><th>What it does</th></tr>
+  <tr><td>One finger on a gizmo handle</td><td>Moves or rotates the selected layer, as with the mouse. Handles are bigger on touch screens.</td></tr>
+  <tr><td>One finger elsewhere</td><td>Orbits the camera around the scene.</td></tr>
+  <tr><td>Two-finger pinch</td><td>Moves the camera closer or further away.</td></tr>
+  <tr><td>Two-finger twist</td><td>Turns the camera around the scene.</td></tr>
+  <tr><td>Two fingers up/down</td><td>Raises or lowers the camera.</td></tr>
+  <tr><td>Long press on a layer</td><td>Opens its menu (duplicate, delete, save as template…), like a right-click.</td></tr>
+</table>
+<h2>Files in the browser</h2>
+<ul>
+  <li><b>Importing</b> models, images and music opens your device's file picker; you can also drop files onto the page on a computer.
+  Imported files are kept inside the browser, so they're still there next time.</li>
+  <li><b>Saving</b>: <span class="ui">File → Save</span> downloads a <b>pack</b> (<code>.ez2pack</code>) with the scene and all its files. Open it
+  again with <span class="ui">File → Open…</span>, on the web or in the desktop app. In the Android app, saving and exporting open the
+  <b>share sheet</b>, so you can keep the file in Downloads or Drive, or send it straight to a chat.</li>
+  <li><b>My presets, layer templates and the autosave</b> live in the browser's storage (IndexedDB). If you come back with unsaved changes,
+  the editor offers to <b>recover</b> them. Clearing the browser's site data deletes this library, so save packs of anything you
+  want to keep.</li>
+</ul>
+<h2>Exporting on the web</h2>
+<table>
+  <tr><th>Format</th><th>Notes</th></tr>
+  <tr><td>MP4 / WebM video</td><td>Encoded by the browser's own video encoder (WebCodecs, hardware-accelerated on most phones). Loops stay frame-exact.
+  MP4 uses H.264 where available, otherwise VP9 or AV1. <b>The web version exports video without the music track</b>; use the desktop app for
+  videos with sound.</td></tr>
+  <tr><td>GIF</td><td>Works everywhere; loops forever by itself. Keep it small (e.g. 480×270) for sharing.</td></tr>
+  <tr><td>PNG frames (.zip)</td><td>Every frame as a lossless PNG, for editing elsewhere.</td></tr>
+</table>
+<p>The preview pauses while exporting so the device can concentrate on the frames. Phones are slower than desktop PCs, so start with 720p or
+less, and keep the tab open until the download starts.</p>
+<div class="note"><b>WebGPU and WebGL</b>Recent Chrome and Edge render with <b>WebGPU</b>, the fastest path. Other browsers fall back to
+<b>WebGL2</b>, which looks the same but may be slower with heavy backdrops such as the fractal and the tunnel. If a scene stutters, lower
+<span class="ui">Preview</span> to 50% in the View tab; exports are unaffected.</div>
+
+<!-- ===================================================== 16 -->
+<h1 id="recipes"><span class="num">16</span>Recipes</h1>
 <h2>Neon arena (black gloss and red neon)</h2>
 <ol>
   <li>Background <b>Nebula clouds</b>, with very dark colours A/B and a red C. Set the fog colour to almost-black red.</li>
@@ -644,7 +765,7 @@ ez2demoscene --write-textures my_textures/         # the retro texture pack as P
 </ol>
 
 <!-- ===================================================== 15 -->
-<h1 id="reference"><span class="num">15</span>Reference</h1>
+<h1 id="reference"><span class="num">17</span>Reference</h1>
 <h2>Keyboard &amp; mouse</h2>
 <table>
   <tr><th style="width:36%">Action</th><th>Shortcut</th></tr>
@@ -653,16 +774,29 @@ ez2demoscene --write-textures my_textures/         # the retro texture pack as P
   <tr><td>Open</td><td><kbd>Ctrl</kbd>+<kbd>O</kbd></td></tr>
   <tr><td>Export</td><td><kbd>Ctrl</kbd>+<kbd>E</kbd></td></tr>
   <tr><td>Undo / Redo</td><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> (or <kbd>Ctrl</kbd>+<kbd>Y</kbd>)</td></tr>
-  <tr><td>Turn the camera</td><td>Drag in the viewport</td></tr>
+  <tr><td>Move / Rotate / Scale tool</td><td><kbd>W</kbd> / <kbd>E</kbd> / <kbd>R</kbd></td></tr>
+  <tr><td>Ground grid on/off</td><td><kbd>G</kbd></td></tr>
+  <tr><td>Select an object</td><td>Click it in the viewport</td></tr>
+  <tr><td>Snap while dragging a handle</td><td>Hold <kbd>Ctrl</kbd></td></tr>
+  <tr><td>Turn the camera</td><td>Drag in the viewport (not on a handle)</td></tr>
   <tr><td>Zoom the camera</td><td>Mouse wheel over the viewport</td></tr>
   <tr><td>Scrub time</td><td>Click or drag in the timeline</td></tr>
   <tr><td>Import</td><td>Drop project, model, image or music files onto the window</td></tr>
 </table>
+<h2>Performance</h2>
+<p>The small <b>fps</b> number above the viewport shows how smoothly the preview runs. It turns orange below 24 fps.
+<b>Hover it</b> to see the frame time, triangle and particle counts, whether the mirror floor is drawing the scene a second
+time, and the <b>five most expensive layers</b>. A <span style="color:#e08a1e">⚠</span> next to a layer in the list marks a
+heavy layer. Hover it for details. The usual fixes are fewer copies, less sphere detail, fewer particles or a shorter trail. You can also
+lower the preview quality, which only affects the preview and never your exports.</p>
 <h2>Troubleshooting</h2>
 <table>
   <tr><th style="width:36%">Problem</th><th>Solution</th></tr>
-  <tr><td>Playback stutters</td><td>Lower the preview quality (the % menu above the viewport). The fractal background and big particle counts are the heaviest.
-  Exports are not affected.</td></tr>
+  <tr><td>Playback stutters</td><td>Hover the fps readout to find the heaviest layers (see Performance above), or lower the preview quality. The fractal
+  background and big particle counts are the heaviest. Exports are not affected.</td></tr>
+  <tr><td>The computer crashed and I lost my work</td><td>Start EZ2DEMOSCENE again and choose <b>Recover</b> (chapter 14).</td></tr>
+  <tr><td>A friend's project can't find its files</td><td>Ask them to send a <b>pack</b> (<span class="ui">File → Save as pack</span>) instead of the
+  <code>.ez2.json</code> file.</td></tr>
   <tr><td>Everything is washed out or one colour</td><td>A big glowing object is probably filling the screen. Reduce Glow, raise the Bloom threshold, or check the
   Size/Stretch of ring and panel layers.</td></tr>
   <tr><td>A shape is invisible</td><td>Check its visibility box, its Size, whether it is below the floor or inside another object, and the fog density.</td></tr>
@@ -674,7 +808,7 @@ ez2demoscene --write-textures my_textures/         # the retro texture pack as P
 </table>
 <h2>Project files</h2>
 <p>Projects are saved as readable <code>.ez2.json</code> text files. Imported models, images and music are stored as <b>file paths</b>, so keep
-those files next to your project when moving it to another computer. The built-in presets are also available as project files in
+the files inside the project's folder (they're then stored relative to it), or share a <b>pack</b> (chapter 14). The built-in presets are also available as project files in
 <code>assets/presets</code>.</p>
 <h2>Glossary</h2>
 <table>

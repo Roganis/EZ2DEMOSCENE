@@ -10,4 +10,7 @@ pub mod mesh;
 mod renderer;
 pub mod texgen;
 
-pub use renderer::{RenderTarget, Renderer, HDR_FORMAT, OUTPUT_FORMAT, OUTPUT_VIEW_FORMAT};
+pub use renderer::{
+    supported_msaa, FrameStats, LayerStats, Readback, RenderTarget, Renderer, HDR_FORMAT,
+    OUTPUT_FORMAT,
+};

@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#121218">
+  <meta name="description" content="Build seamless, stylised 3D demoscene loops in your browser: neon, mirrors, particles and retro pixels.">
+  <title>EZ2DEMOSCENE</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+
+  <link data-trunk rel="rust" href="../crates/ez_app/Cargo.toml" data-bin="ez2demoscene" data-wasm-opt="z" data-type="main">
+  <link data-trunk rel="copy-dir" href="icons">
+  <link data-trunk rel="copy-dir" href="vendor">
+  <link data-trunk rel="copy-file" href="ez2_video.js">
+  <link data-trunk rel="copy-file" href="ez2_save.js">
+  <link data-trunk rel="copy-file" href="manifest.webmanifest">
+  <link data-trunk rel="copy-file" href="sw.js">
+
+  <!-- WebCodecs muxers (MIT, vendored) + our video export helper. -->
+  <script src="vendor/mp4-muxer.js"></script>
+  <script src="vendor/webm-muxer.js"></script>
+  <script src="ez2_video.js"></script>
+  <script src="ez2_save.js"></script>
+
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; background: #121218; color: #ddd;
+      font-family: system-ui, sans-serif; touch-action: none; }
+    canvas#ez2_canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; outline: none; }
+    #ez2_loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 12px; text-align: center; padding: 24px; }
+    #ez2_loading h1 { margin: 0; color: #ff468c; letter-spacing: 2px; font-size: 28px; }
+    #ez2_loading .bar { width: 160px; height: 4px; background: #2a2833; border-radius: 2px; overflow: hidden; }
+    #ez2_loading .bar div { width: 40%; height: 100%; background: #ff468c; animation: ez2slide 1.1s ease-in-out infinite; }
+    @keyframes ez2slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(260%); } }
+  </style>
+</head>
+<body>
+  <canvas id="ez2_canvas"></canvas>
+  <div id="ez2_loading">
+    <h1>EZ2DEMOSCENE</h1>
+    <div class="bar"><div></div></div>
+    <p>Loading the editor…</p>
+  </div>
+  <script>
+    // Offline support: cache the app after the first visit.
+    if ("serviceWorker" in navigator && location.protocol !== "file:") {
+      navigator.serviceWorker.register("sw.js").catch(() => {});
+    }
+  </script>
+</body>
+</html>

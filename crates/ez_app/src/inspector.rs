@@ -1,5 +1,6 @@
 //! Property editors for every part of a project.
 
+use crate::platform::{self, LayerRef, Purpose, TexSlot};
 use crate::widgets::*;
 use egui::{RichText, Ui};
 use ez_core::palette::PaletteId;
@@ -10,15 +11,22 @@ pub const MODEL_EXTENSIONS: &[&str] = &["gltf", "glb", "obj"];
 pub const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "bmp", "gif", "tga"];
 
 /// Adds an image as a user texture and returns its name.
-pub fn add_user_texture(textures: &mut Vec<UserTexture>, path: &std::path::Path) -> String {
-    let path_s = path.to_string_lossy().to_string();
+/// `path` is an asset path (file or `mem://`), `file_name` its display name.
+pub fn add_user_texture(textures: &mut Vec<UserTexture>, path: &str, file_name: &str) -> String {
+    let path_s = path.to_string();
     if let Some(t) = textures.iter().find(|t| t.path == path_s) {
         return t.name.clone();
     }
-    let stem = path
-        .file_stem()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| "image".into());
+    let stem = file_name
+        .rsplit_once('.')
+        .map(|(s, _)| s)
+        .unwrap_or(file_name)
+        .to_string();
+    let stem = if stem.is_empty() {
+        "image".to_string()
+    } else {
+        stem
+    };
     let mut name = stem.clone();
     let mut k = 2;
     while textures.iter().any(|t| t.name == name) || texgen::is_builtin(&name) {
@@ -38,7 +46,8 @@ fn texture_picker(
     ui: &mut Ui,
     label: &str,
     tex: &mut Option<String>,
-    textures: &mut Vec<UserTexture>,
+    textures: &[UserTexture],
+    target: Option<(LayerRef, TexSlot)>,
 ) {
     row(ui, label, "Image mapped onto the surface", |ui| {
         let text = tex.clone().unwrap_or_else(|| "None".into());
@@ -62,12 +71,9 @@ fn texture_picker(
                     }
                 }
                 ui.separator();
-                if ui.button("Import image…").clicked() {
-                    if let Some(p) = rfd::FileDialog::new()
-                        .add_filter("Images", IMAGE_EXTENSIONS)
-                        .pick_file()
-                    {
-                        *tex = Some(add_user_texture(textures, &p));
+                if let Some((lref, slot)) = target {
+                    if ui.button("Import image…").clicked() {
+                        platform::pick(Purpose::SetTexture(lref, slot));
                     }
                 }
             });
@@ -384,14 +390,7 @@ pub fn textures_ui(ui: &mut Ui, textures: &mut Vec<UserTexture>) {
     ui.heading("Your images");
     ui.label(RichText::new("Images you imported. 'Retro-ize' shrinks them and remaps them to an old-school palette.").weak());
     if ui.button("Import image…").clicked() {
-        if let Some(files) = rfd::FileDialog::new()
-            .add_filter("Images", IMAGE_EXTENSIONS)
-            .pick_files()
-        {
-            for f in files {
-                add_user_texture(textures, &f);
-            }
-        }
+        platform::pick(Purpose::AddImages);
     }
     let mut remove = None;
     for (i, t) in textures.iter_mut().enumerate() {
@@ -429,7 +428,8 @@ pub fn textures_ui(ui: &mut Ui, textures: &mut Vec<UserTexture>) {
 // ---------------------------------------------------------------------------
 // Layers
 
-pub fn layer_ui(ui: &mut Ui, layer: &mut Layer, textures: &mut Vec<UserTexture>) {
+/// `lref` identifies the layer so file imports can be applied to it later.
+pub fn layer_ui(ui: &mut Ui, layer: &mut Layer, textures: &[UserTexture], lref: LayerRef) {
     ui.horizontal(|ui| {
         ui.checkbox(&mut layer.enabled, "");
         ui.add(egui::TextEdit::singleline(&mut layer.name).desired_width(180.0));
@@ -437,10 +437,10 @@ pub fn layer_ui(ui: &mut Ui, layer: &mut Layer, textures: &mut Vec<UserTexture>)
     });
     ui.add_space(4.0);
     match &mut layer.kind {
-        LayerKind::Mesh(m) => mesh_ui(ui, m, textures),
+        LayerKind::Mesh(m) => mesh_ui(ui, m, textures, lref),
         LayerKind::Particles(p) => particles_ui(ui, p),
-        LayerKind::Backdrop(b) => backdrop_ui(ui, b, textures),
-        LayerKind::Mirror(f) => mirror_ui(ui, f, textures),
+        LayerKind::Backdrop(b) => backdrop_ui(ui, b, textures, lref),
+        LayerKind::Mirror(f) => mirror_ui(ui, f, textures, lref),
     }
     let is_mesh_like = matches!(layer.kind, LayerKind::Mesh(_) | LayerKind::Particles(_));
     let is_backdrop = matches!(layer.kind, LayerKind::Backdrop(_));
@@ -566,14 +566,11 @@ fn primitive_params_ui(ui: &mut Ui, p: &mut Primitive) {
     }
 }
 
-fn mesh_ui(ui: &mut Ui, m: &mut MeshLayer, textures: &mut Vec<UserTexture>) {
+fn mesh_ui(ui: &mut Ui, m: &mut MeshLayer, textures: &[UserTexture], lref: LayerRef) {
     section(ui, "Shape", true, |ui| {
         let label = match &m.source {
             MeshSource::Primitive(p) => p.label().to_string(),
-            MeshSource::File { path } => std::path::Path::new(path)
-                .file_name()
-                .map(|f| f.to_string_lossy().to_string())
-                .unwrap_or_else(|| "model".into()),
+            MeshSource::File { path } => ez_core::store::file_name(path).to_string(),
         };
         row(ui, "Shape", "", |ui| {
             egui::ComboBox::from_id_salt("shape")
@@ -589,14 +586,7 @@ fn mesh_ui(ui: &mut Ui, m: &mut MeshLayer, textures: &mut Vec<UserTexture>) {
                     }
                     ui.separator();
                     if ui.button("3D model file (glTF / OBJ)…").clicked() {
-                        if let Some(path) = rfd::FileDialog::new()
-                            .add_filter("3D models", MODEL_EXTENSIONS)
-                            .pick_file()
-                        {
-                            m.source = MeshSource::File {
-                                path: path.to_string_lossy().to_string(),
-                            };
-                        }
+                        platform::pick(Purpose::SetModel(lref));
                     }
                 });
         });
@@ -605,7 +595,7 @@ fn mesh_ui(ui: &mut Ui, m: &mut MeshLayer, textures: &mut Vec<UserTexture>) {
         }
     });
     section(ui, "Material", true, |ui| {
-        material_ui(ui, &mut m.material, textures)
+        material_ui(ui, &mut m.material, textures, lref)
     });
     section(ui, "Copies (instancing)", true, |ui| {
         instancer_ui(ui, &mut m.instancer)
@@ -617,7 +607,7 @@ fn mesh_ui(ui: &mut Ui, m: &mut MeshLayer, textures: &mut Vec<UserTexture>) {
     }
 }
 
-fn material_ui(ui: &mut Ui, mat: &mut Material, textures: &mut Vec<UserTexture>) {
+fn material_ui(ui: &mut Ui, mat: &mut Material, textures: &[UserTexture], lref: LayerRef) {
     color(ui, "Colour", "", &mut mat.base_color);
     slider(
         ui,
@@ -671,7 +661,13 @@ fn material_ui(ui: &mut Ui, mat: &mut Material, textures: &mut Vec<UserTexture>)
         -1.0..=1.0,
     );
     ui.separator();
-    texture_picker(ui, "Texture", &mut mat.texture, textures);
+    texture_picker(
+        ui,
+        "Texture",
+        &mut mat.texture,
+        textures,
+        Some((lref, TexSlot::Material)),
+    );
     if mat.texture.is_some() {
         slider(ui, "Tiling", "", &mut mat.texture_scale, 0.1..=16.0);
         row(
@@ -867,7 +863,7 @@ fn particles_ui(ui: &mut Ui, p: &mut ParticleLayer) {
     });
 }
 
-fn backdrop_ui(ui: &mut Ui, b: &mut Backdrop, textures: &mut Vec<UserTexture>) {
+fn backdrop_ui(ui: &mut Ui, b: &mut Backdrop, textures: &[UserTexture], lref: LayerRef) {
     section(ui, "Background", true, |ui| {
         combo(ui, "Style", "", &mut b.kind, &BackdropKind::ALL, |k| {
             k.label()
@@ -891,12 +887,18 @@ fn backdrop_ui(ui: &mut Ui, b: &mut Backdrop, textures: &mut Vec<UserTexture>) {
             0.1..=4.0,
         );
         if b.kind == BackdropKind::Tunnel {
-            texture_picker(ui, "Wall texture", &mut b.texture, textures);
+            texture_picker(
+                ui,
+                "Wall texture",
+                &mut b.texture,
+                textures,
+                Some((lref, TexSlot::Backdrop)),
+            );
         }
     });
 }
 
-fn mirror_ui(ui: &mut Ui, f: &mut MirrorFloor, textures: &mut Vec<UserTexture>) {
+fn mirror_ui(ui: &mut Ui, f: &mut MirrorFloor, textures: &[UserTexture], lref: LayerRef) {
     section(ui, "Mirror floor", true, |ui| {
         ui.label(RichText::new("Only the first mirror floor in the list reflects.").weak());
         slider(ui, "Size", "", &mut f.size, 1.0..=200.0);
@@ -910,7 +912,13 @@ fn mirror_ui(ui: &mut Ui, f: &mut MirrorFloor, textures: &mut Vec<UserTexture>) 
         );
         slider(ui, "Blur", "Frosted reflection", &mut f.blur, 0.0..=1.0);
         color(ui, "Reflection tint", "", &mut f.tint);
-        texture_picker(ui, "Texture", &mut f.texture, textures);
+        texture_picker(
+            ui,
+            "Texture",
+            &mut f.texture,
+            textures,
+            Some((lref, TexSlot::Mirror)),
+        );
         if f.texture.is_some() {
             slider(ui, "Tiling", "", &mut f.texture_scale, 0.05..=8.0);
         }
@@ -935,9 +943,20 @@ fn mirror_ui(ui: &mut Ui, f: &mut MirrorFloor, textures: &mut Vec<UserTexture>) 
     });
 }
 
-/// Templates offered in the "Add layer" menu.
-pub fn add_layer_menu(ui: &mut Ui) -> Option<Layer> {
+/// Templates offered in the "Add layer" menu, plus the user's own saved
+/// layer templates.
+pub fn add_layer_menu(ui: &mut Ui, templates: &[Layer]) -> Option<Layer> {
     let mut out = None;
+    if !templates.is_empty() {
+        ui.menu_button("⭐ My templates", |ui| {
+            for t in templates {
+                if ui.button(format!("{} {}", layer_icon(t), t.name)).clicked() {
+                    out = Some(t.clone());
+                }
+            }
+        });
+        ui.separator();
+    }
     ui.menu_button("🔷 Shape", |ui| {
         for p in Primitive::all_defaults() {
             if ui.button(p.label()).clicked() {
@@ -993,26 +1012,25 @@ pub fn add_layer_menu(ui: &mut Ui) -> Option<Layer> {
         ));
     }
     if ui.button("📦 3D model file…").clicked() {
-        if let Some(path) = rfd::FileDialog::new()
-            .add_filter("3D models", MODEL_EXTENSIONS)
-            .pick_file()
-        {
-            out = Some(model_layer(&path));
-        }
+        platform::pick(Purpose::AddModelLayer);
+        ui.close();
     }
     out
 }
 
-pub fn model_layer(path: &std::path::Path) -> Layer {
-    let name = path
-        .file_stem()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| "Model".into());
+/// A new mesh layer showing the model at asset `path`.
+pub fn model_layer(path: &str) -> Layer {
+    let file = ez_core::store::file_name(path);
+    let name = file
+        .rsplit_once('.')
+        .map(|(s, _)| s)
+        .unwrap_or(file)
+        .to_string();
     Layer::new(
         name,
         LayerKind::Mesh(MeshLayer {
             source: MeshSource::File {
-                path: path.to_string_lossy().to_string(),
+                path: path.to_string(),
             },
             ..Default::default()
         }),

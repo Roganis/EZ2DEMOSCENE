@@ -1,8 +1,10 @@
-use crate::import::load_mesh;
+use crate::import::load_mesh_asset;
 use crate::mesh::{primitive, MeshData, Vertex};
 use crate::texgen;
 use bytemuck::{Pod, Zeroable};
-use ez_core::eval::{layer_matrix, mesh_instances, symmetry_matrices, Instance};
+use ez_core::eval::{
+    instances_are_static, layer_matrix, mesh_instances, symmetry_matrices, Instance,
+};
 use ez_core::palette::PaletteId;
 use ez_core::*;
 use glam::{Mat4, Vec3, Vec4};
@@ -10,15 +12,16 @@ use image::RgbaImage;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::f32::consts::TAU;
-use std::path::Path;
+use std::hash::{Hash, Hasher};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
 pub const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
-/// Storage format of the final image (holds sRGB-encoded values).
-pub const OUTPUT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
-/// View format to *display* the final image with (decodes sRGB on sampling).
-pub const OUTPUT_VIEW_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+/// Format of the final image: sRGB-encoded bytes (read back as-is for
+/// export; decoded to linear when sampled for display).
+pub const OUTPUT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
 const DRAW_SLOT: u64 = 256;
 const POST_SLOT: u64 = 512;
@@ -94,6 +97,54 @@ enum Cmd {
     },
 }
 
+/// Rendering cost of one layer in the last frame.
+#[derive(Clone, Debug, Default)]
+pub struct LayerStats {
+    /// Index in the rendered layer list.
+    pub index: usize,
+    pub name: String,
+    pub triangles: u64,
+    pub particles: u64,
+    pub draws: u32,
+    /// Rough relative GPU cost (1.0 ≈ a heavy layer on a mid-range GPU).
+    pub load: f32,
+}
+
+/// What the last frame drew.
+#[derive(Clone, Debug, Default)]
+pub struct FrameStats {
+    pub layers: Vec<LayerStats>,
+    pub triangles: u64,
+    pub particles: u64,
+    pub draw_calls: u32,
+    pub reflection: bool,
+    /// Layers whose instances came from the cache.
+    pub cached_layers: u32,
+    pub load: f32,
+}
+
+static TARGET_IDS: AtomicU64 = AtomicU64::new(1);
+
+fn backdrop_load(kind: BackdropKind) -> f32 {
+    match kind {
+        BackdropKind::Fractal => 1.5,
+        BackdropKind::Tunnel => 0.6,
+        BackdropKind::Nebula => 0.4,
+        BackdropKind::Starfield => 0.3,
+        BackdropKind::SynthGrid => 0.2,
+        BackdropKind::Plasma => 0.15,
+        BackdropKind::Gradient => 0.05,
+    }
+}
+
+fn layer_hash(layer: &Layer) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    serde_json::to_string(layer)
+        .unwrap_or_default()
+        .hash(&mut h);
+    h.finish()
+}
+
 struct ScenePipes {
     backdrop: wgpu::RenderPipeline,
     mesh: wgpu::RenderPipeline,
@@ -137,10 +188,20 @@ pub struct Renderer {
     tex_bgs: HashMap<(String, bool), wgpu::BindGroup>,
     /// Asset loading problems (shown in the UI), keyed by asset.
     pub errors: HashMap<String, String>,
+
+    /// Instances of layers that don't animate, keyed by layer hash, with
+    /// the frame number they were last used.
+    instance_cache: HashMap<u64, (u64, Vec<InstanceRaw>)>,
+    frame_no: u64,
+    /// Instance data currently in `inst_buf` (skip identical uploads).
+    uploaded: Vec<InstanceRaw>,
+    floor_bg_cache: Option<((String, u64), wgpu::BindGroup)>,
+    stats: FrameStats,
 }
 
 /// All size-dependent GPU resources for one output image.
 pub struct RenderTarget {
+    id: u64,
     pub width: u32,
     pub height: u32,
     msaa_color: Option<wgpu::TextureView>,
@@ -548,6 +609,11 @@ impl Renderer {
             textures: HashMap::new(),
             tex_bgs: HashMap::new(),
             errors: HashMap::new(),
+            instance_cache: HashMap::new(),
+            frame_no: 0,
+            uploaded: Vec::new(),
+            floor_bg_cache: None,
+            stats: FrameStats::default(),
         };
         let white = RgbaImage::from_pixel(1, 1, image::Rgba([255, 255, 255, 255]));
         r.upload_texture("__white".into(), &white);
@@ -678,7 +744,10 @@ impl Renderer {
         if self.textures.contains_key(&key) {
             return key;
         }
-        match image::open(&path) {
+        let decoded = ez_core::store::read(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|b| image::load_from_memory(&b).map_err(|e| e.to_string()));
+        match decoded {
             Ok(img) => {
                 let mut img = img.to_rgba8();
                 if let Some(r) = &retro {
@@ -738,7 +807,7 @@ impl Renderer {
         }
         let data = match source {
             MeshSource::Primitive(p) => primitive(p),
-            MeshSource::File { path } => match load_mesh(Path::new(path)) {
+            MeshSource::File { path } => match load_mesh_asset(path) {
                 Ok(m) => {
                     self.errors.remove(&key);
                     m
@@ -785,6 +854,12 @@ impl Renderer {
         self.textures.retain(|k, _| !k.starts_with("u:"));
         self.tex_bgs.retain(|(k, _), _| !k.starts_with("u:"));
         self.errors.clear();
+        self.floor_bg_cache = None;
+    }
+
+    /// Statistics of the last rendered frame.
+    pub fn stats(&self) -> &FrameStats {
+        &self.stats
     }
 
     // ------------------------------------------------------------------
@@ -847,8 +922,15 @@ impl Renderer {
         let mut cmds: Vec<Cmd> = Vec::new();
         let mut floor: Option<(u32, String, f32, f32)> = None; // slot, tex, height, blur
         let mut scratch: Vec<Instance> = Vec::new();
+        self.frame_no += 1;
+        let mut stats = FrameStats::default();
 
-        for layer in layers.iter().filter(|l| l.enabled) {
+        for (li, layer) in layers.iter().enumerate().filter(|(_, l)| l.enabled) {
+            let mut ls = LayerStats {
+                index: li,
+                name: layer.name.clone(),
+                ..Default::default()
+            };
             match &layer.kind {
                 LayerKind::Backdrop(b) => {
                     let tex = self.texture_key(project, b.texture.as_deref());
@@ -864,6 +946,8 @@ impl Renderer {
                     blk[2] = c4(b.color_b, 0.0);
                     blk[3] = c4(b.color_c, 0.0);
                     blk[4] = [if b.texture.is_some() { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0];
+                    ls.draws = 1;
+                    ls.load = backdrop_load(b.kind);
                     cmds.push(Cmd::Backdrop {
                         slot: blocks.len() as u32,
                         tex,
@@ -875,13 +959,37 @@ impl Renderer {
                     let mat = &m.material;
                     let tex = self.texture_key(project, mat.texture.as_deref());
                     self.tex_bind_group(&tex, mat.pixelated);
-                    scratch.clear();
-                    mesh_instances(layer, m, ctx, &mut scratch);
                     let first = instances.len() as u32;
-                    instances.extend(scratch.iter().map(|i| InstanceRaw {
+                    let to_raw = |i: &Instance| InstanceRaw {
                         model: m4(i.model),
                         inst: [i.hue, i.glow, i.rand, 0.0],
-                    }));
+                    };
+                    let count = if instances_are_static(layer, m) {
+                        let key = layer_hash(layer);
+                        let frame = self.frame_no;
+                        let entry = self.instance_cache.entry(key).or_insert_with(|| {
+                            scratch.clear();
+                            mesh_instances(layer, m, ctx, &mut scratch);
+                            (frame, scratch.iter().map(to_raw).collect())
+                        });
+                        entry.0 = frame;
+                        instances.extend_from_slice(&entry.1);
+                        stats.cached_layers += 1;
+                        entry.1.len()
+                    } else {
+                        scratch.clear();
+                        mesh_instances(layer, m, ctx, &mut scratch);
+                        instances.extend(scratch.iter().map(to_raw));
+                        scratch.len()
+                    };
+                    let tris = self
+                        .meshes
+                        .get(&mesh)
+                        .map(|g| g.count as u64 / 3)
+                        .unwrap_or(0);
+                    ls.triangles = tris * count as u64;
+                    ls.draws = 1;
+                    ls.load = ls.triangles as f32 / 150_000.0 + count as f32 / 20_000.0;
                     let mut blk: Block = Zeroable::zeroed();
                     blk[0] = c4(mat.base_color, mat.metallic);
                     let e = mat.emissive.eval(ctx).max(0.0);
@@ -908,14 +1016,18 @@ impl Renderer {
                         tex,
                         pixelated: mat.pixelated,
                         first,
-                        count: scratch.len() as u32,
+                        count: count as u32,
                     });
                     blocks.push(blk);
                 }
                 LayerKind::Particles(p) => {
                     let lm = layer_matrix(&layer.transform, ctx);
                     let count = p.count.min(200_000) * (p.trail.min(16) + 1);
-                    for sym in symmetry_matrices(&layer.symmetry) {
+                    let syms = symmetry_matrices(&layer.symmetry);
+                    ls.particles = count as u64 * syms.len() as u64;
+                    ls.draws = syms.len() as u32;
+                    ls.load = ls.particles as f32 / 40_000.0;
+                    for sym in syms {
                         let mut blk: Block = Zeroable::zeroed();
                         blk[0] = [
                             p.emitter.index() as f32,
@@ -952,10 +1064,31 @@ impl Renderer {
                     );
                     blk[4] = [-ctx.phase * f.grid_scroll as f32, 0.0, 0.0, 0.0];
                     floor = Some((blocks.len() as u32, tex, height, f.blur));
+                    ls.draws = 1;
+                    ls.triangles = 2;
+                    ls.load = 0.1;
                     blocks.push(blk);
                 }
             }
+            stats.layers.push(ls);
         }
+
+        // Frame statistics. A mirror floor renders the scene a second time
+        // at half resolution.
+        stats.reflection = floor.is_some();
+        let refl_k = if stats.reflection { 1.5 } else { 1.0 };
+        for l in &mut stats.layers {
+            l.load *= refl_k;
+            stats.triangles += l.triangles;
+            stats.particles += l.particles;
+            stats.draw_calls += l.draws;
+            stats.load += l.load;
+        }
+        self.stats = stats;
+        // Forget cached instances not used for a while.
+        let frame = self.frame_no;
+        self.instance_cache
+            .retain(|_, (used, _)| frame - *used < 120);
 
         // --- uploads -------------------------------------------------------
         if blocks.is_empty() {
@@ -968,13 +1101,16 @@ impl Renderer {
         }
         self.queue
             .write_buffer(&self.draw_buf, 0, bytemuck::cast_slice(&blocks));
-        if !instances.is_empty() {
+        let same_as_uploaded = bytemuck::cast_slice::<_, u8>(&instances)
+            == bytemuck::cast_slice::<_, u8>(&self.uploaded);
+        if !instances.is_empty() && !same_as_uploaded {
             if instances.len() as u64 > self.inst_cap {
                 self.inst_cap = (instances.len() as u64).next_power_of_two();
                 self.inst_buf = Self::make_inst_buf(&self.device, self.inst_cap);
             }
             self.queue
                 .write_buffer(&self.inst_buf, 0, bytemuck::cast_slice(&instances));
+            self.uploaded = instances;
         }
         let main_globals = Self::globals(project, ctx, view, proj, cam.eye, (w, h), Vec4::ZERO);
         self.queue
@@ -1004,30 +1140,37 @@ impl Renderer {
         );
 
         // Floor bind group (references the target's reflection texture).
-        let floor_bg = floor.as_ref().map(|(_, tex, _, _)| {
-            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("floor"),
-                layout: &self.bgl_floor,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&self.textures[tex].view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler_repeat),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::TextureView(&target.refl_blur),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler_clamp),
-                    },
-                ],
-            })
-        });
+        if let Some((_, tex, _, _)) = &floor {
+            let key = (tex.clone(), target.id);
+            if self.floor_bg_cache.as_ref().map(|(k, _)| k) != Some(&key) {
+                let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("floor"),
+                    layout: &self.bgl_floor,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&self.textures[tex].view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(&self.sampler_repeat),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::TextureView(&target.refl_blur),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: wgpu::BindingResource::Sampler(&self.sampler_clamp),
+                        },
+                    ],
+                });
+                self.floor_bg_cache = Some((key, bg));
+            }
+        }
+        let floor_bg = floor
+            .as_ref()
+            .and(self.floor_bg_cache.as_ref().map(|(_, bg)| bg));
 
         let mut enc = self
             .device
@@ -1131,7 +1274,7 @@ impl Renderer {
                 pass.set_pipeline(&self.floor_pipe);
                 pass.set_bind_group(0, &self.globals_bg[0], &[]);
                 pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
-                pass.set_bind_group(2, bg, &[]);
+                pass.set_bind_group(2, *bg, &[]);
                 pass.draw(0..6, 0..1);
             }
             self.draw_scene(&mut pass, &self.main_pipes, 0, &rest);
@@ -1444,13 +1587,10 @@ impl Renderer {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                 | wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[OUTPUT_VIEW_FORMAT],
+            view_formats: &[],
         });
         let output_view = output.create_view(&Default::default());
-        let display_view = output.create_view(&wgpu::TextureViewDescriptor {
-            format: Some(OUTPUT_VIEW_FORMAT),
-            ..Default::default()
-        });
+        let display_view = output.create_view(&Default::default());
         let post_bg = |a: &wgpu::TextureView, b: &wgpu::TextureView| {
             dev.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("post"),
@@ -1493,6 +1633,7 @@ impl Renderer {
             .collect();
         let bg_final = post_bg(&hdr2, &bloom[0].0);
         RenderTarget {
+            id: TARGET_IDS.fetch_add(1, Ordering::Relaxed),
             width: w,
             height: h,
             msaa_color,
@@ -1517,8 +1658,10 @@ impl Renderer {
         }
     }
 
-    /// Copy the final image back to the CPU as tightly packed sRGB RGBA8.
-    pub fn read_pixels(&self, target: &RenderTarget) -> Vec<u8> {
+    /// Start copying the final image of `target` back to the CPU without
+    /// waiting (required on the web, where blocking is impossible). Poll the
+    /// returned [`Readback`] until it is ready.
+    pub fn start_readback(&self, target: &RenderTarget) -> Readback {
         let (w, h) = (target.width, target.height);
         let row = 4 * w;
         let padded =
@@ -1552,18 +1695,41 @@ impl Renderer {
             },
         );
         self.queue.submit([enc.finish()]);
-        let slice = buf.slice(..);
-        slice.map_async(wgpu::MapMode::Read, |_| {});
-        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
-        let data = slice.get_mapped_range().expect("mapping readback buffer");
-        let mut out = Vec::with_capacity((row * h) as usize);
-        for y in 0..h {
-            let s = (y * padded) as usize;
-            out.extend_from_slice(&data[s..s + row as usize]);
+        let ready = Arc::new(AtomicBool::new(false));
+        let flag = ready.clone();
+        buf.slice(..).map_async(wgpu::MapMode::Read, move |r| {
+            if r.is_ok() {
+                flag.store(true, Ordering::Release);
+            }
+        });
+        Readback {
+            buf,
+            ready,
+            width: w,
+            height: h,
+            padded,
         }
-        drop(data);
-        buf.unmap();
-        out
+    }
+
+    /// Copy the final image back to the CPU as tightly packed sRGB RGBA8
+    /// (blocking; desktop only).
+    pub fn read_pixels(&self, target: &RenderTarget) -> Vec<u8> {
+        let rb = self.start_readback(target);
+        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+        rb.take().expect("readback finished")
+    }
+
+    /// Lets pending GPU work (e.g. readbacks) make progress without
+    /// blocking. On the web the browser does this by itself.
+    pub fn poll(&self) {
+        let _ = self.device.poll(wgpu::PollType::Poll);
+    }
+
+    /// Blocks until all submitted GPU work, including readbacks, is done.
+    /// Browsers cannot block, so this is native only.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn wait(&self) {
+        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
     }
 
     /// Convenience: render and read back as an image.
@@ -1576,5 +1742,53 @@ impl Renderer {
         self.render(project, ctx, target);
         RgbaImage::from_raw(target.width, target.height, self.read_pixels(target))
             .expect("pixel buffer size")
+    }
+}
+
+/// A pending GPU -> CPU copy of a rendered frame.
+pub struct Readback {
+    buf: wgpu::Buffer,
+    ready: Arc<AtomicBool>,
+    pub width: u32,
+    pub height: u32,
+    padded: u32,
+}
+
+impl Readback {
+    pub fn is_ready(&self) -> bool {
+        self.ready.load(Ordering::Acquire)
+    }
+
+    /// Tightly packed RGBA8 pixels, or `None` if not finished yet.
+    pub fn take(self) -> Option<Vec<u8>> {
+        if !self.is_ready() {
+            return None;
+        }
+        let row = (4 * self.width) as usize;
+        let data = self.buf.slice(..).get_mapped_range().ok()?;
+        let mut out = Vec::with_capacity(row * self.height as usize);
+        for y in 0..self.height as usize {
+            let s = y * self.padded as usize;
+            out.extend_from_slice(&data[s..s + row]);
+        }
+        drop(data);
+        self.buf.unmap();
+        Some(out)
+    }
+}
+
+/// Highest MSAA sample count (4 or 1) the adapter supports for the HDR
+/// scene targets. WebGL2 devices often can't multisample float targets.
+pub fn supported_msaa(adapter: &wgpu::Adapter) -> u32 {
+    let f = adapter.get_texture_format_features(HDR_FORMAT);
+    let d = adapter.get_texture_format_features(DEPTH_FORMAT);
+    if f.flags.sample_count_supported(4)
+        && d.flags.sample_count_supported(4)
+        && f.allowed_usages
+            .contains(wgpu::TextureUsages::RENDER_ATTACHMENT)
+    {
+        4
+    } else {
+        1
     }
 }

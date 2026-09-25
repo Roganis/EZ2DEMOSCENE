@@ -7,6 +7,44 @@ use anyhow::{bail, Context, Result};
 use glam::{Mat4, Vec3};
 use std::path::Path;
 
+/// Load a mesh by asset path: in-memory (`mem://`) assets are parsed from
+/// their bytes, files on disk with [`load_mesh`] (which also resolves
+/// external glTF buffers).
+pub fn load_mesh_asset(path: &str) -> Result<MeshData> {
+    if ez_core::store::is_mem(path) || cfg!(target_arch = "wasm32") {
+        let bytes = ez_core::store::read(path).with_context(|| format!("reading {path}"))?;
+        load_mesh_bytes(&ez_core::store::extension(path), &bytes)
+    } else {
+        load_mesh(Path::new(path))
+    }
+}
+
+/// Parse a mesh from bytes. `ext` is the file extension (gltf, glb, obj).
+/// glTF files must embed their buffers (.glb or data URIs).
+pub fn load_mesh_bytes(ext: &str, bytes: &[u8]) -> Result<MeshData> {
+    let mut m = match ext {
+        "gltf" | "glb" => {
+            let (doc, buffers, _images) = gltf::import_slice(bytes).context("reading glTF")?;
+            gltf_to_mesh(&doc, &buffers)?
+        }
+        "obj" => {
+            let mut reader = std::io::BufReader::new(bytes);
+            let (models, _) = tobj::load_obj_buf(&mut reader, &tobj::GPU_LOAD_OPTIONS, |_| {
+                Ok((Vec::new(), Default::default()))
+            })
+            .context("reading OBJ")?;
+            obj_to_mesh(models)
+        }
+        _ => bail!("unsupported mesh format '{ext}' (use .gltf, .glb or .obj)"),
+    };
+    if m.vertices.is_empty() {
+        bail!("the model contains no triangles");
+    }
+    fill_missing_normals(&mut m);
+    m.normalize_size();
+    Ok(m)
+}
+
 pub fn load_mesh(path: &Path) -> Result<MeshData> {
     let ext = path
         .extension()
@@ -29,13 +67,17 @@ pub fn load_mesh(path: &Path) -> Result<MeshData> {
 fn load_gltf(path: &Path) -> Result<MeshData> {
     let (doc, buffers, _images) =
         gltf::import(path).with_context(|| format!("reading {}", path.display()))?;
+    gltf_to_mesh(&doc, &buffers)
+}
+
+fn gltf_to_mesh(doc: &gltf::Document, buffers: &[gltf::buffer::Data]) -> Result<MeshData> {
     let mut out = MeshData::default();
     let scene = doc.default_scene().or_else(|| doc.scenes().next());
     let Some(scene) = scene else {
         bail!("glTF has no scene");
     };
     for node in scene.nodes() {
-        visit_node(&node, Mat4::IDENTITY, &buffers, &mut out);
+        visit_node(&node, Mat4::IDENTITY, buffers, &mut out);
     }
     Ok(out)
 }
@@ -88,6 +130,10 @@ fn visit_node(node: &gltf::Node, parent: Mat4, buffers: &[gltf::buffer::Data], o
 fn load_obj(path: &Path) -> Result<MeshData> {
     let (models, _mats) = tobj::load_obj(path, &tobj::GPU_LOAD_OPTIONS)
         .with_context(|| format!("reading {}", path.display()))?;
+    Ok(obj_to_mesh(models))
+}
+
+fn obj_to_mesh(models: Vec<tobj::Model>) -> MeshData {
     let mut out = MeshData::default();
     for model in models {
         let m = &model.mesh;
@@ -117,7 +163,7 @@ fn load_obj(path: &Path) -> Result<MeshData> {
         }
         out.indices.extend(m.indices.iter().map(|i| i + base));
     }
-    Ok(out)
+    out
 }
 
 /// Compute smooth normals for vertices that have none.
@@ -151,6 +197,13 @@ fn fill_missing_normals(m: &mut MeshData) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn loads_obj_from_bytes() {
+        let m = load_mesh_bytes("obj", b"v 0 0 0\nv 2 0 0\nv 0 2 0\nf 1 2 3\n").unwrap();
+        assert_eq!(m.indices.len(), 3);
+        assert!(load_mesh_bytes("stl", b"").is_err());
+    }
 
     #[test]
     fn loads_obj() {

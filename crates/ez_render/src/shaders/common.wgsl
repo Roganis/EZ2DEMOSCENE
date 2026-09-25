@@ -155,3 +155,12 @@ fn fullscreen(vi: u32) -> FullscreenOut {
     out.ndc = p;
     return out;
 }
+
+// Corner `vi` (0..6) of a two-triangle quad from -1 to 1:
+// (-1,-1) (1,-1) (1,1) / (-1,-1) (1,1) (-1,1). No lookup table, because
+// D3D's FXC rejects dynamically indexed local arrays.
+fn quad_corner(vi: u32) -> vec2<f32> {
+    let x = select(-1.0, 1.0, vi == 1u || vi == 2u || vi == 4u);
+    let y = select(-1.0, 1.0, vi == 2u || vi == 4u || vi == 5u);
+    return vec2<f32>(x, y);
+}

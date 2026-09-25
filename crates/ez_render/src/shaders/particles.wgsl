@@ -137,11 +137,7 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
     if (k > 0u) {
         size = size * (1.0 - 0.5 * f32(k) / f32(trail + 1u));
     }
-    var corners = array<vec2<f32>, 6>(
-        vec2<f32>(-1.0, -1.0), vec2<f32>(1.0, -1.0), vec2<f32>(1.0, 1.0),
-        vec2<f32>(-1.0, -1.0), vec2<f32>(1.0, 1.0), vec2<f32>(-1.0, 1.0),
-    );
-    let c = corners[vi];
+    let c = quad_corner(vi);
     let wp = world + (G.cam_right.xyz * c.x + G.cam_up.xyz * c.y) * size;
     var out: POut;
     out.pos = G.view_proj * vec4<f32>(wp, 1.0);

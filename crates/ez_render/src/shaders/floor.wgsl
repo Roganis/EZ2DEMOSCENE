@@ -18,11 +18,7 @@ struct FOut {
 
 @vertex
 fn vs_main(@builtin(vertex_index) vi: u32) -> FOut {
-    var corners = array<vec2<f32>, 6>(
-        vec2<f32>(-1.0, -1.0), vec2<f32>(1.0, -1.0), vec2<f32>(1.0, 1.0),
-        vec2<f32>(-1.0, -1.0), vec2<f32>(1.0, 1.0), vec2<f32>(-1.0, 1.0),
-    );
-    let c = corners[vi] * D.v[0].x;
+    let c = quad_corner(vi) * D.v[0].x;
     let world = vec3<f32>(c.x, D.v[0].y, c.y);
     var out: FOut;
     out.world = world;

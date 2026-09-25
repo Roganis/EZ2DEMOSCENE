@@ -65,17 +65,26 @@ impl NodeEditor {
         Graph { nodes, wires }
     }
 
-    pub fn show(&mut self, ui: &mut Ui) {
+    pub fn show(&mut self, ui: &mut Ui, templates: &[Layer]) {
         let mut viewer = Viewer {
             selected: &mut self.selected,
+            templates,
         };
         self.snarl.show(&mut viewer, &self.style, "ez2-graph", ui);
     }
 
     /// Layer of the selected source node, for the inspector.
-    pub fn selected_layer_mut(&mut self) -> Option<&mut Layer> {
+    pub fn selected_layer_mut(&mut self) -> Option<(u32, &mut Layer)> {
         let id = self.selected?;
         match self.snarl.get_node_mut(id)? {
+            NodeKind::Source { layer } => Some((id.0 as u32, layer)),
+            _ => None,
+        }
+    }
+
+    /// Layer of source node `id` (for applying imported files).
+    pub fn layer_mut(&mut self, id: u32) -> Option<&mut Layer> {
+        match self.snarl.get_node_mut(NodeId(id as usize))? {
             NodeKind::Source { layer } => Some(layer),
             _ => None,
         }
@@ -84,6 +93,7 @@ impl NodeEditor {
 
 struct Viewer<'a> {
     selected: &'a mut Option<NodeId>,
+    templates: &'a [Layer],
 }
 
 fn pin_color(kind: &NodeKind) -> Color32 {
@@ -261,7 +271,7 @@ impl SnarlViewer<NodeKind> for Viewer<'_> {
 
     fn show_graph_menu(&mut self, pos: egui::Pos2, ui: &mut Ui, snarl: &mut Snarl<NodeKind>) {
         ui.label("Add node");
-        if let Some(layer) = crate::inspector::add_layer_menu(ui) {
+        if let Some(layer) = crate::inspector::add_layer_menu(ui, self.templates) {
             let id = snarl.insert_node(pos, NodeKind::Source { layer });
             *self.selected = Some(id);
             ui.close();

@@ -3,3 +3,5 @@ target/
 *.mp4
 *.gif
 *.webm
+/dist/
+android-app/node_modules/
