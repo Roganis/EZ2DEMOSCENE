@@ -252,10 +252,11 @@ fn fs_final(in: VOut) -> @location(0) vec4<f32> {
     if (crt) {
         let s = 0.5 + 0.5 * cos(uv.y * res.y * PI / 1.5);
         col = col * (1.0 - P.v[4].y * 0.6 * s);
-        // subtle RGB mask
+        // subtle RGB mask (a select, not `mask[m] = ...`: FXC can't store
+        // through a runtime vector index)
         let m = u32(in.pos.x) % 3u;
-        var mask = vec3<f32>(1.0);
-        mask[m] = 1.0 + P.v[4].y * 0.25;
+        let boost = 1.0 + P.v[4].y * 0.25;
+        let mask = select(vec3<f32>(1.0), vec3<f32>(boost), vec3<u32>(0u, 1u, 2u) == vec3<u32>(m));
         col = col * mask;
     }
     // grain (loop-safe: frame id wraps with the loop)

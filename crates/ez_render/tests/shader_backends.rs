@@ -45,6 +45,67 @@ fn fxc_unfriendly_arrays(hlsl: &str) -> Vec<String> {
         .collect()
 }
 
+/// A store through a runtime index into a function-local value (e.g.
+/// `v[i] = x` on a local vector) is also an l-value FXC can't address
+/// (error X3500), so flag those from the IR.
+fn fxc_unfriendly_stores(module: &naga::Module) -> Vec<String> {
+    use naga::{Expression as E, Statement as S};
+
+    fn dynamic_local_store(f: &naga::Function, mut e: naga::Handle<E>) -> bool {
+        let mut dynamic = false;
+        loop {
+            match f.expressions[e] {
+                E::Access { base, .. } => {
+                    dynamic = true;
+                    e = base;
+                }
+                E::AccessIndex { base, .. } => e = base,
+                E::LocalVariable(_) => return dynamic,
+                _ => return false,
+            }
+        }
+    }
+
+    fn walk(f: &naga::Function, block: &naga::Block, hits: &mut usize) {
+        for st in block.iter() {
+            match st {
+                S::Store { pointer, .. } if dynamic_local_store(f, *pointer) => *hits += 1,
+                S::Block(b) => walk(f, b, hits),
+                S::If { accept, reject, .. } => {
+                    walk(f, accept, hits);
+                    walk(f, reject, hits);
+                }
+                S::Loop {
+                    body, continuing, ..
+                } => {
+                    walk(f, body, hits);
+                    walk(f, continuing, hits);
+                }
+                S::Switch { cases, .. } => cases.iter().for_each(|c| walk(f, &c.body, hits)),
+                _ => {}
+            }
+        }
+    }
+
+    let functions = module
+        .functions
+        .iter()
+        .map(|(_, f)| f)
+        .chain(module.entry_points.iter().map(|ep| &ep.function));
+    let mut out = Vec::new();
+    for f in functions {
+        let mut hits = 0;
+        walk(f, &f.body, &mut hits);
+        if hits > 0 {
+            let name = f.name.as_deref().unwrap_or("?");
+            out.push(format!(
+                "fn {name}: {hits} runtime-indexed store(s) into a local"
+            ));
+        }
+    }
+    out
+}
+
 #[test]
 fn shaders_translate_for_every_backend() {
     let dump = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/shader_dump");
@@ -67,6 +128,9 @@ fn shaders_translate_for_every_backend() {
         let _ = std::fs::write(dump.join(format!("{name}.hlsl")), &out);
         for l in fxc_unfriendly_arrays(&out) {
             problems.push(format!("{name}.hlsl: local array FXC may reject: {l}"));
+        }
+        for p in fxc_unfriendly_stores(&module) {
+            problems.push(format!("{name}: FXC rejects (X3500) {p}"));
         }
 
         // Metal.
