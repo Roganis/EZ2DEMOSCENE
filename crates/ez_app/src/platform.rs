@@ -246,6 +246,13 @@ impl GpuBackendPref {
         }
     }
 
+    /// What `Auto` means here: WebGL2 on Android, where WebGPU drivers
+    /// (e.g. Mali-G615) corrupt the picture; WebGPU with a WebGL2
+    /// fallback everywhere else.
+    pub fn auto_uses_webgl() -> bool {
+        is_android()
+    }
+
     /// The saved choice (always `Auto` outside the browser).
     pub fn load() -> GpuBackendPref {
         #[cfg(target_arch = "wasm32")]
@@ -274,6 +281,20 @@ impl GpuBackendPref {
             };
             let _ = s.set_item(BACKEND_KEY, v);
         }
+    }
+}
+
+/// True when running in Android's browser or the Android app.
+pub fn is_android() -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_sys::window()
+            .and_then(|w| w.navigator().user_agent().ok())
+            .is_some_and(|ua| ua.contains("Android"))
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        false
     }
 }
 

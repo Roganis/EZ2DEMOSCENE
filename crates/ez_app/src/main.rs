@@ -63,8 +63,8 @@ fn main() {
         let mut options = eframe::WebOptions::default();
         if let egui_wgpu::WgpuSetup::CreateNew(setup) = &mut options.wgpu_options.wgpu_setup {
             match pref {
-                platform::GpuBackendPref::Auto => {}
-                platform::GpuBackendPref::WebGl => {
+                platform::GpuBackendPref::Auto if !platform::GpuBackendPref::auto_uses_webgl() => {}
+                platform::GpuBackendPref::Auto | platform::GpuBackendPref::WebGl => {
                     setup.instance_descriptor.backends = wgpu::Backends::GL
                 }
                 platform::GpuBackendPref::WebGpu => {

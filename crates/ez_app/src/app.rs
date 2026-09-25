@@ -1705,6 +1705,12 @@ impl EzApp {
                     ui.separator();
                     ui.label(RichText::new("Graphics backend").strong());
                     ui.label("If the picture glitches, try the other backend. The app restarts to switch.");
+                    if platform::GpuBackendPref::auto_uses_webgl() {
+                        ui.label(
+                            RichText::new("Automatic uses WebGL2 on Android: WebGPU glitches with some phone GPUs.")
+                                .weak(),
+                        );
+                    }
                     let before = self.backend_pref;
                     ui.horizontal(|ui| {
                         use platform::GpuBackendPref as P;
