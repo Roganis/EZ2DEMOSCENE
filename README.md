@@ -2,7 +2,7 @@
 
 **Make loopable, stylised 3D scenes the demoscene way, without writing code.**
 
-EZ2DEMOSCENE is a native desktop app (Windows and Linux) for building short,
+EZ2DEMOSCENE is a native desktop app (Windows, Linux and macOS) for building short,
 seamless 3D loops: neon arenas, mirrored golden halls, glossy solids orbited by
 debris, raymarched tunnels, plasma kaleidoscopes and synthwave sunsets. You
 start from a preset, tweak layers with sliders, press **Export** and get an
@@ -57,9 +57,26 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   graph compiles to the same layer list the simple mode uses, and *Bake to
   layers* brings it back into simple mode.
 - **Project files.** Readable `.ez2.json` files. Static values are saved as
-  plain numbers.
+  plain numbers, and assets inside the project folder are stored with
+  relative paths, so projects can be moved.
+- **Packs.** A `.ez2pack` is one zip file holding a project plus every model,
+  image and music file it uses, for sharing or archiving.
+- **Autosave & crash recovery.** Unsaved work is autosaved every 30 s and
+  offered back after a crash.
+- **Your library.** "Save as my preset" (with a thumbnail) and "Save layer as
+  template" keep your own building blocks across projects.
+- **Viewport gizmos.** Click to select, then drag handles to move, rotate or
+  scale (W/E/R). Hold Ctrl to snap, and press G for the ground grid.
+- **Performance meter.** Shows fps, triangle and particle counts, the most
+  expensive layers, and a ⚠ on heavy layers. Static copies are cached.
 
 ![Presets](docs/presets.jpg)
+
+## Downloads
+
+Tagged releases (`v*`) are built for Windows, Linux and macOS by
+`.github/workflows/release.yml`. The Windows and Linux archives include
+ffmpeg. On macOS, run `brew install ffmpeg`.
 
 ## Getting started
 
@@ -144,6 +161,8 @@ chromium --headless --no-pdf-header-footer --allow-file-access-from-files \
 cargo test --workspace   # GPU tests skip themselves if no adapter is found
 cargo clippy --workspace --all-targets
 cargo run -p ez_render --example contact_sheet -- sheet.png 480   # render all presets
+cargo run --release -p ez_render --example bench                 # renderer timing
+EZ2_BLESS=1 cargo test -p ez_render --test golden                # update golden images after an intended visual change
 ```
 
 On a machine without a GPU, Mesa's `lavapipe` (package `mesa-vulkan-drivers`)
