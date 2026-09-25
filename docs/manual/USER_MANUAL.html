@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>EZ2DEMOSCENE User Manual</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm 20mm 16mm; }
+  @page :first { margin: 0; }
+  :root {
+    --accent: #e8337c;
+    --accent-soft: #fde6ef;
+    --ink: #1c1b22;
+    --muted: #5d5b66;
+    --rule: #e3e1e8;
+    --code-bg: #f3f2f6;
+    --tip-bg: #eef7ff;
+    --tip-rule: #3b8fd6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "DejaVu Sans", "Helvetica Neue", Arial, sans-serif;
+    color: var(--ink);
+    font-size: 10pt;
+    line-height: 1.45;
+    margin: 0;
+  }
+  h1, h2, h3 { font-family: "DejaVu Sans", Arial, sans-serif; line-height: 1.2; }
+  h1 {
+    font-size: 22pt; margin: 0 0 4mm; padding-bottom: 2mm;
+    border-bottom: 3px solid var(--accent);
+    break-before: page;
+  }
+  h1 .num { color: var(--accent); margin-right: 3mm; }
+  h2 { font-size: 13.5pt; margin: 7mm 0 2mm; color: #2a2833; }
+  h3 { font-size: 11pt; margin: 5mm 0 1.5mm; }
+  p { margin: 0 0 2.6mm; }
+  ul, ol { margin: 0 0 3mm; padding-left: 6mm; }
+  li { margin-bottom: 1mm; }
+  code, kbd {
+    font-family: "DejaVu Sans Mono", Consolas, monospace; font-size: 9pt;
+    background: var(--code-bg); border-radius: 3px; padding: 0 1.2mm;
+  }
+  kbd { border: 1px solid #cfcdd6; border-bottom-width: 2px; }
+  pre {
+    font-family: "DejaVu Sans Mono", Consolas, monospace; font-size: 8.8pt;
+    background: #17161d; color: #f1eff7; padding: 3mm 4mm; border-radius: 4px;
+    white-space: pre-wrap; break-inside: avoid;
+  }
+  .ui { font-weight: bold; color: #7a1d47; }
+  figure { margin: 3mm 0 5mm; break-inside: avoid; text-align: center; }
+  figure img { max-width: 100%; max-height: 92mm; width: auto; border-radius: 4px; border: 1px solid #d9d7df; }
+  figcaption { font-size: 8.8pt; color: var(--muted); margin-top: 1.5mm; }
+  table { border-collapse: collapse; width: 100%; margin: 2mm 0 5mm; font-size: 9.4pt; break-inside: auto; }
+  th, td { text-align: left; vertical-align: top; padding: 1.6mm 2.2mm; border-bottom: 1px solid var(--rule); }
+  th { background: #f6f5f9; font-weight: bold; border-bottom: 2px solid #cfcdd6; }
+  tr { break-inside: avoid; }
+  .tip, .note {
+    border-left: 4px solid var(--tip-rule); background: var(--tip-bg);
+    padding: 2.5mm 4mm; margin: 3mm 0 4mm; border-radius: 0 4px 4px 0; break-inside: avoid;
+  }
+  .note { border-left-color: var(--accent); background: var(--accent-soft); }
+  .tip b:first-child, .note b:first-child { display: block; margin-bottom: 1mm; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4mm; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 3mm; }
+  .card { break-inside: avoid; }
+  .card img { width: 100%; border-radius: 4px; display: block; }
+  .card .t { font-weight: bold; margin-top: 1.2mm; }
+  .card .d { font-size: 8.8pt; color: var(--muted); }
+  .tex { display: grid; grid-template-columns: repeat(5, 1fr); gap: 3mm; margin: 2mm 0 5mm; }
+  .tex div { text-align: center; font-size: 8.4pt; break-inside: avoid; }
+  .tex img { width: 100%; aspect-ratio: 1; image-rendering: pixelated; border-radius: 3px; border: 1px solid #d9d7df; }
+  .swatches { display: flex; gap: 1px; margin-top: 0.8mm; }
+  .swatches span { width: 4.2mm; height: 4.2mm; display: inline-block; border-radius: 1px; }
+  .steps { counter-reset: step; list-style: none; padding-left: 0; }
+  .steps > li { counter-increment: step; position: relative; padding-left: 10mm; margin-bottom: 3mm; }
+  .steps > li::before {
+    content: counter(step); position: absolute; left: 0; top: 0;
+    width: 6.5mm; height: 6.5mm; border-radius: 50%; background: var(--accent); color: white;
+    font-weight: bold; font-size: 9pt; text-align: center; line-height: 6.5mm;
+  }
+  .keep { break-inside: avoid; }
+
+  /* Cover */
+  .cover {
+    height: 297mm; width: 210mm; position: relative; overflow: hidden;
+    background: #07060a; color: white; break-after: page;
+  }
+  .cover img { position: absolute; top: 0; left: 0; width: 100%; height: 150mm; object-fit: cover; }
+  .cover .fade { position: absolute; top: 90mm; left: 0; right: 0; height: 62mm; background: linear-gradient(to bottom, rgba(7,6,10,0), #07060a); }
+  .cover .title { position: absolute; top: 160mm; left: 18mm; right: 18mm; }
+  .cover .title .kicker { color: var(--accent); letter-spacing: 3px; font-size: 10pt; font-weight: bold; }
+  .cover .title h1 { border: 0; font-size: 42pt; margin: 3mm 0 4mm; padding: 0; color: white; break-before: auto; letter-spacing: 1px; }
+  .cover .title p { font-size: 13pt; color: #d6d3df; max-width: 150mm; }
+  .cover .foot { position: absolute; bottom: 16mm; left: 18mm; right: 18mm; font-size: 9pt; color: #8f8b9b; border-top: 1px solid #2c2935; padding-top: 3mm; }
+
+  /* TOC */
+  .toc h1 { break-before: auto; }
+  .toc ol { list-style: none; padding: 0; columns: 1; }
+  .toc li { display: flex; border-bottom: 1px dotted #c9c7d0; padding: 1.6mm 0; font-size: 11pt; }
+  .toc li span.n { color: var(--accent); font-weight: bold; width: 10mm; }
+  .toc li a { color: inherit; text-decoration: none; flex: 1; }
+  .toc .sub { font-size: 9pt; color: var(--muted); margin-left: 10mm; display: block; }
+  a { color: #b01e5c; }
+</style>
+</head>
+<body>
+
+<!-- ===================================================== COVER -->
+<section class="cover">
+  <img src="img/cover.jpg" alt="">
+  <div class="fade"></div>
+  <div class="title">
+    <div class="kicker">USER MANUAL · VERSION 0.1</div>
+    <h1>EZ2DEMOSCENE</h1>
+    <p>Build seamless, stylised 3D loops the demoscene way: neon, mirrors, particles and retro pixels. No code needed.</p>
+  </div>
+  <div class="foot">For Windows &amp; Linux · Covers the editor, the node graph, exporting and the command line</div>
+</section>
+
+<!-- ===================================================== TOC -->
+<section class="toc">
+  <h1>Contents</h1>
+  <ol>
+    <li><span class="n">1</span><a href="#welcome">Welcome</a></li>
+    <li><span class="n">2</span><a href="#install">Installing &amp; launching</a></li>
+    <li><span class="n">3</span><a href="#tour">A tour of the window</a></li>
+    <li><span class="n">4</span><a href="#quick">Quick start: your first loop in five minutes</a></li>
+    <li><span class="n">5</span><a href="#layers">Layers</a></li>
+    <li><span class="n">6</span><a href="#materials">Materials, glow &amp; textures</a></li>
+    <li><span class="n">7</span><a href="#animate">Animating anything</a></li>
+    <li><span class="n">8</span><a href="#camera">Camera, light &amp; fog</a></li>
+    <li><span class="n">9</span><a href="#post">Post effects</a></li>
+    <li><span class="n">10</span><a href="#music">Timing &amp; music</a></li>
+    <li><span class="n">11</span><a href="#random">Randomize, Surprise me &amp; undo</a></li>
+    <li><span class="n">12</span><a href="#nodes">Nodes mode (advanced)</a></li>
+    <li><span class="n">13</span><a href="#export">Exporting your loop</a></li>
+    <li><span class="n">14</span><a href="#recipes">Recipes</a></li>
+    <li><span class="n">15</span><a href="#reference">Reference: shortcuts, troubleshooting, glossary</a></li>
+  </ol>
+</section>
+
+<!-- ===================================================== 1 -->
+<h1 id="welcome"><span class="num">1</span>Welcome</h1>
+<p>EZ2DEMOSCENE is a tool for making <b>short, perfectly looping 3D animations</b> in the style of the
+demoscene: glowing neon arenas, mirrored golden halls, glossy crystals orbited by debris, raymarched
+tunnels, kaleidoscopes and synthwave sunsets. The loops are for music visuals, VJ sets, wallpapers,
+social posts and GIFs.</p>
+<p>You never write code or shaders. You pick a starting scene, then change it with sliders, colour
+pickers and menus. When you like it, you export an MP4, WebM, GIF or a folder of PNG frames.</p>
+
+<div class="grid3">
+  <div class="card"><img src="img/p_neon_arena.jpg"><div class="t">Neon Arena</div><div class="d">Black gloss, red neon, crystal skyline.</div></div>
+  <div class="card"><img src="img/p_gold_kaleido_room.jpg"><div class="t">Gold Kaleido Room</div><div class="d">Mirrored hall, orb walls, chandelier.</div></div>
+  <div class="card"><img src="img/p_orbiting_solid.jpg"><div class="t">Orbiting Solid</div><div class="d">Blue dodecahedron and a debris swarm.</div></div>
+  <div class="card"><img src="img/p_retro_tunnel.jpg"><div class="t">Retro Tunnel</div><div class="d">XOR tunnel, EGA palette, CRT.</div></div>
+  <div class="card"><img src="img/p_plasma_kaleidoscope.jpg"><div class="t">Plasma Kaleidoscope</div><div class="d">Oldschool plasma, spinning tori.</div></div>
+  <div class="card"><img src="img/p_synth_sunset.jpg"><div class="t">Synth Sunset</div><div class="d">Striped sun, neon grid, pyramids.</div></div>
+</div>
+
+<h2>The one big idea: everything loops</h2>
+<p>A scene is exactly <b>a whole number of beats</b> long, at a tempo you choose (BPM). Every motion
+in EZ2DEMOSCENE completes a whole number of times during that loop. That includes spins, orbits,
+pulses, particles, scrolling textures, drifting clouds and even film grain. So the last frame leads
+straight back into the first, with no jump.</p>
+<div class="note"><b>Why this matters</b>You never have to "fix the loop" by hand. Whatever you change, the export
+repeats seamlessly. This is why many settings ask for a count of <i>turns per loop</i> or
+<i>cycles per loop</i> rather than a speed.</div>
+
+<h2>How a scene is built</h2>
+<p>A scene is a stack of <b>layers</b> drawn together:</p>
+<ul>
+  <li><b>Background</b>: the sky or environment behind everything (nebula, tunnel, plasma…).</li>
+  <li><b>Mirror floor</b>: a reflective ground plane, optionally with a glowing grid.</li>
+  <li><b>Shapes</b>: 3D objects, possibly copied many times in rings, grids, walls or swarms.</li>
+  <li><b>Particles</b>: sparks, stars, glitter, vortices.</li>
+</ul>
+<p>On top of the layers sit the <b>camera</b>, the <b>light &amp; fog</b>, and the <b>post effects</b> that give the
+final look (glow, kaleidoscope, retro palettes, CRT…).</p>
+
+<!-- ===================================================== 2 -->
+<h1 id="install"><span class="num">2</span>Installing &amp; launching</h1>
+<h2>What you need</h2>
+<table>
+  <tr><th style="width:32%">Item</th><th>Details</th></tr>
+  <tr><td>A graphics card</td><td>Any GPU with Vulkan, DirectX 12 or Metal support (most GPUs from 2015 onward). A software
+  renderer also works, only slower.</td></tr>
+  <tr><td>Rust 1.95 or newer</td><td>Needed to build the app from source. Install it from <code>rustup.rs</code>, or update with
+  <code>rustup update stable</code>.</td></tr>
+  <tr><td>ffmpeg <i>(optional)</i></td><td>Needed only for MP4, WebM and GIF export. Download it from <code>ffmpeg.org</code> and make sure the
+  <code>ffmpeg</code> command works in a terminal. PNG sequences need nothing extra.</td></tr>
+  <tr><td>Linux only</td><td><code>sudo apt install libasound2-dev libxkbcommon-dev libwayland-dev</code></td></tr>
+</table>
+
+<h2>Building and starting</h2>
+<pre>git clone https://github.com/Roganis/EZ2DEMOSCENE
+cd EZ2DEMOSCENE
+cargo run --release                   # opens the editor
+cargo run --release -- my.ez2.json    # opens a saved project</pre>
+<p>The first build downloads and compiles libraries, so it takes a few minutes. Later starts are instant. The finished
+program is <code>target/release/ez2demoscene</code> (<code>ez2demoscene.exe</code> on Windows), and you can copy it anywhere.</p>
+<p>When the editor opens you are greeted by the <b>preset gallery</b>.</p>
+<figure><img src="img/gallery.jpg" ><figcaption>The preset gallery appears at start-up. Hover a card for a description, click to load it.</figcaption></figure>
+
+<!-- ===================================================== 3 -->
+<h1 id="tour"><span class="num">3</span>A tour of the window</h1>
+<figure><img src="img/overview.jpg"><figcaption>The editor with the Neon Arena preset and the Camera selected.</figcaption></figure>
+<table>
+  <tr><th style="width:26%">Area</th><th>What it does</th></tr>
+  <tr><td><b>Top bar</b></td><td><span class="ui">File</span>, <span class="ui">Edit</span>, <span class="ui">Presets</span>,
+  <span class="ui">🎲 Randomize</span> (with its ⚙ settings), <span class="ui">Surprise me</span>, the
+  <span class="ui">Simple</span> / <span class="ui">Nodes</span> mode switch, <span class="ui">⏺ Export</span> and <span class="ui">?</span> help.</td></tr>
+  <tr><td><b>Scene panel</b> (left)</td><td>The project <b>name</b>; the scene-wide sections (<span class="ui">Timing &amp; music</span>,
+  <span class="ui">Camera</span>, <span class="ui">Light &amp; fog</span>, <span class="ui">Post effects</span>, <span class="ui">Your images</span>);
+  and the <b>layer list</b> with <span class="ui">+ Add</span>.</td></tr>
+  <tr><td><b>Viewport</b> (centre)</td><td>A live preview. <b>Drag</b> to turn the camera and <b>scroll</b> to zoom. Above it you can pick the
+  <b>aspect ratio</b> (16:9, 4:3, 1:1, 9:16, 21:9) and <b>preview quality</b> (lower it if playback stutters). Status
+  messages also appear here.</td></tr>
+  <tr><td><b>Inspector</b> (right)</td><td>All the settings of whatever is selected on the left.</td></tr>
+  <tr><td><b>Timeline</b> (bottom)</td><td>Play/pause, back to start, a scrubber with <b>beat ticks</b> (tall ticks mark every 4
+  beats), the current beat, BPM and loop length.</td></tr>
+</table>
+<div class="tip"><b>Tip</b>Hover almost any label in the inspector to see a short explanation.</div>
+
+<!-- ===================================================== 4 -->
+<h1 id="quick"><span class="num">4</span>Quick start: your first loop in five minutes</h1>
+<ol class="steps">
+  <li><b>Pick a preset.</b> In the gallery, click <span class="ui">Orbiting Solid</span>. The scene starts playing straight
+  away.</li>
+  <li><b>Change a colour.</b> Click the <span class="ui">Dodecahedron</span> layer on the left. In the inspector under
+  <span class="ui">Material</span>, click the <span class="ui">Colour</span> swatch and pick a hot pink.</li>
+  <li><b>Make it glow on the beat.</b> Still in <span class="ui">Material</span>, find <span class="ui">Glow</span> and click the
+  <span class="ui">~</span> button next to it. Set the wave to <span class="ui">Pulse</span>, <span class="ui">amount</span> to 3 and
+  <span class="ui">×/loop</span> to <b>8</b> (the loop is 8 beats long). It now flashes on every beat.</li>
+  <li><b>Add particles.</b> Click <span class="ui">+ Add → ✨ Particles → Vortex</span>. In the new layer, set
+  <span class="ui">Colour (young)</span> to white and <span class="ui">Colour (old)</span> to pink.</li>
+  <li><b>Add a retro touch.</b> Select <span class="ui">Post effects</span> on the left and tick <span class="ui">Retro palette</span>.
+  Choose <span class="ui">PICO-8</span>.</li>
+  <li><b>Export.</b> Press <kbd>Ctrl</kbd>+<kbd>E</kbd>. Pick <span class="ui">Animated GIF</span> (the size switches to
+  480×270, a good size for GIFs), choose a file with <span class="ui">Browse…</span> and press <span class="ui">⏺ Export</span>.</li>
+  <li><b>Save your project</b> with <kbd>Ctrl</kbd>+<kbd>S</kbd> to keep editing it later.</li>
+</ol>
+<div class="tip"><b>Made a mess?</b><kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes any change, including randomizing and loading presets.</div>
+
+<!-- ===================================================== 5 -->
+<h1 id="layers"><span class="num">5</span>Layers</h1>
+<p>The layer list works like the layers in a paint program. Each row has a <b>visibility</b> tick box and the layer's
+name. Click a row to edit it. Under the list, the buttons <span class="ui">⬆ ⬇ ⧉ 🗑</span> move, duplicate or delete the
+selected layer, and <b>right-clicking</b> a layer shows the same options.</p>
+<figure><img src="img/addmenu.jpg" ><figcaption><span class="ui">+ Add</span> offers shapes, particles, backgrounds, a mirror floor and 3D model files.</figcaption></figure>
+
+<h2>5.1 Backgrounds</h2>
+<p>A background fills the whole screen behind the other layers and follows the camera. Every background has three colours
+(<span class="ui">Colour A</span> is usually the darkest), a <span class="ui">Motion / loop</span> count, a
+<span class="ui">Brightness</span> and a <span class="ui">Detail</span> (pattern scale).</p>
+<table>
+  <tr><th style="width:28%">Style</th><th>Description</th></tr>
+  <tr><td>Gradient sky</td><td>A soft two-colour sky with a horizon glow and a sun halo in the light direction.</td></tr>
+  <tr><td>Nebula clouds</td><td>Swirling fractal clouds with stars. The clouds drift on a closed path so they loop.</td></tr>
+  <tr><td>Starfield</td><td>Twinkling stars over faint coloured dust.</td></tr>
+  <tr><td>Raymarched tunnel</td><td>The classic demo tunnel flying forward through a winding tube. Pick a <span class="ui">Wall texture</span>
+  (the XOR or checker textures are great).</td></tr>
+  <tr><td>Raymarched fractal</td><td>A volumetric "Kaliset" fractal space. It looks psychedelic and cosmic, and is heavy on slow GPUs.</td></tr>
+  <tr><td>Oldschool plasma</td><td>The 90s sine plasma.</td></tr>
+  <tr><td>Synthwave sun &amp; grid</td><td>A striped sun sinking into a scrolling neon grid, with stars.</td></tr>
+</table>
+<div class="tip"><b>Tip</b>You can stack two backgrounds, but the later one covers the earlier one. Usually one is enough.</div>
+
+<h2>5.2 Mirror floor</h2>
+<figure><img src="img/mirror.jpg" ><figcaption>Mirror floor settings.</figcaption></figure>
+<p>A large reflective ground plane. The scene is really reflected in it, including particles and the sky.</p>
+<ul>
+  <li><span class="ui">Reflection</span>: 0 is matte, 1 is a perfect mirror. <span class="ui">Blur</span> gives a frosted,
+  polished-stone look. <span class="ui">Reflection tint</span> colours the reflection (gold for a gold room).</li>
+  <li><span class="ui">Texture</span> and <span class="ui">Tiling</span> put a pattern on the floor. The <code>led_grid</code>
+  texture makes an LED dance floor.</li>
+  <li><span class="ui">Neon grid</span> draws glowing lines. Set <span class="ui">Grid glow</span>, <span class="ui">Grid colour</span>,
+  <span class="ui">Grid scale</span> and <span class="ui">Scroll / loop</span> (cells per loop) for the synthwave "driving" effect.</li>
+  <li><span class="ui">Floor height</span> (in <span class="ui">Placement &amp; motion</span>) moves the floor up or down.</li>
+</ul>
+<div class="note"><b>One mirror</b>Only the <b>first</b> mirror floor in the list reflects. Extra ones are ignored.</div>
+
+<h2>5.3 Shapes</h2>
+<figure><img src="img/mesh.jpg"><figcaption>A shape layer (Tech panels): Shape, Material, Copies, Variation, Placement &amp; motion, Symmetry.</figcaption></figure>
+<p>In <span class="ui">Shape</span> choose one of 14 built-in shapes, or a 3D file:</p>
+<table>
+  <tr><th style="width:28%">Shape</th><th>Good for</th></tr>
+  <tr><td>Cube, Tetrahedron, Octahedron, Dodecahedron, Icosahedron</td><td>Classic demo solids. Try them with <span class="ui">Faceted</span> on and
+  <span class="ui">Glow where: Edges</span>.</td></tr>
+  <tr><td>Sphere (Detail 0–5)</td><td>Orbs and bubbles. Detail 0 gives a faceted low-poly ball.</td></tr>
+  <tr><td>Torus</td><td>Rings and chain links (Thickness, Segments).</td></tr>
+  <tr><td>Cylinder (Sides)</td><td>Platforms and pillars. Eight sides makes an octagonal stage.</td></tr>
+  <tr><td>Shard, Crystal cluster</td><td>Sharp spikes and crystal mountains. <span class="ui">Seed</span> gives a different random shape.</td></tr>
+  <tr><td>Panel (Bevel)</td><td>Sci-fi plates, light panels, screens.</td></tr>
+  <tr><td>Ring band (Arc, Width, Height)</td><td>Neon rings and arcs. Set Arc below 360° for partial arcs and chevrons.</td></tr>
+  <tr><td>Plane, Pyramid</td><td>Simple building blocks.</td></tr>
+  <tr><td>3D model file</td><td>Your own <code>.gltf</code>, <code>.glb</code> or <code>.obj</code>. It is centred and scaled to fit automatically, and
+  uses the layer's material.</td></tr>
+</table>
+
+<h3>Copies (instancing)</h3>
+<p>One layer can show many copies of its shape. Pick a <span class="ui">Layout</span>:</p>
+<table>
+  <tr><th style="width:24%">Layout</th><th>Settings</th><th style="width:34%">Example</th></tr>
+  <tr><td>Single</td><td>n/a</td><td>One hero object.</td></tr>
+  <tr><td>Grid</td><td>Count x/y/z, Spacing</td><td>Speaker stacks, cube cities.</td></tr>
+  <tr><td>Radial</td><td>Count, Radius. Copies face outward.</td><td>Panels around an arena, crystal skyline.</td></tr>
+  <tr><td>Scatter</td><td>Count, Radius, Only surface, Seed</td><td>Floating debris, asteroid shells.</td></tr>
+  <tr><td>Orbit swarm</td><td>Count, Radius, Spread, Orbits / loop, Seed</td><td>Debris orbiting a planet.</td></tr>
+  <tr><td>Wall</td><td>Columns, Rows, Spacing, Curve</td><td>Orb walls, LED walls. Curve bends the wall into an arc.</td></tr>
+  <tr><td>Spiral</td><td>Count, Radius, Height, Turns</td><td>Chandeliers, DNA helices.</td></tr>
+</table>
+<p><b>Variation</b> (appears when there are copies) adds life:</p>
+<ul>
+  <li><span class="ui">Random tilt</span>, <span class="ui">Random size</span>, <span class="ui">Random hue</span> and
+  <span class="ui">Random spin</span> make every copy a little different. Change <span class="ui">Seed</span> to reshuffle them.</li>
+  <li><span class="ui">Size wave</span> is a wave of growing and shrinking that travels across the copies.</li>
+  <li><span class="ui">Light chase</span> is a bright glow running along the copies, like marquee lights.</li>
+  <li><span class="ui">Waves / loop</span> sets how many times those waves pass per loop, and <span class="ui">Wavelengths</span>
+  sets how many waves fit across all copies.</li>
+</ul>
+
+<h3>Placement &amp; motion</h3>
+<table>
+  <tr><th style="width:24%">Setting</th><th>Meaning</th></tr>
+  <tr><td>Position, Rotation</td><td>Where the layer sits and how it is turned (degrees).</td></tr>
+  <tr><td>Size</td><td>The size of the object, or of <b>each copy</b>. It does not change the distances between copies.</td></tr>
+  <tr><td>Stretch</td><td>Stretch per axis (make a cube into a slab or a pillar).</td></tr>
+  <tr><td>Spin / loop</td><td>Whole turns per loop around x, y and z. Negative numbers spin the other way.</td></tr>
+  <tr><td>Bob</td><td>Up/down offset. Animate it with <span class="ui">~</span> to make objects float.</td></tr>
+</table>
+
+<h2>5.4 Symmetry</h2>
+<p>Symmetry copies the <b>whole layer</b> around the centre of the world:</p>
+<ul>
+  <li><span class="ui">Mirror X</span> (left/right), <span class="ui">Mirror Z</span> (front/back), <span class="ui">Mirror XZ</span> (four copies).</li>
+  <li><span class="ui">Radial</span>: N rotated copies around the vertical axis.</li>
+  <li><span class="ui">Kaleido</span>: N copies where every other one is mirrored, giving a kaleidoscope pattern.</li>
+</ul>
+<div class="tip"><b>Tip</b>Build one side of a room, then add <span class="ui">Mirror X</span>. The Gold Kaleido Room's orb walls,
+speakers and light panels are each built once and mirrored.</div>
+
+<h2>5.5 Particles</h2>
+<figure><img src="img/particles.jpg" ><figcaption>A particle layer.</figcaption></figure>
+<table>
+  <tr><th style="width:24%">Emitter</th><th>Motion</th></tr>
+  <tr><td>Burst</td><td>Explodes outward from the centre.</td></tr>
+  <tr><td>Sphere drift</td><td>Floats gently inside a sphere.</td></tr>
+  <tr><td>Ring orbit</td><td>Circles in a flat ring (Speed = whole orbits per loop).</td></tr>
+  <tr><td>Fountain</td><td>Shoots up and falls back.</td></tr>
+  <tr><td>Warp stars</td><td>Streams towards the viewer (hyperspace). Add a <span class="ui">Trail</span> for streaks.</td></tr>
+  <tr><td>Vortex</td><td>Spirals upwards like embers.</td></tr>
+  <tr><td>Snow / glitter</td><td>Falls slowly and sparkles.</td></tr>
+</table>
+<p><span class="ui">Count</span> is the number of particles. <span class="ui">Lives / loop</span> is how many times each particle is
+reborn in one loop, so higher means faster. <span class="ui">Area</span> is the size of the emitter.
+The look is controlled by <span class="ui">Sprite</span> (soft glow, pixel square, star, ring), <span class="ui">Size</span>, two colours
+(young → old), <span class="ui">Brightness</span> and <span class="ui">Trail</span> (ghost copies behind each particle).</p>
+<div class="tip"><b>Performance</b>Particles are cheap. Tens of thousands are fine on a normal GPU. Trails multiply the count, so
+<i>count × (trail + 1)</i> is what gets drawn.</div>
+
+<!-- ===================================================== 6 -->
+<h1 id="materials"><span class="num">6</span>Materials, glow &amp; textures</h1>
+<h2>Surface</h2>
+<table>
+  <tr><th style="width:24%">Setting</th><th>Effect</th></tr>
+  <tr><td>Colour</td><td>The base colour.</td></tr>
+  <tr><td>Metallic</td><td>0 looks like plastic or paint. 1 looks like metal, where reflections take on the colour (gold, chrome, copper).</td></tr>
+  <tr><td>Roughness</td><td>0 is a glossy mirror-like finish, 1 is matte. The glossy black look of Neon Arena is black + metallic 0.9 + roughness 0.15.</td></tr>
+  <tr><td>Faceted</td><td>Flat-shaded, low-poly look. Every face catches light separately.</td></tr>
+  <tr><td>Rim light</td><td>A glow along the silhouette that separates objects from dark backgrounds.</td></tr>
+</table>
+<h2>Glow (emission)</h2>
+<p><span class="ui">Glow colour</span> and <span class="ui">Glow</span> (strength) make a surface emit light. Bright glow feeds the
+<b>bloom</b> post effect and produces the neon halo. <span class="ui">Glow where</span> decides which part glows:</p>
+<table>
+  <tr><th style="width:24%">Glow where</th><th>Result</th></tr>
+  <tr><td>Full</td><td>The whole surface glows (neon tubes, light panels).</td></tr>
+  <tr><td>Edges</td><td>Only the outlines of each face glow, for a Tron / wireframe-neon look. Works on the solids, panels, cylinders,
+  shards and pyramids.</td></tr>
+  <tr><td>Stripes</td><td>Glowing horizontal stripes.</td></tr>
+  <tr><td>Texture</td><td>Bright parts of the texture glow (LED grids, circuits, tech-panel slits).</td></tr>
+</table>
+<p><span class="ui">Hue shift</span> rotates all the colours of the layer. Animate it with a Saw wave for rainbow cycling.</p>
+
+<h2>Textures</h2>
+<p>Pick a <span class="ui">Texture</span> from the built-in retro pack or from your own images. <span class="ui">Tiling</span> repeats it,
+<span class="ui">Scroll / loop</span> slides it by whole tiles per loop, and <span class="ui">Chunky pixels</span> keeps the pixels sharp
+instead of smoothing them.</p>
+<div class="tex">
+  <div><img src="../../assets/textures/checker.png">checker</div>
+  <div><img src="../../assets/textures/xor.png">xor</div>
+  <div><img src="../../assets/textures/plasma.png">plasma</div>
+  <div><img src="../../assets/textures/noise.png">noise</div>
+  <div><img src="../../assets/textures/marble.png">marble</div>
+  <div><img src="../../assets/textures/fire.png">fire</div>
+  <div><img src="../../assets/textures/circuit.png">circuit</div>
+  <div><img src="../../assets/textures/tech_panel.png">tech_panel</div>
+  <div><img src="../../assets/textures/led_grid.png">led_grid</div>
+  <div><img src="../../assets/textures/speaker.png">speaker</div>
+  <div><img src="../../assets/textures/brick.png">brick</div>
+  <div><img src="../../assets/textures/metal_plate.png">metal_plate</div>
+  <div><img src="../../assets/textures/hex.png">hex</div>
+  <div><img src="../../assets/textures/stripes.png">stripes</div>
+  <div><img src="../../assets/textures/copper.png">copper</div>
+  <div><img src="../../assets/textures/win9x.png">win9x</div>
+  <div><img src="../../assets/textures/sierpinski.png">sierpinski</div>
+  <div><img src="../../assets/textures/stars.png">stars</div>
+  <div><img src="../../assets/textures/lava.png">lava</div>
+  <div><img src="../../assets/textures/dither.png">dither</div>
+</div>
+<h2>Your own images &amp; "retro-ize"</h2>
+<p>Import images (PNG, JPG, BMP, GIF, TGA) in any of these ways: from a texture menu (<span class="ui">Import image…</span>), from
+<span class="ui">File → Import image…</span>, or by dragging them onto the window. A dropped image is applied to the selected shape.
+All your images are listed under <span class="ui">Your images</span>, where you can tick <span class="ui">Retro-ize</span>.
+This shrinks the image to <span class="ui">Max size</span> pixels and remaps it to a classic <span class="ui">Palette</span> with
+<span class="ui">Dithering</span>, turning any photo into a 90s texture.</p>
+
+<!-- ===================================================== 7 -->
+<h1 id="animate"><span class="num">7</span>Animating anything</h1>
+<p>Every value with a <span class="ui">~</span> button next to it can move over time. The button turns pink when the value is animated.
+Click it to open the animation panel:</p>
+<figure><img src="img/overview.jpg" ><figcaption>In the Camera section, Distance and Height are animated: their panels show wave, amount, ×/loop, offset and ♪.</figcaption></figure>
+<table>
+  <tr><th style="width:22%">Control</th><th>Meaning</th></tr>
+  <tr><td>Wave</td><td><b>Sine</b> (smooth), <b>Triangle</b> (linear back and forth), <b>Saw</b> (ramp then jump), <b>Square</b> (on/off),
+  <b>Pulse</b> (sharp hit that fades, the beat flash), <b>Random</b> (a new random value each cycle).</td></tr>
+  <tr><td>amount</td><td>How far the value swings around the slider value. 0 means not animated.</td></tr>
+  <tr><td>×/loop</td><td>Whole cycles per loop. Use the number of beats in the loop to hit <b>every beat</b>, half of it for every
+  other beat, and so on. Negative numbers run backwards.</td></tr>
+  <tr><td>offset</td><td>Shifts the wave in time (0–1), to stagger several animations.</td></tr>
+  <tr><td>♪</td><td>Adds the music's loudness (see chapter 10).</td></tr>
+</table>
+<h2>Recipes</h2>
+<ul>
+  <li><b>Pulse on every beat:</b> Glow → Pulse, amount 3, ×/loop = loop beats (e.g. 16).</li>
+  <li><b>Breathing camera:</b> Camera Distance → Sine, amount 2, ×/loop 1.</li>
+  <li><b>Kick zoom:</b> Kaleidoscope Zoom → Pulse, amount 0.2, ×/loop 16.</li>
+  <li><b>Rainbow:</b> Hue shift → Saw, amount 0.5, ×/loop 1.</li>
+  <li><b>Floating object:</b> Bob → Sine, amount 0.5, ×/loop 2.</li>
+  <li><b>Strobe:</b> Glow → Square, ×/loop 32.</li>
+</ul>
+
+<!-- ===================================================== 8 -->
+<h1 id="camera"><span class="num">8</span>Camera, light &amp; fog</h1>
+<h2>Camera</h2>
+<table>
+  <tr><th style="width:24%">Setting</th><th>Meaning</th></tr>
+  <tr><td>Motion</td><td><b>Orbit</b> circles the target <span class="ui">Turns per loop</span> times. <b>Pendulum</b> swings back and forth by
+  <span class="ui">Swing</span> degrees. <b>Static</b> stays put, though its values can still be animated.</td></tr>
+  <tr><td>Look at</td><td>The point the camera aims at.</td></tr>
+  <tr><td>Distance, Height</td><td>How far away and how high the camera is. Both are animatable.</td></tr>
+  <tr><td>Start angle</td><td>Which side the camera starts from.</td></tr>
+  <tr><td>Field of view</td><td>Zoom lens: 20–35 for a telephoto look, 60–90 for wide and dramatic.</td></tr>
+  <tr><td>Roll</td><td>Tilts the horizon. Animate it for a dizzy rave feel.</td></tr>
+  <tr><td>Beat shake</td><td>A small camera kick on every beat.</td></tr>
+</table>
+<div class="tip"><b>Mouse</b>Dragging in the viewport changes <span class="ui">Start angle</span> and <span class="ui">Height</span>. Scrolling changes
+<span class="ui">Distance</span>.</div>
+<h2>Light &amp; fog</h2>
+<ul>
+  <li><span class="ui">Fog colour</span> / <span class="ui">Fog density</span>: distant things fade into this colour. The fog colour is also the
+  "empty space" colour, so match it to your background.</li>
+  <li><span class="ui">Sky light</span> / <span class="ui">Ground light</span> / <span class="ui">Ambient</span>: soft light from above and below.
+  The sky colour is also what glossy surfaces reflect, which gives black gloss its highlights.</li>
+  <li><span class="ui">Sun colour</span>, <span class="ui">Sun strength</span>, <span class="ui">Sun direction</span>: the main light.</li>
+</ul>
+
+<!-- ===================================================== 9 -->
+<h1 id="post"><span class="num">9</span>Post effects</h1>
+<figure><img src="img/post.jpg" ><figcaption>Post effects. Tick a section's box to enable it, and click its arrow to open its settings.</figcaption></figure>
+<table>
+  <tr><th style="width:24%">Effect</th><th>What it does</th></tr>
+  <tr><td>Kaleidoscope</td><td>Folds the whole picture into mirrored wedges. You can set Segments, Angle, Turns per loop, Zoom (animatable) and Centre.</td></tr>
+  <tr><td>Mirror split</td><td>Mirrors one half of the picture onto the other (left → right, top → bottom, or quad). This is instant symmetry.</td></tr>
+  <tr><td>Bloom / glow</td><td>Bright things spill light. Intensity sets the strength, Threshold how bright something must be to glow, and Spread
+  how wide the halo is.</td></tr>
+  <tr><td>Chromatic aberration</td><td>An RGB colour split towards the edges, like a cheap lens. Pulse it on the beat.</td></tr>
+  <tr><td>Pixelate</td><td>Fat pixels (the size is measured at 1080p, so previews match exports).</td></tr>
+  <tr><td>Retro palette</td><td>Reduces the image to a classic computer palette with ordered (Bayer) dithering.</td></tr>
+  <tr><td>CRT monitor</td><td>Scanlines, screen curvature and a VHS wobble.</td></tr>
+  <tr><td>Colour grading</td><td>Exposure, Contrast, Saturation, Vignette (dark corners), Film grain and Beat flash (a white flash on every beat).</td></tr>
+</table>
+<h2>Palettes</h2>
+<table>
+  <tr><th style="width:30%">Palette</th><th>Colours</th></tr>
+  <tr><td>EGA (16)</td><td><div class="swatches"><span style="background:#000000"></span><span style="background:#0000aa"></span><span style="background:#00aa00"></span><span style="background:#00aaaa"></span><span style="background:#aa0000"></span><span style="background:#aa00aa"></span><span style="background:#aa5500"></span><span style="background:#aaaaaa"></span><span style="background:#555555"></span><span style="background:#5555ff"></span><span style="background:#55ff55"></span><span style="background:#55ffff"></span><span style="background:#ff5555"></span><span style="background:#ff55ff"></span><span style="background:#ffff55"></span><span style="background:#ffffff;border:1px solid #ccc"></span></div></td></tr>
+  <tr><td>CGA (4)</td><td><div class="swatches"><span style="background:#000"></span><span style="background:#55ffff"></span><span style="background:#ff55ff"></span><span style="background:#fff;border:1px solid #ccc"></span></div></td></tr>
+  <tr><td>Commodore 64 (16)</td><td><div class="swatches"><span style="background:#000000"></span><span style="background:#ffffff;border:1px solid #ccc"></span><span style="background:#68372b"></span><span style="background:#70a4b2"></span><span style="background:#6f3d86"></span><span style="background:#588d43"></span><span style="background:#352879"></span><span style="background:#b8c76f"></span><span style="background:#6f4f25"></span><span style="background:#433900"></span><span style="background:#9a6759"></span><span style="background:#444444"></span><span style="background:#6c6c6c"></span><span style="background:#9ad284"></span><span style="background:#6c5eb5"></span><span style="background:#959595"></span></div></td></tr>
+  <tr><td>Game Boy (4)</td><td><div class="swatches"><span style="background:#0f380f"></span><span style="background:#306230"></span><span style="background:#8bac0f"></span><span style="background:#9bbc0f"></span></div></td></tr>
+  <tr><td>PICO-8 (16)</td><td><div class="swatches"><span style="background:#000000"></span><span style="background:#1d2b53"></span><span style="background:#7e2553"></span><span style="background:#008751"></span><span style="background:#ab5236"></span><span style="background:#5f574f"></span><span style="background:#c2c3c7"></span><span style="background:#fff1e8;border:1px solid #ccc"></span><span style="background:#ff004d"></span><span style="background:#ffa300"></span><span style="background:#ffec27"></span><span style="background:#00e436"></span><span style="background:#29adff"></span><span style="background:#83769c"></span><span style="background:#ff77a8"></span><span style="background:#ffccaa"></span></div></td></tr>
+  <tr><td>Amiga copper (16)</td><td><div class="swatches"><span style="background:#000000"></span><span style="background:#110022"></span><span style="background:#220044"></span><span style="background:#440066"></span><span style="background:#660077"></span><span style="background:#880066"></span><span style="background:#aa1144"></span><span style="background:#cc3322"></span><span style="background:#ee6600"></span><span style="background:#ff9900"></span><span style="background:#ffcc33"></span><span style="background:#ffee88"></span><span style="background:#ffffff;border:1px solid #ccc"></span><span style="background:#88ccff"></span><span style="background:#3388dd"></span><span style="background:#114488"></span></div></td></tr>
+  <tr><td>ZX Spectrum (8)</td><td><div class="swatches"><span style="background:#000"></span><span style="background:#00f"></span><span style="background:#f00"></span><span style="background:#f0f"></span><span style="background:#0f0"></span><span style="background:#0ff"></span><span style="background:#ff0"></span><span style="background:#fff;border:1px solid #ccc"></span></div></td></tr>
+  <tr><td>VGA cube (216)</td><td>Every colour quantised to 6 levels per channel, a subtle retro banding.</td></tr>
+  <tr><td>Green phosphor (4)</td><td><div class="swatches"><span style="background:#001a00"></span><span style="background:#006600"></span><span style="background:#22cc22"></span><span style="background:#99ff99"></span></div></td></tr>
+</table>
+
+<!-- ===================================================== 10 -->
+<h1 id="music"><span class="num">10</span>Timing &amp; music</h1>
+<figure><img src="img/timing.jpg" ><figcaption>Timing &amp; music.</figcaption></figure>
+<h2>Tempo and loop length</h2>
+<p><span class="ui">Tempo (BPM)</span> and <span class="ui">Loop length</span> (in beats) set how long the loop is. For example,
+128 BPM × 16 beats = 7.5 seconds. The quick buttons set 4, 8, 16, 32 or 64 beats. These values also appear in the timeline.</p>
+<p>Because every animation is counted per loop, <b>changing the BPM speeds the whole scene up or slows it down</b>, and it
+stays in sync.</p>
+<h2>Adding music</h2>
+<p>Use <span class="ui">Load music…</span> or drop an MP3, WAV, OGG, FLAC, M4A or AAC file onto the window. Then:</p>
+<ul>
+  <li>The music plays with the loop and restarts at the loop point. Scrubbing the timeline seeks the music.</li>
+  <li>Its loudness is drawn in the timeline, and brighter bars mean more bass.</li>
+  <li>Any animated value can follow the music with the <span class="ui">♪</span> amount in its <span class="ui">~</span> panel.</li>
+  <li><span class="ui">Detect tempo from length</span> sets the BPM so the whole track fits the loop length. This is useful for music written as a loop.</li>
+  <li>MP4 and WebM exports include the music (you can turn this off in the export dialog).</li>
+</ul>
+<div class="note"><b>Tip for musicians</b>Set the BPM to your track's tempo and the loop length to its bar count × 4. The visuals then
+land exactly on your beats.</div>
+
+<!-- ===================================================== 11 -->
+<h1 id="random"><span class="num">11</span>Randomize, Surprise me &amp; undo</h1>
+<ul>
+  <li><span class="ui">🎲 Randomize</span> shuffles the current scene: one harmonious hue rotation of all colours, new shapes and layouts,
+  new motion and a few post-effect changes. Every click gives a new variation.</li>
+  <li><span class="ui">⚙</span> opens the <b>Randomizer</b> settings. Choose what may change (Colours, Shapes &amp; layouts, Motion, Post
+  effects), how strongly, and the <b>seed</b>. The same seed always gives the same result.</li>
+  <li><span class="ui">Surprise me</span> picks a random preset and randomizes it strongly.</li>
+  <li><b>Undo / redo</b> (<kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd>) covers everything, so randomize freely.</li>
+</ul>
+
+<!-- ===================================================== 12 -->
+<h1 id="nodes"><span class="num">12</span>Nodes mode (advanced)</h1>
+<p>Click <span class="ui">Nodes</span> in the top bar to build the scene as a <b>graph</b>. Layers become <b>source nodes</b> that flow
+through <b>modifiers</b> into an <b>Output</b>. Everything connected to Output is rendered.</p>
+<figure>
+<svg viewBox="0 0 640 210" width="100%" xmlns="http://www.w3.org/2000/svg" font-family="DejaVu Sans, Arial" font-size="12">
+  <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#8a8796"/></marker></defs>
+  <g stroke="#8a8796" stroke-width="1.6" fill="none" marker-end="url(#ar)">
+    <path d="M150,45 C190,45 190,70 228,70"/>
+    <path d="M150,105 C190,105 190,80 228,80"/>
+    <path d="M340,75 C370,75 370,75 398,75"/>
+    <path d="M150,165 C300,165 380,120 518,105"/>
+    <path d="M500,75 C510,75 505,90 518,95"/>
+  </g>
+  <g>
+    <rect x="20" y="25" width="130" height="40" rx="6" fill="#dff1ff" stroke="#5aa9e6"/><text x="85" y="50" text-anchor="middle">Crystal (Mesh)</text>
+    <rect x="20" y="85" width="130" height="40" rx="6" fill="#dff1ff" stroke="#5aa9e6"/><text x="85" y="110" text-anchor="middle">Panel (Mesh)</text>
+    <rect x="20" y="145" width="130" height="40" rx="6" fill="#dff1ff" stroke="#5aa9e6"/><text x="85" y="170" text-anchor="middle">Nebula (Backdrop)</text>
+    <rect x="230" y="55" width="110" height="40" rx="6" fill="#fff1d6" stroke="#e0a33a"/><text x="285" y="80" text-anchor="middle">Merge</text>
+    <rect x="400" y="55" width="100" height="40" rx="6" fill="#fff1d6" stroke="#e0a33a"/><text x="450" y="73" text-anchor="middle">Symmetry</text><text x="450" y="88" text-anchor="middle" font-size="10" fill="#6b6877">Radial × 8</text>
+    <rect x="520" y="80" width="100" height="40" rx="6" fill="#ffdce9" stroke="#e8337c"/><text x="570" y="105" text-anchor="middle" font-weight="bold">Output</text>
+  </g>
+  <g font-size="10" fill="#6b6877">
+    <text x="20" y="15">Sources (blue) emit layers</text>
+    <text x="230" y="130">Modifiers (orange) change every layer</text>
+    <text x="230" y="143">flowing through them</text>
+    <text x="520" y="140">Rendered</text>
+  </g>
+</svg>
+<figcaption>The crystal and panel layers are merged, turned into 8 radial copies, and sent to Output together with the nebula.</figcaption>
+</figure>
+<table>
+  <tr><th style="width:22%">Node</th><th>What it does</th></tr>
+  <tr><td>Source</td><td>One layer. Click <span class="ui">edit in inspector</span> to edit it on the right with the usual controls.</td></tr>
+  <tr><td>Symmetry</td><td>Replaces the symmetry of every incoming layer.</td></tr>
+  <tr><td>Offset</td><td>Moves every incoming layer.</td></tr>
+  <tr><td>Spin</td><td>Adds turns per loop.</td></tr>
+  <tr><td>Scale</td><td>Multiplies the size.</td></tr>
+  <tr><td>Tint</td><td>Rotates hues and scales the glow.</td></tr>
+  <tr><td>Array</td><td>Repeats the incoming layers N times, stepping the position and rotation for each copy.</td></tr>
+  <tr><td>Merge</td><td>Combines up to 4 streams.</td></tr>
+  <tr><td>Output</td><td>Up to 8 inputs. Everything here is drawn.</td></tr>
+</table>
+<p><b>Working with the graph:</b> right-click empty space to add nodes, drag from an output dot to an input dot to connect, and
+right-click a node to <span class="ui">Duplicate</span> or <span class="ui">Delete</span> it. The toolbar has three controls:
+<span class="ui">render the graph</span> switches between the graph and the plain layer list;
+<span class="ui">Rebuild from layers</span> starts a new graph from your layers; and <span class="ui">Bake to layers</span> turns
+the graph's result into ordinary layers and returns to Simple mode.</p>
+<figure><img src="img/nodes.jpg" ><figcaption>Nodes mode: the viewport on top, the graph below, the inspector on the right.</figcaption></figure>
+
+<!-- ===================================================== 13 -->
+<h1 id="export"><span class="num">13</span>Exporting your loop</h1>
+<figure><img src="img/export.jpg" ><figcaption>The export dialog (<kbd>Ctrl</kbd>+<kbd>E</kbd>).</figcaption></figure>
+<table>
+  <tr><th style="width:24%">Option</th><th>Notes</th></tr>
+  <tr><td>Format</td><td><b>MP4 (H.264)</b> works everywhere. <b>WebM (VP9)</b> is for the web. <b>Animated GIF</b> is for chats and forums.
+  <b>PNG sequence</b> writes one PNG per frame into a folder and needs no ffmpeg; it is ideal for video editors and VJ software.</td></tr>
+  <tr><td>Size</td><td>Type a size or use <span class="ui">Presets</span>: 720p, 1080p, 1440p, 4K, Square, Vertical (phone), GIF small, Retro 4:3.</td></tr>
+  <tr><td>Frame rate</td><td>24, 25, 30, 50 or 60 fps. The dialog shows how many frames one loop needs.</td></tr>
+  <tr><td>Repeat loop</td><td>Makes the file longer by repeating the loop. Useful for platforms that don't loop videos.</td></tr>
+  <tr><td>Music</td><td>Include the music track (MP4/WebM only).</td></tr>
+  <tr><td>File / Folder</td><td>Where to save. Use <span class="ui">Browse…</span>.</td></tr>
+</table>
+<p>Press <span class="ui">⏺ Export</span>. A progress bar shows the frames being rendered, and you can keep working or press <span class="ui">Cancel</span>.
+Export renders every frame at full quality (anti-aliasing and full-resolution effects) even if your preview is set lower.</p>
+<div class="tip"><b>GIF tips</b>GIFs get big quickly. Use 480×270 at 25–30 fps, keep loops short (8 beats), and avoid
+film grain, which makes GIFs much larger.</div>
+<div class="note"><b>"ffmpeg not found"?</b>Install ffmpeg, then either make sure <code>ffmpeg</code> runs in a terminal or paste the path to the
+<code>ffmpeg</code> program into the box in the export dialog and press <span class="ui">Check</span>.</div>
+<h2>Stills</h2>
+<p><span class="ui">File → Save still image…</span> saves the current frame as a PNG at the export size.</p>
+<h2>Command line</h2>
+<p>You can render without opening the window, which is handy for batch jobs:</p>
+<pre>ez2demoscene --list-presets
+ez2demoscene --render "Neon Arena" still.png --phase 0.25 --size 1920x1080
+ez2demoscene --export "Gold Kaleido Room" loop.mp4 --size 1920x1080 --fps 60 --repeats 4
+ez2demoscene --export my.ez2.json frames/          # PNG sequence into a folder
+ez2demoscene --write-presets my_presets/           # presets as editable project files
+ez2demoscene --write-textures my_textures/         # the retro texture pack as PNGs</pre>
+<p><code>--phase</code> is a position in the loop from 0 to 1 (0.5 is the middle).</p>
+
+<!-- ===================================================== 14 -->
+<h1 id="recipes"><span class="num">14</span>Recipes</h1>
+<h2>Neon arena (black gloss and red neon)</h2>
+<ol>
+  <li>Background <b>Nebula clouds</b>, with very dark colours A/B and a red C. Set the fog colour to almost-black red.</li>
+  <li>Add a <b>Mirror floor</b>: colour black, Reflection 0.35, Blur 0.3.</li>
+  <li>Add <b>Crystal cluster</b> with Copies → Radial (count 50, radius 34), Size 7, Random tilt 18, Random size 0.5. Use a glossy black
+  material (metallic 0.9, roughness 0.15, Faceted).</li>
+  <li>Add <b>Panel</b> with Radial (20, radius 11) and Stretch 2.6 / 0.35 / 1.2. Glow red, <b>Edges</b>, strength 5, and Light chase 1.</li>
+  <li>Add <b>Ring band</b> (Width 0.02) stretched 16 / 1 / 16 with red glow, Full, and a Sine animation.</li>
+  <li>Add <b>Vortex</b> particles in orange → red. Turn on Bloom 1.1 and Chromatic aberration.</li>
+</ol>
+<h2>Golden mirrored room</h2>
+<ol>
+  <li>Background <b>Gradient sky</b> in warm golds. Set the light to warm white and the ambient to 0.45.</li>
+  <li>Add a <b>Mirror floor</b> with Reflection 0.85, Reflection tint gold, texture <code>led_grid</code> and Grid glow 0.6.</li>
+  <li>Add <b>Sphere</b> with Copies → Wall (14 × 5, curve 50°), Size 0.33, Rotation y 90, Position x 6.5, Symmetry <b>Mirror X</b>,
+  and Light chase 0.6.</li>
+  <li>Add <b>Cube</b> with texture <code>speaker</code>, a Grid of 2 × 3 and Symmetry Mirror X. Pulse the glow on the beat.</li>
+  <li>Add <b>Octahedron</b> with Spiral copies high above the floor as a chandelier, plus <b>Snow / glitter</b> star particles.</li>
+  <li>Post: <b>Mirror split</b> left → right and Bloom 1.0.</li>
+</ol>
+<h2>Crystal orbited by debris</h2>
+<ol>
+  <li>Background <b>Starfield</b>.</li>
+  <li>Add <b>Dodecahedron</b>, Size 1.6, blue, metallic 0.5, roughness 0.18, Faceted, Rim light 0.9, Spin / loop x 1, y 1.</li>
+  <li>Add <b>Cube</b> with Copies → Orbit swarm (70, radius 3.2, spread 0.9), Stretch 0.12 / 0.12 / 0.5 and Random size 0.6.</li>
+  <li>Add <b>Ring band</b> arcs (Arc 250°) with blue glow and Spin / loop y 2, plus <b>Ring orbit</b> particles with trails.</li>
+</ol>
+<h2>90s demo tunnel</h2>
+<ol>
+  <li>Background <b>Raymarched tunnel</b> with Wall texture <code>xor</code> and Motion / loop 4.</li>
+  <li>Add <b>Icosahedron</b> with texture <code>checker</code>, Chunky pixels, Glow Edges, and Spin / loop 2 / 1 / 0.</li>
+  <li>Add <b>Warp stars</b> with the Pixel square sprite and Trail 4.</li>
+  <li>Post: Pixelate 3, Retro palette EGA with dithering 0.7, CRT monitor, and Beat flash 0.15.</li>
+</ol>
+
+<!-- ===================================================== 15 -->
+<h1 id="reference"><span class="num">15</span>Reference</h1>
+<h2>Keyboard &amp; mouse</h2>
+<table>
+  <tr><th style="width:36%">Action</th><th>Shortcut</th></tr>
+  <tr><td>Play / pause</td><td><kbd>Space</kbd></td></tr>
+  <tr><td>Save</td><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td></tr>
+  <tr><td>Open</td><td><kbd>Ctrl</kbd>+<kbd>O</kbd></td></tr>
+  <tr><td>Export</td><td><kbd>Ctrl</kbd>+<kbd>E</kbd></td></tr>
+  <tr><td>Undo / Redo</td><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> (or <kbd>Ctrl</kbd>+<kbd>Y</kbd>)</td></tr>
+  <tr><td>Turn the camera</td><td>Drag in the viewport</td></tr>
+  <tr><td>Zoom the camera</td><td>Mouse wheel over the viewport</td></tr>
+  <tr><td>Scrub time</td><td>Click or drag in the timeline</td></tr>
+  <tr><td>Import</td><td>Drop project, model, image or music files onto the window</td></tr>
+</table>
+<h2>Troubleshooting</h2>
+<table>
+  <tr><th style="width:36%">Problem</th><th>Solution</th></tr>
+  <tr><td>Playback stutters</td><td>Lower the preview quality (the % menu above the viewport). The fractal background and big particle counts are the heaviest.
+  Exports are not affected.</td></tr>
+  <tr><td>Everything is washed out or one colour</td><td>A big glowing object is probably filling the screen. Reduce Glow, raise the Bloom threshold, or check the
+  Size/Stretch of ring and panel layers.</td></tr>
+  <tr><td>A shape is invisible</td><td>Check its visibility box, its Size, whether it is below the floor or inside another object, and the fog density.</td></tr>
+  <tr><td>My model shows as a cube</td><td>The file couldn't be read. The reason appears in red at the bottom of the inspector. Use
+  <span class="ui">Edit → Reload models &amp; images</span> after fixing the file.</td></tr>
+  <tr><td>No sound</td><td>No audio output device was found. The music is still used for sync, ♪ modulation and export.</td></tr>
+  <tr><td>Video export fails</td><td>Check ffmpeg (chapter 13), or export a PNG sequence instead.</td></tr>
+  <tr><td>The app doesn't start</td><td>Update your graphics drivers. On Linux, install Vulkan drivers (e.g. <code>mesa-vulkan-drivers</code>).</td></tr>
+</table>
+<h2>Project files</h2>
+<p>Projects are saved as readable <code>.ez2.json</code> text files. Imported models, images and music are stored as <b>file paths</b>, so keep
+those files next to your project when moving it to another computer. The built-in presets are also available as project files in
+<code>assets/presets</code>.</p>
+<h2>Glossary</h2>
+<table>
+  <tr><th style="width:24%">Term</th><th>Meaning</th></tr>
+  <tr><td>Beat / BPM</td><td>A musical pulse. BPM is beats per minute.</td></tr>
+  <tr><td>Loop / phase</td><td>The repeating clip. Phase is a position in it, from 0 (start) to 1 (end, which equals the start).</td></tr>
+  <tr><td>Instancing</td><td>Drawing many copies of one shape efficiently.</td></tr>
+  <tr><td>Emission / glow</td><td>Light a surface gives off by itself.</td></tr>
+  <tr><td>Bloom</td><td>The halo that bright things spill onto their surroundings.</td></tr>
+  <tr><td>Raymarching</td><td>A technique that draws shapes defined by maths (tunnels, fractals) instead of polygons. It is a demoscene classic.</td></tr>
+  <tr><td>Dithering</td><td>Patterns of pixels that fake more colours than a palette has.</td></tr>
+  <tr><td>Demoscene</td><td>A computer art subculture, dating back to the 1980s, that makes real-time audiovisual "demos".</td></tr>
+</table>
+<p style="margin-top:8mm;color:var(--muted);font-size:9pt">EZ2DEMOSCENE is free software under the GPL-3.0-or-later licence. The built-in texture pack is CC0.</p>
+
+</body>
+</html>

@@ -10,6 +10,8 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
 
 ![Editor](docs/editor.jpg)
 
+📖 **[User manual (PDF)](docs/manual/EZ2DEMOSCENE_User_Manual.pdf)**: a beginner's guide to every feature, with a quick start and recipes. The source is `docs/manual/USER_MANUAL.html`.
+
 ## Features
 
 - **Seamless loops.** A loop is a whole number of beats at a chosen BPM.
@@ -128,6 +130,13 @@ ez2demoscene --write-textures assets/textures
 - Film grain and VHS noise are hashed from a frame id that wraps with the loop.
 - The exporter renders frames at `i / N` for `i` in `0..N`, so the first
   frame is never duplicated at the end.
+
+## Rebuilding the manual
+
+```sh
+chromium --headless --no-pdf-header-footer --allow-file-access-from-files \
+  --print-to-pdf=docs/manual/EZ2DEMOSCENE_User_Manual.pdf docs/manual/USER_MANUAL.html
+```
 
 ## Development
 
