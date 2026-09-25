@@ -1725,6 +1725,13 @@ impl Renderer {
         let _ = self.device.poll(wgpu::PollType::Poll);
     }
 
+    /// Blocks until all submitted GPU work, including readbacks, is done.
+    /// Browsers cannot block, so this is native only.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn wait(&self) {
+        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+    }
+
     /// Convenience: render and read back as an image.
     pub fn render_image(
         &mut self,

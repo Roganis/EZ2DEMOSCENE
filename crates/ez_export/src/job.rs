@@ -228,6 +228,9 @@ mod tests {
             if let JobState::Done(bytes) = job.step(r).unwrap() {
                 return bytes;
             }
+            // `step` never blocks; on some backends (e.g. Metal) a readback
+            // takes longer than a few thousand spins, so wait for the GPU.
+            r.wait();
         }
         panic!("export did not finish");
     }

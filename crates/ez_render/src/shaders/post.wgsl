@@ -47,14 +47,18 @@ fn hash1(x: u32) -> f32 {
 @fragment
 fn fs_blur(in: VOut) -> @location(0) vec4<f32> {
     let stp = P.v[0].xy;
-    let w = array<f32, 5>(0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216);
-    var c = textureSampleLevel(t_a, s_lin, in.uv, 0.0).rgb * w[0];
-    for (var i = 1; i < 5; i = i + 1) {
-        let o = stp * f32(i);
-        c = c + textureSampleLevel(t_a, s_lin, in.uv + o, 0.0).rgb * w[i];
-        c = c + textureSampleLevel(t_a, s_lin, in.uv - o, 0.0).rgb * w[i];
-    }
+    // Unrolled on purpose: D3D's FXC rejects dynamically indexed local arrays.
+    var c = textureSampleLevel(t_a, s_lin, in.uv, 0.0).rgb * 0.227027;
+    c = c + blur_tap(in.uv, stp, 1.0, 0.1945946);
+    c = c + blur_tap(in.uv, stp, 2.0, 0.1216216);
+    c = c + blur_tap(in.uv, stp, 3.0, 0.054054);
+    c = c + blur_tap(in.uv, stp, 4.0, 0.016216);
     return vec4<f32>(c, 1.0);
+}
+
+fn blur_tap(uv: vec2<f32>, stp: vec2<f32>, k: f32, w: f32) -> vec3<f32> {
+    let o = stp * k;
+    return (textureSampleLevel(t_a, s_lin, uv + o, 0.0).rgb + textureSampleLevel(t_a, s_lin, uv - o, 0.0).rgb) * w;
 }
 
 // --- kaleidoscope / mirror split -----------------------------------------
@@ -155,9 +159,15 @@ fn to_linear(c: vec3<f32>) -> vec3<f32> {
     return select(hi, lo, c <= vec3<f32>(0.04045));
 }
 
+// 4x4 ordered-dither threshold (the classic Bayer matrix
+// 0 8 2 10 / 12 4 14 6 / 3 11 1 9 / 15 7 13 5), computed by bit interleaving
+// because D3D's FXC rejects dynamically indexed local arrays.
 fn bayer4(p: vec2<u32>) -> f32 {
-    var m = array<f32, 16>(0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
-    return (m[(p.y & 3u) * 4u + (p.x & 3u)] + 0.5) / 16.0 - 0.5;
+    let x = p.x & 3u;
+    let y = p.y & 3u;
+    let e = x ^ y;
+    let v = ((e & 1u) << 3u) | ((y & 1u) << 2u) | (((e >> 1u) & 1u) << 1u) | ((y >> 1u) & 1u);
+    return (f32(v) + 0.5) / 16.0 - 0.5;
 }
 
 fn sample_scene(uv: vec2<f32>, bloom_k: f32) -> vec3<f32> {
