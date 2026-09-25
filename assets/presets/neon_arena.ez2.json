@@ -1,0 +1,882 @@
+{
+  "version": 1,
+  "name": "Neon Arena",
+  "timing": {
+    "bpm": 128.0,
+    "loop_beats": 16
+  },
+  "camera": {
+    "mode": "Orbit",
+    "target": [
+      0.0,
+      0.5,
+      0.0
+    ],
+    "distance": {
+      "base": 15.0,
+      "amp": 2.0,
+      "wave": "Sine",
+      "cycles": 1,
+      "offset": 0.0,
+      "audio": 0.0
+    },
+    "height": {
+      "base": 6.5,
+      "amp": 1.0,
+      "wave": "Sine",
+      "cycles": 2,
+      "offset": 0.0,
+      "audio": 0.0
+    },
+    "angle": 0.0,
+    "orbit_turns": 1,
+    "swing": 30.0,
+    "fov": 62.0,
+    "roll": 0.0,
+    "beat_shake": 0.15
+  },
+  "environment": {
+    "fog_color": [
+      0.0060488326,
+      0.000303527,
+      0.000607054
+    ],
+    "fog_density": 0.012,
+    "sky_color": [
+      0.21586053,
+      0.014443844,
+      0.014443844
+    ],
+    "ground_color": [
+      0.001517635,
+      0.001517635,
+      0.001517635
+    ],
+    "light_dir": [
+      0.2,
+      1.0,
+      -0.4
+    ],
+    "light_color": [
+      1.0,
+      0.74540436,
+      0.74540436
+    ],
+    "light_intensity": 1.2,
+    "ambient": 0.15
+  },
+  "layers": [
+    {
+      "name": "Red nebula",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Backdrop",
+        "kind": "Nebula",
+        "color_a": [
+          0.000607054,
+          0.0,
+          0.000303527
+        ],
+        "color_b": [
+          0.06847818,
+          0.001214108,
+          0.001214108
+        ],
+        "color_c": [
+          0.74540436,
+          0.014443844,
+          0.005181517
+        ],
+        "speed": 1,
+        "intensity": 0.75,
+        "detail": 1.2,
+        "texture": null
+      }
+    },
+    {
+      "name": "Glossy floor",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mirror",
+        "size": 60.0,
+        "base_color": [
+          0.000910581,
+          0.000910581,
+          0.000910581
+        ],
+        "reflectivity": 0.35,
+        "blur": 0.3,
+        "tint": [
+          0.3515327,
+          0.21586053,
+          0.21586053
+        ],
+        "texture": null,
+        "texture_scale": 1.0,
+        "grid": 0.0,
+        "grid_color": [
+          1.0,
+          0.014443844,
+          0.051269468
+        ],
+        "grid_scale": 1.0,
+        "grid_scroll": 0
+      }
+    },
+    {
+      "name": "Crystal skyline",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 7.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Crystal",
+          "spikes": 6,
+          "seed": 3
+        },
+        "material": {
+          "base_color": [
+            0.003676507,
+            0.003676507,
+            0.004391442
+          ],
+          "metallic": 0.9,
+          "roughness": 0.15,
+          "emissive_color": [
+            1.0,
+            0.029556833,
+            0.014443844
+          ],
+          "emissive": 0.0,
+          "emissive_mode": "Full",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": true,
+          "rim": 0.4,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Radial",
+          "count": 56,
+          "radius": 34.0
+        },
+        "variation": {
+          "seed": 7,
+          "rotation": 18.0,
+          "scale": 0.55,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    },
+    {
+      "name": "Outer neon ring",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.1,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          16.0,
+          1.0,
+          16.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Ring",
+          "arc": 360.0,
+          "width": 0.02,
+          "height": 0.12,
+          "segments": 160
+        },
+        "material": {
+          "base_color": [
+            0.003676507,
+            0.003676507,
+            0.004391442
+          ],
+          "metallic": 0.9,
+          "roughness": 0.15,
+          "emissive_color": [
+            1.0,
+            0.010329823,
+            0.005181517
+          ],
+          "emissive": {
+            "base": 4.0,
+            "amp": 1.0,
+            "wave": "Sine",
+            "cycles": 4,
+            "offset": 0.0,
+            "audio": 0.0
+          },
+          "emissive_mode": "Full",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": true,
+          "rim": 0.4,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Single"
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    },
+    {
+      "name": "Tech panels",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.2,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          2.6,
+          0.35,
+          1.2
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Panel",
+          "bevel": 0.2
+        },
+        "material": {
+          "base_color": [
+            0.003676507,
+            0.003676507,
+            0.004391442
+          ],
+          "metallic": 0.9,
+          "roughness": 0.15,
+          "emissive_color": [
+            1.0,
+            0.010329823,
+            0.005181517
+          ],
+          "emissive": 5.0,
+          "emissive_mode": "Edges",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": true,
+          "rim": 0.4,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Radial",
+          "count": 20,
+          "radius": 11.0
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 4,
+          "ripple_spread": 2.0,
+          "chase": 1.0
+        }
+      }
+    },
+    {
+      "name": "Chevrons",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.06,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 6.5,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "Kaleido",
+        "count": 6
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Ring",
+          "arc": 40.0,
+          "width": 0.12,
+          "height": 0.08,
+          "segments": 16
+        },
+        "material": {
+          "base_color": [
+            0.003676507,
+            0.003676507,
+            0.004391442
+          ],
+          "metallic": 0.9,
+          "roughness": 0.15,
+          "emissive_color": [
+            1.0,
+            0.010329823,
+            0.005181517
+          ],
+          "emissive": {
+            "base": 3.0,
+            "amp": 4.0,
+            "wave": "Pulse",
+            "cycles": 16,
+            "offset": 0.0,
+            "audio": 0.0
+          },
+          "emissive_mode": "Full",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": true,
+          "rim": 0.4,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Single"
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    },
+    {
+      "name": "Debris blocks",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          -1.5,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 0.7,
+        "stretch": [
+          1.0,
+          0.4,
+          1.0
+        ],
+        "spin": [
+          0,
+          1,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Cube"
+        },
+        "material": {
+          "base_color": [
+            0.003676507,
+            0.003676507,
+            0.004391442
+          ],
+          "metallic": 0.9,
+          "roughness": 0.15,
+          "emissive_color": [
+            1.0,
+            0.029556833,
+            0.014443844
+          ],
+          "emissive": 0.0,
+          "emissive_mode": "Full",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": true,
+          "rim": 0.4,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Scatter",
+          "count": 70,
+          "radius": 9.0,
+          "shell": true,
+          "seed": 4
+        },
+        "variation": {
+          "seed": 3,
+          "rotation": 45.0,
+          "scale": 0.5,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    },
+    {
+      "name": "Central platform",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.25,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          3.4,
+          0.5,
+          3.4
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Cylinder",
+          "segments": 8
+        },
+        "material": {
+          "base_color": [
+            0.003676507,
+            0.003676507,
+            0.004391442
+          ],
+          "metallic": 0.9,
+          "roughness": 0.15,
+          "emissive_color": [
+            1.0,
+            0.010329823,
+            0.005181517
+          ],
+          "emissive": 2.5,
+          "emissive_mode": "Edges",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": true,
+          "rim": 0.4,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Single"
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    },
+    {
+      "name": "Chain ring",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          1.35,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 0.4,
+        "stretch": [
+          1.0,
+          1.0,
+          0.5
+        ],
+        "spin": [
+          0,
+          -1,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Torus",
+          "thickness": 0.28,
+          "segments": 16
+        },
+        "material": {
+          "base_color": [
+            0.029556833,
+            0.029556833,
+            0.036889445
+          ],
+          "metallic": 1.0,
+          "roughness": 0.2,
+          "emissive_color": [
+            1.0,
+            0.029556833,
+            0.014443844
+          ],
+          "emissive": 0.0,
+          "emissive_mode": "Full",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": true,
+          "rim": 0.4,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Radial",
+          "count": 28,
+          "radius": 2.2
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    },
+    {
+      "name": "Rising sparks",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Particles",
+        "emitter": "Vortex",
+        "count": 900,
+        "lifetimes": 2,
+        "size": 0.06,
+        "speed": 1.0,
+        "radius": 7.0,
+        "color_a": [
+          1.0,
+          0.4341537,
+          0.21586053
+        ],
+        "color_b": [
+          1.0,
+          0.005181517,
+          0.0
+        ],
+        "intensity": 3.0,
+        "trail": 2,
+        "trail_spacing": 0.006,
+        "sprite": "Glow",
+        "seed": 5
+      }
+    }
+  ],
+  "post": {
+    "bloom": {
+      "enabled": true,
+      "intensity": 1.1,
+      "threshold": 0.9,
+      "radius": 0.75
+    },
+    "kaleido": {
+      "enabled": false,
+      "segments": 6,
+      "angle": 0.0,
+      "turns": 0,
+      "zoom": 1.0,
+      "center": [
+        0.5,
+        0.5
+      ]
+    },
+    "mirror": {
+      "enabled": false,
+      "mode": "LeftToRight"
+    },
+    "chroma": {
+      "enabled": true,
+      "amount": {
+        "base": 0.002,
+        "amp": 0.004,
+        "wave": "Pulse",
+        "cycles": 16,
+        "offset": 0.0,
+        "audio": 0.0
+      }
+    },
+    "pixelate": {
+      "enabled": false,
+      "size": 4.0
+    },
+    "palette": {
+      "enabled": false,
+      "palette": "Ega",
+      "dither": 0.6
+    },
+    "crt": {
+      "enabled": false,
+      "scanlines": 0.5,
+      "curvature": 0.15,
+      "noise": 0.1
+    },
+    "grade": {
+      "exposure": 1.0,
+      "contrast": 1.12,
+      "saturation": 1.15,
+      "vignette": 0.45,
+      "grain": 0.03,
+      "beat_flash": 0.0
+    }
+  },
+  "textures": [],
+  "audio": null,
+  "graph": null,
+  "use_graph": false
+}

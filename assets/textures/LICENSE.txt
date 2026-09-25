@@ -1,0 +1,3 @@
+The PNG textures in this folder are generated procedurally by
+`ez2demoscene --write-textures` and are dedicated to the public domain
+(CC0 1.0 Universal). Use them for anything.

@@ -1,0 +1,401 @@
+{
+  "version": 1,
+  "name": "Synth Sunset",
+  "timing": {
+    "bpm": 100.0,
+    "loop_beats": 16
+  },
+  "camera": {
+    "mode": "Static",
+    "target": [
+      0.0,
+      2.0,
+      -10.0
+    ],
+    "distance": 12.0,
+    "height": 1.5,
+    "angle": 0.0,
+    "orbit_turns": 1,
+    "swing": 30.0,
+    "fov": 60.0,
+    "roll": 0.0,
+    "beat_shake": 0.0
+  },
+  "environment": {
+    "fog_color": [
+      0.023153365,
+      0.002428216,
+      0.029556833
+    ],
+    "fog_density": 0.02,
+    "sky_color": [
+      1.0,
+      0.11697067,
+      0.3515327
+    ],
+    "ground_color": [
+      0.005181517,
+      0.0,
+      0.014443844
+    ],
+    "light_dir": [
+      0.0,
+      0.3,
+      -1.0
+    ],
+    "light_color": [
+      1.0,
+      0.21586053,
+      0.5271152
+    ],
+    "light_intensity": 1.5,
+    "ambient": 0.3
+  },
+  "layers": [
+    {
+      "name": "Sunset",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Backdrop",
+        "kind": "SynthGrid",
+        "color_a": [
+          0.00303527,
+          0.0,
+          0.014443844
+        ],
+        "color_b": [
+          1.0,
+          0.029556833,
+          0.21586053
+        ],
+        "color_c": [
+          1.0,
+          0.6307572,
+          0.029556833
+        ],
+        "speed": 1,
+        "intensity": 1.0,
+        "detail": 1.0,
+        "texture": null
+      }
+    },
+    {
+      "name": "Neon grid floor",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mirror",
+        "size": 80.0,
+        "base_color": [
+          0.002428216,
+          0.0,
+          0.005181517
+        ],
+        "reflectivity": 0.5,
+        "blur": 0.15,
+        "tint": [
+          1.0,
+          0.3515327,
+          1.0
+        ],
+        "texture": null,
+        "texture_scale": 1.0,
+        "grid": 2.5,
+        "grid_color": [
+          1.0,
+          0.014443844,
+          0.5271152
+        ],
+        "grid_scale": 0.5,
+        "grid_scroll": 8
+      }
+    },
+    {
+      "name": "Pyramids",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          1.25,
+          -14.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 2.5,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Pyramid"
+        },
+        "material": {
+          "base_color": [
+            0.005181517,
+            0.0,
+            0.009134057
+          ],
+          "metallic": 0.8,
+          "roughness": 0.2,
+          "emissive_color": [
+            0.014443844,
+            0.74540436,
+            1.0
+          ],
+          "emissive": {
+            "base": 3.0,
+            "amp": 1.0,
+            "wave": "Sine",
+            "cycles": 4,
+            "offset": 0.0,
+            "audio": 0.0
+          },
+          "emissive_mode": "Edges",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": true,
+          "rim": 0.3,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Grid",
+          "counts": [
+            2,
+            1,
+            3
+          ],
+          "spacing": [
+            14.0,
+            1.0,
+            8.0
+          ]
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.3,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    },
+    {
+      "name": "Floating octahedron",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          3.0,
+          -8.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.2,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          1,
+          0
+        ],
+        "bob": {
+          "base": 0.0,
+          "amp": 0.5,
+          "wave": "Sine",
+          "cycles": 2,
+          "offset": 0.0,
+          "audio": 0.0
+        }
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Octahedron"
+        },
+        "material": {
+          "base_color": [
+            0.005181517,
+            0.005181517,
+            0.005181517
+          ],
+          "metallic": 1.0,
+          "roughness": 0.05,
+          "emissive_color": [
+            1.0,
+            0.051269468,
+            0.6307572
+          ],
+          "emissive": 2.0,
+          "emissive_mode": "Edges",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": true,
+          "rim": 0.3,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Single"
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    }
+  ],
+  "post": {
+    "bloom": {
+      "enabled": true,
+      "intensity": 1.0,
+      "threshold": 0.8,
+      "radius": 0.8
+    },
+    "kaleido": {
+      "enabled": false,
+      "segments": 6,
+      "angle": 0.0,
+      "turns": 0,
+      "zoom": 1.0,
+      "center": [
+        0.5,
+        0.5
+      ]
+    },
+    "mirror": {
+      "enabled": false,
+      "mode": "LeftToRight"
+    },
+    "chroma": {
+      "enabled": false,
+      "amount": 0.004
+    },
+    "pixelate": {
+      "enabled": false,
+      "size": 4.0
+    },
+    "palette": {
+      "enabled": false,
+      "palette": "Ega",
+      "dither": 0.6
+    },
+    "crt": {
+      "enabled": true,
+      "scanlines": 0.25,
+      "curvature": 0.0,
+      "noise": 0.03
+    },
+    "grade": {
+      "exposure": 1.0,
+      "contrast": 1.05,
+      "saturation": 1.1,
+      "vignette": 0.35,
+      "grain": 0.03,
+      "beat_flash": 0.0
+    }
+  },
+  "textures": [],
+  "audio": null,
+  "graph": null,
+  "use_graph": false
+}
