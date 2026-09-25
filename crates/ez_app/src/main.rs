@@ -4,6 +4,7 @@ mod app;
 mod audio;
 mod cli;
 mod export_ui;
+mod gizmo;
 mod inspector;
 mod library;
 mod nodes;

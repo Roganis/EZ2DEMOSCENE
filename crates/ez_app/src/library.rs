@@ -79,7 +79,9 @@ impl Library {
     }
 
     pub fn autosave(&self, project: &Project) -> Result<(), String> {
-        project.save(&self.autosave_path()).map_err(|e| e.to_string())
+        project
+            .save(&self.autosave_path())
+            .map_err(|e| e.to_string())
     }
 
     pub fn discard_recovery(&mut self) {
@@ -92,10 +94,15 @@ impl Library {
         let mut files = list(&self.root.join("presets"), ".ez2.json");
         files.sort();
         for path in files {
-            let Ok(p) = Project::load(&path) else { continue };
+            let Ok(p) = Project::load(&path) else {
+                continue;
+            };
             let thumb_path = path.with_file_name(format!(
                 "{}.png",
-                path.file_name().unwrap().to_string_lossy().trim_end_matches(".ez2.json")
+                path.file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .trim_end_matches(".ez2.json")
             ));
             let thumb = image::open(&thumb_path).ok().map(|img| {
                 let img = img.to_rgba8();
@@ -115,7 +122,9 @@ impl Library {
         let mut files = list(&self.root.join("templates"), ".json");
         files.sort();
         for path in files {
-            let Ok(text) = std::fs::read_to_string(&path) else { continue };
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
             if let Ok(layer) = serde_json::from_str::<Layer>(&text) {
                 self.templates.push(Template { layer, path });
             }
@@ -143,7 +152,10 @@ impl Library {
         project.save(&path).map_err(|e| e.to_string())?;
         let thumb = path.with_file_name(format!(
             "{}.png",
-            path.file_name().unwrap().to_string_lossy().trim_end_matches(".ez2.json")
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .trim_end_matches(".ez2.json")
         ));
         thumbnail.save(&thumb).map_err(|e| e.to_string())?;
         self.reload(ctx);

@@ -2,6 +2,7 @@
 
 use crate::audio::AudioPlayer;
 use crate::export_ui::{slug, ExportUi};
+use crate::gizmo::{self, Gizmo, GizmoMode, Projector};
 use crate::inspector::{self, IMAGE_EXTENSIONS, MODEL_EXTENSIONS};
 use crate::library::Library;
 use crate::nodes::NodeEditor;
@@ -74,6 +75,7 @@ pub struct EzApp {
     gallery_tab: usize,
     /// Name typed in the "save as my preset" dialog (Some = dialog open).
     preset_name: Option<String>,
+    gizmo: Gizmo,
 }
 
 const AUTOSAVE_SECONDS: f64 = 30.0;
@@ -117,6 +119,7 @@ impl EzApp {
             last_autosave: 0.0,
             gallery_tab: 0,
             preset_name: None,
+            gizmo: Gizmo::default(),
         };
         match initial {
             Some(p) => app.open_path(&p),
@@ -183,17 +186,26 @@ impl EzApp {
     fn save_pack(&mut self) {
         let Some(path) = rfd::FileDialog::new()
             .add_filter("EZ2 pack", &[ez_core::assets::PACK_EXTENSION])
-            .set_file_name(format!("{}.{}", slug(&self.project.name), ez_core::assets::PACK_EXTENSION))
+            .set_file_name(format!(
+                "{}.{}",
+                slug(&self.project.name),
+                ez_core::assets::PACK_EXTENSION
+            ))
             .save_file()
         else {
             return;
         };
         match ez_core::assets::pack(&self.project, &path) {
-            Ok(r) if r.missing.is_empty() => {
-                self.set_status(format!("Packed {} with {} asset(s)", path.display(), r.packed), false)
-            }
+            Ok(r) if r.missing.is_empty() => self.set_status(
+                format!("Packed {} with {} asset(s)", path.display(), r.packed),
+                false,
+            ),
             Ok(r) => self.set_status(
-                format!("Packed, but {} file(s) were missing: {}", r.missing.len(), r.missing.join(", ")),
+                format!(
+                    "Packed, but {} file(s) were missing: {}",
+                    r.missing.len(),
+                    r.missing.join(", ")
+                ),
                 true,
             ),
             Err(e) => self.set_status(format!("Pack failed: {e}"), true),
@@ -216,7 +228,11 @@ impl EzApp {
         let mut p = self.project.clone();
         p.name = name;
         let target = self.viewport.renderer.create_target(320, 180);
-        let thumb = self.viewport.renderer.render_image(&p, &EvalCtx::new(&p.timing, self.phase(), None), &target);
+        let thumb = self.viewport.renderer.render_image(
+            &p,
+            &EvalCtx::new(&p.timing, self.phase(), None),
+            &target,
+        );
         match self.library.save_preset(ctx, &p, &thumb) {
             Ok(()) => self.set_status(format!("Saved '{}' to My presets", p.name), false),
             Err(e) => self.set_status(format!("Could not save preset: {e}"), true),
@@ -594,7 +610,9 @@ impl EzApp {
                             }
                             if ui
                                 .button("Save as template")
-                                .on_hover_text("Reuse this layer in other projects (+ Add → My templates)")
+                                .on_hover_text(
+                                    "Reuse this layer in other projects (+ Add → My templates)",
+                                )
                                 .clicked()
                             {
                                 action = Some((i, 4));
@@ -887,6 +905,19 @@ impl EzApp {
                 })
                 .response
                 .on_hover_text("Lower the preview resolution if playback stutters");
+            ui.separator();
+            for (mode, label, key) in [
+                (GizmoMode::Move, "✥ Move", "W"),
+                (GizmoMode::Rotate, "⟲ Rotate", "E"),
+                (GizmoMode::Scale, "⤢ Scale", "R"),
+            ] {
+                ui.selectable_value(&mut self.gizmo.mode, mode, label)
+                    .on_hover_text(format!(
+                        "{key} — drag the handles of the selected layer. Hold Ctrl to snap."
+                    ));
+            }
+            ui.checkbox(&mut self.gizmo.grid, "Grid")
+                .on_hover_text("G — show a ground grid (1 unit squares)");
             if let Some((msg, err, t)) = &self.status {
                 if self.now - t < 6.0 || (*err && self.now - t < 20.0) {
                     ui.label(RichText::new(msg).color(if *err {
@@ -919,8 +950,30 @@ impl EzApp {
                 )
             })
             .inner;
-        // Mouse camera control.
-        if resp.dragged() {
+        // Gizmo, picking and mouse camera control.
+        let cam_state = self.project.camera.eval(&ctx);
+        let proj = Projector::new(&cam_state, resp.rect);
+        let painter = ui.painter_at(resp.rect);
+        if self.gizmo.grid {
+            gizmo::draw_grid(&painter, &proj, 0.0);
+        }
+        let snapping = ui.input(|i| i.modifiers.command);
+        let mut on_gizmo = false;
+        if self.mode == Mode::Simple && !self.project.use_graph {
+            if let Selection::Layer(i) = self.selection {
+                if let Some(layer) = self.project.layers.get_mut(i) {
+                    on_gizmo = self.gizmo.show(&painter, &resp, &proj, layer, snapping);
+                }
+            }
+            if resp.clicked() && !on_gizmo {
+                if let Some(pos) = resp.interact_pointer_pos() {
+                    if let Some(i) = gizmo::pick(&self.project.layers, &ctx, &proj, pos) {
+                        self.selection = Selection::Layer(i);
+                    }
+                }
+            }
+        }
+        if resp.dragged() && !on_gizmo && !self.gizmo.is_dragging() {
             let d = resp.drag_delta();
             let cam = &mut self.project.camera;
             cam.angle = (cam.angle - d.x * 0.4 + 540.0).rem_euclid(360.0) - 180.0;
@@ -967,10 +1020,19 @@ impl EzApp {
                     ),
                     None => ui.add_sized(size, egui::Button::new("no preview")),
                 };
-                let r = if tip.is_empty() { r } else { r.on_hover_text(tip) };
+                let r = if tip.is_empty() {
+                    r
+                } else {
+                    r.on_hover_text(tip)
+                };
                 clicked = r.clicked();
                 if r.hovered() {
-                    ui.painter().rect_stroke(r.rect, 4.0, egui::Stroke::new(2.0, ACCENT), egui::StrokeKind::Outside);
+                    ui.painter().rect_stroke(
+                        r.rect,
+                        4.0,
+                        egui::Stroke::new(2.0, ACCENT),
+                        egui::StrokeKind::Outside,
+                    );
                 }
                 ui.strong(name);
             });
@@ -1102,7 +1164,9 @@ impl EzApp {
     }
 
     fn preset_name_window(&mut self, ctx: &egui::Context) {
-        let Some(mut name) = self.preset_name.take() else { return };
+        let Some(mut name) = self.preset_name.take() else {
+            return;
+        };
         let mut open = true;
         let mut save = false;
         egui::Window::new("Save as my preset")
@@ -1180,6 +1244,24 @@ impl EzApp {
         });
         if space {
             self.playing = !self.playing;
+        }
+        if !typing {
+            ctx.input(|i| {
+                if !i.modifiers.command {
+                    if i.key_pressed(egui::Key::W) {
+                        self.gizmo.mode = GizmoMode::Move;
+                    }
+                    if i.key_pressed(egui::Key::E) {
+                        self.gizmo.mode = GizmoMode::Rotate;
+                    }
+                    if i.key_pressed(egui::Key::R) {
+                        self.gizmo.mode = GizmoMode::Scale;
+                    }
+                    if i.key_pressed(egui::Key::G) {
+                        self.gizmo.grid = !self.gizmo.grid;
+                    }
+                }
+            });
         }
         if save {
             self.save(false);

@@ -195,7 +195,10 @@ pub fn pack(project: &Project, out: &Path) -> Result<PackReport, AssetError> {
         if path.is_empty() {
             return;
         }
-        if let Some((name, _)) = entries.iter().find(|(_, src)| src.as_path() == Path::new(path.as_str())) {
+        if let Some((name, _)) = entries
+            .iter()
+            .find(|(_, src)| src.as_path() == Path::new(path.as_str()))
+        {
             *path = name.clone();
             return;
         }
@@ -265,7 +268,8 @@ pub fn unpack(pack_path: &Path, dest: &Path) -> Result<Project, AssetError> {
             std::io::copy(&mut entry, &mut out)?;
         }
     }
-    let json = json.ok_or_else(|| AssetError::Invalid(format!("{PACK_PROJECT} missing in pack")))?;
+    let json =
+        json.ok_or_else(|| AssetError::Invalid(format!("{PACK_PROJECT} missing in pack")))?;
     let mut p = Project::from_json(&json)?;
     p.migrate();
     p.resolve_paths(dest);
@@ -286,7 +290,11 @@ mod tests {
 
     fn project_with_assets(dir: &Path) -> Project {
         std::fs::create_dir_all(dir.join("models")).unwrap();
-        std::fs::write(dir.join("models/ship.obj"), "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n").unwrap();
+        std::fs::write(
+            dir.join("models/ship.obj"),
+            "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n",
+        )
+        .unwrap();
         std::fs::write(dir.join("logo.png"), b"not really a png").unwrap();
         std::fs::write(dir.join("song.wav"), b"RIFF").unwrap();
         let mut p = presets::empty();
@@ -347,7 +355,11 @@ mod tests {
         let dest = tmpdir("pack_dest");
         let back = unpack(&pack_file, &dest).unwrap();
         assert_eq!(back.layers.len(), p.layers.len());
-        let obj = back.asset_paths().into_iter().find(|a| a.ends_with("ship.obj")).unwrap();
+        let obj = back
+            .asset_paths()
+            .into_iter()
+            .find(|a| a.ends_with("ship.obj"))
+            .unwrap();
         assert!(obj.starts_with(dest.to_str().unwrap()));
         assert_eq!(
             std::fs::read(&obj).unwrap(),

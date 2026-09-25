@@ -972,6 +972,7 @@ dependencies = [
  "ez_core",
  "ez_export",
  "ez_render",
+ "glam",
  "image",
  "log",
  "rfd",
