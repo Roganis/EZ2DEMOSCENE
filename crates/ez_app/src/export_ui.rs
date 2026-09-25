@@ -35,6 +35,24 @@ pub struct ExportUi {
 }
 
 impl ExportUi {
+    /// Automated browser tests only.
+    #[allow(dead_code)]
+    pub fn start_test(
+        &mut self,
+        _format: &str,
+        _project: &Project,
+        _audio: Option<&AudioEnvelope>,
+    ) {
+    }
+
+    /// Size used for "Save still image".
+    pub fn still_size(&self) -> (u32, u32) {
+        (self.settings.width, self.settings.height)
+    }
+
+    /// Desktop exports run on a background thread; nothing to do per frame.
+    pub fn tick(&mut self, _renderer: &mut ez_render::Renderer) {}
+
     pub fn is_running(&self) -> bool {
         self.job.is_some()
     }
@@ -268,20 +286,4 @@ impl ExportUi {
     }
 }
 
-pub fn slug(name: &str) -> String {
-    let s: String = name
-        .chars()
-        .map(|c| {
-            if c.is_alphanumeric() {
-                c.to_ascii_lowercase()
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    if s.is_empty() {
-        "loop".into()
-    } else {
-        s
-    }
-}
+pub use crate::platform::slug;

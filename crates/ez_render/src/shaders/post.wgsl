@@ -149,6 +149,12 @@ fn to_srgb(c: vec3<f32>) -> vec3<f32> {
     return select(hi, lo, c <= vec3<f32>(0.0031308));
 }
 
+fn to_linear(c: vec3<f32>) -> vec3<f32> {
+    let lo = c / 12.92;
+    let hi = pow((c + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4));
+    return select(hi, lo, c <= vec3<f32>(0.04045));
+}
+
 fn bayer4(p: vec2<u32>) -> f32 {
     var m = array<f32, 16>(0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
     return (m[(p.y & 3u) * 4u + (p.x & 3u)] + 0.5) / 16.0 - 0.5;
@@ -174,7 +180,7 @@ fn fs_final(in: VOut) -> @location(0) vec4<f32> {
     let frame_id = u32(P.v[5].y);
     if (crt && P.v[4].w > 0.0) {
         let line = u32(uv.y * res.y / 2.0);
-        let jitter = hash1(line * 747796405u ^ frame_id * 2891336453u) - 0.5;
+        let jitter = hash1((line * 747796405u) ^ (frame_id * 2891336453u)) - 0.5;
         let roll = sin(TAU * (uv.y * 3.0 + P.v[3].w * 2.0)) * 0.5 + 0.5;
         uv.x = uv.x + jitter * P.v[4].w * 0.006 * (0.5 + roll);
     }
@@ -243,10 +249,12 @@ fn fs_final(in: VOut) -> @location(0) vec4<f32> {
         col = col * mask;
     }
     // grain (loop-safe: frame id wraps with the loop)
-    let g = hash1(hash_u(u32(in.pos.x) + u32(in.pos.y) * 4099u) ^ frame_id * 83492791u) - 0.5;
+    let g = hash1(hash_u(u32(in.pos.x) + u32(in.pos.y) * 4099u) ^ (frame_id * 83492791u)) - 0.5;
     col = col + vec3<f32>(g * P.v[2].x);
     if (outside) {
         col = vec3<f32>(0.0);
     }
-    return vec4<f32>(clamp(col, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
+    // All grading above happens in display (sRGB) space; the output texture
+    // is sRGB, so hand the hardware linear values and it encodes them back.
+    return vec4<f32>(to_linear(clamp(col, vec3<f32>(0.0), vec3<f32>(1.0))), 1.0);
 }

@@ -21,10 +21,27 @@ egui-wgpu.workspace = true
 egui-snarl.workspace = true
 image.workspace = true
 rfd.workspace = true
-rodio = { workspace = true, features = ["playback", "symphonia-all"] }
 anyhow.workspace = true
 log.workspace = true
-env_logger.workspace = true
-directories.workspace = true
 serde_json.workspace = true
 glam.workspace = true
+zip.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+eframe = { workspace = true, features = ["x11", "wayland"] }
+rodio = { workspace = true, features = ["playback", "symphonia-all"] }
+env_logger.workspace = true
+directories.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wgpu = { workspace = true, features = ["webgpu", "webgl"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
+    "Window", "Document", "Element", "HtmlElement", "HtmlCanvasElement", "HtmlAnchorElement",
+    "HtmlAudioElement", "HtmlMediaElement", "Blob", "BlobPropertyBag", "Url", "Navigator",
+    "Storage", "MediaQueryList", "Location", "UrlSearchParams", "console",
+] }
+idb = "0.6"
+console_error_panic_hook = "0.1"

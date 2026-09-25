@@ -23,7 +23,8 @@ pub trait FrameSink {
 pub struct GifSink {
     encoder: GifEncoder<SharedBuf>,
     out: SharedBuf,
-    delay_ms: u32,
+    fps: f32,
+    index: u32,
 }
 
 /// A `Write` target we can still read after the encoder takes ownership.
@@ -48,7 +49,8 @@ impl GifSink {
         Ok(GifSink {
             encoder,
             out,
-            delay_ms: (1000.0 / fps.max(1.0)).round() as u32,
+            fps: fps.max(1.0),
+            index: 0,
         })
     }
 }
@@ -57,13 +59,14 @@ impl FrameSink for GifSink {
     fn add_frame(&mut self, rgba: &[u8], width: u32, height: u32) -> Result<()> {
         let img = image::RgbaImage::from_raw(width, height, rgba.to_vec())
             .ok_or_else(|| anyhow::anyhow!("frame size mismatch"))?;
-        let frame = image::Frame::from_parts(
-            img,
-            0,
-            0,
-            image::Delay::from_numer_denom_ms(self.delay_ms, 1),
-        );
+        // GIF delays are whole centiseconds: alternate them so the total
+        // length is exact (e.g. 24 fps -> 4,4,4,5,4,4,4,5… cs).
+        let cs = |i: u32| (i as f64 * 100.0 / self.fps as f64).round() as u32;
+        let delay = cs(self.index + 1) - cs(self.index);
+        let frame =
+            image::Frame::from_parts(img, 0, 0, image::Delay::from_numer_denom_ms(delay * 10, 1));
         self.encoder.encode_frame(frame)?;
+        self.index += 1;
         Ok(())
     }
 
@@ -144,6 +147,7 @@ pub struct ExportJob {
 impl ExportJob {
     /// `repeats` repeats the loop in the output (use 1 for GIFs, which loop
     /// by themselves).
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         renderer: &Renderer,
         project: Project,
@@ -254,6 +258,14 @@ mod tests {
         use image::AnimationDecoder;
         let frames = decoder.into_frames().collect_frames().unwrap();
         assert_eq!(frames.len(), 6);
+        let total_ms: u32 = frames
+            .iter()
+            .map(|f| {
+                let (n, d) = f.delay().numer_denom_ms();
+                n / d
+            })
+            .sum();
+        assert_eq!(total_ms, 500, "GIF length must equal the loop length");
         assert_eq!(frames[0].buffer().dimensions(), (64, 36));
 
         let mut job = ExportJob::new(&r, p, None, 64, 36, 12.0, 2, Box::<PngZipSink>::default());

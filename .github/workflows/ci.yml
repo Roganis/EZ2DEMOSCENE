@@ -43,3 +43,15 @@ jobs:
           if-no-files-found: ignore
       - name: Release build
         run: cargo build --release -p ez_app
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Clippy (wasm)
+        run: cargo clippy -p ez_app --target wasm32-unknown-unknown -- -D warnings

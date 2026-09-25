@@ -1,7 +1,7 @@
 //! Music playback locked to the loop clock.
 
 use anyhow::{Context, Result};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Duration;
 
 pub struct AudioPlayer {
@@ -12,7 +12,8 @@ pub struct AudioPlayer {
 }
 
 impl AudioPlayer {
-    pub fn new(path: &Path) -> Result<AudioPlayer> {
+    pub fn new(path: &str) -> Result<AudioPlayer> {
+        let path = std::path::Path::new(path);
         let sink =
             rodio::DeviceSinkBuilder::open_default_sink().context("no audio output device")?;
         let player = rodio::Player::connect_new(sink.mixer());

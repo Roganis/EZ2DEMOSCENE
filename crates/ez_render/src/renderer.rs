@@ -19,10 +19,9 @@ use wgpu::util::DeviceExt;
 
 pub const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
-/// Storage format of the final image (holds sRGB-encoded values).
-pub const OUTPUT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
-/// View format to *display* the final image with (decodes sRGB on sampling).
-pub const OUTPUT_VIEW_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+/// Format of the final image: sRGB-encoded bytes (read back as-is for
+/// export; decoded to linear when sampled for display).
+pub const OUTPUT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
 const DRAW_SLOT: u64 = 256;
 const POST_SLOT: u64 = 512;
@@ -1588,13 +1587,10 @@ impl Renderer {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                 | wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[OUTPUT_VIEW_FORMAT],
+            view_formats: &[],
         });
         let output_view = output.create_view(&Default::default());
-        let display_view = output.create_view(&wgpu::TextureViewDescriptor {
-            format: Some(OUTPUT_VIEW_FORMAT),
-            ..Default::default()
-        });
+        let display_view = output.create_view(&Default::default());
         let post_bg = |a: &wgpu::TextureView, b: &wgpu::TextureView| {
             dev.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("post"),

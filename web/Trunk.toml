@@ -1,0 +1,6 @@
+[build]
+target = "index.html"
+dist = "../dist"
+# Relative URLs so the same build works on GitHub Pages (/EZ2DEMOSCENE/),
+# inside the Android wrapper and from any folder.
+public_url = "./"

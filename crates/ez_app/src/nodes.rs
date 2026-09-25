@@ -74,9 +74,17 @@ impl NodeEditor {
     }
 
     /// Layer of the selected source node, for the inspector.
-    pub fn selected_layer_mut(&mut self) -> Option<&mut Layer> {
+    pub fn selected_layer_mut(&mut self) -> Option<(u32, &mut Layer)> {
         let id = self.selected?;
         match self.snarl.get_node_mut(id)? {
+            NodeKind::Source { layer } => Some((id.0 as u32, layer)),
+            _ => None,
+        }
+    }
+
+    /// Layer of source node `id` (for applying imported files).
+    pub fn layer_mut(&mut self, id: u32) -> Option<&mut Layer> {
+        match self.snarl.get_node_mut(NodeId(id as usize))? {
             NodeKind::Source { layer } => Some(layer),
             _ => None,
         }

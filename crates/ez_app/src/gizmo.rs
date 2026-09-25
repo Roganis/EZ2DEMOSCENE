@@ -33,6 +33,8 @@ struct Drag {
 pub struct Gizmo {
     pub mode: GizmoMode,
     pub grid: bool,
+    /// Touch screen: bigger handles and hit areas.
+    pub touch: bool,
     drag: Option<Drag>,
 }
 
@@ -158,12 +160,20 @@ impl Default for Gizmo {
         Gizmo {
             mode: GizmoMode::Move,
             grid: false,
+            touch: false,
             drag: None,
         }
     }
 }
 
 impl Gizmo {
+    pub fn new(touch: bool) -> Gizmo {
+        Gizmo {
+            touch,
+            ..Default::default()
+        }
+    }
+
     pub fn is_dragging(&self) -> bool {
         self.drag.is_some()
     }
@@ -201,10 +211,11 @@ impl Gizmo {
         let hover_pos = resp.hover_pos();
         let mut hovered = None;
         if let Some(p) = hover_pos {
-            if (p - o).length() < 9.0 && !only_y {
+            let k = if self.touch { 2.2 } else { 1.0 };
+            if (p - o).length() < 9.0 * k && !only_y {
                 hovered = Some(Handle::Center);
             } else {
-                let mut best = 8.0;
+                let mut best = 8.0 * k;
                 for (i, tip) in tips.iter().enumerate() {
                     if only_y && i != 1 {
                         continue;
@@ -320,10 +331,13 @@ impl Gizmo {
                     painter
                         .line_segment([o, *tip], Stroke::new(if hot { 4.0 } else { 2.5 }, color));
                     if self.mode == GizmoMode::Move {
-                        painter.circle_filled(*tip, 5.0, color);
+                        painter.circle_filled(*tip, if self.touch { 9.0 } else { 5.0 }, color);
                     } else {
                         painter.rect_filled(
-                            Rect::from_center_size(*tip, Vec2::splat(9.0)),
+                            Rect::from_center_size(
+                                *tip,
+                                Vec2::splat(if self.touch { 16.0 } else { 9.0 }),
+                            ),
                             1.0,
                             color,
                         );

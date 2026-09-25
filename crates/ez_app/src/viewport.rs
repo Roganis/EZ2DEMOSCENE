@@ -14,7 +14,11 @@ pub struct Viewport {
 impl Viewport {
     pub fn new(render_state: &RenderState) -> Viewport {
         Viewport {
-            renderer: Renderer::new(&render_state.device, &render_state.queue, 4),
+            renderer: Renderer::new(
+                &render_state.device,
+                &render_state.queue,
+                ez_render::supported_msaa(&render_state.adapter),
+            ),
             target: None,
             texture_id: None,
             render_state: render_state.clone(),
@@ -51,6 +55,11 @@ impl Viewport {
         let target = self.target.as_ref().expect("target");
         self.renderer.render(project, ctx, target);
         self.texture_id.expect("texture id")
+    }
+
+    /// The texture of the last rendered frame, if any.
+    pub fn last_texture(&self) -> Option<egui::TextureId> {
+        self.texture_id
     }
 
     /// Render a project once into a new egui texture (preset thumbnails).

@@ -1,7 +1,7 @@
 //! The user's data folder: own presets (with thumbnails), layer templates,
 //! autosave and crash recovery.
 
-use crate::export_ui::slug;
+use crate::platform::slug;
 use ez_core::{Layer, Project};
 use std::path::{Path, PathBuf};
 
@@ -188,6 +188,19 @@ impl Library {
         self.reload(ctx);
     }
 
+    /// Load user preset `i` as a new project.
+    pub fn load_preset(&self, i: usize) -> Result<Project, String> {
+        let p = self.presets.get(i).ok_or("no such preset")?;
+        Project::load(&p.path).map_err(|e| e.to_string())
+    }
+
+    /// Desktop: the library is loaded synchronously in `open`.
+    pub fn poll(&mut self, _ctx: &egui::Context) {}
+
+    pub fn is_loaded(&self) -> bool {
+        true
+    }
+
     pub fn template_layers(&self) -> Vec<Layer> {
         self.templates.iter().map(|t| t.layer.clone()).collect()
     }
@@ -220,3 +233,6 @@ fn list(dir: &Path, suffix: &str) -> Vec<PathBuf> {
         })
         .unwrap_or_default()
 }
+
+/// Desktop assets are files on disk: nothing to persist.
+pub fn persist_asset(_path: &str) {}
