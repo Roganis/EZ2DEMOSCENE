@@ -76,9 +76,21 @@ pub struct EzApp {
     /// Name typed in the "save as my preset" dialog (Some = dialog open).
     preset_name: Option<String>,
     gizmo: Gizmo,
+    /// Smoothed frame time in milliseconds.
+    frame_ms: f32,
 }
 
 const AUTOSAVE_SECONDS: f64 = 30.0;
+/// Layer load above which the layer list shows a warning.
+const HEAVY_LAYER: f32 = 1.0;
+
+fn human(n: u64) -> String {
+    match n {
+        0..=9_999 => n.to_string(),
+        10_000..=999_999 => format!("{:.1}k", n as f64 / 1e3),
+        _ => format!("{:.2}M", n as f64 / 1e6),
+    }
+}
 const PROJECT_FILTER: &[&str] = &["json", ez_core::assets::PACK_EXTENSION];
 
 impl EzApp {
@@ -120,6 +132,7 @@ impl EzApp {
             gallery_tab: 0,
             preset_name: None,
             gizmo: Gizmo::default(),
+            frame_ms: 16.0,
         };
         match initial {
             Some(p) => app.open_path(&p),
@@ -595,6 +608,18 @@ impl EzApp {
                         if r.clicked() {
                             self.selection = Selection::Layer(i);
                         }
+                        if !self.project.use_graph {
+                            if let Some(st) = self.viewport.renderer.stats().layers.iter().find(|s| s.index == i) {
+                                if st.load > HEAVY_LAYER {
+                                    ui.label(RichText::new("⚠").color(Color32::from_rgb(255, 170, 60)))
+                                        .on_hover_text(format!(
+                                            "Heavy layer: {} triangles, {} particles. Lower the count, detail or trail if playback stutters.",
+                                            human(st.triangles),
+                                            human(st.particles)
+                                        ));
+                                }
+                            }
+                        }
                         r.context_menu(|ui| {
                             if ui.button("Move up").clicked() {
                                 action = Some((i, -1));
@@ -905,6 +930,40 @@ impl EzApp {
                 })
                 .response
                 .on_hover_text("Lower the preview resolution if playback stutters");
+            {
+                let st = self.viewport.renderer.stats();
+                let fps = 1000.0 / self.frame_ms.max(0.1);
+                let color = if fps < 24.0 {
+                    Color32::from_rgb(255, 170, 60)
+                } else {
+                    Color32::GRAY
+                };
+                ui.label(RichText::new(format!("{fps:.0} fps")).color(color).small())
+                    .on_hover_ui(|ui| {
+                        ui.label(format!("Frame time: {:.1} ms", self.frame_ms));
+                        ui.label(format!("Triangles: {}", human(st.triangles)));
+                        ui.label(format!("Particles: {}", human(st.particles)));
+                        ui.label(format!("Draw calls: {}", st.draw_calls));
+                        ui.label(format!(
+                            "Mirror reflection pass: {}",
+                            if st.reflection {
+                                "yes (scene drawn twice)"
+                            } else {
+                                "no"
+                            }
+                        ));
+                        ui.label(format!(
+                            "Estimated load: {:.2} (above ~3 may stutter on a laptop GPU)",
+                            st.load
+                        ));
+                        ui.separator();
+                        let mut layers = st.layers.clone();
+                        layers.sort_by(|a, b| b.load.partial_cmp(&a.load).unwrap());
+                        for l in layers.iter().take(5) {
+                            ui.label(format!("{:>5.2}  {}", l.load, l.name));
+                        }
+                    });
+            }
             ui.separator();
             for (mode, label, key) in [
                 (GizmoMode::Move, "✥ Move", "W"),
@@ -1290,6 +1349,8 @@ impl eframe::App for EzApp {
         let ctx = ui.ctx().clone();
         let dt = ctx.input(|i| i.stable_dt).min(0.1) as f64;
         self.now = ctx.input(|i| i.time);
+        let raw_dt = ctx.input(|i| i.unstable_dt) * 1000.0;
+        self.frame_ms += (raw_dt.clamp(0.0, 1000.0) - self.frame_ms) * 0.1;
         if self.playing {
             self.time = (self.time + dt).rem_euclid(self.loop_seconds().max(0.01));
         }

@@ -1017,6 +1017,7 @@ dependencies = [
  "image",
  "log",
  "pollster 0.4.0",
+ "serde_json",
  "tobj",
  "wgpu",
 ]

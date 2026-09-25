@@ -261,6 +261,20 @@ fn random_dir(rng: &mut Rng) -> Vec3 {
     Vec3::new(r * a.cos(), z, r * a.sin())
 }
 
+/// True when a mesh layer's instances do not change over the loop, so the
+/// renderer can compute them once and reuse them every frame.
+pub fn instances_are_static(layer: &Layer, mesh: &MeshLayer) -> bool {
+    let t = &layer.transform;
+    let v = &mesh.variation;
+    t.spin == [0; 3]
+        && !t.scale.is_animated()
+        && !t.bob.is_animated()
+        && !matches!(mesh.instancer, Instancer::Orbit { .. })
+        && v.spin == 0
+        && v.ripple == 0.0
+        && v.chase == 0.0
+}
+
 /// All instances of a mesh layer in world space.
 ///
 /// The layer scale sizes each copy; instancer distances (radius, spacing)
@@ -371,6 +385,22 @@ mod tests {
             for (x, y) in a.iter().zip(&b) {
                 assert!(approx(x.model, y.model), "{inst:?}");
                 assert!((x.glow - y.glow).abs() < 1e-3);
+            }
+        }
+    }
+
+    #[test]
+    fn static_layers_really_are_static() {
+        for p in crate::presets::all() {
+            for l in &p.project.layers {
+                if let LayerKind::Mesh(m) = &l.kind {
+                    if instances_are_static(l, m) {
+                        let (mut a, mut b) = (Vec::new(), Vec::new());
+                        mesh_instances(l, m, &EvalCtx::at(0.0), &mut a);
+                        mesh_instances(l, m, &EvalCtx::at(0.37), &mut b);
+                        assert_eq!(a, b, "{} / {}", p.name, l.name);
+                    }
+                }
             }
         }
     }
