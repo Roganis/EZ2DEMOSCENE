@@ -86,6 +86,10 @@ pub struct EzApp {
     rand_seed: u64,
     export: ExportUi,
     help_open: bool,
+    graphics_open: bool,
+    backend_pref: platform::GpuBackendPref,
+    /// The backend choice the app was started with.
+    backend_started: platform::GpuBackendPref,
     status: Option<(String, bool, f64)>,
     /// Wall-clock seconds (egui input time).
     now: f64,
@@ -162,6 +166,9 @@ impl EzApp {
             rand_seed: 1,
             export: ExportUi::default(),
             help_open: false,
+            graphics_open: false,
+            backend_pref: platform::GpuBackendPref::load(),
+            backend_started: platform::GpuBackendPref::load(),
             status: None,
             now: 0.0,
             library: Library::open(&cc.egui_ctx),
@@ -704,6 +711,10 @@ impl EzApp {
                         ui.selectable_value(&mut self.mode, Mode::Nodes, "Nodes");
                     });
                     ui.separator();
+                    if ui.button("🖥 Graphics").clicked() {
+                        self.graphics_open = true;
+                        ui.close();
+                    }
                     if ui.button("? Help").clicked() {
                         self.help_open = true;
                         ui.close();
@@ -768,6 +779,9 @@ impl EzApp {
                 .clicked()
             {
                 self.export.open = true;
+            }
+            if ui.button("🖥").on_hover_text("Graphics").clicked() {
+                self.graphics_open = true;
             }
             if ui.button("?").on_hover_text("Help").clicked() {
                 self.help_open = true;
@@ -1637,6 +1651,83 @@ impl EzApp {
         self.randomize_open = open;
     }
 
+    /// Which GPU and graphics backend the app runs on, plus (web only) a
+    /// choice between WebGL2 and WebGPU for devices whose driver misbehaves.
+    fn graphics_window(&mut self, ctx: &egui::Context) {
+        let mut open = self.graphics_open;
+        let info = self.viewport.adapter_info();
+        let backend = match info.backend {
+            wgpu::Backend::BrowserWebGpu => "WebGPU".to_string(),
+            wgpu::Backend::Gl if platform::IS_WEB => "WebGL2".to_string(),
+            b => format!("{b:?}"),
+        };
+        let msaa = self.viewport.renderer.msaa();
+        let lines = [
+            ("Backend", backend),
+            ("GPU", info.name.clone()),
+            (
+                "Driver",
+                format!("{} {}", info.driver, info.driver_info)
+                    .trim()
+                    .to_string(),
+            ),
+            ("Type", format!("{:?}", info.device_type)),
+            (
+                "Anti-aliasing",
+                if msaa > 1 {
+                    format!("{msaa}× MSAA")
+                } else {
+                    "off".into()
+                },
+            ),
+        ];
+        let max_w = (ctx.content_rect().width() - 24.0).clamp(200.0, 420.0);
+        egui::Window::new("Graphics")
+            .open(&mut open)
+            .default_width(max_w)
+            .max_width(max_w)
+            .show(ctx, |ui| {
+                for (k, v) in &lines {
+                    ui.horizontal_top(|ui| {
+                        ui.add_sized([110.0, 18.0], egui::Label::new(RichText::new(*k).weak()));
+                        ui.add(
+                            egui::Label::new(if v.is_empty() { "unknown" } else { v.as_str() })
+                                .wrap(),
+                        );
+                    });
+                }
+                if ui.button("📋 Copy").on_hover_text("Copy these details for a bug report").clicked() {
+                    let text: Vec<String> = lines.iter().map(|(k, v)| format!("{k}: {v}")).collect();
+                    ctx.copy_text(text.join("\n"));
+                    self.set_status("Graphics details copied", false);
+                }
+                if platform::IS_WEB {
+                    ui.separator();
+                    ui.label(RichText::new("Graphics backend").strong());
+                    ui.label("If the picture glitches, try the other backend. The app restarts to switch.");
+                    let before = self.backend_pref;
+                    ui.horizontal(|ui| {
+                        use platform::GpuBackendPref as P;
+                        for p in [P::Auto, P::WebGl, P::WebGpu] {
+                            ui.selectable_value(&mut self.backend_pref, p, p.label());
+                        }
+                    });
+                    if self.backend_pref != before {
+                        self.backend_pref.save();
+                    }
+                    if self.backend_pref != self.backend_started {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new("Restart to apply").color(Color32::LIGHT_YELLOW));
+                            if ui.button("⟳ Restart now").clicked() {
+                                platform::reload();
+                            }
+                        });
+                    }
+                }
+            });
+        self.graphics_open = open;
+    }
+
     fn help_window(&mut self, ctx: &egui::Context) {
         let mut open = self.help_open;
         egui::Window::new("How it works").open(&mut open).default_width(460.0).show(ctx, |ui| {
@@ -1821,6 +1912,7 @@ impl eframe::App for EzApp {
         self.autosave();
         self.randomize_window(&ctx);
         self.help_window(&ctx);
+        self.graphics_window(&ctx);
         self.export
             .show(&ctx, &self.project, self.audio_env.as_ref());
 
