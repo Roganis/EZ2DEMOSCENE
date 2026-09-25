@@ -107,20 +107,30 @@ pub struct Progress {
 
 /// Finds a working ffmpeg: the explicit path first, then `ffmpeg` on PATH.
 pub fn find_ffmpeg(explicit: Option<&Path>) -> Option<PathBuf> {
-    let candidates: Vec<PathBuf> = explicit
-        .map(|p| vec![p.to_path_buf()])
-        .unwrap_or_default()
-        .into_iter()
-        .chain([PathBuf::from("ffmpeg")])
-        .collect();
+    let exe_name = if cfg!(windows) {
+        "ffmpeg.exe"
+    } else {
+        "ffmpeg"
+    };
+    let mut candidates: Vec<PathBuf> = explicit.map(|p| vec![p.to_path_buf()]).unwrap_or_default();
+    // Release builds ship ffmpeg next to the program (or in ./ffmpeg/).
+    if let Some(dir) = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(Path::to_path_buf))
+    {
+        candidates.push(dir.join(exe_name));
+        candidates.push(dir.join("ffmpeg").join(exe_name));
+    }
+    candidates.push(PathBuf::from("ffmpeg"));
     candidates.into_iter().find(|c| {
-        Command::new(c)
-            .arg("-version")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
+        (c.components().count() == 1 || c.exists())
+            && Command::new(c)
+                .arg("-version")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
     })
 }
 

@@ -34,7 +34,10 @@ fn presets_match_golden_images() {
     };
     let bless = std::env::var("EZ2_BLESS").is_ok();
     if !gpu.adapter_name().contains("llvmpipe") && !bless {
-        eprintln!("skipping golden test on {} (references are llvmpipe renders)", gpu.adapter_name());
+        eprintln!(
+            "skipping golden test on {} (references are llvmpipe renders)",
+            gpu.adapter_name()
+        );
         return;
     }
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
@@ -44,7 +47,10 @@ fn presets_match_golden_images() {
     for preset in presets::all() {
         let p = &preset.project;
         let img = r.render_image(p, &EvalCtx::new(&p.timing, 0.3, None), &target);
-        let file = golden_dir().join(format!("{}.png", preset.name.to_lowercase().replace(' ', "_")));
+        let file = golden_dir().join(format!(
+            "{}.png",
+            preset.name.to_lowercase().replace(' ', "_")
+        ));
         if bless || !file.exists() {
             img.save(&file).unwrap();
             eprintln!("wrote {}", file.display());
@@ -53,10 +59,17 @@ fn presets_match_golden_images() {
         let reference = image::open(&file).unwrap().to_rgba8();
         let (a, b) = (img.as_raw(), reference.as_raw());
         assert_eq!(a.len(), b.len(), "{}: size changed", preset.name);
-        let diffs: Vec<u32> = a.iter().zip(b).map(|(x, y)| (*x as i32 - *y as i32).unsigned_abs()).collect();
+        let diffs: Vec<u32> = a
+            .iter()
+            .zip(b)
+            .map(|(x, y)| (*x as i32 - *y as i32).unsigned_abs())
+            .collect();
         let mean = diffs.iter().sum::<u32>() as f32 / diffs.len() as f32;
         let outliers = diffs.iter().filter(|d| **d > 40).count() as f32 / diffs.len() as f32;
-        eprintln!("{:<22} mean diff {mean:.3}, outliers {:.4}", preset.name, outliers);
+        eprintln!(
+            "{:<22} mean diff {mean:.3}, outliers {:.4}",
+            preset.name, outliers
+        );
         if mean > MAX_MEAN || outliers > MAX_OUTLIERS {
             let actual = file.with_extension("actual.png");
             img.save(&actual).unwrap();
@@ -68,5 +81,9 @@ fn presets_match_golden_images() {
             ));
         }
     }
-    assert!(failures.is_empty(), "golden images differ:\n{}", failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "golden images differ:\n{}",
+        failures.join("\n")
+    );
 }

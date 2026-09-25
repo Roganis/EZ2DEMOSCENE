@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -26,21 +26,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libxkbcommon-dev libwayland-dev mesa-vulkan-drivers ffmpeg
       - name: Format
+        if: runner.os == 'Linux'
         run: cargo fmt --all -- --check
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+      # GPU tests skip themselves when no adapter exists; golden-image tests
+      # only compare on Mesa llvmpipe (the Linux job).
       - name: Tests
         run: cargo test --workspace
-      - name: Release build
-        run: cargo build --release -p ez_app
-      - name: Upload binary
+      - name: Upload golden diffs on failure
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: ez2demoscene-${{ runner.os }}
-          path: |
-            target/release/ez2demoscene
-            target/release/ez2demoscene.exe
-            assets/
-            README.md
-            LICENSE
+          name: golden-diffs-${{ runner.os }}
+          path: crates/ez_render/tests/golden/*.actual.png
           if-no-files-found: ignore
+      - name: Release build
+        run: cargo build --release -p ez_app
