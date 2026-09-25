@@ -250,7 +250,8 @@ pub struct Transform {
     pub position: [f32; 3],
     /// Euler rotation in degrees (applied Y, X, Z).
     pub rotation: [f32; 3],
-    /// Uniform scale (animatable).
+    /// Size of the layer / of each copy (animatable). Instancer distances
+    /// are not scaled.
     pub scale: Param,
     /// Per-axis stretch multiplied with `scale`.
     pub stretch: [f32; 3],
@@ -796,7 +797,7 @@ impl Default for Backdrop {
             kind: BackdropKind::Gradient,
             color_a: hex(0x05050a),
             color_b: hex(0x302040),
-            color_c: hex(0xff4060),
+            color_c: hex(0x5060a0),
             speed: 1,
             intensity: Param::new(1.0),
             detail: 1.0,

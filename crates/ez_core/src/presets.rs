@@ -88,6 +88,12 @@ fn neon(color: u32, strength: Param, mode: EmissiveMode) -> Material {
 pub fn empty() -> Project {
     Project {
         name: "Empty".into(),
+        camera: Camera {
+            distance: Param::new(7.0),
+            height: Param::new(2.5),
+            target: [0.0, 1.0, 0.0],
+            ..Default::default()
+        },
         layers: vec![
             Layer::new(
                 "Sky",
@@ -101,6 +107,7 @@ pub fn empty() -> Project {
                 "Cube",
                 LayerKind::Mesh(mesh(Primitive::Cube, Material::default())),
             )
+            .scaled(1.5)
             .at([0.0, 1.0, 0.0])
             .spin([0, 1, 0]),
         ],
@@ -128,8 +135,8 @@ pub fn neon_arena() -> Project {
             ..Default::default()
         },
         environment: Environment {
-            fog_color: hex(0x1a0203),
-            fog_density: Param::new(0.018),
+            fog_color: hex(0x120102),
+            fog_density: Param::new(0.012),
             sky_color: hex(0x802020),
             ground_color: hex(0x050505),
             light_dir: [0.2, 1.0, -0.4],
@@ -142,11 +149,11 @@ pub fn neon_arena() -> Project {
                 "Red nebula",
                 LayerKind::Backdrop(Backdrop {
                     kind: BackdropKind::Nebula,
-                    color_a: hex(0x050002),
-                    color_b: hex(0x8a0a0a),
-                    color_c: hex(0xff3a2a),
+                    color_a: hex(0x020001),
+                    color_b: hex(0x4a0404),
+                    color_c: hex(0xe02010),
                     speed: 1,
-                    intensity: Param::new(1.0),
+                    intensity: Param::new(0.75),
                     detail: 1.2,
                     texture: None,
                 }),
@@ -155,10 +162,10 @@ pub fn neon_arena() -> Project {
                 "Glossy floor",
                 LayerKind::Mirror(MirrorFloor {
                     size: 60.0,
-                    base_color: hex(0x050505),
-                    reflectivity: 0.45,
-                    blur: 0.25,
-                    tint: hex(0xffd0d0),
+                    base_color: hex(0x030303),
+                    reflectivity: 0.35,
+                    blur: 0.3,
+                    tint: hex(0xa08080),
                     grid: Param::new(0.0),
                     ..Default::default()
                 }),
@@ -179,21 +186,21 @@ pub fn neon_arena() -> Project {
                     ..mesh(Primitive::Crystal { spikes: 6, seed: 3 }, glossy_black())
                 }),
             )
-            .scaled(4.5)
-            .at([0.0, -0.5, 0.0]),
+            .scaled(7.0)
+            .at([0.0, -1.0, 0.0]),
             Layer::new(
                 "Outer neon ring",
                 LayerKind::Mesh(mesh(
                     Primitive::Ring {
                         arc: 360.0,
-                        width: 0.35,
-                        height: 0.25,
-                        segments: 128,
+                        width: 0.02,
+                        height: 0.12,
+                        segments: 160,
                     },
                     neon(red, Param::new(4.0).osc(Wave::Sine, 1.0, 4), EmissiveMode::Full),
                 )),
             )
-            .scaled(16.0)
+            .stretched([16.0, 1.0, 16.0])
             .at([0.0, 0.1, 0.0]),
             Layer::new(
                 "Tech panels",

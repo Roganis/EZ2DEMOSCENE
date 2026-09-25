@@ -61,9 +61,8 @@ impl Camera {
     }
 }
 
-/// Model matrix of a layer (before symmetry).
-pub fn layer_matrix(t: &Transform, ctx: &EvalCtx) -> Mat4 {
-    let s = t.scale.eval(ctx);
+/// Position + rotation of a layer (no scale).
+pub fn layer_frame(t: &Transform, ctx: &EvalCtx) -> Mat4 {
     let r = t.rotation.map(f32::to_radians);
     let base = Quat::from_euler(EulerRot::YXZ, r[1], r[0], r[2]);
     let spin = Quat::from_euler(
@@ -73,7 +72,17 @@ pub fn layer_matrix(t: &Transform, ctx: &EvalCtx) -> Mat4 {
         ctx.turns(t.spin[2] as f32),
     );
     let pos = Vec3::from(t.position) + Vec3::Y * t.bob.eval(ctx);
-    Mat4::from_scale_rotation_translation(Vec3::from(t.stretch) * s, base * spin, pos)
+    Mat4::from_rotation_translation(base * spin, pos)
+}
+
+/// Per-axis scale of a layer.
+pub fn layer_scale(t: &Transform, ctx: &EvalCtx) -> Vec3 {
+    Vec3::from(t.stretch) * t.scale.eval(ctx)
+}
+
+/// Full model matrix of a layer (frame * scale), used for particles.
+pub fn layer_matrix(t: &Transform, ctx: &EvalCtx) -> Mat4 {
+    layer_frame(t, ctx) * Mat4::from_scale(layer_scale(t, ctx))
 }
 
 /// World-space copies for a symmetry mode.
@@ -253,8 +262,12 @@ fn random_dir(rng: &mut Rng) -> Vec3 {
 }
 
 /// All instances of a mesh layer in world space.
+///
+/// The layer scale sizes each copy; instancer distances (radius, spacing)
+/// are in world units and are not affected by it.
 pub fn mesh_instances(layer: &Layer, mesh: &MeshLayer, ctx: &EvalCtx, out: &mut Vec<Instance>) {
-    let l = layer_matrix(&layer.transform, ctx);
+    let l = layer_frame(&layer.transform, ctx);
+    let size = Mat4::from_scale(layer_scale(&layer.transform, ctx));
     let syms = symmetry_matrices(&layer.symmetry);
     let locals = instancer_locals(&mesh.instancer, ctx);
     let v = &mesh.variation;
@@ -296,7 +309,7 @@ pub fn mesh_instances(layer: &Layer, mesh: &MeshLayer, ctx: &EvalCtx, out: &mut 
         let hue = if v.hue != 0.0 { v.hue * (r(10) - 0.5) } else { 0.0 };
         for sym in &syms {
             out.push(Instance {
-                model: *sym * l * *local * var,
+                model: *sym * l * *local * var * size,
                 hue,
                 glow: glow.max(0.0),
                 rand: r(11),
