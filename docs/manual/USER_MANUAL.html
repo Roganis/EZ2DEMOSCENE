@@ -111,11 +111,11 @@
   <img src="img/cover.jpg" alt="">
   <div class="fade"></div>
   <div class="title">
-    <div class="kicker">USER MANUAL · VERSION 0.2</div>
+    <div class="kicker">USER MANUAL · VERSION 0.3</div>
     <h1>EZ2DEMOSCENE</h1>
     <p>Build seamless, stylised 3D loops the demoscene way: neon, mirrors, particles and retro pixels. No code needed.</p>
   </div>
-  <div class="foot">For Windows, Linux &amp; macOS · Covers the editor, the node graph, exporting and the command line</div>
+  <div class="foot">For Windows, Linux, macOS, the web &amp; Android · Covers the editor, the node graph, exporting and the command line</div>
 </section>
 
 <!-- ===================================================== TOC -->
@@ -136,8 +136,9 @@
     <li><span class="n">12</span><a href="#nodes">Nodes mode (advanced)</a></li>
     <li><span class="n">13</span><a href="#export">Exporting your loop</a></li>
     <li><span class="n">14</span><a href="#library">Saving, sharing &amp; your library</a></li>
-    <li><span class="n">15</span><a href="#recipes">Recipes</a></li>
-    <li><span class="n">16</span><a href="#reference">Reference: shortcuts, performance, troubleshooting, glossary</a></li>
+    <li><span class="n">15</span><a href="#web">Phones, tablets &amp; the web</a></li>
+    <li><span class="n">16</span><a href="#recipes">Recipes</a></li>
+    <li><span class="n">17</span><a href="#reference">Reference: shortcuts, performance, troubleshooting, glossary</a></li>
   </ol>
 </section>
 
@@ -181,6 +182,7 @@ final look (glow, kaleidoscope, retro palettes, CRT…).</p>
 
 <!-- ===================================================== 2 -->
 <h1 id="install"><span class="num">2</span>Installing &amp; launching</h1>
+<div class="tip"><b>No install needed</b>You can also use EZ2DEMOSCENE in a web browser or on an Android phone. See chapter 15.</div>
 <h2>What you need</h2>
 <table>
   <tr><th style="width:32%">Item</th><th>Details</th></tr>
@@ -660,8 +662,73 @@ overwritten by accident. The <span class="ui">🗑 delete</span> button removes 
 <code>%APPDATA%\ez2demoscene\EZ2DEMOSCENE\data</code> on Windows, <code>~/.local/share/ez2demoscene</code> on Linux,
 and <code>~/Library/Application Support/org.ez2demoscene.EZ2DEMOSCENE</code> on macOS. Copy it to back everything up.</div>
 
-<!-- ===================================================== 14 -->
-<h1 id="recipes"><span class="num">15</span>Recipes</h1>
+<!-- ===================================================== 15 -->
+<h1 id="web"><span class="num">15</span>Phones, tablets &amp; the web</h1>
+<p>EZ2DEMOSCENE also runs <b>in a web browser</b>, with nothing to install. It's the same editor with the same presets, layers, node
+graph and exports. Open <code>https://roganis.github.io/ez2demoscene/</code> in Chrome, Edge or Firefox on a computer, or in
+Chrome on an Android phone or tablet. On Android you can also install the <b>EZ2DEMOSCENE app (APK)</b>, which bundles the same
+editor and works offline.</p>
+<h2>Installing</h2>
+<table>
+  <tr><th>How</th><th>Steps</th></tr>
+  <tr><td>Browser</td><td>Just open the link. The first visit downloads about 5 MB; after that it loads from the cache and also works offline.</td></tr>
+  <tr><td>Home-screen app (PWA)</td><td>In Chrome, open the <span class="ui">⋮</span> menu → <span class="ui">Add to Home screen</span> / <span class="ui">Install app</span>. It opens full-screen like a normal app.</td></tr>
+  <tr><td>Android APK</td><td>Download <code>app-debug.apk</code> (or the signed release APK) from the project's GitHub Releases page, open it and allow
+  "install unknown apps" for your browser or file manager when Android asks.</td></tr>
+</table>
+<h2>The phone layout</h2>
+<p>When the window is narrower than about 820 pixels, as on a phone held upright, the editor switches to a <b>one-panel layout</b>. The top
+bar holds <span class="ui">☰</span> (all menus), play/pause, <span class="ui">🎲</span> (Surprise me) and <span class="ui">Export</span>. A
+compact timeline sits above a <b>tab bar</b> with three tabs:</p>
+<ul>
+  <li><b>View</b>: the live preview, with the Move/Rotate gizmos.</li>
+  <li><b>Layers</b>: the scene settings and layer list (or the <b>Graph</b> in Nodes mode).</li>
+  <li><b>Edit</b>: the inspector for whatever you selected. Tapping a layer, a scene item or a node jumps here automatically.</li>
+</ul>
+<div class="grid3">
+  <figure><img src="img/phone_presets.jpg"><figcaption>Preset gallery on a phone.</figcaption></figure>
+  <figure><img src="img/phone_view.jpg"><figcaption>The <b>View</b> tab.</figcaption></figure>
+  <figure><img src="img/phone_layers.jpg"><figcaption>The <b>Layers</b> tab.</figcaption></figure>
+</div>
+<p>Turn a tablet sideways (or use a desktop browser) to get the full desktop layout with all panels side by side.</p>
+<h2>Touch gestures in the preview</h2>
+<table>
+  <tr><th>Gesture</th><th>What it does</th></tr>
+  <tr><td>One finger on a gizmo handle</td><td>Moves or rotates the selected layer, as with the mouse. Handles are bigger on touch screens.</td></tr>
+  <tr><td>One finger elsewhere</td><td>Orbits the camera around the scene.</td></tr>
+  <tr><td>Two-finger pinch</td><td>Moves the camera closer or further away.</td></tr>
+  <tr><td>Two-finger twist</td><td>Turns the camera around the scene.</td></tr>
+  <tr><td>Two fingers up/down</td><td>Raises or lowers the camera.</td></tr>
+  <tr><td>Long press on a layer</td><td>Opens its menu (duplicate, delete, save as template…), like a right-click.</td></tr>
+</table>
+<h2>Files in the browser</h2>
+<ul>
+  <li><b>Importing</b> models, images and music opens your device's file picker; you can also drop files onto the page on a computer.
+  Imported files are kept inside the browser, so they're still there next time.</li>
+  <li><b>Saving</b>: <span class="ui">File → Save</span> downloads a <b>pack</b> (<code>.ez2pack</code>) with the scene and all its files. Open it
+  again with <span class="ui">File → Open…</span>, on the web or in the desktop app. In the Android app, saving and exporting open the
+  <b>share sheet</b>, so you can keep the file in Downloads or Drive, or send it straight to a chat.</li>
+  <li><b>My presets, layer templates and the autosave</b> live in the browser's storage (IndexedDB). If you come back with unsaved changes,
+  the editor offers to <b>recover</b> them. Clearing the browser's site data deletes this library, so save packs of anything you
+  want to keep.</li>
+</ul>
+<h2>Exporting on the web</h2>
+<table>
+  <tr><th>Format</th><th>Notes</th></tr>
+  <tr><td>MP4 / WebM video</td><td>Encoded by the browser's own video encoder (WebCodecs, hardware-accelerated on most phones). Loops stay frame-exact.
+  MP4 uses H.264 where available, otherwise VP9 or AV1. <b>The web version exports video without the music track</b>; use the desktop app for
+  videos with sound.</td></tr>
+  <tr><td>GIF</td><td>Works everywhere; loops forever by itself. Keep it small (e.g. 480×270) for sharing.</td></tr>
+  <tr><td>PNG frames (.zip)</td><td>Every frame as a lossless PNG, for editing elsewhere.</td></tr>
+</table>
+<p>The preview pauses while exporting so the device can concentrate on the frames. Phones are slower than desktop PCs, so start with 720p or
+less, and keep the tab open until the download starts.</p>
+<div class="note"><b>WebGPU and WebGL</b>Recent Chrome and Edge render with <b>WebGPU</b>, the fastest path. Other browsers fall back to
+<b>WebGL2</b>, which looks the same but may be slower with heavy backdrops such as the fractal and the tunnel. If a scene stutters, lower
+<span class="ui">Preview</span> to 50% in the View tab; exports are unaffected.</div>
+
+<!-- ===================================================== 16 -->
+<h1 id="recipes"><span class="num">16</span>Recipes</h1>
 <h2>Neon arena (black gloss and red neon)</h2>
 <ol>
   <li>Background <b>Nebula clouds</b>, with very dark colours A/B and a red C. Set the fog colour to almost-black red.</li>
@@ -698,7 +765,7 @@ and <code>~/Library/Application Support/org.ez2demoscene.EZ2DEMOSCENE</code> on 
 </ol>
 
 <!-- ===================================================== 15 -->
-<h1 id="reference"><span class="num">16</span>Reference</h1>
+<h1 id="reference"><span class="num">17</span>Reference</h1>
 <h2>Keyboard &amp; mouse</h2>
 <table>
   <tr><th style="width:36%">Action</th><th>Shortcut</th></tr>
