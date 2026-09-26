@@ -23,6 +23,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExportFormat {
@@ -251,29 +253,47 @@ pub fn export(
     let mut renderer = Renderer::new(&gpu.device, &gpu.queue, 4);
     let target = renderer.create_target(w, h);
 
-    let render_frame = |renderer: &mut Renderer, i: u32| -> Vec<u8> {
-        let ctx: EvalCtx = export_ctx(project, audio, settings.fps, frames, looped, i);
-        renderer.render(project, &ctx, &target);
-        renderer.read_pixels(&target)
-    };
+    let ctx_of =
+        |i: u32| -> EvalCtx { export_ctx(project, audio, settings.fps, frames, looped, i) };
 
     match settings.format {
         ExportFormat::PngSequence => {
             let dir = &settings.output;
             std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
-            for i in 0..frames {
-                if cancel.load(Ordering::Relaxed) {
-                    bail!("export cancelled");
+            // PNG encoding runs on a writer thread while the GPU renders.
+            let (tx, rx) = std::sync::mpsc::sync_channel::<(u32, Vec<u8>)>(4);
+            let out_dir = dir.clone();
+            let writer = std::thread::spawn(move || -> Result<()> {
+                for (i, px) in rx {
+                    let path = out_dir.join(format!("frame_{i:05}.png"));
+                    image::save_buffer(&path, &px, w, h, image::ExtendedColorType::Rgba8)
+                        .with_context(|| format!("writing {}", path.display()))?;
                 }
-                let px = render_frame(&mut renderer, i);
-                let path = dir.join(format!("frame_{i:05}.png"));
-                image::save_buffer(&path, &px, w, h, image::ExtendedColorType::Rgba8)
-                    .with_context(|| format!("writing {}", path.display()))?;
-                progress(Progress {
-                    frame: i + 1,
-                    total,
-                });
-            }
+                Ok(())
+            });
+            let rendered = render_pipelined(
+                &mut renderer,
+                &target,
+                project,
+                frames,
+                ctx_of,
+                cancel,
+                |i, px| {
+                    tx.send((i, px))
+                        .map_err(|_| anyhow::anyhow!("the PNG writer stopped"))?;
+                    progress(Progress {
+                        frame: i + 1,
+                        total,
+                    });
+                    Ok(())
+                },
+            );
+            drop(tx);
+            let written = writer
+                .join()
+                .map_err(|_| anyhow::anyhow!("the PNG writer crashed"))?;
+            rendered?;
+            written?;
             Ok(dir.clone())
         }
         fmt => {
@@ -359,39 +379,62 @@ pub fn export(
                 .with_context(|| format!("starting {}", ffmpeg.display()))?;
             let mut stdin = child.stdin.take().expect("piped stdin");
             // Frames are identical across repeats: render one loop, reuse it
-            // when it fits in memory (< 2 GiB), otherwise re-render.
+            // when it fits in memory (< 2 GiB), otherwise re-render. A writer
+            // thread feeds ffmpeg while the GPU renders the next frames.
             let frame_bytes = (w * h * 4) as u64;
             let cache_ok = repeats > 1 && frame_bytes * frames as u64 <= 2 << 30;
-            let mut cache: Vec<Vec<u8>> = Vec::new();
-            let mut result = Ok(());
-            for i in 0..total {
-                if cancel.load(Ordering::Relaxed) {
-                    result = Err(anyhow::anyhow!("export cancelled"));
-                    break;
+            let (tx, rx) = std::sync::mpsc::sync_channel::<Arc<Vec<u8>>>(4);
+            let writer = std::thread::spawn(move || -> Result<()> {
+                for px in rx {
+                    stdin
+                        .write_all(&px)
+                        .map_err(|e| anyhow::anyhow!("ffmpeg stopped accepting frames: {e}"))?;
                 }
-                let idx = (i % frames) as usize;
-                let px = if cache_ok && idx < cache.len() {
-                    None
-                } else {
-                    Some(render_frame(&mut renderer, i))
-                };
-                let data = match &px {
-                    Some(p) => p.as_slice(),
-                    None => cache[idx].as_slice(),
-                };
-                if let Err(e) = stdin.write_all(data) {
-                    result = Err(anyhow::anyhow!("ffmpeg stopped accepting frames: {e}"));
-                    break;
+                Ok(())
+            });
+            let mut cache: Vec<Arc<Vec<u8>>> = Vec::new();
+            let to_render = if cache_ok { frames } else { total };
+            let mut result = render_pipelined(
+                &mut renderer,
+                &target,
+                project,
+                to_render,
+                ctx_of,
+                cancel,
+                |i, px| {
+                    let px = Arc::new(px);
+                    if cache_ok {
+                        cache.push(px.clone());
+                    }
+                    tx.send(px)
+                        .map_err(|_| anyhow::anyhow!("ffmpeg stopped accepting frames"))?;
+                    progress(Progress {
+                        frame: i + 1,
+                        total,
+                    });
+                    Ok(())
+                },
+            );
+            if cache_ok && result.is_ok() {
+                for i in frames..total {
+                    if cancel.load(Ordering::Relaxed) {
+                        result = Err(anyhow::anyhow!("export cancelled"));
+                        break;
+                    }
+                    if tx.send(cache[(i % frames) as usize].clone()).is_err() {
+                        break;
+                    }
+                    progress(Progress {
+                        frame: i + 1,
+                        total,
+                    });
                 }
-                if let (true, Some(p)) = (cache_ok, px) {
-                    cache.push(p);
-                }
-                progress(Progress {
-                    frame: i + 1,
-                    total,
-                });
             }
-            drop(stdin);
+            drop(tx);
+            let written = writer
+                .join()
+                .map_err(|_| anyhow::anyhow!("the ffmpeg writer crashed"))?;
+            let result = result.and(written);
             let out = child.wait_with_output()?;
             result?;
             if !out.status.success() {
@@ -403,6 +446,47 @@ pub fn export(
             Ok(settings.output.clone())
         }
     }
+}
+
+/// Renders frames `0..count` with up to three frames in flight on the GPU
+/// (frame n + 2 renders while frame n is copied back) and hands each one to
+/// `sink` in order.
+#[cfg(not(target_arch = "wasm32"))]
+fn render_pipelined(
+    renderer: &mut Renderer,
+    target: &ez_render::RenderTarget,
+    project: &Project,
+    count: u32,
+    ctx_of: impl Fn(u32) -> EvalCtx,
+    cancel: &AtomicBool,
+    mut sink: impl FnMut(u32, Vec<u8>) -> Result<()>,
+) -> Result<()> {
+    const IN_FLIGHT: usize = 3;
+    let mut pending = std::collections::VecDeque::with_capacity(IN_FLIGHT);
+    let mut finish_one = |renderer: &Renderer,
+                          pending: &mut std::collections::VecDeque<(u32, ez_render::Readback)>|
+     -> Result<()> {
+        if let Some((j, rb)) = pending.pop_front() {
+            renderer.wait_for(&rb);
+            let px = rb.take().context("reading back a frame failed")?;
+            sink(j, px)?;
+        }
+        Ok(())
+    };
+    for i in 0..count {
+        if cancel.load(Ordering::Relaxed) {
+            bail!("export cancelled");
+        }
+        renderer.render(project, &ctx_of(i), target);
+        pending.push_back((i, renderer.start_readback(target)));
+        if pending.len() >= IN_FLIGHT {
+            finish_one(renderer, &mut pending)?;
+        }
+    }
+    while !pending.is_empty() {
+        finish_one(renderer, &mut pending)?;
+    }
+    Ok(())
 }
 
 /// Render a single still frame to a PNG.

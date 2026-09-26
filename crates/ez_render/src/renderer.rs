@@ -3210,7 +3210,7 @@ impl Renderer {
                 depth_or_array_layers: 1,
             },
         );
-        self.queue.submit([enc.finish()]);
+        let index = self.queue.submit([enc.finish()]);
         let ready = Arc::new(AtomicBool::new(false));
         let flag = ready.clone();
         buf.slice(..).map_async(wgpu::MapMode::Read, move |r| {
@@ -3220,6 +3220,7 @@ impl Renderer {
         });
         Readback {
             buf,
+            index,
             ready,
             width: w,
             height: h,
@@ -3233,6 +3234,15 @@ impl Renderer {
         let rb = self.start_readback(target);
         let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
         rb.take().expect("readback finished")
+    }
+
+    /// Blocks until `rb` has finished (not later frames). Native only.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn wait_for(&self, rb: &Readback) {
+        let _ = self.device.poll(wgpu::PollType::Wait {
+            submission_index: Some(rb.index.clone()),
+            timeout: None,
+        });
     }
 
     /// Lets pending GPU work (e.g. readbacks) make progress without
@@ -3264,6 +3274,9 @@ impl Renderer {
 /// A pending GPU -> CPU copy of a rendered frame.
 pub struct Readback {
     buf: wgpu::Buffer,
+    /// Submission of the copy (to wait for exactly this frame on native).
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    index: wgpu::SubmissionIndex,
     ready: Arc<AtomicBool>,
     pub width: u32,
     pub height: u32,

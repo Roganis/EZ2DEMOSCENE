@@ -137,7 +137,8 @@ pub struct ExportJob {
     audio: Option<AudioEnvelope>,
     target: RenderTarget,
     sink: Option<Box<dyn FrameSink>>,
-    pending: Option<Readback>,
+    /// Frames rendered and being copied back, oldest first.
+    pending: std::collections::VecDeque<Readback>,
     frames: u32,
     /// Frames are loop phases (else seconds into the song).
     looped: bool,
@@ -168,7 +169,7 @@ impl ExportJob {
             project,
             audio,
             sink: Some(sink),
-            pending: None,
+            pending: Default::default(),
             frames,
             looped,
             fps,
@@ -191,12 +192,12 @@ impl ExportJob {
 
     /// Advance the export. Call repeatedly (e.g. once or twice per UI frame).
     pub fn step(&mut self, renderer: &mut Renderer) -> Result<JobState> {
-        if let Some(rb) = &self.pending {
-            renderer.poll();
-            if !rb.is_ready() {
-                return Ok(JobState::Running(self.progress()));
-            }
-            let rb = self.pending.take().unwrap();
+        // Up to three frames in flight: the GPU renders the next frames
+        // while earlier ones are copied back.
+        const IN_FLIGHT: usize = 3;
+        renderer.poll();
+        while self.pending.front().is_some_and(|rb| rb.is_ready()) {
+            let rb = self.pending.pop_front().unwrap();
             let (w, h) = (rb.width, rb.height);
             let Some(px) = rb.take() else {
                 bail!("reading back a frame failed");
@@ -206,7 +207,7 @@ impl ExportJob {
             }
             self.done += 1;
         }
-        if self.next < self.total {
+        if self.next < self.total && self.pending.len() < IN_FLIGHT {
             // Frame i sits at phase i / N: the last frame is not a copy of
             // the first, so the file loops without a seam.
             let ctx: EvalCtx = crate::export_ctx(
@@ -218,8 +219,11 @@ impl ExportJob {
                 self.next,
             );
             renderer.render(&self.project, &ctx, &self.target);
-            self.pending = Some(renderer.start_readback(&self.target));
+            self.pending
+                .push_back(renderer.start_readback(&self.target));
             self.next += 1;
+        }
+        if self.done < self.total {
             return Ok(JobState::Running(self.progress()));
         }
         match self.sink.take() {

@@ -100,11 +100,16 @@ which matters most on mobile.
   bounds; particles: emitter radius; terrain: its box).
 - Skip the sky overlay when it would do nothing (already partly done).
 
-### ☐ 2.4 Faster exports
+### ☑ 2.4 Faster exports
 **How.** Keep up to three frames in flight: frame *n + 2* renders while *n*
 reads back (a ring of readback buffers), and desktop ffmpeg writing moves to
 its own thread with a bounded channel. Same for the incremental web job.
 Both expected to give 1.5–2.5× export speed on real GPUs.
+
+**Done:** desktop export keeps three frames in flight and writes PNGs /
+feeds ffmpeg on a writer thread; the web job keeps three frames in flight.
+On the software rasterizer (where the "GPU" shares the CPU cores with the
+encoder) PNG export got 9% faster and MP4 2%; real GPUs overlap far more.
 
 ### ☐ 2.5 Music analysis off the main thread
 Desktop: a background thread with a "analysing…" status. Web: chunked
