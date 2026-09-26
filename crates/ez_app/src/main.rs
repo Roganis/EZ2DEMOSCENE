@@ -18,6 +18,20 @@ mod platform;
 mod viewport;
 mod widgets;
 
+/// egui-wgpu's device request, but never asking for more than the device
+/// has: its default wants 8192 px textures, which some phones (4096) refuse,
+/// so the app wouldn't start at all.
+fn fit_device_to_adapter(setup: &mut egui_wgpu::WgpuSetup) {
+    if let egui_wgpu::WgpuSetup::CreateNew(setup) = setup {
+        let wanted = setup.device_descriptor.clone();
+        setup.device_descriptor = std::sync::Arc::new(move |adapter| {
+            let mut desc = wanted(adapter);
+            desc.required_limits = desc.required_limits.or_worse_values_from(&adapter.limits());
+            desc
+        });
+    }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> anyhow::Result<()> {
     use std::path::PathBuf;
@@ -27,7 +41,7 @@ fn main() -> anyhow::Result<()> {
         std::process::exit(code);
     }
     let initial = args.first().map(PathBuf::from);
-    let options = eframe::NativeOptions {
+    let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("EZ2DEMOSCENE")
             .with_inner_size([1500.0, 900.0])
@@ -36,6 +50,7 @@ fn main() -> anyhow::Result<()> {
         renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };
+    fit_device_to_adapter(&mut options.wgpu_options.wgpu_setup);
     eframe::run_native(
         "EZ2DEMOSCENE",
         options,
@@ -63,6 +78,7 @@ fn main() {
         // (useful when a phone's driver misbehaves with one of them).
         let pref = platform::GpuBackendPref::load();
         let mut options = eframe::WebOptions::default();
+        fit_device_to_adapter(&mut options.wgpu_options.wgpu_setup);
         if let egui_wgpu::WgpuSetup::CreateNew(setup) = &mut options.wgpu_options.wgpu_setup {
             match pref {
                 platform::GpuBackendPref::Auto if !platform::GpuBackendPref::auto_uses_webgl() => {}

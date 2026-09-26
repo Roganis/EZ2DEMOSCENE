@@ -27,7 +27,19 @@ impl Viewport {
 
     /// Render at `size` pixels and return the egui texture to display.
     pub fn render(&mut self, project: &Project, ctx: &EvalCtx, size: [u32; 2]) -> egui::TextureId {
-        let size = [size[0].clamp(16, 7680), size[1].clamp(16, 4320)];
+        // Never larger than the device's textures can be (4096 on some
+        // phones): shrink, keeping the shape.
+        let max = self
+            .render_state
+            .device
+            .limits()
+            .max_texture_dimension_2d
+            .clamp(16, 7680);
+        let k = (max as f32 / size[0].max(size[1]).max(1) as f32).min(1.0);
+        let size = [
+            ((size[0] as f32 * k) as u32).clamp(16, max),
+            ((size[1] as f32 * k) as u32).clamp(16, max),
+        ];
         let needs_new = self
             .target
             .as_ref()
