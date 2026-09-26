@@ -330,3 +330,12 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
 
     return vec4<f32>(apply_fog_at(col, in.world), 1.0);
 }
+
+// Distance to the camera, for depth of field (a small extra pass).
+@fragment
+fn fs_depth(in: VOut) -> @location(0) vec4<f32> {
+    if (!clip_visible(in.world)) {
+        discard;
+    }
+    return vec4<f32>(length(in.world - G.cam_pos.xyz), 0.0, 0.0, 1.0);
+}

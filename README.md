@@ -84,7 +84,8 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   CRT phosphors…). Imported images can be *retro-ized*: downscaled,
   palette-reduced and dithered.
 - **Post FX.** Bloom, **god rays** (light shafts from the sun or the
-  picture centre) with lens flare, **heat haze**, kaleidoscope, mirror split, chromatic aberration,
+  picture centre) with lens flare, **heat haze**, **depth of field**
+  (auto focus, round bokeh), kaleidoscope, mirror split, chromatic aberration,
   pixelation, palette reduction with Bayer dithering (EGA, CGA, C64, Game
   Boy, PICO-8, Amiga copper, ZX Spectrum, VGA cube, phosphor), CRT
   scanlines/curvature/VHS wobble, grading, vignette, grain and beat flash.

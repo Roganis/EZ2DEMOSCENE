@@ -331,10 +331,20 @@ works identically in the web export job; desktop, web and `--motion-blur`
 / `--shutter` on the command line. Not in the preview (it would cost *k*
 renders per preview frame).
 
-### ☐ 7.2 Depth of field
+### ☑ 7.2 Depth of field
 Keep the scene depth (resolve it to a texture), compute circle of confusion
 from a focus distance / aperture (animatable, music-linkable), blur with
 a half-resolution gather (bokeh disc) and composite.
+
+**Done, differently:** the main depth buffer is multisampled, which
+WebGL2 can't sample, so a small half-resolution pass redraws solid meshes,
+terrain and the mirror floor with a `fs_depth` entry point writing the
+distance to the camera into an R16F texture (works on every backend). The
+warp pass (which already samples the scene once) does a 24-tap
+golden-angle gather with a thin-lens CoC, weighting each tap by whether
+its own blur reaches the centre so sharp fronts don't smear. Auto focus
+uses the camera's look-at point; focus and blur are animatable and
+music-linkable.
 
 ### ☐ 7.3 Feedback trails (loop-exact)
 A feedback post effect (zoom, rotate, fade, hue shift of the previous

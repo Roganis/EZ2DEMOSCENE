@@ -622,6 +622,30 @@ pub fn post_ui(ui: &mut Ui, post: &mut PostStack) {
             0.0..=3.0,
         );
     });
+    toggle_section(ui, "Depth of field", &mut post.dof.enabled, |ui| {
+        check(
+            ui,
+            "Auto focus",
+            "Keep the point the camera looks at sharp",
+            &mut post.dof.auto_focus,
+        );
+        if !post.dof.auto_focus {
+            param(
+                ui,
+                "Focus",
+                "Sharp distance from the camera",
+                &mut post.dof.focus,
+                0.5..=100.0,
+            );
+        }
+        param(
+            ui,
+            "Blur",
+            "How blurry things away from the focus get (try the 🎵 row: blur on the kick)",
+            &mut post.dof.blur,
+            0.0..=1.5,
+        );
+    });
     toggle_section(ui, "Heat haze", &mut post.haze.enabled, |ui| {
         combo(
             ui,

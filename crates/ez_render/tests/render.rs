@@ -782,3 +782,47 @@ fn sequences_play_scenes_with_transitions() {
     );
     assert!(mean_abs_diff(clip_a.as_raw(), own.as_raw()) < 0.5);
 }
+
+/// Depth of field softens the picture away from the focus and loops.
+#[test]
+fn depth_of_field_blurs() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
+    let target = r.create_target(320, 180);
+    let mut p = presets::gold_room();
+    p.post.grade.grain = Param::new(0.0);
+    let sharp_project = p.clone();
+    p.post.dof = DepthOfField {
+        enabled: true,
+        blur: Param::new(1.0),
+        ..Default::default()
+    };
+    let detail = |img: &image::RgbaImage| {
+        let (w, h) = img.dimensions();
+        let mut sum = 0.0f64;
+        for y in 0..h {
+            for x in 1..w {
+                let a = img.get_pixel(x, y)[1] as f64;
+                let b = img.get_pixel(x - 1, y)[1] as f64;
+                sum += (a - b).abs();
+            }
+        }
+        sum / (w * h) as f64
+    };
+    let at = |phase: f32| EvalCtx::new(&p.timing, phase, None);
+    let sharp = r.render_image(&sharp_project, &at(0.2), &target);
+    let soft = r.render_image(&p, &at(0.2), &target);
+    let (ds, db) = (detail(&sharp), detail(&soft));
+    eprintln!("detail sharp {ds:.2}, with depth of field {db:.2}");
+    assert!(db < ds * 0.85, "no visible blur");
+    let a = r.render_image(&p, &at(0.0), &target);
+    let b = r.render_image(&p, &at(1.0), &target);
+    assert!(mean_abs_diff(a.as_raw(), b.as_raw()) < 0.6);
+}

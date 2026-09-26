@@ -2049,6 +2049,33 @@ pub struct PostStack {
     /// Shimmering heat distortion.
     #[serde(skip_serializing_if = "is_default")]
     pub haze: HeatHaze,
+    /// Blur what is nearer or further than the focus.
+    #[serde(skip_serializing_if = "is_default")]
+    pub dof: DepthOfField,
+}
+
+/// Camera-lens blur away from a focus distance.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DepthOfField {
+    pub enabled: bool,
+    /// Focus on the point the camera looks at (else on `focus`).
+    pub auto_focus: bool,
+    /// Focus distance in world units (animatable).
+    pub focus: Param,
+    /// How strong the blur gets (0..1, animatable).
+    pub blur: Param,
+}
+
+impl Default for DepthOfField {
+    fn default() -> Self {
+        DepthOfField {
+            enabled: false,
+            auto_focus: true,
+            focus: Param::new(10.0),
+            blur: Param::new(0.5),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]

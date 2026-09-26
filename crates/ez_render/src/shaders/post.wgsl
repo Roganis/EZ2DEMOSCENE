@@ -92,7 +92,39 @@ fn fs_warp(in: VOut) -> @location(0) vec4<f32> {
     if (haze > 0.0) {
         uv = uv + heat_haze(uv) * haze;
     }
+    if (P.v[3].x > 0.5) {
+        return vec4<f32>(dof(uv), 1.0);
+    }
     return vec4<f32>(textureSampleLevel(t_a, s_lin, uv, 0.0).rgb, 1.0);
+}
+
+// Depth of field: t_b holds the distance to the camera (half resolution).
+// P.v[3]: on, focus distance, largest blur radius (fraction of the height), _
+fn dof_radius(uv: vec2<f32>) -> f32 {
+    let d = textureSampleLevel(t_b, s_lin, uv, 0.0).r;
+    let focus = max(P.v[3].y, 0.01);
+    // Thin-lens-like: grows with |1 - focus / distance|.
+    return clamp(abs(1.0 - focus / max(d, 0.01)), 0.0, 1.0) * P.v[3].z;
+}
+
+fn dof(uv: vec2<f32>) -> vec3<f32> {
+    let aspect = max(P.v[1].z, 0.01);
+    let r0 = dof_radius(uv);
+    var sum = textureSampleLevel(t_a, s_lin, uv, 0.0).rgb;
+    var total = 1.0;
+    // 24 taps on a golden-angle spiral (a round bokeh disc).
+    for (var i = 0; i < 24; i = i + 1) {
+        let f = (f32(i) + 0.5) / 24.0;
+        let a = f32(i) * 2.39996323;
+        let off = vec2<f32>(cos(a) / aspect, sin(a)) * sqrt(f) * r0;
+        let q = uv + off;
+        // Sharp things in front don't smear into what is behind them:
+        // a sample counts when its own blur reaches this far.
+        let w = clamp(dof_radius(q) / max(length(off * vec2<f32>(aspect, 1.0)), 1e-4), 0.0, 1.0);
+        sum = sum + textureSampleLevel(t_a, s_lin, q, 0.0).rgb * w;
+        total = total + w;
+    }
+    return sum / total;
 }
 
 // Heat shimmer offset. P.v[2]: amount, scale, time angle (whole turns per

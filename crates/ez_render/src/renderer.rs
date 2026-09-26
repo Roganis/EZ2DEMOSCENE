@@ -28,6 +28,8 @@ pub const DISPLAY_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 const DRAW_SLOT: u64 = 256;
 const POST_SLOT: u64 = 512;
+/// Distance to the camera for depth of field.
+const DOF_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R16Float;
 const POST_SLOTS: u64 = 32;
 const BLOOM_LEVELS: usize = 5;
 
@@ -297,6 +299,10 @@ pub struct Renderer {
     /// Upscale of the low-resolution background.
     bg_up_pipe: wgpu::RenderPipeline,
     shadow_terrain_pipe: wgpu::RenderPipeline,
+    /// Depth of field: distance-to-camera passes for meshes and terrain.
+    dof_mesh_pipe: wgpu::RenderPipeline,
+    dof_terrain_pipe: wgpu::RenderPipeline,
+    dof_floor_pipe: wgpu::RenderPipeline,
     shadow_view: wgpu::TextureView,
     shadow_bg: wgpu::BindGroup,
     bgl_draw: wgpu::BindGroupLayout,
@@ -388,6 +394,10 @@ pub struct RenderTarget {
     bg_rays: wgpu::BindGroup,
     bg_rays_add: wgpu::BindGroup,
     rays: wgpu::TextureView,
+    /// Depth of field: distance to the camera (half resolution) and its
+    /// depth buffer.
+    dof_dist: wgpu::TextureView,
+    dof_z: wgpu::TextureView,
 }
 
 fn m4(m: Mat4) -> [[f32; 4]; 4] {
@@ -972,6 +982,49 @@ impl Renderer {
         );
         let shadow_mesh_pipe = depth_pipe("shadow mesh", &mesh_layout, &sh_mesh, &mesh_buffers);
         let shadow_terrain_pipe = depth_pipe("shadow terrain", &scene_layout, &sh_terrain, &[]);
+        let dof_pipe = |label: &str,
+                        layout: &wgpu::PipelineLayout,
+                        module: &wgpu::ShaderModule,
+                        buffers: &[Option<wgpu::VertexBufferLayout>]| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(layout),
+                vertex: wgpu::VertexState {
+                    module,
+                    entry_point: Some("vs_main"),
+                    compilation_options: Default::default(),
+                    buffers,
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    cull_mode: None,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DEPTH_FORMAT,
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(wgpu::CompareFunction::Less),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: Default::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module,
+                    entry_point: Some("fs_depth"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: DOF_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let dof_mesh_pipe = dof_pipe("dof mesh", &mesh_layout, &sh_mesh, &mesh_buffers);
+        let dof_terrain_pipe = dof_pipe("dof terrain", &scene_layout, &sh_terrain, &[]);
+        let dof_floor_pipe = dof_pipe("dof floor", &particle_layout, &sh_floor, &[]);
         let shadow_view = device
             .create_texture(&wgpu::TextureDescriptor {
                 label: Some("sun shadow map"),
@@ -1165,6 +1218,9 @@ impl Renderer {
             scene_layout,
             bg_up_pipe,
             shadow_terrain_pipe,
+            dof_mesh_pipe,
+            dof_terrain_pipe,
+            dof_floor_pipe,
             shadow_view,
             shadow_bg,
             bgl_draw,
@@ -2942,6 +2998,40 @@ impl Renderer {
             self.draw_scene(&mut pass, &self.main_pipes, 0, &clear);
         }
 
+        // --- depth of field: distance to the camera --------------------------
+        if project.post.dof.enabled {
+            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("dof distance"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &target.dof_dist,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        // Nothing drawn = very far (the sky).
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 60_000.0,
+                            g: 0.0,
+                            b: 0.0,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &target.dof_z,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Discard,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            self.draw_distance(&mut pass, &cmds, floor.as_ref().map(|f| f.0));
+        }
+
         // --- post ---------------------------------------------------------------
         self.post_pass(
             &mut enc,
@@ -3117,6 +3207,56 @@ impl Renderer {
                 } => {
                     pass.set_pipeline(&self.shadow_terrain_pipe);
                     pass.set_bind_group(0, &self.globals_bg[2], &[]);
+                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                    pass.set_bind_group(2, &self.tex_bgs[&(tex.clone(), *pixelated)], &[]);
+                    pass.draw(0..*vertices, 0..1);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Solid meshes and terrain with the distance-to-camera pipelines.
+    fn draw_distance(&self, pass: &mut wgpu::RenderPass<'_>, cmds: &[Cmd], floor: Option<u32>) {
+        if let Some(slot) = floor {
+            pass.set_pipeline(&self.dof_floor_pipe);
+            pass.set_bind_group(0, &self.globals_bg[0], &[]);
+            pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+            pass.draw(0..6, 0..1);
+        }
+        for cmd in cmds {
+            match cmd {
+                Cmd::Mesh {
+                    slot,
+                    mesh,
+                    tex,
+                    relief,
+                    pixelated,
+                    first,
+                    count,
+                } if *count > 0 => {
+                    let m = &self.meshes[mesh];
+                    pass.set_pipeline(&self.dof_mesh_pipe);
+                    pass.set_bind_group(0, &self.globals_bg[0], &[]);
+                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                    pass.set_bind_group(
+                        2,
+                        &self.mesh_tex_bgs[&(tex.clone(), relief.clone(), *pixelated)],
+                        &[],
+                    );
+                    pass.set_vertex_buffer(0, m.vbuf.slice(..));
+                    pass.set_vertex_buffer(1, self.inst_buf.slice(..));
+                    pass.set_index_buffer(m.ibuf.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.draw_indexed(0..m.count, 0, *first..*first + *count);
+                }
+                Cmd::Terrain {
+                    slot,
+                    vertices,
+                    tex,
+                    pixelated,
+                } => {
+                    pass.set_pipeline(&self.dof_terrain_pipe);
+                    pass.set_bind_group(0, &self.globals_bg[0], &[]);
                     pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
                     pass.set_bind_group(2, &self.tex_bgs[&(tex.clone(), *pixelated)], &[]);
                     pass.draw(0..*vertices, 0..1);
@@ -3333,6 +3473,22 @@ impl Renderer {
                     HazeRegion::Ground => 1.0,
                     HazeRegion::Everywhere => 2.0,
                 },
+            ];
+        }
+
+        let dof = &post.dof;
+        if dof.enabled {
+            let cam = project.camera.eval(ctx);
+            let focus = if dof.auto_focus {
+                (cam.target - cam.eye).length()
+            } else {
+                dof.focus.eval(ctx)
+            };
+            slots[SLOT_WARP as usize][3] = [
+                1.0,
+                focus.max(0.01),
+                dof.blur.eval(ctx).clamp(0.0, 2.0) * 0.03,
+                0.0,
             ];
         }
 
@@ -3563,7 +3719,10 @@ impl Renderer {
         };
         let bg_blur_h = post_bg(&refl, &refl);
         let bg_blur_v = post_bg(&refl_tmp, &refl_tmp);
-        let bg_warp = post_bg(&hdr, &hdr);
+        let (dw, dh) = ((w / 2).max(1), (h / 2).max(1));
+        let dof_dist = tex("dof distance", dw, dh, DOF_FORMAT, 1, sampled);
+        let dof_z = tex("dof depth", dw, dh, DEPTH_FORMAT, 1, none);
+        let bg_warp = post_bg(&hdr, &dof_dist);
         let bg_bloom_down = (0..BLOOM_LEVELS)
             .map(|i| {
                 let src = if i == 0 { &hdr2 } else { &bloom[i - 1].0 };
@@ -3633,6 +3792,8 @@ impl Renderer {
             bg_rays,
             bg_rays_add,
             rays,
+            dof_dist,
+            dof_z,
         }
     }
 
