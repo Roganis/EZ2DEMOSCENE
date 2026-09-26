@@ -4,8 +4,12 @@
 // D.v[0]: size, cells, height, hills (period of the noise)
 // D.v[1]: roughness, scroll offset (0..1, fraction of the terrain), valley, style
 // D.v[2]: line colour * glow, seed
-// D.v[3]: fill colour
+// D.v[3]: fill colour, has texture
+// D.v[4]: texture tiles across the terrain, texture on lines
 // D.v[8..11]: layer model matrix
+
+@group(2) @binding(0) var t_tex: texture_2d<f32>;
+@group(2) @binding(1) var s_tex: sampler;
 
 struct TOut {
     @builtin(position) pos: vec4<f32>,
@@ -114,6 +118,10 @@ fn fs_main(in: TOut) -> @location(0) vec4<f32> {
     let d = abs(fract(in.grid - 0.5) - 0.5) / fw;
     let line = 1.0 - clamp(min(d.x, d.y) - 0.5, 0.0, 1.0);
     let style = i32(D.v[1].w + 0.5);
+    // The texture moves with the landscape; whole tiles keep the loop seamless.
+    let uv = in.grid / max(D.v[0].y, 1.0) * D.v[4].x;
+    let texel = textureSample(t_tex, s_tex, uv).rgb;
+    let has_tex = D.v[3].w > 0.5;
 
     if (!clip_visible(in.world)) {
         discard;
@@ -123,7 +131,10 @@ fn fs_main(in: TOut) -> @location(0) vec4<f32> {
         discard;
     }
     let dist = length(G.cam_pos.xyz - in.world);
-    let glow = D.v[2].rgb * line * in.border;
+    var glow = D.v[2].rgb * line * in.border;
+    if (has_tex && D.v[4].y > 0.5) {
+        glow = glow * texel * 1.5;
+    }
     var col = vec3<f32>(0.0);
     if (style == 0) {
         col = glow;
@@ -136,7 +147,11 @@ fn fs_main(in: TOut) -> @location(0) vec4<f32> {
         let l = normalize(G.light_dir.xyz);
         let diffuse = G.light_color.rgb * G.ground.w * max(dot(n, l), 0.0);
         let ambient = mix(G.ground.rgb, G.sky.rgb, n.y * 0.5 + 0.5) * G.sky.w;
-        col = D.v[3].rgb * (diffuse + ambient);
+        var ground = D.v[3].rgb;
+        if (has_tex) {
+            ground = ground * texel;
+        }
+        col = ground * (diffuse + ambient);
         if (style == 2) {
             col = col + glow;
         }

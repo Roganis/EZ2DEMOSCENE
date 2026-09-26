@@ -81,9 +81,9 @@ fn mesh(prim: Primitive, material: Material) -> MeshLayer {
 fn glossy_black() -> Material {
     Material {
         base_color: hex(0x0c0c0e),
-        metallic: 0.9,
-        roughness: 0.15,
-        rim: 0.4,
+        metallic: Param::new(0.9),
+        roughness: Param::new(0.15),
+        rim: Param::new(0.4),
         flat_shading: true,
         ..Default::default()
     }
@@ -144,7 +144,7 @@ pub fn neon_arena() -> Project {
             height: Param::new(6.5).osc(Wave::Sine, 1.0, 2),
             orbit_turns: 1,
             fov: Param::new(62.0),
-            beat_shake: 0.15,
+            beat_shake: Param::new(0.15),
             ..Default::default()
         },
         environment: Environment {
@@ -154,8 +154,8 @@ pub fn neon_arena() -> Project {
             ground_color: hex(0x050505),
             light_dir: [0.2, 1.0, -0.4],
             light_color: hex(0xffe0e0),
-            light_intensity: 1.2,
-            ambient: 0.15,
+            light_intensity: Param::new(1.2),
+            ambient: Param::new(0.15),
         },
         layers: vec![
             Layer::new(
@@ -167,7 +167,7 @@ pub fn neon_arena() -> Project {
                     color_c: hex(0xe02010),
                     speed: 1,
                     intensity: Param::new(0.75),
-                    detail: 1.2,
+                    detail: Param::new(1.2),
                     texture: None,
                 }),
             ),
@@ -176,8 +176,8 @@ pub fn neon_arena() -> Project {
                 LayerKind::Mirror(MirrorFloor {
                     size: 60.0,
                     base_color: hex(0x030303),
-                    reflectivity: 0.35,
-                    blur: 0.3,
+                    reflectivity: Param::new(0.35),
+                    blur: Param::new(0.3),
                     tint: hex(0xa08080),
                     grid: Param::new(0.0),
                     ..Default::default()
@@ -300,8 +300,8 @@ pub fn neon_arena() -> Project {
                         },
                         Material {
                             base_color: hex(0x303036),
-                            metallic: 1.0,
-                            roughness: 0.2,
+                            metallic: Param::new(1.0),
+                            roughness: Param::new(0.2),
                             ..glossy_black()
                         },
                     )
@@ -319,13 +319,13 @@ pub fn neon_arena() -> Project {
                     count: 900,
                     lifetimes: 2,
                     size: Param::new(0.06),
-                    speed: 1.0,
-                    radius: 7.0,
+                    speed: Param::new(1.0),
+                    radius: Param::new(7.0),
                     color_a: hex(0xffb080),
                     color_b: hex(0xff1000),
                     intensity: Param::new(3.0),
                     trail: 2,
-                    trail_spacing: 0.006,
+                    trail_spacing: Param::new(0.006),
                     sprite: Sprite::Glow,
                     seed: 5,
                 }),
@@ -335,17 +335,17 @@ pub fn neon_arena() -> Project {
             bloom: Bloom {
                 enabled: true,
                 intensity: Param::new(1.1),
-                threshold: 0.9,
-                radius: 0.75,
+                threshold: Param::new(0.9),
+                radius: Param::new(0.75),
             },
             chroma: Chroma {
                 enabled: true,
                 amount: Param::new(0.002).osc(Wave::Pulse, 0.004, 16),
             },
             grade: Grade {
-                vignette: 0.45,
-                contrast: 1.12,
-                saturation: 1.15,
+                vignette: Param::new(0.45),
+                contrast: Param::new(1.12),
+                saturation: Param::new(1.15),
                 ..Default::default()
             },
             ..Default::default()
@@ -357,9 +357,9 @@ pub fn neon_arena() -> Project {
 pub fn gold_room() -> Project {
     let gold = Material {
         base_color: hex(0xd4a02a),
-        metallic: 1.0,
-        roughness: 0.25,
-        rim: 0.6,
+        metallic: Param::new(1.0),
+        roughness: Param::new(0.25),
+        rim: Param::new(0.6),
         emissive_color: hex(0xffc060),
         emissive: Param::new(0.25),
         ..Default::default()
@@ -375,7 +375,7 @@ pub fn gold_room() -> Project {
             target: [0.0, 3.0, -4.0],
             distance: Param::new(11.0).osc(Wave::Sine, 1.5, 1),
             height: Param::new(3.2).osc(Wave::Sine, 0.6, 2),
-            swing: 16.0,
+            swing: Param::new(16.0),
             fov: Param::new(75.0),
             ..Default::default()
         },
@@ -386,8 +386,8 @@ pub fn gold_room() -> Project {
             ground_color: hex(0x7a5010),
             light_dir: [0.0, 1.0, 0.5],
             light_color: hex(0xffe8b0),
-            light_intensity: 1.8,
-            ambient: 0.45,
+            light_intensity: Param::new(1.8),
+            ambient: Param::new(0.45),
         },
         layers: vec![
             Layer::new(
@@ -405,14 +405,14 @@ pub fn gold_room() -> Project {
                 LayerKind::Mirror(MirrorFloor {
                     size: 30.0,
                     base_color: hex(0x5a3a08),
-                    reflectivity: 0.85,
-                    blur: 0.1,
+                    reflectivity: Param::new(0.85),
+                    blur: Param::new(0.1),
                     tint: hex(0xffd890),
                     texture: Some("led_grid".into()),
                     texture_scale: 0.35,
                     grid: Param::new(0.6).osc(Wave::Sine, 0.4, 4),
                     grid_color: hex(0xffd070),
-                    grid_scale: 0.5,
+                    grid_scale: Param::new(0.5),
                     grid_scroll: 2,
                 }),
             ),
@@ -484,7 +484,7 @@ pub fn gold_room() -> Project {
                     Material {
                         base_color: hex(0xfff0c0),
                         texture: Some("led_grid".into()),
-                        texture_scale: 3.0,
+                        texture_scale: Param::new(3.0),
                         emissive_color: hex(0xffe6a0),
                         emissive: Param::new(3.0).osc(Wave::Sine, 0.8, 8),
                         emissive_mode: EmissiveMode::Texture,
@@ -534,8 +534,8 @@ pub fn gold_room() -> Project {
                         Primitive::Octahedron,
                         Material {
                             base_color: hex(0xfff8e0),
-                            metallic: 0.3,
-                            roughness: 0.05,
+                            metallic: Param::new(0.3),
+                            roughness: Param::new(0.05),
                             flat_shading: true,
                             emissive_color: hex(0xfff0c0),
                             emissive: Param::new(1.5),
@@ -555,13 +555,13 @@ pub fn gold_room() -> Project {
                     count: 1200,
                     lifetimes: 1,
                     size: Param::new(0.05),
-                    speed: 1.0,
-                    radius: 8.0,
+                    speed: Param::new(1.0),
+                    radius: Param::new(8.0),
                     color_a: hex(0xfff0c0),
                     color_b: hex(0xffa040),
                     intensity: Param::new(2.5),
                     trail: 0,
-                    trail_spacing: 0.01,
+                    trail_spacing: Param::new(0.01),
                     sprite: Sprite::Star,
                     seed: 9,
                 }),
@@ -572,8 +572,8 @@ pub fn gold_room() -> Project {
             bloom: Bloom {
                 enabled: true,
                 intensity: Param::new(1.0),
-                threshold: 1.0,
-                radius: 0.8,
+                threshold: Param::new(1.0),
+                radius: Param::new(0.8),
             },
             mirror: MirrorSplit {
                 enabled: true,
@@ -581,8 +581,8 @@ pub fn gold_room() -> Project {
             },
             grade: Grade {
                 exposure: Param::new(1.1),
-                vignette: 0.3,
-                saturation: 1.05,
+                vignette: Param::new(0.3),
+                saturation: Param::new(1.05),
                 ..Default::default()
             },
             ..Default::default()
@@ -603,7 +603,7 @@ pub fn orbiting_solid() -> Project {
             target: [0.0, 0.0, 0.0],
             distance: Param::new(7.0).osc(Wave::Sine, 0.8, 1),
             height: Param::new(1.5).osc(Wave::Sine, 1.0, 1),
-            swing: 25.0,
+            swing: Param::new(25.0),
             fov: Param::new(50.0),
             ..Default::default()
         },
@@ -614,8 +614,8 @@ pub fn orbiting_solid() -> Project {
             ground_color: hex(0x000000),
             light_dir: [-0.5, 0.8, 0.6],
             light_color: hex(0xe0f0ff),
-            light_intensity: 2.2,
-            ambient: 0.15,
+            light_intensity: Param::new(2.2),
+            ambient: Param::new(0.15),
         },
         layers: vec![
             Layer::new(
@@ -627,7 +627,7 @@ pub fn orbiting_solid() -> Project {
                     color_c: hex(0x80b0ff),
                     speed: 1,
                     intensity: Param::new(0.6),
-                    detail: 1.0,
+                    detail: Param::new(1.0),
                     texture: None,
                 }),
             ),
@@ -637,14 +637,14 @@ pub fn orbiting_solid() -> Project {
                     Primitive::Dodecahedron,
                     Material {
                         base_color: hex(0x1a70d8),
-                        metallic: 0.5,
-                        roughness: 0.18,
+                        metallic: Param::new(0.5),
+                        roughness: Param::new(0.18),
                         flat_shading: true,
-                        rim: 0.9,
+                        rim: Param::new(0.9),
                         emissive_color: hex(0x40a0ff),
                         emissive: Param::new(0.15).osc(Wave::Pulse, 0.5, 8),
                         texture: Some("noise".into()),
-                        texture_scale: 1.0,
+                        texture_scale: Param::new(1.0),
                         ..Default::default()
                     },
                 )),
@@ -670,8 +670,8 @@ pub fn orbiting_solid() -> Project {
                         Primitive::Cube,
                         Material {
                             base_color: hex(0xe8f0ff),
-                            metallic: 0.2,
-                            roughness: 0.3,
+                            metallic: Param::new(0.2),
+                            roughness: Param::new(0.3),
                             flat_shading: true,
                             ..Default::default()
                         },
@@ -726,13 +726,13 @@ pub fn orbiting_solid() -> Project {
                     count: 600,
                     lifetimes: 1,
                     size: Param::new(0.04),
-                    speed: 1.0,
-                    radius: 3.6,
+                    speed: Param::new(1.0),
+                    radius: Param::new(3.6),
                     color_a: hex(0xb0d8ff),
                     color_b: hex(0x2060ff),
                     intensity: Param::new(2.5),
                     trail: 3,
-                    trail_spacing: 0.004,
+                    trail_spacing: Param::new(0.004),
                     sprite: Sprite::Glow,
                     seed: 3,
                 }),
@@ -743,16 +743,16 @@ pub fn orbiting_solid() -> Project {
             bloom: Bloom {
                 enabled: true,
                 intensity: Param::new(0.9),
-                threshold: 0.9,
-                radius: 0.7,
+                threshold: Param::new(0.9),
+                radius: Param::new(0.7),
             },
             chroma: Chroma {
                 enabled: true,
                 amount: Param::new(0.003),
             },
             grade: Grade {
-                vignette: 0.5,
-                contrast: 1.1,
+                vignette: Param::new(0.5),
+                contrast: Param::new(1.1),
                 ..Default::default()
             },
             ..Default::default()
@@ -792,7 +792,7 @@ pub fn retro_tunnel() -> Project {
                     color_c: hex(0xff40c0),
                     speed: 4,
                     intensity: Param::new(1.2),
-                    detail: 1.0,
+                    detail: Param::new(1.0),
                     texture: Some("xor".into()),
                 }),
             ),
@@ -803,7 +803,7 @@ pub fn retro_tunnel() -> Project {
                     Material {
                         base_color: hex(0xffffff),
                         texture: Some("checker".into()),
-                        texture_scale: 2.0,
+                        texture_scale: Param::new(2.0),
                         scroll: [1, 0],
                         flat_shading: true,
                         emissive_color: hex(0xffff55),
@@ -823,13 +823,13 @@ pub fn retro_tunnel() -> Project {
                     count: 700,
                     lifetimes: 4,
                     size: Param::new(0.05),
-                    speed: 1.0,
-                    radius: 6.0,
+                    speed: Param::new(1.0),
+                    radius: Param::new(6.0),
                     color_a: hex(0xffffff),
                     color_b: hex(0x55ffff),
                     intensity: Param::new(2.0),
                     trail: 4,
-                    trail_spacing: 0.01,
+                    trail_spacing: Param::new(0.01),
                     sprite: Sprite::Square,
                     seed: 1,
                 }),
@@ -839,28 +839,28 @@ pub fn retro_tunnel() -> Project {
             bloom: Bloom {
                 enabled: true,
                 intensity: Param::new(0.5),
-                threshold: 0.9,
-                radius: 0.5,
+                threshold: Param::new(0.9),
+                radius: Param::new(0.5),
             },
             pixelate: Pixelate {
                 enabled: true,
-                size: 3.0,
+                size: Param::new(3.0),
             },
             palette: PaletteFx {
                 enabled: true,
                 palette: PaletteId::Ega,
-                dither: 0.7,
+                dither: Param::new(0.7),
             },
             crt: Crt {
                 enabled: true,
-                scanlines: 0.5,
-                curvature: 0.12,
-                noise: 0.08,
+                scanlines: Param::new(0.5),
+                curvature: Param::new(0.12),
+                noise: Param::new(0.08),
             },
             grade: Grade {
-                vignette: 0.2,
-                grain: 0.0,
-                beat_flash: 0.15,
+                vignette: Param::new(0.2),
+                grain: Param::new(0.0),
+                beat_flash: Param::new(0.15),
                 ..Default::default()
             },
             ..Default::default()
@@ -900,7 +900,7 @@ pub fn plasma_kaleido() -> Project {
                     color_c: hex(0x20e0ff),
                     speed: 2,
                     intensity: Param::new(0.9),
-                    detail: 1.0,
+                    detail: Param::new(1.0),
                     texture: None,
                 }),
             ),
@@ -925,8 +925,8 @@ pub fn plasma_kaleido() -> Project {
                             base_color: hex(0xffffff),
                             texture: Some("plasma".into()),
                             scroll: [1, 1],
-                            metallic: 0.6,
-                            roughness: 0.2,
+                            metallic: Param::new(0.6),
+                            roughness: Param::new(0.2),
                             emissive_color: hex(0xff60ff),
                             emissive: Param::new(0.6),
                             emissive_mode: EmissiveMode::Stripes,
@@ -943,8 +943,8 @@ pub fn plasma_kaleido() -> Project {
                     Primitive::Icosahedron,
                     Material {
                         base_color: hex(0x202020),
-                        metallic: 1.0,
-                        roughness: 0.1,
+                        metallic: Param::new(1.0),
+                        roughness: Param::new(0.1),
                         flat_shading: true,
                         emissive_color: hex(0x40ffff),
                         emissive: Param::new(2.0).osc(Wave::Pulse, 3.0, 16),
@@ -959,7 +959,7 @@ pub fn plasma_kaleido() -> Project {
             kaleido: Kaleido {
                 enabled: true,
                 segments: 8,
-                angle: 0.0,
+                angle: Param::new(0.0),
                 turns: 1,
                 zoom: Param::new(1.0).osc(Wave::Sine, 0.2, 2),
                 center: [0.5, 0.5],
@@ -992,8 +992,8 @@ pub fn synth_sunset() -> Project {
             ground_color: hex(0x100020),
             light_dir: [0.0, 0.3, -1.0],
             light_color: hex(0xff80c0),
-            light_intensity: 1.5,
-            ambient: 0.3,
+            light_intensity: Param::new(1.5),
+            ambient: Param::new(0.3),
         },
         layers: vec![
             Layer::new(
@@ -1005,7 +1005,7 @@ pub fn synth_sunset() -> Project {
                     color_c: hex(0xffd030),
                     speed: 1,
                     intensity: Param::new(1.0),
-                    detail: 1.0,
+                    detail: Param::new(1.0),
                     texture: None,
                 }),
             ),
@@ -1014,12 +1014,12 @@ pub fn synth_sunset() -> Project {
                 LayerKind::Mirror(MirrorFloor {
                     size: 80.0,
                     base_color: hex(0x080010),
-                    reflectivity: 0.5,
-                    blur: 0.15,
+                    reflectivity: Param::new(0.5),
+                    blur: Param::new(0.15),
                     tint: hex(0xffa0ff),
                     grid: Param::new(2.5),
                     grid_color: hex(0xff20c0),
-                    grid_scale: 0.5,
+                    grid_scale: Param::new(0.5),
                     grid_scroll: 8,
                     ..Default::default()
                 }),
@@ -1043,8 +1043,8 @@ pub fn synth_sunset() -> Project {
                             emissive_color: hex(0x20e0ff),
                             emissive: Param::new(3.0).osc(Wave::Sine, 1.0, 4),
                             emissive_mode: EmissiveMode::Edges,
-                            metallic: 0.8,
-                            roughness: 0.2,
+                            metallic: Param::new(0.8),
+                            roughness: Param::new(0.2),
                             ..Default::default()
                         },
                     )
@@ -1058,8 +1058,8 @@ pub fn synth_sunset() -> Project {
                     Primitive::Octahedron,
                     Material {
                         base_color: hex(0x101010),
-                        metallic: 1.0,
-                        roughness: 0.05,
+                        metallic: Param::new(1.0),
+                        roughness: Param::new(0.05),
                         flat_shading: true,
                         emissive_color: hex(0xff40d0),
                         emissive: Param::new(2.0),
@@ -1077,14 +1077,14 @@ pub fn synth_sunset() -> Project {
             bloom: Bloom {
                 enabled: true,
                 intensity: Param::new(1.0),
-                threshold: 0.8,
-                radius: 0.8,
+                threshold: Param::new(0.8),
+                radius: Param::new(0.8),
             },
             crt: Crt {
                 enabled: true,
-                scanlines: 0.25,
-                curvature: 0.0,
-                noise: 0.03,
+                scanlines: Param::new(0.25),
+                curvature: Param::new(0.0),
+                noise: Param::new(0.03),
             },
             ..Default::default()
         },
@@ -1101,7 +1101,7 @@ pub fn vector_valley() -> Project {
         },
         camera: Camera {
             mode: CameraMode::Pendulum,
-            swing: 8.0,
+            swing: Param::new(8.0),
             target: [0.0, 3.0, -12.0],
             distance: Param::new(16.0),
             height: Param::new(2.5),
@@ -1115,8 +1115,8 @@ pub fn vector_valley() -> Project {
             ground_color: hex(0x080010),
             light_dir: [0.0, 0.4, -1.0],
             light_color: hex(0xc080ff),
-            light_intensity: 1.2,
-            ambient: 0.3,
+            light_intensity: Param::new(1.2),
+            ambient: Param::new(0.3),
         },
         layers: vec![
             Layer::new(
@@ -1128,7 +1128,7 @@ pub fn vector_valley() -> Project {
                     color_c: hex(0xa0c0ff),
                     speed: 1,
                     intensity: Param::new(1.0),
-                    detail: 1.0,
+                    detail: Param::new(1.0),
                     texture: None,
                 }),
             ),
@@ -1139,14 +1139,15 @@ pub fn vector_valley() -> Project {
                     cells: 80,
                     height: Param::new(7.0),
                     hills: 5,
-                    roughness: 0.45,
+                    roughness: Param::new(0.45),
                     scroll: 2,
-                    valley: 0.35,
+                    valley: Param::new(0.35),
                     style: TerrainStyle::Both,
                     line_color: hex(0xff2bd6),
                     glow: Param::new(1.2).osc(Wave::Pulse, 0.6, 16),
                     fill_color: hex(0x0a0418),
                     seed: 7,
+                    ..Default::default()
                 }),
             )
             .at([0.0, -0.5, -20.0]),
@@ -1154,15 +1155,15 @@ pub fn vector_valley() -> Project {
                 "Lasers",
                 LayerKind::Lasers(Lasers {
                     count: 10,
-                    spread: 80.0,
-                    length: 60.0,
-                    width: 0.1,
+                    spread: Param::new(80.0),
+                    length: Param::new(60.0),
+                    width: Param::new(0.1),
                     color_a: hex(0x20ffa0),
                     color_b: hex(0x20a0ff),
                     intensity: Param::new(3.0),
-                    sweep: 20.0,
+                    sweep: Param::new(20.0),
                     sweep_cycles: 2,
-                    strobe: 0.6,
+                    strobe: Param::new(0.6),
                     ..Default::default()
                 }),
             )
@@ -1179,8 +1180,8 @@ pub fn vector_valley() -> Project {
                     glow: Param::new(0.8),
                     pulses: 4,
                     pulse_speed: 2,
-                    pulse_length: 0.06,
-                    pulse_glow: 8.0,
+                    pulse_length: Param::new(0.06),
+                    pulse_glow: Param::new(8.0),
                 }),
             )
             .scaled(4.0)
@@ -1191,8 +1192,8 @@ pub fn vector_valley() -> Project {
             bloom: Bloom {
                 enabled: true,
                 intensity: Param::new(1.1),
-                threshold: 0.8,
-                radius: 0.8,
+                threshold: Param::new(0.8),
+                radius: Param::new(0.8),
             },
             ..Default::default()
         },
@@ -1223,8 +1224,8 @@ pub fn glitch_shrine() -> Project {
             ground_color: hex(0x100010),
             light_dir: [0.3, 1.0, 0.4],
             light_color: hex(0xffffff),
-            light_intensity: 1.3,
-            ambient: 0.25,
+            light_intensity: Param::new(1.3),
+            ambient: Param::new(0.25),
         },
         layers: vec![
             Layer::new(
@@ -1236,7 +1237,7 @@ pub fn glitch_shrine() -> Project {
                     color_c: hex(0x00c0ff),
                     speed: 1,
                     intensity: Param::new(0.7),
-                    detail: 1.0,
+                    detail: Param::new(1.0),
                     texture: None,
                 }),
             ),
@@ -1245,11 +1246,11 @@ pub fn glitch_shrine() -> Project {
                 LayerKind::Mirror(MirrorFloor {
                     size: 60.0,
                     base_color: hex(0x040408),
-                    reflectivity: 0.6,
-                    blur: 0.2,
+                    reflectivity: Param::new(0.6),
+                    blur: Param::new(0.2),
                     grid: Param::new(0.6),
                     grid_color: hex(0x00c0ff),
-                    grid_scale: 1.0,
+                    grid_scale: Param::new(1.0),
                     ..Default::default()
                 }),
             ),
@@ -1259,8 +1260,8 @@ pub fn glitch_shrine() -> Project {
                     Primitive::Menger { level: 2 },
                     Material {
                         base_color: hex(0x08080c),
-                        metallic: 0.8,
-                        roughness: 0.15,
+                        metallic: Param::new(0.8),
+                        roughness: Param::new(0.15),
                         flat_shading: true,
                         emissive_color: hex(0x00e5ff),
                         emissive: Param::new(2.0),
@@ -1269,7 +1270,7 @@ pub fn glitch_shrine() -> Project {
                             amount: Param::new(0.35),
                             style: GlitchStyle::Slices,
                             rate: 32,
-                            chance: 0.3,
+                            chance: Param::new(0.3),
                             seed: 4,
                         },
                         ..Default::default()
@@ -1291,8 +1292,8 @@ pub fn glitch_shrine() -> Project {
                             Primitive::Gem { facets: 8 },
                             Material {
                                 base_color: hex(0x200818),
-                                metallic: 0.5,
-                                roughness: 0.1,
+                                metallic: Param::new(0.5),
+                                roughness: Param::new(0.1),
                                 flat_shading: true,
                                 emissive_color: hex(0xff2090),
                                 emissive: Param::new(1.5),
@@ -1323,8 +1324,8 @@ pub fn glitch_shrine() -> Project {
                     glow: Param::new(0.6),
                     pulses: 2,
                     pulse_speed: 1,
-                    pulse_length: 0.1,
-                    pulse_glow: 6.0,
+                    pulse_length: Param::new(0.1),
+                    pulse_glow: Param::new(6.0),
                 }),
             )
             .scaled(4.5)
@@ -1334,15 +1335,15 @@ pub fn glitch_shrine() -> Project {
                 LayerKind::Lasers(Lasers {
                     count: 12,
                     pattern: LaserPattern::Cone,
-                    spread: 40.0,
-                    length: 30.0,
-                    width: 0.05,
+                    spread: Param::new(40.0),
+                    length: Param::new(30.0),
+                    width: Param::new(0.05),
                     color_a: hex(0xff2090),
                     color_b: hex(0x00e5ff),
                     intensity: Param::new(2.0),
-                    sweep: 20.0,
+                    sweep: Param::new(20.0),
                     sweep_cycles: 1,
-                    strobe: 0.3,
+                    strobe: Param::new(0.3),
                     ..Default::default()
                 }),
             )
@@ -1352,8 +1353,8 @@ pub fn glitch_shrine() -> Project {
             bloom: Bloom {
                 enabled: true,
                 intensity: Param::new(1.0),
-                threshold: 0.8,
-                radius: 0.7,
+                threshold: Param::new(0.8),
+                radius: Param::new(0.7),
             },
             ..Default::default()
         },

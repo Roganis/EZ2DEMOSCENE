@@ -35,8 +35,8 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   - Particles: burst, drift, ring orbit, fountain, warp stars, vortex and
     glitter, with trails. They are fully deterministic on the GPU, so
     scrubbing and exports are exact.
-  - Terrain: an endless wireframe or solid landscape that scrolls past and
-    repeats exactly every loop.
+  - Terrain: an endless wireframe or solid (optionally textured) landscape
+    that scrolls past and repeats exactly every loop.
   - Laser beams: fans, rotating cones or scattered beams that sweep and
     strobe on the beat.
   - Neon ribbons: glowing tubes along Lissajous, knot, figure-eight, wave
@@ -57,9 +57,12 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   pixelation, palette reduction with Bayer dithering (EGA, CGA, C64, Game
   Boy, PICO-8, Amiga copper, ZX Spectrum, VGA cube, phosphor), CRT
   scanlines/curvature/VHS wobble, grading, vignette, grain and beat flash.
-- **Animate anything.** Click `~` next to a value to pick a wave (sine,
-  triangle, saw, square, beat pulse, random), how many times per loop it
-  repeats, and how much it follows the **music**.
+- **Animate anything.** Click `~` next to almost any value, post effects
+  included, to pick a shape: LFOs (sine, triangle, saw up/down, square),
+  beat fades (pulse, exponential and linear fades in/out, swell) or random
+  (sample & hold, smooth random, drunken walk). The ♩ menu syncs it to
+  every beat, bar or loop, a live graph previews the curve, and it can
+  follow the **music**. Layers can also **shake** on the beat.
 - **Music.** Drop in an MP3/WAV/OGG/FLAC. It plays in sync with the loop,
   and its loudness and kick envelopes can drive any value. It is also muxed
   into video exports.

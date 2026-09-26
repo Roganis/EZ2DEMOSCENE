@@ -159,7 +159,7 @@ pub fn randomize(project: &mut Project, seed: u64, opt: RandomizeOptions) {
             c.mode = *rng.pick(&CameraMode::ALL);
         }
         c.orbit_turns = if rng.chance(0.5) { 1 } else { -1 };
-        c.swing = rng.range(10.0, 40.0);
+        c.swing.base = rng.range(10.0, 40.0);
         c.height.base = (c.height.base + rng.signed() * 2.0 * k).max(-1.0);
     }
 

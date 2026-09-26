@@ -146,7 +146,7 @@ pub fn camera_ui(ui: &mut Ui, c: &mut Camera) {
         &mut c.height,
         -20.0..=40.0,
     );
-    slider(
+    param(
         ui,
         "Start angle",
         "Starting direction in degrees",
@@ -164,7 +164,7 @@ pub fn camera_ui(ui: &mut Ui, c: &mut Camera) {
             );
         }
         CameraMode::Pendulum => {
-            slider(
+            param(
                 ui,
                 "Swing",
                 "Swing amplitude in degrees",
@@ -188,7 +188,7 @@ pub fn camera_ui(ui: &mut Ui, c: &mut Camera) {
         &mut c.roll,
         -180.0..=180.0,
     );
-    slider(
+    param(
         ui,
         "Beat shake",
         "Camera kick on every beat",
@@ -224,7 +224,7 @@ pub fn environment_ui(ui: &mut Ui, e: &mut Environment) {
         "Ambient light from below",
         &mut e.ground_color,
     );
-    slider(
+    param(
         ui,
         "Ambient",
         "Strength of the ambient light",
@@ -232,7 +232,7 @@ pub fn environment_ui(ui: &mut Ui, e: &mut Environment) {
         0.0..=2.0,
     );
     color(ui, "Sun colour", "", &mut e.light_color);
-    slider(ui, "Sun strength", "", &mut e.light_intensity, 0.0..=5.0);
+    param(ui, "Sun strength", "", &mut e.light_intensity, 0.0..=5.0);
     vec3(
         ui,
         "Sun direction",
@@ -253,7 +253,7 @@ pub fn post_ui(ui: &mut Ui, post: &mut PostStack) {
             &mut post.kaleido.segments,
             1..=32,
         );
-        slider(
+        param(
             ui,
             "Angle",
             "Rotation in degrees",
@@ -294,14 +294,14 @@ pub fn post_ui(ui: &mut Ui, post: &mut PostStack) {
     });
     toggle_section(ui, "Bloom / glow", &mut post.bloom.enabled, |ui| {
         param(ui, "Intensity", "", &mut post.bloom.intensity, 0.0..=3.0);
-        slider(
+        param(
             ui,
             "Threshold",
             "Brightness above which things glow",
             &mut post.bloom.threshold,
             0.0..=4.0,
         );
-        slider(ui, "Spread", "", &mut post.bloom.radius, 0.0..=1.0);
+        param(ui, "Spread", "", &mut post.bloom.radius, 0.0..=1.0);
     });
     toggle_section(ui, "Chromatic aberration", &mut post.chroma.enabled, |ui| {
         param(
@@ -313,7 +313,7 @@ pub fn post_ui(ui: &mut Ui, post: &mut PostStack) {
         );
     });
     toggle_section(ui, "Pixelate", &mut post.pixelate.enabled, |ui| {
-        slider(
+        param(
             ui,
             "Pixel size",
             "Size of the fat pixels (at 1080p)",
@@ -330,7 +330,7 @@ pub fn post_ui(ui: &mut Ui, post: &mut PostStack) {
             &PaletteId::ALL,
             |p| p.label(),
         );
-        slider(
+        param(
             ui,
             "Dithering",
             "Ordered (Bayer) dithering strength",
@@ -340,24 +340,24 @@ pub fn post_ui(ui: &mut Ui, post: &mut PostStack) {
         palette_swatch(ui, post.palette.palette);
     });
     toggle_section(ui, "CRT monitor", &mut post.crt.enabled, |ui| {
-        slider(ui, "Scanlines", "", &mut post.crt.scanlines, 0.0..=1.0);
-        slider(ui, "Curvature", "", &mut post.crt.curvature, 0.0..=1.0);
-        slider(ui, "VHS wobble", "", &mut post.crt.noise, 0.0..=1.0);
+        param(ui, "Scanlines", "", &mut post.crt.scanlines, 0.0..=1.0);
+        param(ui, "Curvature", "", &mut post.crt.curvature, 0.0..=1.0);
+        param(ui, "VHS wobble", "", &mut post.crt.noise, 0.0..=1.0);
     });
     section(ui, "Colour grading", true, |ui| {
         let g = &mut post.grade;
         param(ui, "Exposure", "", &mut g.exposure, 0.0..=4.0);
-        slider(ui, "Contrast", "", &mut g.contrast, 0.5..=2.0);
-        slider(ui, "Saturation", "", &mut g.saturation, 0.0..=2.0);
-        slider(
+        param(ui, "Contrast", "", &mut g.contrast, 0.5..=2.0);
+        param(ui, "Saturation", "", &mut g.saturation, 0.0..=2.0);
+        param(
             ui,
             "Vignette",
             "Darken the corners",
             &mut g.vignette,
             0.0..=1.5,
         );
-        slider(ui, "Film grain", "", &mut g.grain, 0.0..=0.2);
-        slider(
+        param(ui, "Film grain", "", &mut g.grain, 0.0..=0.2);
+        param(
             ui,
             "Beat flash",
             "White flash on every beat",
@@ -441,7 +441,7 @@ pub fn layer_ui(ui: &mut Ui, layer: &mut Layer, textures: &[UserTexture], lref: 
         LayerKind::Particles(p) => particles_ui(ui, p),
         LayerKind::Backdrop(b) => backdrop_ui(ui, b, textures, lref),
         LayerKind::Mirror(f) => mirror_ui(ui, f, textures, lref),
-        LayerKind::Terrain(t) => terrain_ui(ui, t),
+        LayerKind::Terrain(t) => terrain_ui(ui, t, textures, lref),
         LayerKind::Lasers(z) => lasers_ui(ui, z),
         LayerKind::Ribbon(r) => ribbon_ui(ui, r),
     }
@@ -481,6 +481,10 @@ pub fn layer_ui(ui: &mut Ui, layer: &mut Layer, textures: &[UserTexture], lref: 
                 &mut t.bob,
                 -5.0..=5.0,
             );
+            ui.add_space(4.0);
+            ui.label(RichText::new("Shake").strong())
+                .on_hover_text("Random jolts on a rhythm");
+            shake_ui(ui, &mut t.shake);
         });
     }
     if is_mesh_like {
@@ -491,6 +495,52 @@ pub fn layer_ui(ui: &mut Ui, layer: &mut Layer, textures: &[UserTexture], lref: 
     section(ui, "Blink / strobe", false, |ui| {
         blink_ui(ui, &mut layer.blink)
     });
+}
+
+/// Random jolts on a rhythm (also driven by the Jitter node).
+fn shake_ui(ui: &mut Ui, s: &mut Shake) {
+    param(
+        ui,
+        "Shake distance",
+        "How far each jolt moves the layer. Try ~ → Exp fade out, every beat.",
+        &mut s.amount,
+        0.0..=3.0,
+    );
+    param(
+        ui,
+        "Shake turn",
+        "How far each jolt turns the layer (degrees)",
+        &mut s.turn,
+        0.0..=90.0,
+    );
+    if s.is_active() {
+        drag_u(
+            ui,
+            "New direction",
+            "Times per loop the shake picks a new random direction (16 = every beat of a 16-beat loop)",
+            &mut s.per_loop,
+            1..=256,
+        );
+        drag_u(
+            ui,
+            "Seed",
+            "Different random directions",
+            &mut s.seed,
+            0..=9999,
+        );
+    }
+    if ui
+        .small_button("⚡ Beat jolt")
+        .on_hover_text("Jolt on every beat, then settle (Exp fade out)")
+        .clicked()
+    {
+        let beats = crate::widgets::loop_beats(ui) as i32;
+        s.per_loop = beats as u32;
+        let dist = s.amount.base.max(s.amount.amp);
+        s.amount = Param::new(0.0).osc(Wave::ExpOut, if dist > 0.0 { dist } else { 0.3 }, beats);
+        let deg = s.turn.base.max(s.turn.amp);
+        s.turn = Param::new(0.0).osc(Wave::ExpOut, if deg > 0.0 { deg } else { 8.0 }, beats);
+    }
 }
 
 /// Blink / strobe settings (also used by the Strobe node).
@@ -712,7 +762,7 @@ fn glitch_ui(ui: &mut Ui, g: &mut Glitch) {
         &mut g.rate,
         1..=128,
     );
-    slider(
+    param(
         ui,
         "Chance",
         "Fraction of those moments that glitch (1 = always)",
@@ -730,14 +780,14 @@ fn glitch_ui(ui: &mut Ui, g: &mut Glitch) {
 
 fn material_ui(ui: &mut Ui, mat: &mut Material, textures: &[UserTexture], lref: LayerRef) {
     color(ui, "Colour", "", &mut mat.base_color);
-    slider(
+    param(
         ui,
         "Metallic",
         "0 = plastic, 1 = metal (reflects its colour)",
         &mut mat.metallic,
         0.0..=1.0,
     );
-    slider(
+    param(
         ui,
         "Roughness",
         "0 = mirror-glossy, 1 = matte",
@@ -750,7 +800,7 @@ fn material_ui(ui: &mut Ui, mat: &mut Material, textures: &[UserTexture], lref: 
         "Flat-shaded low-poly look",
         &mut mat.flat_shading,
     );
-    slider(
+    param(
         ui,
         "Rim light",
         "Glow along the silhouette",
@@ -790,7 +840,7 @@ fn material_ui(ui: &mut Ui, mat: &mut Material, textures: &[UserTexture], lref: 
         Some((lref, TexSlot::Material)),
     );
     if mat.texture.is_some() {
-        slider(ui, "Tiling", "", &mut mat.texture_scale, 0.1..=16.0);
+        param(ui, "Tiling", "", &mut mat.texture_scale, 0.1..=16.0);
         row(
             ui,
             "Scroll / loop",
@@ -961,8 +1011,8 @@ fn particles_ui(ui: &mut Ui, p: &mut ParticleLayer) {
             &mut p.lifetimes,
             1..=32,
         );
-        slider(ui, "Speed", "", &mut p.speed, 0.0..=5.0);
-        slider(ui, "Area", "Emitter radius", &mut p.radius, 0.0..=40.0);
+        param(ui, "Speed", "", &mut p.speed, 0.0..=5.0);
+        param(ui, "Area", "Emitter radius", &mut p.radius, 0.0..=40.0);
         drag_u(ui, "Seed", "", &mut p.seed, 0..=9999);
     });
     section(ui, "Look", true, |ui| {
@@ -979,7 +1029,7 @@ fn particles_ui(ui: &mut Ui, p: &mut ParticleLayer) {
             0..=16,
         );
         if p.trail > 0 {
-            slider(ui, "Trail length", "", &mut p.trail_spacing, 0.0005..=0.05);
+            param(ui, "Trail length", "", &mut p.trail_spacing, 0.0005..=0.05);
         }
     });
 }
@@ -1000,7 +1050,7 @@ fn backdrop_ui(ui: &mut Ui, b: &mut Backdrop, textures: &[UserTexture], lref: La
             -16..=16,
         );
         param(ui, "Brightness", "", &mut b.intensity, 0.0..=4.0);
-        slider(
+        param(
             ui,
             "Detail",
             "Scale of the pattern",
@@ -1019,7 +1069,7 @@ fn backdrop_ui(ui: &mut Ui, b: &mut Backdrop, textures: &[UserTexture], lref: La
     });
 }
 
-fn terrain_ui(ui: &mut Ui, t: &mut Terrain) {
+fn terrain_ui(ui: &mut Ui, t: &mut Terrain, textures: &[UserTexture], lref: LayerRef) {
     section(ui, "Landscape", true, |ui| {
         combo(ui, "Style", "", &mut t.style, &TerrainStyle::ALL, |s| {
             s.label()
@@ -1032,14 +1082,14 @@ fn terrain_ui(ui: &mut Ui, t: &mut Terrain) {
             &mut t.hills,
             1..=32,
         );
-        slider(
+        param(
             ui,
             "Roughness",
             "More small bumps",
             &mut t.roughness,
             0.0..=1.0,
         );
-        slider(
+        param(
             ui,
             "Valley",
             "Flat road down the middle (0 = none)",
@@ -1063,6 +1113,34 @@ fn terrain_ui(ui: &mut Ui, t: &mut Terrain) {
         if t.style != TerrainStyle::Wireframe {
             color(ui, "Ground colour", "", &mut t.fill_color);
         }
+        texture_picker(
+            ui,
+            "Texture",
+            &mut t.texture,
+            textures,
+            Some((lref, TexSlot::Terrain)),
+        );
+        if t.texture.is_some() {
+            drag_u(
+                ui,
+                "Tiles",
+                "Times the texture repeats across the terrain",
+                &mut t.tiles,
+                1..=64,
+            );
+            check(
+                ui,
+                "Texture on lines",
+                "Colour the grid lines with the texture too",
+                &mut t.texture_lines,
+            );
+            check(
+                ui,
+                "Chunky pixels",
+                "Keep texture pixels sharp",
+                &mut t.pixelated,
+            );
+        }
         slider(ui, "Size", "Width and depth", &mut t.size, 5.0..=200.0);
         drag_u(
             ui,
@@ -1080,15 +1158,15 @@ fn lasers_ui(ui: &mut Ui, z: &mut Lasers) {
             p.label()
         });
         drag_u(ui, "Beams", "", &mut z.count, 1..=128);
-        slider(
+        param(
             ui,
             "Spread",
             "Opening angle (degrees)",
             &mut z.spread,
             0.0..=180.0,
         );
-        slider(ui, "Length", "", &mut z.length, 1.0..=200.0);
-        slider(ui, "Width", "", &mut z.width, 0.005..=1.0);
+        param(ui, "Length", "", &mut z.length, 1.0..=200.0);
+        param(ui, "Width", "", &mut z.width, 0.005..=1.0);
         if z.pattern == LaserPattern::Scatter {
             drag_u(ui, "Seed", "Different directions", &mut z.seed, 0..=9999);
         }
@@ -1102,7 +1180,7 @@ fn lasers_ui(ui: &mut Ui, z: &mut Lasers) {
             &mut z.color_b,
         );
         param(ui, "Brightness", "", &mut z.intensity, 0.0..=20.0);
-        slider(
+        param(
             ui,
             "Sweep",
             "How far the beams swing (degrees)",
@@ -1116,7 +1194,7 @@ fn lasers_ui(ui: &mut Ui, z: &mut Lasers) {
             &mut z.sweep_cycles,
             -16..=16,
         );
-        slider(
+        param(
             ui,
             "Beat strobe",
             "Flash on every beat (0 = steady)",
@@ -1166,8 +1244,8 @@ fn ribbon_ui(ui: &mut Ui, r: &mut Ribbon) {
             &mut r.pulse_speed,
             -16..=16,
         );
-        slider(ui, "Pulse length", "", &mut r.pulse_length, 0.005..=0.5);
-        slider(ui, "Pulse glow", "", &mut r.pulse_glow, 0.0..=20.0);
+        param(ui, "Pulse length", "", &mut r.pulse_length, 0.005..=0.5);
+        param(ui, "Pulse glow", "", &mut r.pulse_glow, 0.0..=20.0);
     });
 }
 
@@ -1176,14 +1254,14 @@ fn mirror_ui(ui: &mut Ui, f: &mut MirrorFloor, textures: &[UserTexture], lref: L
         ui.label(RichText::new("Only the first mirror floor in the list reflects.").weak());
         slider(ui, "Size", "", &mut f.size, 1.0..=200.0);
         color(ui, "Colour", "", &mut f.base_color);
-        slider(
+        param(
             ui,
             "Reflection",
             "0 = matte, 1 = perfect mirror",
             &mut f.reflectivity,
             0.0..=1.0,
         );
-        slider(ui, "Blur", "Frosted reflection", &mut f.blur, 0.0..=1.0);
+        param(ui, "Blur", "Frosted reflection", &mut f.blur, 0.0..=1.0);
         color(ui, "Reflection tint", "", &mut f.tint);
         texture_picker(
             ui,
@@ -1199,7 +1277,7 @@ fn mirror_ui(ui: &mut Ui, f: &mut MirrorFloor, textures: &[UserTexture], lref: L
     section(ui, "Neon grid", true, |ui| {
         param(ui, "Grid glow", "", &mut f.grid, 0.0..=10.0);
         color(ui, "Grid colour", "", &mut f.grid_color);
-        slider(
+        param(
             ui,
             "Grid scale",
             "Lines per unit",

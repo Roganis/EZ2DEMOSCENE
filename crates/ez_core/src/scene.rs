@@ -110,16 +110,16 @@ pub struct Camera {
     pub distance: Param,
     pub height: Param,
     /// Starting azimuth in degrees.
-    pub angle: f32,
+    pub angle: Param,
     pub orbit_turns: i32,
     /// Pendulum amplitude in degrees.
-    pub swing: f32,
+    pub swing: Param,
     /// Vertical field of view in degrees.
     pub fov: Param,
     /// Roll in degrees.
     pub roll: Param,
     /// Camera shake on every beat (0 = none).
-    pub beat_shake: f32,
+    pub beat_shake: Param,
 }
 
 impl Default for Camera {
@@ -129,12 +129,12 @@ impl Default for Camera {
             target: [0.0, 0.0, 0.0],
             distance: Param::new(10.0),
             height: Param::new(3.0),
-            angle: 0.0,
+            angle: Param::new(0.0),
             orbit_turns: 1,
-            swing: 30.0,
+            swing: Param::new(30.0),
             fov: Param::new(55.0),
             roll: Param::new(0.0),
-            beat_shake: 0.0,
+            beat_shake: Param::new(0.0),
         }
     }
 }
@@ -149,8 +149,8 @@ pub struct Environment {
     pub ground_color: Rgb,
     pub light_dir: [f32; 3],
     pub light_color: Rgb,
-    pub light_intensity: f32,
-    pub ambient: f32,
+    pub light_intensity: Param,
+    pub ambient: Param,
 }
 
 impl Default for Environment {
@@ -162,8 +162,8 @@ impl Default for Environment {
             ground_color: hex(0x202020),
             light_dir: [0.4, 1.0, 0.3],
             light_color: [1.0, 1.0, 1.0],
-            light_intensity: 1.5,
-            ambient: 0.3,
+            light_intensity: Param::new(1.5),
+            ambient: Param::new(0.3),
         }
     }
 }
@@ -359,6 +359,44 @@ pub struct Transform {
     pub spin: [i32; 3],
     /// Vertical offset (animatable, e.g. bobbing).
     pub bob: Param,
+    /// Random jolts on a rhythm.
+    #[serde(skip_serializing_if = "is_default")]
+    pub shake: Shake,
+}
+
+/// Loop-safe random jolts: a new random direction `per_loop` times per
+/// loop, scaled by `amount` / `turn`. Give those a fade (e.g. Exp fade out,
+/// every beat) for a hit that settles.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Shake {
+    /// Distance of the jolt (animatable).
+    pub amount: Param,
+    /// Rotation of the jolt in degrees (animatable).
+    pub turn: Param,
+    /// New random direction this many times per loop.
+    pub per_loop: u32,
+    pub seed: u32,
+}
+
+impl Default for Shake {
+    fn default() -> Self {
+        Shake {
+            amount: Param::new(0.0),
+            turn: Param::new(0.0),
+            per_loop: 16,
+            seed: 1,
+        }
+    }
+}
+
+impl Shake {
+    pub fn is_active(&self) -> bool {
+        self.amount.base != 0.0
+            || self.amount.is_animated()
+            || self.turn.base != 0.0
+            || self.turn.is_animated()
+    }
 }
 
 impl Default for Transform {
@@ -370,6 +408,7 @@ impl Default for Transform {
             stretch: [1.0; 3],
             spin: [0; 3],
             bob: Param::new(0.0),
+            shake: Shake::default(),
         }
     }
 }
@@ -813,15 +852,15 @@ impl EmissiveMode {
 #[serde(default)]
 pub struct Material {
     pub base_color: Rgb,
-    pub metallic: f32,
-    pub roughness: f32,
+    pub metallic: Param,
+    pub roughness: Param,
     pub emissive_color: Rgb,
     /// Glow strength (animatable: pulse it on the beat!).
     pub emissive: Param,
     pub emissive_mode: EmissiveMode,
     /// Built-in texture name or a user texture name.
     pub texture: Option<String>,
-    pub texture_scale: f32,
+    pub texture_scale: Param,
     /// Texture tiles scrolled per loop (U, V).
     pub scroll: [i32; 2],
     /// Nearest-neighbour texture sampling for chunky pixels.
@@ -829,7 +868,7 @@ pub struct Material {
     /// Faceted look (normals from the triangle faces).
     pub flat_shading: bool,
     /// Rim / fresnel light strength.
-    pub rim: f32,
+    pub rim: Param,
     /// Hue rotation over the loop (animatable, in turns).
     pub hue_shift: Param,
     /// Geometry corruption (off when the amount is 0).
@@ -881,7 +920,7 @@ pub struct Glitch {
     /// New random pattern this many times per loop.
     pub rate: u32,
     /// Fraction of the steps that glitch (1 = always).
-    pub chance: f32,
+    pub chance: Param,
     pub seed: u32,
 }
 
@@ -891,7 +930,7 @@ impl Default for Glitch {
             amount: Param::new(0.0),
             style: GlitchStyle::Jitter,
             rate: 16,
-            chance: 0.5,
+            chance: Param::new(0.5),
             seed: 1,
         }
     }
@@ -901,17 +940,17 @@ impl Default for Material {
     fn default() -> Self {
         Material {
             base_color: hex(0xb0b0b8),
-            metallic: 0.2,
-            roughness: 0.4,
+            metallic: Param::new(0.2),
+            roughness: Param::new(0.4),
             emissive_color: hex(0xff3020),
             emissive: Param::new(0.0),
             emissive_mode: EmissiveMode::Full,
             texture: None,
-            texture_scale: 1.0,
+            texture_scale: Param::new(1.0),
             scroll: [0, 0],
             pixelated: false,
             flat_shading: false,
-            rim: 0.3,
+            rim: Param::new(0.3),
             hue_shift: Param::new(0.0),
             glitch: Glitch::default(),
         }
@@ -998,15 +1037,15 @@ pub struct ParticleLayer {
     /// How many times each particle is reborn per loop (integer: loops!).
     pub lifetimes: u32,
     pub size: Param,
-    pub speed: f32,
+    pub speed: Param,
     /// Emitter size / spread.
-    pub radius: f32,
+    pub radius: Param,
     pub color_a: Rgb,
     pub color_b: Rgb,
     pub intensity: Param,
     /// Ghost copies behind each particle (0 = none).
     pub trail: u32,
-    pub trail_spacing: f32,
+    pub trail_spacing: Param,
     pub sprite: Sprite,
     pub seed: u32,
 }
@@ -1018,13 +1057,13 @@ impl Default for ParticleLayer {
             count: 800,
             lifetimes: 2,
             size: Param::new(0.08),
-            speed: 1.0,
-            radius: 4.0,
+            speed: Param::new(1.0),
+            radius: Param::new(4.0),
             color_a: hex(0xffd080),
             color_b: hex(0xff3010),
             intensity: Param::new(2.0),
             trail: 0,
-            trail_spacing: 0.01,
+            trail_spacing: Param::new(0.01),
             sprite: Sprite::Glow,
             seed: 1,
         }
@@ -1086,7 +1125,7 @@ pub struct Backdrop {
     pub speed: i32,
     pub intensity: Param,
     /// Kind-specific detail / scale.
-    pub detail: f32,
+    pub detail: Param,
     /// Texture used by the tunnel walls.
     pub texture: Option<String>,
 }
@@ -1100,7 +1139,7 @@ impl Default for Backdrop {
             color_c: hex(0x5060a0),
             speed: 1,
             intensity: Param::new(1.0),
-            detail: 1.0,
+            detail: Param::new(1.0),
             texture: None,
         }
     }
@@ -1116,16 +1155,16 @@ pub struct MirrorFloor {
     pub size: f32,
     pub base_color: Rgb,
     /// 0 = matte, 1 = perfect mirror.
-    pub reflectivity: f32,
+    pub reflectivity: Param,
     /// Blur of the reflection (0..1).
-    pub blur: f32,
+    pub blur: Param,
     pub tint: Rgb,
     pub texture: Option<String>,
     pub texture_scale: f32,
     /// Glowing grid line intensity (0 = off).
     pub grid: Param,
     pub grid_color: Rgb,
-    pub grid_scale: f32,
+    pub grid_scale: Param,
     /// Grid scroll (cells per loop).
     pub grid_scroll: i32,
 }
@@ -1135,14 +1174,14 @@ impl Default for MirrorFloor {
         MirrorFloor {
             size: 40.0,
             base_color: hex(0x080808),
-            reflectivity: 0.6,
-            blur: 0.2,
+            reflectivity: Param::new(0.6),
+            blur: Param::new(0.2),
             tint: [1.0, 1.0, 1.0],
             texture: None,
             texture_scale: 1.0,
             grid: Param::new(0.0),
             grid_color: hex(0xff2040),
-            grid_scale: 1.0,
+            grid_scale: Param::new(1.0),
             grid_scroll: 0,
         }
     }
@@ -1170,9 +1209,9 @@ pub struct PostStack {
 pub struct Bloom {
     pub enabled: bool,
     pub intensity: Param,
-    pub threshold: f32,
+    pub threshold: Param,
     /// Spread (0..1).
-    pub radius: f32,
+    pub radius: Param,
 }
 
 impl Default for Bloom {
@@ -1180,8 +1219,8 @@ impl Default for Bloom {
         Bloom {
             enabled: true,
             intensity: Param::new(0.8),
-            threshold: 0.8,
-            radius: 0.7,
+            threshold: Param::new(0.8),
+            radius: Param::new(0.7),
         }
     }
 }
@@ -1192,7 +1231,7 @@ pub struct Kaleido {
     pub enabled: bool,
     pub segments: u32,
     /// Base rotation in degrees.
-    pub angle: f32,
+    pub angle: Param,
     /// Whole rotations per loop.
     pub turns: i32,
     pub zoom: Param,
@@ -1204,7 +1243,7 @@ impl Default for Kaleido {
         Kaleido {
             enabled: false,
             segments: 6,
-            angle: 0.0,
+            angle: Param::new(0.0),
             turns: 0,
             zoom: Param::new(1.0),
             center: [0.5, 0.5],
@@ -1263,14 +1302,14 @@ impl Default for Chroma {
 pub struct Pixelate {
     pub enabled: bool,
     /// Size of a "fat pixel" in output pixels.
-    pub size: f32,
+    pub size: Param,
 }
 
 impl Default for Pixelate {
     fn default() -> Self {
         Pixelate {
             enabled: false,
-            size: 4.0,
+            size: Param::new(4.0),
         }
     }
 }
@@ -1281,7 +1320,7 @@ pub struct PaletteFx {
     pub enabled: bool,
     pub palette: PaletteId,
     /// Ordered dithering strength (0..1).
-    pub dither: f32,
+    pub dither: Param,
 }
 
 impl Default for PaletteFx {
@@ -1289,7 +1328,7 @@ impl Default for PaletteFx {
         PaletteFx {
             enabled: false,
             palette: PaletteId::Ega,
-            dither: 0.6,
+            dither: Param::new(0.6),
         }
     }
 }
@@ -1298,19 +1337,19 @@ impl Default for PaletteFx {
 #[serde(default)]
 pub struct Crt {
     pub enabled: bool,
-    pub scanlines: f32,
-    pub curvature: f32,
+    pub scanlines: Param,
+    pub curvature: Param,
     /// Horizontal wobble / VHS noise.
-    pub noise: f32,
+    pub noise: Param,
 }
 
 impl Default for Crt {
     fn default() -> Self {
         Crt {
             enabled: false,
-            scanlines: 0.5,
-            curvature: 0.15,
-            noise: 0.1,
+            scanlines: Param::new(0.5),
+            curvature: Param::new(0.15),
+            noise: Param::new(0.1),
         }
     }
 }
@@ -1319,23 +1358,23 @@ impl Default for Crt {
 #[serde(default)]
 pub struct Grade {
     pub exposure: Param,
-    pub contrast: f32,
-    pub saturation: f32,
-    pub vignette: f32,
-    pub grain: f32,
+    pub contrast: Param,
+    pub saturation: Param,
+    pub vignette: Param,
+    pub grain: Param,
     /// White flash on every beat (0 = none).
-    pub beat_flash: f32,
+    pub beat_flash: Param,
 }
 
 impl Default for Grade {
     fn default() -> Self {
         Grade {
             exposure: Param::new(1.0),
-            contrast: 1.05,
-            saturation: 1.1,
-            vignette: 0.35,
-            grain: 0.03,
-            beat_flash: 0.0,
+            contrast: Param::new(1.05),
+            saturation: Param::new(1.1),
+            vignette: Param::new(0.35),
+            grain: Param::new(0.03),
+            beat_flash: Param::new(0.0),
         }
     }
 }
@@ -1453,17 +1492,25 @@ pub struct Terrain {
     /// Hills across the terrain (whole number, keeps it tileable).
     pub hills: u32,
     /// Sharpness: more octaves of detail.
-    pub roughness: f32,
+    pub roughness: Param,
     /// How many times the landscape scrolls past per loop.
     pub scroll: i32,
     /// Flat valley down the middle (0 = none, 1 = wide).
-    pub valley: f32,
+    pub valley: Param,
     pub style: TerrainStyle,
     pub line_color: Rgb,
     /// Line glow (animatable).
     pub glow: Param,
     pub fill_color: Rgb,
     pub seed: u32,
+    /// Built-in texture name or a user texture name.
+    pub texture: Option<String>,
+    /// Texture repeats across the terrain (whole number keeps loops seamless).
+    pub tiles: u32,
+    /// Also colour the grid lines with the texture.
+    pub texture_lines: bool,
+    /// Nearest-neighbour sampling for chunky pixels.
+    pub pixelated: bool,
 }
 
 impl Default for Terrain {
@@ -1473,14 +1520,18 @@ impl Default for Terrain {
             cells: 64,
             height: Param::new(4.0),
             hills: 4,
-            roughness: 0.5,
+            roughness: Param::new(0.5),
             scroll: 1,
-            valley: 0.3,
+            valley: Param::new(0.3),
             style: TerrainStyle::Wireframe,
             line_color: hex(0xff2bd6),
             glow: Param::new(1.0),
             fill_color: hex(0x0a0418),
             seed: 1,
+            texture: None,
+            tiles: 8,
+            texture_lines: false,
+            pixelated: false,
         }
     }
 }
@@ -1524,19 +1575,19 @@ pub struct Lasers {
     pub count: u32,
     pub pattern: LaserPattern,
     /// Opening angle in degrees.
-    pub spread: f32,
-    pub length: f32,
-    pub width: f32,
+    pub spread: Param,
+    pub length: Param,
+    pub width: Param,
     pub color_a: Rgb,
     pub color_b: Rgb,
     /// Brightness (animatable).
     pub intensity: Param,
     /// Sweep angle in degrees.
-    pub sweep: f32,
+    pub sweep: Param,
     /// Sweeps per loop.
     pub sweep_cycles: i32,
     /// Flash on every beat (0 = steady, 1 = full strobe).
-    pub strobe: f32,
+    pub strobe: Param,
     pub seed: u32,
 }
 
@@ -1545,15 +1596,15 @@ impl Default for Lasers {
         Lasers {
             count: 8,
             pattern: LaserPattern::Fan,
-            spread: 70.0,
-            length: 40.0,
-            width: 0.08,
+            spread: Param::new(70.0),
+            length: Param::new(40.0),
+            width: Param::new(0.08),
             color_a: hex(0x20ff60),
             color_b: hex(0x20a0ff),
             intensity: Param::new(3.0),
-            sweep: 25.0,
+            sweep: Param::new(25.0),
             sweep_cycles: 1,
-            strobe: 0.0,
+            strobe: Param::new(0.0),
             seed: 1,
         }
     }
@@ -1611,9 +1662,9 @@ pub struct Ribbon {
     /// Laps each pulse makes per loop (negative = backwards).
     pub pulse_speed: i32,
     /// Pulse length (fraction of the tube).
-    pub pulse_length: f32,
+    pub pulse_length: Param,
     /// Extra brightness of the pulses.
-    pub pulse_glow: f32,
+    pub pulse_glow: Param,
 }
 
 impl Default for Ribbon {
@@ -1626,8 +1677,8 @@ impl Default for Ribbon {
             glow: Param::new(1.0),
             pulses: 3,
             pulse_speed: 1,
-            pulse_length: 0.08,
-            pulse_glow: 6.0,
+            pulse_length: Param::new(0.08),
+            pulse_glow: Param::new(6.0),
         }
     }
 }
