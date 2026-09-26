@@ -618,6 +618,7 @@ impl Layer {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
+#[allow(clippy::large_enum_variant)] // a scene has a handful of layers
 pub enum LayerKind {
     Mesh(MeshLayer),
     Particles(ParticleLayer),
