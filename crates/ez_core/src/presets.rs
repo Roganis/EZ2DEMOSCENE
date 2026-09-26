@@ -169,6 +169,7 @@ pub fn empty() -> Project {
             Layer::new(
                 "Sky",
                 LayerKind::Backdrop(Backdrop {
+                    resolution: BgResolution::Full,
                     kind: BackdropKind::Gradient,
                     ..Default::default()
                 }),
@@ -220,6 +221,7 @@ pub fn neon_arena() -> Project {
             Layer::new(
                 "Red nebula",
                 LayerKind::Backdrop(Backdrop {
+                    resolution: BgResolution::Full,
                     kind: BackdropKind::Nebula,
                     color_a: hex(0x020001),
                     color_b: hex(0x4a0404),
@@ -455,6 +457,7 @@ pub fn gold_room() -> Project {
             Layer::new(
                 "Warm glow",
                 LayerKind::Backdrop(Backdrop {
+                    resolution: BgResolution::Full,
                     kind: BackdropKind::Gradient,
                     color_a: hex(0x3a2000),
                     color_b: hex(0xc08a30),
@@ -685,6 +688,7 @@ pub fn orbiting_solid() -> Project {
             Layer::new(
                 "Deep space",
                 LayerKind::Backdrop(Backdrop {
+                    resolution: BgResolution::Full,
                     kind: BackdropKind::Starfield,
                     color_a: hex(0x000003),
                     color_b: hex(0x061530),
@@ -852,6 +856,7 @@ pub fn retro_tunnel() -> Project {
             Layer::new(
                 "XOR tunnel",
                 LayerKind::Backdrop(Backdrop {
+                    resolution: BgResolution::Full,
                     kind: BackdropKind::Tunnel,
                     color_a: hex(0x000000),
                     color_b: hex(0x2040ff),
@@ -962,6 +967,7 @@ pub fn plasma_kaleido() -> Project {
             Layer::new(
                 "Plasma",
                 LayerKind::Backdrop(Backdrop {
+                    resolution: BgResolution::Full,
                     kind: BackdropKind::Plasma,
                     color_a: hex(0x10003a),
                     color_b: hex(0xff2090),
@@ -1069,6 +1075,7 @@ pub fn synth_sunset() -> Project {
             Layer::new(
                 "Sunset",
                 LayerKind::Backdrop(Backdrop {
+                    resolution: BgResolution::Full,
                     kind: BackdropKind::SynthGrid,
                     color_a: hex(0x0a0020),
                     color_b: hex(0xff3080),
@@ -1194,6 +1201,7 @@ pub fn vector_valley() -> Project {
             Layer::new(
                 "Stars",
                 LayerKind::Backdrop(Backdrop {
+                    resolution: BgResolution::Full,
                     kind: BackdropKind::Starfield,
                     color_a: hex(0x02000a),
                     color_b: hex(0x301060),
@@ -1305,6 +1313,7 @@ pub fn glitch_shrine() -> Project {
             Layer::new(
                 "Nebula",
                 LayerKind::Backdrop(Backdrop {
+                    resolution: BgResolution::Full,
                     kind: BackdropKind::Nebula,
                     color_a: hex(0x020008),
                     color_b: hex(0x3010a0),
@@ -1468,6 +1477,7 @@ pub fn sponge_dive() -> Project {
             Layer::new(
                 "Sponge",
                 LayerKind::Backdrop(Backdrop {
+                    resolution: BgResolution::Full,
                     kind: BackdropKind::Sponge,
                     color_a: hex(0x05030a),
                     color_b: hex(0x1c1030),
@@ -1564,6 +1574,12 @@ fn sky(kind: BackdropKind, a: u32, b: u32, c: u32, ray: RaySettings) -> Layer {
     Layer::new(
         "Sky",
         LayerKind::Backdrop(Backdrop {
+            // Soft clouds look the same at half resolution, 4× cheaper.
+            resolution: if kind == BackdropKind::Clouds {
+                BgResolution::Half
+            } else {
+                BgResolution::Full
+            },
             kind,
             color_a: hex(a),
             color_b: hex(b),

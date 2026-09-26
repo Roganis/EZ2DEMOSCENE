@@ -97,6 +97,31 @@ struct GpuMesh {
     vbuf: wgpu::Buffer,
     ibuf: wgpu::Buffer,
     count: u32,
+    /// Distance of the farthest vertex from the origin (for culling).
+    radius: f32,
+}
+
+fn blocks_refl_on(blocks: &[Block], slot: u32) -> bool {
+    blocks[slot as usize][0][3] > 0.5
+}
+
+/// The six planes of a view-projection matrix (xyz normal, w distance),
+/// pointing inwards.
+fn frustum_planes(vp: Mat4) -> [Vec4; 6] {
+    let r = [vp.row(0), vp.row(1), vp.row(2), vp.row(3)];
+    let n = |p: Vec4| p / p.truncate().length().max(1e-9);
+    [
+        n(r[3] + r[0]),
+        n(r[3] - r[0]),
+        n(r[3] + r[1]),
+        n(r[3] - r[1]),
+        n(r[2]),
+        n(r[3] - r[2]),
+    ]
+}
+
+fn sphere_visible(planes: &[Vec4; 6], c: Vec3, r: f32) -> bool {
+    planes.iter().all(|p| p.truncate().dot(c) + p.w >= -r)
 }
 
 struct GpuTexture {
@@ -109,6 +134,12 @@ enum Cmd {
     Backdrop {
         slot: u32,
         tex: String,
+        /// Resolution divisor (1 full, 2 half, 4 quarter).
+        res: u32,
+    },
+    /// Upscale the low-resolution background of the target (divisor).
+    BackdropUp {
+        res: u32,
     },
     Mesh {
         slot: u32,
@@ -246,6 +277,9 @@ pub struct Renderer {
     globals_bg: [wgpu::BindGroup; 3],
     shadow_mesh_pipe: wgpu::RenderPipeline,
     contact_pipe: wgpu::RenderPipeline,
+    /// Background at low resolution (no MSAA, no depth) and its upscale.
+    backdrop_low_pipe: wgpu::RenderPipeline,
+    bg_up_pipe: wgpu::RenderPipeline,
     shadow_terrain_pipe: wgpu::RenderPipeline,
     shadow_view: wgpu::TextureView,
     shadow_bg: wgpu::BindGroup,
@@ -316,6 +350,8 @@ pub struct RenderTarget {
     bg_bloom_down: Vec<wgpu::BindGroup>,
     bg_bloom_up: Vec<wgpu::BindGroup>,
     bg_final: wgpu::BindGroup,
+    /// Low-resolution backgrounds: (divisor, view, bind group for sampling).
+    bg_low: Vec<(u32, wgpu::TextureView, wgpu::BindGroup)>,
     bg_rays: wgpu::BindGroup,
     bg_rays_add: wgpu::BindGroup,
     rays: wgpu::TextureView,
@@ -877,6 +913,40 @@ impl Renderer {
                 blend: Some(MULTIPLY),
             },
         );
+        let backdrop_low_pipe = make_pipeline(
+            device,
+            PipeDesc {
+                label: "backdrop low",
+                layout: &scene_layout,
+                module: &sh_backdrop,
+                fs: "fs_main",
+                buffers: &[],
+                format: HDR_FORMAT,
+                samples: 1,
+                depth: None,
+                blend: None,
+            },
+        );
+        let sh_bgup = shader(
+            device,
+            "bg upscale",
+            include_str!("shaders/bgup.wgsl"),
+            true,
+        );
+        let bg_up_pipe = make_pipeline(
+            device,
+            PipeDesc {
+                label: "bg upscale",
+                layout: &scene_layout,
+                module: &sh_bgup,
+                fs: "fs_main",
+                buffers: &[],
+                format: HDR_FORMAT,
+                samples: msaa,
+                depth: Some((false, wgpu::CompareFunction::Always)),
+                blend: None,
+            },
+        );
         let shadow_mesh_pipe = depth_pipe("shadow mesh", &mesh_layout, &sh_mesh, &mesh_buffers);
         let shadow_terrain_pipe = depth_pipe("shadow terrain", &scene_layout, &sh_terrain, &[]);
         let shadow_view = device
@@ -1029,6 +1099,8 @@ impl Renderer {
             globals_bg,
             shadow_mesh_pipe,
             contact_pipe,
+            backdrop_low_pipe,
+            bg_up_pipe,
             shadow_terrain_pipe,
             shadow_view,
             shadow_bg,
@@ -1369,6 +1441,11 @@ impl Renderer {
                 vbuf,
                 ibuf,
                 count: data.indices.len() as u32,
+                radius: data
+                    .vertices
+                    .iter()
+                    .map(|v| Vec3::from(v.pos).length())
+                    .fold(0.0, f32::max),
             },
         );
     }
@@ -1535,6 +1612,7 @@ impl Renderer {
                     cmds.push(Cmd::Backdrop {
                         slot: blocks.len() as u32,
                         tex,
+                        res: b.resolution.divisor(),
                     });
                     blocks.push(blk);
                 }
@@ -1976,6 +2054,17 @@ impl Renderer {
             stats.layers.push(ls);
         }
 
+        // Backgrounds are opaque and fill the screen: only the last one
+        // shows, so the others are not drawn at all.
+        if let Some(last) = cmds.iter().rposition(|c| matches!(c, Cmd::Backdrop { .. })) {
+            let mut i = 0;
+            cmds.retain(|c| {
+                let keep = !matches!(c, Cmd::Backdrop { .. }) || i == last;
+                i += 1;
+                keep
+            });
+        }
+
         // Contact shadows under shapes on the mirror floor.
         let contact = project.environment.shadows.contact;
         if contact > 0.0 {
@@ -2019,6 +2108,24 @@ impl Renderer {
         let frame = self.frame_no;
         self.instance_cache
             .retain(|_, (used, _)| frame - *used < 120);
+
+        // A mirror floor that is off screen, or seen from below, shows no
+        // reflection: skip rendering the scene a second time.
+        if let Some((slot, _, fh, _)) = &floor {
+            let size = blocks[*slot as usize][0][0];
+            let vp = proj * view;
+            let planes = frustum_planes(vp);
+            let corners = [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
+                .map(|(x, z)| Vec3::new(x * size, *fh, z * size));
+            // Off screen when all four corners lie outside the same plane.
+            let off = planes
+                .iter()
+                .any(|p| corners.iter().all(|c| p.truncate().dot(*c) + p.w < 0.0));
+            if off || cam.eye.y < *fh {
+                blocks[*slot as usize][0][3] = 0.0;
+                self.stats.reflection = false;
+            }
+        }
 
         // --- uploads -------------------------------------------------------
         if blocks.is_empty() {
@@ -2197,7 +2304,10 @@ impl Renderer {
         }
 
         // --- reflection -------------------------------------------------------
-        if floor.is_some() {
+        let reflect = floor
+            .as_ref()
+            .is_some_and(|(slot, ..)| blocks_refl_on(&blocks, *slot));
+        if reflect {
             {
                 let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("reflection"),
@@ -2251,6 +2361,37 @@ impl Renderer {
             );
         }
 
+        // --- low-resolution background ------------------------------------------
+        let low_bg = cmds.iter().find_map(|c| match c {
+            Cmd::Backdrop { slot, tex, res } if *res > 1 => Some((*slot, tex.clone(), *res)),
+            _ => None,
+        });
+        if let Some((slot, tex, res)) = &low_bg {
+            if let Some((_, view, _)) = target.bg_low.iter().find(|(d, _, _)| d == res) {
+                let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("background low"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                pass.set_pipeline(&self.backdrop_low_pipe);
+                pass.set_bind_group(0, &self.globals_bg[0], &[]);
+                pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                pass.set_bind_group(2, &self.tex_bgs[&(tex.clone(), false)], &[]);
+                pass.draw(0..3, 0..1);
+            }
+        }
+
         // --- main scene -------------------------------------------------------
         {
             let (view_tex, resolve) = match &target.msaa_color {
@@ -2294,6 +2435,24 @@ impl Renderer {
                 .iter()
                 .cloned()
                 .partition(|c| matches!(c, Cmd::Backdrop { .. } | Cmd::SkyFx));
+            let back: Vec<Cmd> = back
+                .into_iter()
+                .map(|c| match c {
+                    Cmd::Backdrop { res, .. } if res > 1 => Cmd::BackdropUp { res },
+                    other => other,
+                })
+                .collect();
+            for c in &back {
+                if let Cmd::BackdropUp { res } = c {
+                    if let Some((_, _, bg)) = target.bg_low.iter().find(|(d, _, _)| d == res) {
+                        pass.set_pipeline(&self.bg_up_pipe);
+                        pass.set_bind_group(0, &self.globals_bg[0], &[]);
+                        pass.set_bind_group(1, &self.draw_bg, &[0]);
+                        pass.set_bind_group(2, bg, &[]);
+                        pass.draw(0..3, 0..1);
+                    }
+                }
+            }
             self.draw_scene(&mut pass, &self.main_pipes, 0, &back);
             if let (Some((slot, _, _, _)), Some(bg)) = (&floor, &floor_bg) {
                 pass.set_pipeline(&self.floor_pipe);
@@ -2314,6 +2473,16 @@ impl Renderer {
             }
             // Solid geometry before anything see-through, which doesn't
             // write depth and would otherwise be painted over.
+            // Skip what is entirely outside the view (the reflection and the
+            // shadow map still get everything).
+            let planes = frustum_planes(proj * view);
+            let rest: Vec<Cmd> = rest
+                .into_iter()
+                .filter(|c| match self.cmd_bounds(c, &blocks) {
+                    Some((centre, r)) => sphere_visible(&planes, centre, r),
+                    None => true,
+                })
+                .collect();
             let (solid, clear): (Vec<Cmd>, Vec<Cmd>) = rest
                 .into_iter()
                 .partition(|c| matches!(c, Cmd::Mesh { .. } | Cmd::Terrain { .. }));
@@ -2402,6 +2571,59 @@ impl Renderer {
         self.queue.submit([enc.finish()]);
     }
 
+    /// A bounding sphere of what a command draws, when it is cheap to know.
+    fn cmd_bounds(&self, cmd: &Cmd, blocks: &[Block]) -> Option<(Vec3, f32)> {
+        let model = |slot: u32| {
+            let b = &blocks[slot as usize];
+            Mat4::from_cols_array_2d(&[b[8], b[9], b[10], b[11]])
+        };
+        let scale = |m: &Mat4| {
+            m.x_axis
+                .truncate()
+                .length()
+                .max(m.y_axis.truncate().length())
+                .max(m.z_axis.truncate().length())
+        };
+        match cmd {
+            Cmd::Mesh {
+                mesh, first, count, ..
+            } => {
+                let mr = self.meshes.get(mesh)?.radius;
+                let inst = self
+                    .uploaded
+                    .get(*first as usize..(*first + *count) as usize)?;
+                if inst.is_empty() {
+                    return None;
+                }
+                let mut lo = Vec3::splat(f32::MAX);
+                let mut hi = Vec3::splat(f32::MIN);
+                let mut rmax = 0.0f32;
+                for i in inst {
+                    let m = Mat4::from_cols_array_2d(&i.model);
+                    let c = m.w_axis.truncate();
+                    lo = lo.min(c);
+                    hi = hi.max(c);
+                    rmax = rmax.max(scale(&m) * mr);
+                }
+                let centre = (lo + hi) * 0.5;
+                // Glitch and displacement can push vertices out a little.
+                Some((centre, (hi - lo).length() * 0.5 + rmax * 1.5 + 0.5))
+            }
+            Cmd::Particles { slot, .. } => {
+                let m = model(*slot);
+                let b = &blocks[*slot as usize];
+                let r = (b[3][1] * 3.5 * b[3][0].abs().max(1.0) + b[1][3]) * scale(&m);
+                Some((m.w_axis.truncate(), r + 1.0))
+            }
+            Cmd::Lasers { slot, .. } | Cmd::Spots { slot, .. } => {
+                let m = model(*slot);
+                let len = blocks[*slot as usize][0][3];
+                Some((m.w_axis.truncate(), len * scale(&m) * 1.3 + 1.0))
+            }
+            _ => None,
+        }
+    }
+
     /// Meshes and terrain seen from the sun, depth only.
     fn draw_shadow_casters(&self, pass: &mut wgpu::RenderPass<'_>, cmds: &[Cmd]) {
         for cmd in cmds {
@@ -2455,7 +2677,8 @@ impl Renderer {
     ) {
         for cmd in cmds {
             match cmd {
-                Cmd::Backdrop { slot, tex } => {
+                Cmd::BackdropUp { .. } => {}
+                Cmd::Backdrop { slot, tex, .. } => {
                     pass.set_pipeline(&pipes.backdrop);
                     pass.set_bind_group(0, &self.globals_bg[globals], &[]);
                     pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
@@ -2878,6 +3101,34 @@ impl Renderer {
             .map(|i| post_bg(&bloom[i + 1].0, &bloom[i + 1].0))
             .collect();
         let bg_final = post_bg(&hdr2, &bloom[0].0);
+        let bg_low = [2u32, 4]
+            .into_iter()
+            .map(|d| {
+                let view = tex(
+                    "background low",
+                    (w / d).max(1),
+                    (h / d).max(1),
+                    HDR_FORMAT,
+                    1,
+                    sampled,
+                );
+                let bg = dev.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("background low"),
+                    layout: &self.bgl_tex,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(&self.sampler_clamp),
+                        },
+                    ],
+                });
+                (d, view, bg)
+            })
+            .collect();
         let rays = tex("god rays", rw, rh, HDR_FORMAT, 1, sampled);
         let bg_rays = post_bg(&hdr2, &hdr2);
         let bg_rays_add = post_bg(&rays, &rays);
@@ -2905,6 +3156,7 @@ impl Renderer {
             bg_bloom_down,
             bg_bloom_up,
             bg_final,
+            bg_low,
             bg_rays,
             bg_rays_add,
             rays,
@@ -3054,5 +3306,24 @@ pub fn supported_msaa(adapter: &wgpu::Adapter) -> u32 {
         4
     } else {
         1
+    }
+}
+
+#[cfg(test)]
+mod cull_tests {
+    use super::*;
+
+    #[test]
+    fn frustum_culling() {
+        let view = Mat4::look_at_rh(Vec3::new(0.0, 0.0, 10.0), Vec3::ZERO, Vec3::Y);
+        let proj = Mat4::perspective_rh(1.0, 16.0 / 9.0, 0.1, 100.0);
+        let planes = frustum_planes(proj * view);
+        assert!(sphere_visible(&planes, Vec3::ZERO, 1.0));
+        // Behind the camera, far to the side, beyond the far plane.
+        assert!(!sphere_visible(&planes, Vec3::new(0.0, 0.0, 20.0), 1.0));
+        assert!(!sphere_visible(&planes, Vec3::new(60.0, 0.0, 0.0), 1.0));
+        assert!(!sphere_visible(&planes, Vec3::new(0.0, 0.0, -200.0), 1.0));
+        // Partly inside counts as visible.
+        assert!(sphere_visible(&planes, Vec3::new(0.0, 0.0, 20.0), 12.0));
     }
 }

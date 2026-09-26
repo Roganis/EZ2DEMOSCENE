@@ -69,7 +69,7 @@ later with the Phase 7 depth work.
 
 ## Phase 2 — Speed, especially on phones
 
-### ☐ 2.1 Half-resolution raymarched backgrounds
+### ☑ 2.1 Half-resolution raymarched backgrounds
 **How.** Backgrounds of the heavy kinds (volumetric clouds, fractal, sponge,
 tunnel) render into a half- or quarter-resolution texture (setting:
 *Background resolution*: full / half / quarter, default half on phones
@@ -80,6 +80,11 @@ drawn first and behind everything, so no depth-aware upsampling is needed.
 **Expected gain.** Clouds are ~1.2 of the layer "load" budget; a quarter of
 the pixels cuts that to ~0.3.
 
+**Done:** *Resolution* (full / half / quarter) per background; only the
+last (visible) background is drawn at all. Measured on the software
+rasterizer, Sunbeam Peaks: 252 → 200 (half) → 179 ms (quarter) per frame;
+cloud presets now default to half, visually identical.
+
 ### ☐ 2.2 Specialised shaders
 **How.** The background, terrain and mesh shaders branch on the kind,
 style, liquid and biome. Use WGSL `override` constants (wgpu evaluates
@@ -88,7 +93,7 @@ combination (cached in a `HashMap<PipelineKey, RenderPipeline>`). The GPU
 then compiles only the code a layer uses. That lowers register pressure,
 which matters most on mobile.
 
-### ☐ 2.3 Skip invisible work
+### ☑ 2.3 Skip invisible work
 - Skip the mirror reflection pass when the floor quad is outside the view
   frustum (test its four corners).
 - Skip layers whose bounds are outside the frustum (meshes: instance

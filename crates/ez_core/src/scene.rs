@@ -1511,6 +1511,41 @@ pub struct Backdrop {
     /// Settings of the raymarched kinds (tunnel, fractal, sponge, rings).
     #[serde(skip_serializing_if = "is_default")]
     pub ray: RaySettings,
+    /// Render at a lower resolution and upscale (much faster for the
+    /// raymarched kinds and clouds, slightly softer).
+    #[serde(skip_serializing_if = "is_default")]
+    pub resolution: BgResolution,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum BgResolution {
+    #[default]
+    Full,
+    Half,
+    Quarter,
+}
+
+impl BgResolution {
+    pub const ALL: [BgResolution; 3] = [
+        BgResolution::Full,
+        BgResolution::Half,
+        BgResolution::Quarter,
+    ];
+    pub fn label(self) -> &'static str {
+        match self {
+            BgResolution::Full => "Full",
+            BgResolution::Half => "Half (4× faster)",
+            BgResolution::Quarter => "Quarter (16× faster)",
+        }
+    }
+    /// Pixel size divisor.
+    pub fn divisor(self) -> u32 {
+        match self {
+            BgResolution::Full => 1,
+            BgResolution::Half => 2,
+            BgResolution::Quarter => 4,
+        }
+    }
 }
 
 /// Settings shared by the raymarched backgrounds. What each one does
@@ -1635,6 +1670,7 @@ impl Default for Backdrop {
             detail: Param::new(1.0),
             texture: None,
             ray: RaySettings::default(),
+            resolution: BgResolution::Full,
         }
     }
 }

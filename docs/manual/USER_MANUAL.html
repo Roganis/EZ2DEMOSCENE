@@ -294,7 +294,10 @@ selected layer, and <b>right-clicking</b> a layer shows the same options.</p>
   <tr><td>Aurora night sky</td><td>Stars and rippling northern-lights curtains that fade from colour B at the bottom to colour C at the top.
   Colour A is the night sky.</td></tr>
 </table>
-<div class="tip"><b>Tip</b>You can stack two backgrounds, but the later one covers the earlier one. Usually one is enough.</div>
+<div class="tip"><b>Tip</b>You can stack two backgrounds, but the later one covers the earlier one (and only that one is drawn).
+Usually one is enough.</div>
+<p><span class="ui">Resolution</span> renders a background at half or quarter resolution and upscales it. For volumetric clouds and the
+raymarched styles this is 4× or 16× less work and hardly visible; new clouds, fractal and sponge backgrounds start at half.</p>
 <h3>Raymarching settings</h3>
 <p>The four raymarched backgrounds (tunnel, fractal, sponge, rings) get an extra <span class="ui">Raymarching</span> section. Only the settings
 that matter for the chosen style are shown, and all of them except Variant, Wall pattern, Roll and Quality can be animated with

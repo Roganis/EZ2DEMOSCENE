@@ -1331,6 +1331,14 @@ fn backdrop_ui(ui: &mut Ui, b: &mut Backdrop, textures: &[UserTexture], lref: La
             &mut b.detail,
             0.1..=4.0,
         );
+        combo(
+            ui,
+            "Resolution",
+            "Render the background at a lower resolution and upscale it: much faster for clouds and raymarched styles, slightly softer",
+            &mut b.resolution,
+            &BgResolution::ALL,
+            |r| r.label(),
+        );
         if b.kind == BackdropKind::Tunnel {
             texture_picker(
                 ui,
@@ -1983,10 +1991,20 @@ pub fn add_layer_menu(ui: &mut Ui, templates: &[Layer]) -> Option<Layer> {
     ui.menu_button("🌌 Background", |ui| {
         for k in BackdropKind::ALL {
             if ui.button(k.label()).clicked() {
+                // Heavy styles start at half resolution.
+                let heavy = matches!(
+                    k,
+                    BackdropKind::Clouds | BackdropKind::Fractal | BackdropKind::Sponge
+                );
                 out = Some(Layer::new(
                     k.label(),
                     LayerKind::Backdrop(Backdrop {
                         kind: k,
+                        resolution: if heavy {
+                            BgResolution::Half
+                        } else {
+                            BgResolution::Full
+                        },
                         ..Default::default()
                     }),
                 ));

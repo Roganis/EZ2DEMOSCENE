@@ -115,7 +115,8 @@
           "fog": 1.2,
           "steps": 0,
           "spin": 0
-        }
+        },
+        "resolution": "Half"
       }
     },
     {
