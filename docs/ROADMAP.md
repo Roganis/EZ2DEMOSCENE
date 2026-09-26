@@ -111,10 +111,16 @@ feeds ffmpeg on a writer thread; the web job keeps three frames in flight.
 On the software rasterizer (where the "GPU" shares the CPU cores with the
 encoder) PNG export got 9% faster and MP4 2%; real GPUs overlap far more.
 
-### ☐ 2.5 Music analysis off the main thread
+### ☑ 2.5 Music analysis off the main thread
 Desktop: a background thread with a "analysing…" status. Web: chunked
 analysis spread over frames (keeps the page responsive without a worker
 bundle).
+
+**Done:** `ez_core::analysis::Analysis` and `ez_export::MusicJob` decode
+and analyse a slice at a time (identical results, tested). Desktop runs the
+job on a thread, the web spends ~10 ms per frame on it; a spinner with a
+percentage shows in the viewport bar and exports wait for it. The audio
+analysis is cached, so MIDI and MIDI-offset changes apply instantly.
 
 ### ☐ 2.6 Terrain level of detail
 Grid cells get coarser with distance from the camera (a radial ring layout

@@ -340,32 +340,110 @@ pub fn detect_tempo(onset: &[f32], kick: &[f32]) -> Option<(f32, f32)> {
 
 /// Analyse mono `samples` at `rate` Hz.
 pub fn analyze(samples: &[f32], rate: f32) -> AudioEnvelope {
-    let hop = rate / FRAME_RATE;
-    let frames = ((samples.len() as f32 / hop).ceil() as usize).max(1);
-    let mut an = Analyzer::new(rate);
-    let mut raw: [Vec<f32>; CURVES] = Default::default();
-    let mut spectrum = Vec::with_capacity(frames);
-    let mut chroma = Vec::with_capacity(frames);
-    let mut flux: [Vec<f32>; HITS] = Default::default();
-    let mut prev: Vec<f32> = vec![0.0; FFT_SIZE / 2 - 1];
-    for f in 0..frames {
-        let centre = (f as f32 * hop) as isize;
-        let ft = an.features(samples, centre);
-        raw[Curve::Level as usize].push(ft.level);
-        raw[Curve::Kick as usize].push(ft.kick);
-        raw[Curve::Bass as usize].push(ft.bass);
-        raw[Curve::Mids as usize].push(ft.mids);
-        raw[Curve::Highs as usize].push(ft.highs);
-        raw[Curve::Brightness as usize].push(ft.brightness);
-        spectrum.push(ft.spectrum);
-        chroma.push(ft.chroma);
-        flux[HitKind::Kick as usize].push(an.flux(&ft.logmag, &prev, 40.0, 130.0));
-        flux[HitKind::Snare as usize].push(an.flux(&ft.logmag, &prev, 1000.0, 5000.0));
-        flux[HitKind::Hats as usize].push(an.flux(&ft.logmag, &prev, 7000.0, 16000.0));
-        flux[HitKind::Any as usize].push(an.flux(&ft.logmag, &prev, 30.0, 16000.0));
-        flux[HitKind::Note as usize].push(an.flux(&ft.logmag, &prev, 150.0, 2000.0));
-        prev = ft.logmag;
+    let mut a = Analysis::new(samples.to_vec(), rate);
+    a.step(usize::MAX);
+    a.finish()
+}
+
+/// A whole-song analysis that can be run a slice at a time (so a browser
+/// tab stays responsive): [`Analysis::step`] until it returns `true`, then
+/// [`Analysis::finish`]. The result is identical to [`analyze`].
+pub struct Analysis {
+    samples: Vec<f32>,
+    rate: f32,
+    hop: f32,
+    frames: usize,
+    next: usize,
+    an: Analyzer,
+    raw: [Vec<f32>; CURVES],
+    spectrum: Vec<[f32; SPECTRUM_BANDS]>,
+    chroma: Vec<[f32; 12]>,
+    flux: [Vec<f32>; HITS],
+    prev: Vec<f32>,
+}
+
+impl Analysis {
+    pub fn new(samples: Vec<f32>, rate: f32) -> Analysis {
+        let hop = rate / FRAME_RATE;
+        let frames = ((samples.len() as f32 / hop).ceil() as usize).max(1);
+        Analysis {
+            samples,
+            rate,
+            hop,
+            frames,
+            next: 0,
+            an: Analyzer::new(rate),
+            raw: Default::default(),
+            spectrum: Vec::with_capacity(frames),
+            chroma: Vec::with_capacity(frames),
+            flux: Default::default(),
+            prev: vec![0.0; FFT_SIZE / 2 - 1],
+        }
     }
+
+    /// Analysis frames in the whole song (100 per second).
+    pub fn frames(&self) -> usize {
+        self.frames
+    }
+
+    /// 0..1.
+    pub fn progress(&self) -> f32 {
+        self.next as f32 / self.frames as f32
+    }
+
+    /// Analyse up to `max_frames` more frames; `true` once all are done.
+    pub fn step(&mut self, max_frames: usize) -> bool {
+        let end = self.next.saturating_add(max_frames).min(self.frames);
+        let (an, raw, flux) = (&mut self.an, &mut self.raw, &mut self.flux);
+        for f in self.next..end {
+            let centre = (f as f32 * self.hop) as isize;
+            let ft = an.features(&self.samples, centre);
+            raw[Curve::Level as usize].push(ft.level);
+            raw[Curve::Kick as usize].push(ft.kick);
+            raw[Curve::Bass as usize].push(ft.bass);
+            raw[Curve::Mids as usize].push(ft.mids);
+            raw[Curve::Highs as usize].push(ft.highs);
+            raw[Curve::Brightness as usize].push(ft.brightness);
+            self.spectrum.push(ft.spectrum);
+            self.chroma.push(ft.chroma);
+            let prev = &self.prev;
+            flux[HitKind::Kick as usize].push(an.flux(&ft.logmag, prev, 40.0, 130.0));
+            flux[HitKind::Snare as usize].push(an.flux(&ft.logmag, prev, 1000.0, 5000.0));
+            flux[HitKind::Hats as usize].push(an.flux(&ft.logmag, prev, 7000.0, 16000.0));
+            flux[HitKind::Any as usize].push(an.flux(&ft.logmag, prev, 30.0, 16000.0));
+            flux[HitKind::Note as usize].push(an.flux(&ft.logmag, prev, 150.0, 2000.0));
+            self.prev = ft.logmag;
+        }
+        self.next = end;
+        end == self.frames
+    }
+
+    /// Build the envelope; runs any frames not yet analysed first.
+    pub fn finish(mut self) -> AudioEnvelope {
+        self.step(usize::MAX);
+        let Analysis {
+            samples,
+            rate,
+            frames,
+            raw,
+            spectrum,
+            chroma,
+            flux,
+            ..
+        } = self;
+        finish(&samples, rate, frames, raw, spectrum, chroma, flux)
+    }
+}
+
+fn finish(
+    samples: &[f32],
+    rate: f32,
+    frames: usize,
+    mut raw: [Vec<f32>; CURVES],
+    mut spectrum: Vec<[f32; SPECTRUM_BANDS]>,
+    mut chroma: Vec<[f32; 12]>,
+    flux: [Vec<f32>; HITS],
+) -> AudioEnvelope {
     for c in [
         Curve::Level,
         Curve::Kick,
@@ -641,6 +719,20 @@ mod tests {
         // 440 Hz is an A (pitch class 9).
         let p = env.fast[Curve::Pitch as usize][300];
         assert!((p * 12.0 - 9.0).abs() < 0.01, "pitch {p}");
+    }
+
+    #[test]
+    fn stepped_analysis_matches_whole() {
+        let track = beat_track(3.0);
+        let whole = analyze(&track, RATE);
+        let mut a = Analysis::new(track, RATE);
+        let mut steps = 0;
+        while !a.step(37) {
+            steps += 1;
+            assert!(a.progress() < 1.0);
+        }
+        assert!(steps > 5);
+        assert_eq!(a.finish(), whole);
     }
 
     #[test]

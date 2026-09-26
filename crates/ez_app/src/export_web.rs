@@ -127,6 +127,8 @@ enum Running {
 
 pub struct ExportUi {
     pub open: bool,
+    /// The project's music is still being analysed: hold exports.
+    pub music_loading: bool,
     format: WebFormat,
     width: u32,
     height: u32,
@@ -143,6 +145,7 @@ impl Default for ExportUi {
         let video = video_encoder_available();
         ExportUi {
             open: false,
+            music_loading: false,
             format: if video {
                 WebFormat::Mp4
             } else {
@@ -289,6 +292,10 @@ impl ExportUi {
                 self.request = None;
                 self.status = Some(Err("export cancelled".into()));
             }
+            ui.ctx().request_repaint();
+        } else if self.music_loading {
+            ui.spinner();
+            ui.label("Waiting for the music analysis…");
             ui.ctx().request_repaint();
         } else if ui
             .add(

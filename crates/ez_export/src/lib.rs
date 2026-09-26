@@ -160,43 +160,180 @@ pub fn analyze_audio_asset(path: &str) -> Result<AudioEnvelope> {
 
 /// Decode audio held in memory and analyse it.
 pub fn analyze_audio_bytes(bytes: Vec<u8>) -> Result<AudioEnvelope> {
-    use rodio::Source;
-    let dec = rodio::Decoder::new(std::io::Cursor::new(bytes))?;
-    let channels = dec.channels().get() as usize;
-    let rate = dec.sample_rate().get() as f32;
-    let mut mono = Vec::new();
-    let (mut sum, mut ch) = (0.0f32, 0usize);
-    for s in dec {
-        sum += s;
-        ch += 1;
-        if ch == channels {
-            mono.push(sum / channels as f32);
-            sum = 0.0;
-            ch = 0;
-        }
-    }
-    if mono.is_empty() {
-        bail!("the file contains no audio");
-    }
-    Ok(ez_core::analysis::analyze(&mono, rate))
+    let mut d = Decoding::new(bytes)?;
+    while !d.step(usize::MAX) {}
+    Ok(ez_core::analysis::analyze(&d.finish()?, d.rate))
 }
 
 /// The music of a project: the analysed audio file and/or MIDI notes
 /// (MIDI replaces the detected hits and pitch). `None` without either.
 pub fn load_music(project: &ez_core::Project) -> Result<Option<AudioEnvelope>> {
-    let mut env = match &project.audio {
-        Some(a) => Some(analyze_audio_asset(a)?),
-        None => None,
-    };
-    if let Some(m) = &project.music.midi {
-        let bytes = ez_core::store::read(m).with_context(|| format!("opening {m}"))?;
-        let midi = ez_core::midi::parse(&bytes).map_err(|e| anyhow::anyhow!("{m}: {e}"))?;
-        match &mut env {
-            Some(e) => e.apply_midi(&midi, project.music.midi_offset),
-            None => env = Some(AudioEnvelope::from_midi(&midi)),
+    Ok(MusicJob::new(project, None)?.run()?.music)
+}
+
+/// Audio decoding to mono, a slice at a time.
+struct Decoding {
+    dec: rodio::Decoder<std::io::Cursor<Vec<u8>>>,
+    channels: usize,
+    rate: f32,
+    /// Expected mono samples, when the file says.
+    expected: Option<usize>,
+    mono: Vec<f32>,
+    sum: f32,
+    ch: usize,
+}
+
+impl Decoding {
+    fn new(bytes: Vec<u8>) -> Result<Decoding> {
+        use rodio::Source;
+        let dec = rodio::Decoder::new(std::io::Cursor::new(bytes))?;
+        let channels = dec.channels().get() as usize;
+        let rate = dec.sample_rate().get() as f32;
+        let expected = dec
+            .total_duration()
+            .map(|d| (d.as_secs_f64() * rate as f64) as usize);
+        Ok(Decoding {
+            dec,
+            channels,
+            rate,
+            expected,
+            mono: Vec::with_capacity(expected.unwrap_or(0)),
+            sum: 0.0,
+            ch: 0,
+        })
+    }
+
+    /// Decode up to `max` mono samples; `true` at the end of the file.
+    fn step(&mut self, max: usize) -> bool {
+        let end = self.mono.len().saturating_add(max);
+        while self.mono.len() < end {
+            let Some(s) = self.dec.next() else {
+                return true;
+            };
+            self.sum += s;
+            self.ch += 1;
+            if self.ch == self.channels {
+                self.mono.push(self.sum / self.channels as f32);
+                self.sum = 0.0;
+                self.ch = 0;
+            }
+        }
+        false
+    }
+
+    fn progress(&self) -> f32 {
+        match self.expected {
+            Some(n) if n > 0 => (self.mono.len() as f32 / n as f32).min(1.0),
+            _ => 0.5,
         }
     }
-    Ok(env)
+
+    fn finish(&mut self) -> Result<Vec<f32>> {
+        if self.mono.is_empty() {
+            bail!("the file contains no audio");
+        }
+        Ok(std::mem::take(&mut self.mono))
+    }
+}
+
+#[allow(clippy::large_enum_variant)] // one short-lived value
+enum Stage {
+    Done(Option<AudioEnvelope>),
+    Decoding(String, Box<Decoding>),
+    Analysing(Box<ez_core::analysis::Analysis>),
+}
+
+/// What [`MusicJob`] produces.
+pub struct LoadedMusic {
+    /// The analysed audio file alone (before MIDI), worth keeping so a
+    /// MIDI change doesn't re-analyse the song.
+    pub audio: Option<AudioEnvelope>,
+    /// What the project plays to: audio and/or MIDI.
+    pub music: Option<AudioEnvelope>,
+}
+
+/// Loads a project's music (decode, analyse, apply MIDI) in slices, so it
+/// can run on a thread or spread over frames in a browser.
+pub struct MusicJob {
+    stage: Stage,
+    midi: Option<(ez_core::midi::MidiData, f32)>,
+}
+
+impl MusicJob {
+    /// Reads the files and parses the MIDI. `cached` is the audio file's
+    /// analysis from an earlier [`LoadedMusic::audio`], if the file is
+    /// unchanged.
+    pub fn new(project: &ez_core::Project, cached: Option<AudioEnvelope>) -> Result<MusicJob> {
+        let stage = match (&project.audio, cached) {
+            (None, _) => Stage::Done(None),
+            (Some(_), Some(env)) => Stage::Done(Some(env)),
+            (Some(a), None) => {
+                let bytes = ez_core::store::read(a).with_context(|| format!("opening {a}"))?;
+                let d = Decoding::new(bytes.to_vec()).with_context(|| format!("decoding {a}"))?;
+                Stage::Decoding(a.clone(), Box::new(d))
+            }
+        };
+        let midi = match &project.music.midi {
+            Some(m) => {
+                let bytes = ez_core::store::read(m).with_context(|| format!("opening {m}"))?;
+                let midi = ez_core::midi::parse(&bytes).map_err(|e| anyhow::anyhow!("{m}: {e}"))?;
+                Some((midi, project.music.midi_offset))
+            }
+            None => None,
+        };
+        Ok(MusicJob { stage, midi })
+    }
+
+    /// Do a slice of work (about `units` analysis frames' worth); `true`
+    /// once [`MusicJob::finish`] has nothing left to do.
+    pub fn step(&mut self, units: usize) -> Result<bool> {
+        match &mut self.stage {
+            Stage::Done(_) => return Ok(true),
+            Stage::Decoding(path, d) => {
+                if d.step(units.saturating_mul(1024)) {
+                    let mono = d.finish().with_context(|| format!("decoding {path}"))?;
+                    self.stage =
+                        Stage::Analysing(Box::new(ez_core::analysis::Analysis::new(mono, d.rate)));
+                }
+            }
+            Stage::Analysing(a) => {
+                if a.step(units) {
+                    let Stage::Analysing(a) = std::mem::replace(&mut self.stage, Stage::Done(None))
+                    else {
+                        unreachable!()
+                    };
+                    self.stage = Stage::Done(Some(a.finish()));
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
+    }
+
+    /// 0..1 (decoding is the first fifth).
+    pub fn progress(&self) -> f32 {
+        match &self.stage {
+            Stage::Done(_) => 1.0,
+            Stage::Decoding(_, d) => d.progress() * 0.2,
+            Stage::Analysing(a) => 0.2 + a.progress() * 0.8,
+        }
+    }
+
+    /// Finish (doing any remaining work) and apply the MIDI.
+    pub fn run(mut self) -> Result<LoadedMusic> {
+        while !self.step(usize::MAX)? {}
+        let Stage::Done(audio) = self.stage else {
+            unreachable!()
+        };
+        let mut music = audio.clone();
+        if let Some((midi, offset)) = &self.midi {
+            match &mut music {
+                Some(e) => e.apply_midi(midi, *offset),
+                None => music = Some(AudioEnvelope::from_midi(midi)),
+            }
+        }
+        Ok(LoadedMusic { audio, music })
+    }
 }
 
 /// Frames of one export pass: one loop, or the whole song in full-track
@@ -657,6 +794,40 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn music_job_in_slices_matches_and_caches() {
+        let rate = 22050;
+        let samples: Vec<f32> = (0..rate * 3)
+            .map(|i| {
+                let t = (i % (rate / 2)) as f32 / rate as f32;
+                (t * 60.0 * std::f32::consts::TAU * 10.0).sin() * (-t * 30.0).exp()
+            })
+            .collect();
+        let path = tmp("job.wav");
+        write_wav(&path, &samples, rate);
+        let mut project = presets::orbiting_solid();
+        project.audio = Some(path.to_string_lossy().to_string());
+        let whole = load_music(&project).unwrap().unwrap();
+
+        let mut job = MusicJob::new(&project, None).unwrap();
+        let (mut last, mut steps) = (0.0, 0);
+        while !job.step(10).unwrap() {
+            let p = job.progress();
+            assert!((last..=1.0).contains(&p), "{last} -> {p}");
+            last = p;
+            steps += 1;
+        }
+        assert!(steps > 20, "{steps}");
+        let loaded = job.run().unwrap();
+        assert_eq!(loaded.music.as_ref(), Some(&whole));
+
+        // A cached analysis skips the file entirely.
+        project.audio = Some("/nonexistent/song.wav".into());
+        let mut job = MusicJob::new(&project, loaded.audio).unwrap();
+        assert!(job.step(0).unwrap());
+        assert_eq!(job.run().unwrap().music, Some(whole));
     }
 
     fn write_wav(path: &Path, samples: &[f32], rate: u32) {

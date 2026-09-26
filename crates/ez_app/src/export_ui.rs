@@ -27,6 +27,8 @@ struct JobState {
 #[derive(Default)]
 pub struct ExportUi {
     pub open: bool,
+    /// The project's music is still being analysed: hold exports.
+    pub music_loading: bool,
     pub settings: ExportSettings,
     ffmpeg_path: String,
     ffmpeg_found: Option<Option<PathBuf>>,
@@ -246,6 +248,14 @@ impl ExportUi {
                 ui.ctx().request_repaint();
                 return;
             }
+        }
+        if self.music_loading {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label("Waiting for the music analysis…");
+            });
+            ui.ctx().request_repaint();
+            return;
         }
         if ui
             .add(

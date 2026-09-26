@@ -777,7 +777,10 @@ stays in sync.</p>
 <p>Use <span class="ui">Load music…</span> or drop an MP3, WAV, OGG, FLAC, M4A or AAC file onto the window. The song is
 <b>analysed</b> once when it loads: loudness, kick, bass, mids, highs and brightness curves; the <b>hits</b> (kicks, snares and claps,
 hi-hats, any onset, new notes); a 16-band spectrum; the melody's note; and the <b>tempo</b>. The timeline shows the loudness, with
-kicks as red ticks and snares as yellow ones. The <span class="ui">Meters</span> show every source live.</p>
+kicks as red ticks and snares as yellow ones. The <span class="ui">Meters</span> show every source live.
+The analysis runs in the background (<span class="ui">Analysing music… 42%</span> in the viewport bar), so you can keep
+editing; music-driven settings start reacting when it finishes, and exports wait for it. Changing only the MIDI file or its
+offset reuses the analysis instead of starting again.</p>
 
 <h2>Loop a part of the song, or the whole song</h2>
 <ul>

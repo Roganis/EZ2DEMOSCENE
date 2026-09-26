@@ -81,6 +81,10 @@ pub struct EzApp {
     audio_env: Option<std::sync::Arc<AudioEnvelope>>,
     /// What `audio_env` was built from (audio, MIDI, MIDI offset).
     music_key: (Option<String>, Option<String>, u32),
+    /// Music being decoded and analysed.
+    music_task: Option<crate::music_task::MusicTask>,
+    /// The last analysed audio file (path, analysis before MIDI).
+    audio_cache: Option<(String, AudioEnvelope)>,
     /// Microphone / line-in driving the preview.
     live: Option<crate::live::LiveInput>,
     live_frame: Option<ez_core::MusicFrame>,
@@ -166,6 +170,8 @@ impl EzApp {
             audio: None,
             audio_env: None,
             music_key: (None, None, 0),
+            music_task: None,
+            audio_cache: None,
             live: None,
             live_frame: None,
             presets_open: false,
@@ -213,7 +219,7 @@ impl EzApp {
         let Some(format) = self.test.take() else {
             return;
         };
-        if !self.library.is_loaded() {
+        if !self.library.is_loaded() || self.music_task.is_some() {
             self.test = Some(format);
             return;
         }
@@ -499,6 +505,18 @@ impl EzApp {
         )
     }
 
+    fn music_loaded(&mut self, res: anyhow::Result<ez_export::LoadedMusic>) {
+        match res {
+            Ok(m) => {
+                if let (Some(path), Some(audio)) = (&self.project.audio, m.audio) {
+                    self.audio_cache = Some((path.clone(), audio));
+                }
+                self.audio_env = m.music.map(std::sync::Arc::new);
+            }
+            Err(e) => self.set_status(format!("Music: {e:#}"), true),
+        }
+    }
+
     fn reload_audio(&mut self) {
         let audio_changed = self.music_key.0 != self.project.audio;
         self.music_key = self.music_key();
@@ -506,8 +524,17 @@ impl EzApp {
             self.audio = None;
         }
         self.audio_env = None;
-        match ez_export::load_music(&self.project) {
-            Ok(env) => self.audio_env = env.map(std::sync::Arc::new),
+        self.music_task = None;
+        let cached = self
+            .audio_cache
+            .as_ref()
+            .filter(|(p, _)| Some(p) == self.project.audio.as_ref())
+            .map(|(_, env)| env.clone());
+        match ez_export::MusicJob::new(&self.project, cached) {
+            Ok(job) => match crate::music_task::MusicTask::start(job) {
+                crate::music_task::Started::Done(res) => self.music_loaded(res),
+                crate::music_task::Started::Working(t) => self.music_task = Some(t),
+            },
             Err(e) => {
                 self.set_status(format!("Music: {e:#}"), true);
                 return;
@@ -1560,6 +1587,11 @@ impl EzApp {
             }
             ui.checkbox(&mut self.gizmo.grid, "Grid")
                 .on_hover_text("G — show a ground grid (1 unit squares)");
+            if let Some(task) = &self.music_task {
+                ui.spinner();
+                ui.label(format!("Analysing music… {:.0}%", task.progress() * 100.0))
+                    .on_hover_text("Music-driven settings react once this finishes.");
+            }
             if let Some((msg, err, t)) = &self.status {
                 if self.now - t < 6.0 || (*err && self.now - t < 20.0) {
                     ui.label(RichText::new(msg).color(if *err {
@@ -2076,6 +2108,14 @@ impl eframe::App for EzApp {
         if self.music_key != self.music_key() {
             self.reload_audio();
         }
+        if let Some(task) = &mut self.music_task {
+            if let Some(res) = task.poll() {
+                self.music_task = None;
+                self.music_loaded(res);
+            } else {
+                ctx.request_repaint();
+            }
+        }
         // Live input: analyse, and let a time warp speed up the clock.
         self.live_frame = None;
         if let Some(live) = &mut self.live {
@@ -2207,6 +2247,7 @@ impl eframe::App for EzApp {
         self.randomize_window(&ctx);
         self.help_window(&ctx);
         self.graphics_window(&ctx);
+        self.export.music_loading = self.music_task.is_some();
         self.export
             .show(&ctx, &self.project, self.audio_env.as_deref());
 

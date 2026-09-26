@@ -90,6 +90,7 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
 - **Music.** Drop in an MP3/WAV/OGG/FLAC. It is analysed once: loudness,
   kick, bass, mids, highs and brightness, hits (kicks, snares, hats,
   onsets, notes), a 16-band spectrum, the melody's note and the tempo.
+  The analysis runs in the background, so the editor never freezes.
   - Any value can **follow** a source or play a fade **on each hit** (the
     🎵 row of its `~` panel), e.g. glow on every kick, hue from the melody.
   - **Time warp** makes motion surge with the music while the loop still
