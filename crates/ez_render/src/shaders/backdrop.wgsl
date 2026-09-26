@@ -589,10 +589,14 @@ fn bg_aurora(rd: vec3<f32>, speed: f32, detail: f32, ca: vec3<f32>, cb: vec3<f32
     return col + acc * bright * 0.18;
 }
 
+override BG_KIND: i32 = -1;
+
 @fragment
 fn fs_main(in: FullscreenOut) -> @location(0) vec4<f32> {
     var rd = view_ray(in.ndc);
-    let kind = i32(D.v[0].x + 0.5);
+    // The renderer builds one pipeline per kind (BG_KIND >= 0) so the GPU
+    // compiles only that branch; -1 reads the kind from the draw block.
+    let kind = select(i32(D.v[0].x + 0.5), BG_KIND, BG_KIND >= 0);
     // Raymarched kinds can roll the view a whole number of turns per loop.
     let roll = D.v[7].y;
     if (roll != 0.0 && (kind == 3 || kind == 4 || kind == 7 || kind == 8)) {

@@ -85,13 +85,24 @@ last (visible) background is drawn at all. Measured on the software
 rasterizer, Sunbeam Peaks: 252 → 200 (half) → 179 ms (quarter) per frame;
 cloud presets now default to half, visually identical.
 
-### ☐ 2.2 Specialised shaders
+### ☑ 2.2 Specialised shaders
 **How.** The background, terrain and mesh shaders branch on the kind,
 style, liquid and biome. Use WGSL `override` constants (wgpu evaluates
 them for every backend, WebGL2 included) and build pipelines lazily per
 combination (cached in a `HashMap<PipelineKey, RenderPipeline>`). The GPU
 then compiles only the code a layer uses. That lowers register pressure,
 which matters most on mobile.
+
+**Done (backgrounds):** `BG_KIND` override; one pipeline per background
+kind, pass and sample count, built on first use and cached. The golden
+images are unchanged; every specialisation is checked by the HLSL/MSL/GLSL
+test, and the WebGL2 build was checked in a browser (Aurora, half-resolution
+Clouds). The software rasterizer shows no speed difference (LLVM already
+handles uniform branches), so the gain is only on real GPUs: a simple
+gradient sky no longer reserves registers for the fractal raymarcher.
+Terrain and meshes stay single shaders: their branches are small, and
+splitting them multiplies pipelines (style × liquid × biome) for little
+expected gain. Revisit with profiling on a real phone.
 
 ### ☑ 2.3 Skip invisible work
 - Skip the mirror reflection pass when the floor quad is outside the view

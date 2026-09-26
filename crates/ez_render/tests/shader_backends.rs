@@ -10,11 +10,21 @@ const COMMON: &str = include_str!("../src/shaders/common.wgsl");
 
 fn modules() -> Vec<(&'static str, String)> {
     let with_common = |src: &str| format!("{COMMON}\n{src}");
-    vec![
-        (
-            "backdrop",
-            with_common(include_str!("../src/shaders/backdrop.wgsl")),
-        ),
+    let backdrop = with_common(include_str!("../src/shaders/backdrop.wgsl"));
+    // The renderer specialises the background per kind (override
+    // constant); check each specialisation as the GPU would see it.
+    let mut kinds: Vec<(&'static str, String)> = (0..ez_core::scene::BackdropKind::ALL.len())
+        .map(|k| {
+            let name: &'static str = format!("backdrop kind {k}").leak();
+            let src = backdrop.replace(
+                "override BG_KIND: i32 = -1;",
+                &format!("const BG_KIND: i32 = {k};"),
+            );
+            assert_ne!(src, backdrop, "BG_KIND declaration not found");
+            (name, src)
+        })
+        .collect();
+    let mut all = vec![
         (
             "mesh",
             with_common(include_str!("../src/shaders/mesh.wgsl")),
@@ -64,7 +74,9 @@ fn modules() -> Vec<(&'static str, String)> {
             with_common(include_str!("../src/shaders/weather.wgsl")),
         ),
         ("post", include_str!("../src/shaders/post.wgsl").to_string()),
-    ]
+    ];
+    all.append(&mut kinds);
+    all
 }
 
 /// Local arrays indexed with a runtime value become "not natively

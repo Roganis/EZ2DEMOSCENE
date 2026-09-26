@@ -136,6 +136,8 @@ enum Cmd {
         tex: String,
         /// Resolution divisor (1 full, 2 half, 4 quarter).
         res: u32,
+        /// [`BackdropKind::index`], which picks the specialised pipeline.
+        kind: i32,
     },
     /// Upscale the low-resolution background of the target (divisor).
     BackdropUp {
@@ -249,7 +251,8 @@ fn layer_hash(layer: &Layer) -> u64 {
 }
 
 struct ScenePipes {
-    backdrop: wgpu::RenderPipeline,
+    /// MSAA samples (picks the matching background pipeline).
+    samples: u32,
     mesh: wgpu::RenderPipeline,
     particles: wgpu::RenderPipeline,
     terrain: wgpu::RenderPipeline,
@@ -277,8 +280,12 @@ pub struct Renderer {
     globals_bg: [wgpu::BindGroup; 3],
     shadow_mesh_pipe: wgpu::RenderPipeline,
     contact_pipe: wgpu::RenderPipeline,
-    /// Background at low resolution (no MSAA, no depth) and its upscale.
-    backdrop_low_pipe: wgpu::RenderPipeline,
+    /// Background pipelines specialised per kind, built when first used:
+    /// (kind, samples, low resolution).
+    bg_pipes: HashMap<(i32, u32, bool), wgpu::RenderPipeline>,
+    bg_module: wgpu::ShaderModule,
+    scene_layout: wgpu::PipelineLayout,
+    /// Upscale of the low-resolution background.
     bg_up_pipe: wgpu::RenderPipeline,
     shadow_terrain_pipe: wgpu::RenderPipeline,
     shadow_view: wgpu::TextureView,
@@ -709,20 +716,7 @@ impl Renderer {
         let mesh_buffers = [Some(vertex_layout), Some(instance_layout)];
 
         let scene_pipes = |samples: u32| ScenePipes {
-            backdrop: make_pipeline(
-                device,
-                PipeDesc {
-                    label: "backdrop",
-                    layout: &scene_layout,
-                    module: &sh_backdrop,
-                    fs: "fs_main",
-                    buffers: &[],
-                    format: HDR_FORMAT,
-                    samples,
-                    depth: Some((false, wgpu::CompareFunction::Always)),
-                    blend: None,
-                },
-            ),
+            samples,
             mesh: make_pipeline(
                 device,
                 PipeDesc {
@@ -913,20 +907,6 @@ impl Renderer {
                 blend: Some(MULTIPLY),
             },
         );
-        let backdrop_low_pipe = make_pipeline(
-            device,
-            PipeDesc {
-                label: "backdrop low",
-                layout: &scene_layout,
-                module: &sh_backdrop,
-                fs: "fs_main",
-                buffers: &[],
-                format: HDR_FORMAT,
-                samples: 1,
-                depth: None,
-                blend: None,
-            },
-        );
         let sh_bgup = shader(
             device,
             "bg upscale",
@@ -1099,7 +1079,9 @@ impl Renderer {
             globals_bg,
             shadow_mesh_pipe,
             contact_pipe,
-            backdrop_low_pipe,
+            bg_pipes: HashMap::new(),
+            bg_module: sh_backdrop,
+            scene_layout,
             bg_up_pipe,
             shadow_terrain_pipe,
             shadow_view,
@@ -1541,6 +1523,60 @@ impl Renderer {
     }
 
     /// Render one frame of `project` at `ctx` into `target`.
+    /// Build the background pipeline for `kind` if it isn't cached. `low`
+    /// is the low-resolution pass (no depth buffer).
+    fn ensure_bg_pipe(&mut self, kind: i32, samples: u32, low: bool) {
+        if self.bg_pipes.contains_key(&(kind, samples, low)) {
+            return;
+        }
+        let constants = [("BG_KIND", kind as f64)];
+        let options = wgpu::PipelineCompilationOptions {
+            constants: &constants,
+            ..Default::default()
+        };
+        let pipe = self
+            .device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("backdrop"),
+                layout: Some(&self.scene_layout),
+                vertex: wgpu::VertexState {
+                    module: &self.bg_module,
+                    entry_point: Some("vs_main"),
+                    compilation_options: options.clone(),
+                    buffers: &[],
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    cull_mode: None,
+                    ..Default::default()
+                },
+                depth_stencil: (!low).then(|| wgpu::DepthStencilState {
+                    format: DEPTH_FORMAT,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(wgpu::CompareFunction::Always),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: wgpu::MultisampleState {
+                    count: samples,
+                    ..Default::default()
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &self.bg_module,
+                    entry_point: Some("fs_main"),
+                    compilation_options: options,
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: HDR_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            });
+        self.bg_pipes.insert((kind, samples, low), pipe);
+    }
+
     pub fn render(&mut self, project: &Project, ctx: &EvalCtx, target: &RenderTarget) {
         let layers = project.scene_layers();
         let (w, h) = (target.width, target.height);
@@ -1613,6 +1649,7 @@ impl Renderer {
                         slot: blocks.len() as u32,
                         tex,
                         res: b.resolution.divisor(),
+                        kind: b.kind.index() as i32,
                     });
                     blocks.push(blk);
                 }
@@ -2064,6 +2101,15 @@ impl Renderer {
                 keep
             });
         }
+        for c in &cmds {
+            if let Cmd::Backdrop { kind, res, .. } = c {
+                self.ensure_bg_pipe(*kind, self.msaa, false);
+                self.ensure_bg_pipe(*kind, 1, false);
+                if *res > 1 {
+                    self.ensure_bg_pipe(*kind, 1, true);
+                }
+            }
+        }
 
         // Contact shadows under shapes on the mirror floor.
         let contact = project.environment.shadows.contact;
@@ -2363,10 +2409,15 @@ impl Renderer {
 
         // --- low-resolution background ------------------------------------------
         let low_bg = cmds.iter().find_map(|c| match c {
-            Cmd::Backdrop { slot, tex, res } if *res > 1 => Some((*slot, tex.clone(), *res)),
+            Cmd::Backdrop {
+                slot,
+                tex,
+                res,
+                kind,
+            } if *res > 1 => Some((*slot, tex.clone(), *res, *kind)),
             _ => None,
         });
-        if let Some((slot, tex, res)) = &low_bg {
+        if let Some((slot, tex, res, kind)) = &low_bg {
             if let Some((_, view, _)) = target.bg_low.iter().find(|(d, _, _)| d == res) {
                 let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("background low"),
@@ -2384,7 +2435,7 @@ impl Renderer {
                     occlusion_query_set: None,
                     multiview_mask: None,
                 });
-                pass.set_pipeline(&self.backdrop_low_pipe);
+                pass.set_pipeline(&self.bg_pipes[&(*kind, 1, true)]);
                 pass.set_bind_group(0, &self.globals_bg[0], &[]);
                 pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
                 pass.set_bind_group(2, &self.tex_bgs[&(tex.clone(), false)], &[]);
@@ -2678,8 +2729,10 @@ impl Renderer {
         for cmd in cmds {
             match cmd {
                 Cmd::BackdropUp { .. } => {}
-                Cmd::Backdrop { slot, tex, .. } => {
-                    pass.set_pipeline(&pipes.backdrop);
+                Cmd::Backdrop {
+                    slot, tex, kind, ..
+                } => {
+                    pass.set_pipeline(&self.bg_pipes[&(*kind, pipes.samples, false)]);
                     pass.set_bind_group(0, &self.globals_bg[globals], &[]);
                     pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
                     pass.set_bind_group(2, &self.tex_bgs[&(tex.clone(), false)], &[]);
