@@ -1025,6 +1025,9 @@ drops the Drive nodes (settings keep their own values).</p>
   <b>PNG sequence</b> writes one PNG per frame into a folder and needs no ffmpeg; it is ideal for video editors and VJ software.</td></tr>
   <tr><td>Size</td><td>Type a size or use <span class="ui">Presets</span>: 720p, 1080p, 1440p, 4K, Square, Vertical (phone), GIF small, Retro 4:3.</td></tr>
   <tr><td>Frame rate</td><td>24, 25, 30, 50 or 60 fps. The dialog shows how many frames one loop needs.</td></tr>
+  <tr><td>Motion blur</td><td>Averages 4, 8 or 16 in-between moments per frame for smooth, film-like motion (fast spins and flying debris
+  smear instead of stepping). <span class="ui">Shutter</span> sets how much of the time between frames is blurred. The export takes that many
+  times longer, and the video still loops perfectly.</td></tr>
   <tr><td>Repeat loop</td><td>Makes the file longer by repeating the loop. Useful for platforms that don't loop videos.</td></tr>
   <tr><td>Music</td><td>Include the music track (MP4/WebM only).</td></tr>
   <tr><td>File / Folder</td><td>Where to save. Use <span class="ui">Browse…</span>.</td></tr>
@@ -1043,6 +1046,7 @@ film grain, which makes GIFs much larger.</div>
 ez2demoscene --export friend_scene.ez2pack loop.mp4   # packs work too
 ez2demoscene --render "Neon Arena" still.png --phase 0.25 --size 1920x1080
 ez2demoscene --export "Gold Kaleido Room" loop.mp4 --size 1920x1080 --fps 60 --repeats 4
+ez2demoscene --export "Orbiting Solid" smooth.mp4 --fps 30 --motion-blur 8 --shutter 0.5
 ez2demoscene --export my.ez2.json frames/          # PNG sequence into a folder
 ez2demoscene --write-presets my_presets/           # presets as editable project files
 ez2demoscene --write-textures my_textures/         # the retro texture pack as PNGs</pre>

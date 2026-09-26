@@ -94,6 +94,10 @@ pub struct ExportSettings {
     pub ffmpeg: Option<PathBuf>,
     /// Mux the project's audio track into video exports.
     pub include_audio: bool,
+    /// Motion blur: sub-frames averaged per frame (1 = off).
+    pub motion_blur: u32,
+    /// Motion blur shutter: 0..1 of the time between two frames.
+    pub shutter: f32,
 }
 
 impl Default for ExportSettings {
@@ -107,7 +111,110 @@ impl Default for ExportSettings {
             output: PathBuf::from("loop.mp4"),
             ffmpeg: None,
             include_audio: true,
+            motion_blur: 1,
+            shutter: 0.5,
         }
+    }
+}
+
+/// Motion blur for exports: every frame is the average of `k` sub-frames
+/// spread over the shutter, around the frame's own moment. Averaging
+/// happens in linear light. Exact and loop-safe, since each sub-frame is
+/// just an ordinary moment of the loop.
+pub struct MotionBlur {
+    k: u32,
+    shutter: f32,
+    acc: Vec<f32>,
+    got: u32,
+}
+
+fn srgb_to_linear_table() -> &'static [f32; 256] {
+    static T: std::sync::OnceLock<[f32; 256]> = std::sync::OnceLock::new();
+    T.get_or_init(|| {
+        std::array::from_fn(|i| {
+            let c = i as f32 / 255.0;
+            if c <= 0.04045 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
+        })
+    })
+}
+
+fn linear_to_srgb8(c: f32) -> u8 {
+    let c = c.clamp(0.0, 1.0);
+    let s = if c <= 0.003_130_8 {
+        c * 12.92
+    } else {
+        1.055 * c.powf(1.0 / 2.4) - 0.055
+    };
+    (s * 255.0).round() as u8
+}
+
+impl MotionBlur {
+    pub fn new(subframes: u32, shutter: f32) -> MotionBlur {
+        MotionBlur {
+            k: subframes.clamp(1, 64),
+            shutter: shutter.clamp(0.0, 1.0),
+            acc: Vec::new(),
+            got: 0,
+        }
+    }
+
+    /// Sub-frames rendered per output frame.
+    pub fn subframes(&self) -> u32 {
+        self.k
+    }
+
+    /// Offset (in frames) of sub-frame `j` from its frame's moment.
+    pub fn offset(&self, j: u32) -> f64 {
+        if self.k <= 1 {
+            return 0.0;
+        }
+        (((j as f64 + 0.5) / self.k as f64) - 0.5) * self.shutter as f64
+    }
+
+    /// Add the next sub-frame (sRGB RGBA8); the finished frame comes back
+    /// after the last one.
+    pub fn add(&mut self, px: Vec<u8>) -> Option<Vec<u8>> {
+        if self.k <= 1 {
+            return Some(px);
+        }
+        if self.acc.len() != px.len() {
+            self.acc = vec![0.0; px.len()];
+            self.got = 0;
+        }
+        let lut = srgb_to_linear_table();
+        for (a, (i, v)) in self.acc.iter_mut().zip(px.iter().enumerate()) {
+            // Alpha is averaged as is.
+            *a += if i % 4 == 3 {
+                *v as f32 / 255.0
+            } else {
+                lut[*v as usize]
+            };
+        }
+        self.got += 1;
+        if self.got < self.k {
+            return None;
+        }
+        let n = self.k as f32;
+        let out = self
+            .acc
+            .iter()
+            .enumerate()
+            .map(|(i, a)| {
+                let v = a / n;
+                if i % 4 == 3 {
+                    (v * 255.0).round() as u8
+                } else {
+                    linear_to_srgb8(v)
+                }
+            })
+            .collect();
+        self.acc.iter_mut().for_each(|a| *a = 0.0);
+        self.got = 0;
+        Some(out)
     }
 }
 
@@ -360,10 +467,22 @@ pub fn export_ctx(
     looped: bool,
     i: u32,
 ) -> ez_core::EvalCtx {
+    export_ctx_at(project, audio, fps, frames, looped, i as f64)
+}
+
+/// [`export_ctx`] at a fractional frame (motion blur sub-frames).
+pub fn export_ctx_at(
+    project: &ez_core::Project,
+    audio: Option<&AudioEnvelope>,
+    fps: f32,
+    frames: u32,
+    looped: bool,
+    frame: f64,
+) -> ez_core::EvalCtx {
     if looped {
-        project.ctx((i % frames) as f32 / frames as f32, audio)
+        project.ctx((frame / frames as f64).rem_euclid(1.0) as f32, audio)
     } else {
-        project.ctx_at(i as f64 / fps as f64, audio)
+        project.ctx_at(frame.max(0.0) / fps as f64, audio)
     }
 }
 
@@ -390,8 +509,10 @@ pub fn export(
     let mut renderer = Renderer::new(&gpu.device, &gpu.queue, 4);
     let target = renderer.create_target(w, h);
 
-    let ctx_of =
-        |i: u32| -> EvalCtx { export_ctx(project, audio, settings.fps, frames, looped, i) };
+    let ctx_of = |frame: f64| -> EvalCtx {
+        export_ctx_at(project, audio, settings.fps, frames, looped, frame)
+    };
+    let blur = MotionBlur::new(settings.motion_blur, settings.shutter);
 
     match settings.format {
         ExportFormat::PngSequence => {
@@ -414,6 +535,7 @@ pub fn export(
                 project,
                 frames,
                 ctx_of,
+                blur,
                 cancel,
                 |i, px| {
                     tx.send((i, px))
@@ -537,6 +659,7 @@ pub fn export(
                 project,
                 to_render,
                 ctx_of,
+                blur,
                 cancel,
                 |i, px| {
                     let px = Arc::new(px);
@@ -589,16 +712,19 @@ pub fn export(
 /// (frame n + 2 renders while frame n is copied back) and hands each one to
 /// `sink` in order.
 #[cfg(not(target_arch = "wasm32"))]
+#[allow(clippy::too_many_arguments)]
 fn render_pipelined(
     renderer: &mut Renderer,
     target: &ez_render::RenderTarget,
     project: &Project,
     count: u32,
-    ctx_of: impl Fn(u32) -> EvalCtx,
+    ctx_of: impl Fn(f64) -> EvalCtx,
+    mut blur: MotionBlur,
     cancel: &AtomicBool,
     mut sink: impl FnMut(u32, Vec<u8>) -> Result<()>,
 ) -> Result<()> {
     const IN_FLIGHT: usize = 3;
+    let offsets: Vec<f64> = (0..blur.subframes()).map(|j| blur.offset(j)).collect();
     let mut pending = std::collections::VecDeque::with_capacity(IN_FLIGHT);
     let mut finish_one = |renderer: &Renderer,
                           pending: &mut std::collections::VecDeque<(u32, ez_render::Readback)>|
@@ -606,7 +732,9 @@ fn render_pipelined(
         if let Some((j, rb)) = pending.pop_front() {
             renderer.wait_for(&rb);
             let px = rb.take().context("reading back a frame failed")?;
-            sink(j, px)?;
+            if let Some(frame) = blur.add(px) {
+                sink(j, frame)?;
+            }
         }
         Ok(())
     };
@@ -614,10 +742,13 @@ fn render_pipelined(
         if cancel.load(Ordering::Relaxed) {
             bail!("export cancelled");
         }
-        renderer.render(project, &ctx_of(i), target);
-        pending.push_back((i, renderer.start_readback(target)));
-        if pending.len() >= IN_FLIGHT {
-            finish_one(renderer, &mut pending)?;
+        // Sub-frames come back in order and are averaged into frame i.
+        for offset in &offsets {
+            renderer.render(project, &ctx_of(i as f64 + offset), target);
+            pending.push_back((i, renderer.start_readback(target)));
+            if pending.len() >= IN_FLIGHT {
+                finish_one(renderer, &mut pending)?;
+            }
         }
     }
     while !pending.is_empty() {

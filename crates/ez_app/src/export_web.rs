@@ -134,6 +134,8 @@ pub struct ExportUi {
     height: u32,
     fps: f32,
     repeats: u32,
+    motion_blur: u32,
+    shutter: f32,
     running: Option<Running>,
     request: Option<(Project, Option<AudioEnvelope>)>,
     file_name: String,
@@ -155,6 +157,8 @@ impl Default for ExportUi {
             height: if video { 720 } else { 270 },
             fps: if video { 30.0 } else { 25.0 },
             repeats: 1,
+            motion_blur: 1,
+            shutter: 0.5,
             running: None,
             request: None,
             file_name: String::new(),
@@ -256,6 +260,22 @@ impl ExportUi {
                         }
                     });
                     ui.end_row();
+                    ui.label("Motion blur");
+                    ui.horizontal(|ui| {
+                        for (k, label) in [(1u32, "off"), (4, "4×"), (8, "8×"), (16, "16×")] {
+                            ui.selectable_value(&mut self.motion_blur, k, label).on_hover_text(
+                                "Average this many in-between moments per frame: smooth, film-like motion \
+                                 (the export takes that many times longer)",
+                            );
+                        }
+                    });
+                    ui.end_row();
+                    if self.motion_blur > 1 {
+                        ui.label("Shutter");
+                        ui.add(egui::Slider::new(&mut self.shutter, 0.1..=1.0))
+                            .on_hover_text("How much of the time between frames is blurred");
+                        ui.end_row();
+                    }
                     if self.format != WebFormat::Gif && looped {
                         ui.label("Repeat loop");
                         ui.add(
@@ -375,9 +395,10 @@ impl ExportUi {
             } else {
                 self.repeats
             };
-            let job = Box::new(ExportJob::new(
-                renderer, project, audio, w, h, self.fps, repeats, sink,
-            ));
+            let job = Box::new(
+                ExportJob::new(renderer, project, audio, w, h, self.fps, repeats, sink)
+                    .with_motion_blur(self.motion_blur, self.shutter),
+            );
             self.running = Some(Running::Frames { job, video: None });
         }
 
@@ -400,16 +421,19 @@ impl ExportUi {
                             enc: enc.clone(),
                             index: 0,
                         });
-                        let job = Box::new(ExportJob::new(
-                            renderer,
-                            project,
-                            audio,
-                            w,
-                            h,
-                            self.fps,
-                            self.repeats,
-                            sink,
-                        ));
+                        let job = Box::new(
+                            ExportJob::new(
+                                renderer,
+                                project,
+                                audio,
+                                w,
+                                h,
+                                self.fps,
+                                self.repeats,
+                                sink,
+                            )
+                            .with_motion_blur(self.motion_blur, self.shutter),
+                        );
                         self.running = Some(Running::Frames {
                             job,
                             video: Some(enc),

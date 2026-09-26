@@ -140,6 +140,22 @@ impl ExportUi {
                 });
                 ui.end_row();
 
+                ui.label("Motion blur");
+                ui.horizontal(|ui| {
+                    for (k, label) in [(1u32, "off"), (4, "4×"), (8, "8×"), (16, "16×")] {
+                        ui.selectable_value(&mut s.motion_blur, k, label).on_hover_text(
+                            "Average this many in-between moments per frame: smooth, film-like motion \
+                             (the export takes that many times longer)",
+                        );
+                    }
+                });
+                ui.end_row();
+                if s.motion_blur > 1 {
+                    ui.label("Shutter");
+                    ui.add(egui::Slider::new(&mut s.shutter, 0.1..=1.0))
+                        .on_hover_text("How much of the time between frames is blurred");
+                    ui.end_row();
+                }
                 if s.format != ExportFormat::PngSequence && looped {
                     ui.label("Repeat loop");
                     ui.add(

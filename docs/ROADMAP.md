@@ -320,10 +320,16 @@ Tour*.
 
 ## Phase 7 — Finishing effects
 
-### ☐ 7.1 Motion blur (exports)
+### ☑ 7.1 Motion blur (exports)
 Render *k* sub-frames per exported frame at phases `(i + j/k)/N` and
 average them in a float accumulation target (shutter setting 0–1). Exact
 and loop-safe by construction. Optional in the preview at low *k*.
+
+**Done:** sub-frames are averaged on the CPU after readback (linear light
+via a lookup table), which keeps the three-frames-in-flight pipelining and
+works identically in the web export job; desktop, web and `--motion-blur`
+/ `--shutter` on the command line. Not in the preview (it would cost *k*
+renders per preview frame).
 
 ### ☐ 7.2 Depth of field
 Keep the scene depth (resolve it to a texture), compute circle of confusion

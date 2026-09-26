@@ -208,6 +208,7 @@ Shortcuts: `Space` play/pause · `Ctrl+S` save · `Ctrl+O` open · `Ctrl+E` expo
 ez2demoscene --list-presets
 ez2demoscene --render "Neon Arena" still.png --phase 0.25 --size 1920x1080
 ez2demoscene --export "Gold Kaleido Room" loop.mp4 --size 1920x1080 --fps 60 --repeats 4
+ez2demoscene --export "Orbiting Solid" smooth.mp4 --fps 30 --motion-blur 8   # film-like motion blur
 ez2demoscene --export my.ez2.json frames/        # PNG sequence
 ez2demoscene --write-presets assets/presets
 ez2demoscene --write-textures assets/textures

@@ -146,6 +146,9 @@ pub struct ExportJob {
     total: u32,
     next: u32,
     done: u32,
+    /// Motion blur (sub-frames per frame) and the sub-frame to render next.
+    blur: crate::MotionBlur,
+    sub: u32,
 }
 
 impl ExportJob {
@@ -176,7 +179,15 @@ impl ExportJob {
             total: frames * repeats.max(1),
             next: 0,
             done: 0,
+            blur: crate::MotionBlur::new(1, 0.0),
+            sub: 0,
         }
+    }
+
+    /// Average `subframes` sub-frames over the `shutter` per frame.
+    pub fn with_motion_blur(mut self, subframes: u32, shutter: f32) -> ExportJob {
+        self.blur = crate::MotionBlur::new(subframes, shutter);
+        self
     }
 
     pub fn extension(&self) -> &'static str {
@@ -202,26 +213,33 @@ impl ExportJob {
             let Some(px) = rb.take() else {
                 bail!("reading back a frame failed");
             };
+            let Some(frame) = self.blur.add(px) else {
+                continue;
+            };
             if let Some(sink) = &mut self.sink {
-                sink.add_frame(&px, w, h)?;
+                sink.add_frame(&frame, w, h)?;
             }
             self.done += 1;
         }
         if self.next < self.total && self.pending.len() < IN_FLIGHT {
             // Frame i sits at phase i / N: the last frame is not a copy of
             // the first, so the file loops without a seam.
-            let ctx: EvalCtx = crate::export_ctx(
+            let ctx: EvalCtx = crate::export_ctx_at(
                 &self.project,
                 self.audio.as_ref(),
                 self.fps,
                 self.frames,
                 self.looped,
-                self.next,
+                self.next as f64 + self.blur.offset(self.sub),
             );
             renderer.render(&self.project, &ctx, &self.target);
             self.pending
                 .push_back(renderer.start_readback(&self.target));
-            self.next += 1;
+            self.sub += 1;
+            if self.sub >= self.blur.subframes() {
+                self.sub = 0;
+                self.next += 1;
+            }
         }
         if self.done < self.total {
             return Ok(JobState::Running(self.progress()));
@@ -291,5 +309,64 @@ mod tests {
         let zip_bytes = run(&mut job, &mut r);
         let archive = zip::ZipArchive::new(std::io::Cursor::new(zip_bytes)).unwrap();
         assert_eq!(archive.len(), 12);
+    }
+
+    #[test]
+    fn motion_blur_averages_in_linear_light() {
+        let mut b = crate::MotionBlur::new(2, 1.0);
+        assert!(b.add(vec![0, 0, 0, 255]).is_none());
+        let out = b.add(vec![255, 255, 255, 255]).unwrap();
+        // Half of full linear light is sRGB 188, not 128.
+        assert_eq!(out, vec![188, 188, 188, 255]);
+        assert_eq!(b.offset(0), -0.25);
+        assert_eq!(b.offset(1), 0.25);
+        assert_eq!(crate::MotionBlur::new(1, 1.0).offset(0), 0.0);
+    }
+
+    #[test]
+    fn motion_blurred_export_keeps_its_frames() {
+        let Ok(gpu) = Gpu::headless() else {
+            eprintln!("no GPU, skipping");
+            return;
+        };
+        let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+        let mut p = presets::orbiting_solid();
+        p.timing.bpm = 240.0;
+        p.timing.loop_beats = 2;
+        p.post.grade.grain = ez_core::Param::new(0.0);
+        let frames = |blur: u32, r: &mut Renderer| {
+            let mut job = ExportJob::new(
+                r,
+                p.clone(),
+                None,
+                64,
+                36,
+                12.0,
+                1,
+                Box::<PngZipSink>::default(),
+            )
+            .with_motion_blur(blur, 1.0);
+            let bytes = run(&mut job, r);
+            let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+            (0..zip.len())
+                .map(|i| {
+                    let mut f = zip.by_index(i).unwrap();
+                    let mut v = Vec::new();
+                    std::io::Read::read_to_end(&mut f, &mut v).unwrap();
+                    image::load_from_memory(&v).unwrap().to_rgba8()
+                })
+                .collect::<Vec<_>>()
+        };
+        let sharp = frames(1, &mut r);
+        let blurred = frames(6, &mut r);
+        assert_eq!(sharp.len(), blurred.len());
+        let diff: f32 = sharp[2]
+            .as_raw()
+            .iter()
+            .zip(blurred[2].as_raw())
+            .map(|(a, b)| (*a as i32 - *b as i32).unsigned_abs() as f32)
+            .sum::<f32>()
+            / sharp[2].as_raw().len() as f32;
+        assert!(diff > 0.5, "motion blur changed nothing ({diff})");
     }
 }
