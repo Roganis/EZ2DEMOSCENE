@@ -1121,7 +1121,8 @@ impl Renderer {
                     ];
                     blk[7] = [
                         r.steps.min(256) as f32,
-                        TAU * r.spin as f32 * ctx.phase,
+                        // Wrapped so the last frame's roll is exactly the first's.
+                        TAU * (r.spin as f32 * ctx.phase).rem_euclid(1.0),
                         0.0,
                         0.0,
                     ];

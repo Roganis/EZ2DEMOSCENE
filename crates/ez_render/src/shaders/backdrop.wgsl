@@ -87,7 +87,8 @@ fn wall_pattern(u: f32, v: f32) -> f32 {
 
 fn bg_tunnel(rd_in: vec3<f32>, speed: f32, detail: f32, ca: vec3<f32>, cb: vec3<f32>, cc: vec3<f32>, use_tex: bool) -> vec3<f32> {
     let period = 16.0;
-    let z0 = -G.time.x * speed * period;
+    // Wrapped, so the last frame of the loop is exactly the first.
+    let z0 = -fract(G.time.x * speed) * period;
     let ro = vec3<f32>(tunnel_path(z0, period), z0);
     // Look down the tunnel (-Z) with a slight turn following the path.
     let ahead = vec3<f32>(tunnel_path(z0 - 2.0, period), z0 - 2.0);
@@ -109,7 +110,7 @@ fn bg_tunnel(rd_in: vec3<f32>, speed: f32, detail: f32, ca: vec3<f32>, cb: vec3<
         let p = ro + rd * t;
         let q = p.xy - tunnel_path(p.z, period);
         let ang = atan2(q.y, q.x);
-        let d = tunnel_dist(q, p.z * twist, radius, wobble * sin(ang * 6.0 + p.z * TAU / 4.0));
+        let d = tunnel_dist(q, (p.z - z0) * twist, radius, wobble * sin(ang * 6.0 + p.z * TAU / 4.0));
         if (d < 0.002) {
             hit = true;
             break;
@@ -126,8 +127,10 @@ fn bg_tunnel(rd_in: vec3<f32>, speed: f32, detail: f32, ca: vec3<f32>, cb: vec3<
     }
     let p = ro + rd * t;
     let q = p.xy - tunnel_path(p.z, period);
-    let u = (atan2(q.y, q.x) + p.z * twist) / TAU + 0.5;
-    let v = p.z / period * 4.0 * detail;
+    // Twist is measured from the camera, and the pattern repeats a whole
+    // number of times per tunnel period: both keep the loop seamless.
+    let u = (atan2(q.y, q.x) + (p.z - z0) * twist) / TAU + 0.5;
+    let v = p.z / period * max(round(4.0 * detail), 1.0);
     var pattern: vec3<f32>;
     if (use_tex) {
         pattern = textureSampleLevel(t_tex, s_tex, vec2<f32>(u * 2.0, v), 0.0).rgb;
@@ -246,10 +249,13 @@ fn sponge_sdf(p_in: vec3<f32>) -> f32 {
     }
 }
 
+// Camera depth of the current flight (twist is measured from it).
+var<private> flight_z: f32;
+
 fn sponge_map(p: vec3<f32>) -> f32 {
     let size = max(D.v[5].z, 0.05);
     var q = p / size;
-    let tw = D.v[5].w * q.z * TAU / 8.0;
+    let tw = D.v[5].w * (p.z - flight_z) / size * TAU / 8.0;
     let xy = rot2(q.xy, tw);
     q = vec3<f32>(xy, q.z);
     return sponge_sdf(q) * size;
@@ -259,10 +265,12 @@ fn bg_sponge(rd_in: vec3<f32>, speed: f32, ca: vec3<f32>, cb: vec3<f32>, cc: vec
     let size = max(D.v[5].z, 0.05);
     // One loop flies 8 cells per speed unit, so the view repeats exactly.
     let period = 16.0 * size;
-    let z0 = -G.time.x * speed * period;
+    // Wrapped, so the last frame of the loop is exactly the first.
+    let z0 = -fract(G.time.x * speed) * period;
     let bend = D.v[6].y;
-    let a = G.time.x * TAU * f32(speed);
+    let a = fract(G.time.x * speed) * TAU;
     let ro = vec3<f32>(sin(a) * 0.15 * bend * size, cos(a * 2.0) * 0.1 * bend * size, z0);
+    flight_z = z0;
     let rd = flight_dir(rd_in);
     let steps = steps_or(80);
     var t = 0.02;
@@ -308,7 +316,7 @@ fn ring_sdf(p: vec3<f32>) -> f32 {
     let cell = 2.0 * size;
     var q = p;
     q.z = q.z - cell * floor(q.z / cell + 0.5);
-    let tw = D.v[5].w * floor(p.z / cell + 0.5) * 0.35;
+    let tw = D.v[5].w * (cell * floor(p.z / cell + 0.5) - flight_z) / cell * 0.35;
     let xy = rot2(q.xy, tw);
     let variant = i32(D.v[5].x + 0.5);
     let radius = 1.5 * size;
@@ -334,10 +342,12 @@ fn ring_sdf(p: vec3<f32>) -> f32 {
 fn bg_rings(rd_in: vec3<f32>, speed: f32, ca: vec3<f32>, cb: vec3<f32>, cc: vec3<f32>) -> vec3<f32> {
     let size = max(D.v[5].z, 0.05);
     let period = 16.0 * size;
-    let z0 = -G.time.x * speed * period;
-    let a = G.time.x * TAU * f32(speed);
+    // Wrapped, so the last frame of the loop is exactly the first.
+    let z0 = -fract(G.time.x * speed) * period;
+    let a = fract(G.time.x * speed) * TAU;
     let bend = D.v[6].y;
     let ro = vec3<f32>(sin(a) * 0.4 * bend * size, cos(a) * 0.3 * bend * size, z0);
+    flight_z = z0;
     let rd = flight_dir(rd_in);
     let steps = steps_or(64);
     var t = 0.0;
