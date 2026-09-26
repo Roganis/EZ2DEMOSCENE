@@ -1221,6 +1221,36 @@ fn instancer_ui(ui: &mut Ui, inst: &mut Instancer) {
             slider(ui, "Height", "", height, -30.0..=30.0);
             slider(ui, "Turns", "", turns, 0.0..=20.0);
         }
+        Instancer::Curve {
+            curve,
+            freq,
+            size,
+            count,
+            laps,
+            align,
+        } => {
+            combo(ui, "Curve", "", curve, &RibbonCurve::ALL, |c| c.label());
+            row(
+                ui,
+                "Frequencies",
+                "Loops of the curve along x, y, z",
+                |ui| {
+                    for f in freq.iter_mut() {
+                        ui.add(egui::DragValue::new(f).range(1..=16).speed(0.05));
+                    }
+                },
+            );
+            slider(ui, "Size", "", size, 0.1..=40.0);
+            drag_u(ui, "Count", "", count, 1..=4096);
+            drag_i(
+                ui,
+                "Laps / loop",
+                "Whole trips around the curve per loop",
+                laps,
+                -16..=16,
+            );
+            check(ui, "Face along", "Turn each copy along the curve", align);
+        }
     }
 }
 

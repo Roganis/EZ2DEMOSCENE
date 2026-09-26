@@ -146,17 +146,11 @@ impl SnarlViewer<NodeKind> for Viewer<'_> {
         let kind = &snarl[pin.id.node];
         let i = pin.id.input;
         match kind {
-            NodeKind::Signal { sig } => {
-                ui.label(sig.input_names().get(i).copied().unwrap_or("in"));
-            }
-            NodeKind::Drive { .. } => {
-                ui.label(if i == 1 { "signal" } else { "layers" });
-            }
-            _ if kind.inputs() > 1 => {
+            NodeKind::Merge | NodeKind::Output => {
                 ui.label(format!("in {}", i + 1));
             }
             _ => {
-                ui.label("layers");
+                ui.label(kind.input_name(i));
             }
         }
         let fill = match kind.input_kind(i) {
@@ -396,6 +390,41 @@ impl SnarlViewer<NodeKind> for Viewer<'_> {
                         ui.checkbox(&mut ramp.enabled, "on");
                         crate::inspector::ramp_ui(ui, ramp)
                     });
+                }
+                NodeKind::FollowCurve {
+                    curve,
+                    freq,
+                    size,
+                    count,
+                    laps,
+                    align,
+                } => {
+                    ui.add(egui::DragValue::new(count).range(1..=4096).prefix("copies "));
+                    ui.add(
+                        egui::DragValue::new(laps)
+                            .range(-16..=16)
+                            .prefix("laps ")
+                            .suffix(" / loop"),
+                    );
+                    ui.checkbox(align, "face along");
+                    ui.label(
+                        egui::RichText::new("Wire a ribbon into “ribbon” to follow it, or:")
+                            .small()
+                            .weak(),
+                    );
+                    egui::ComboBox::from_id_salt(("curve", node.0))
+                        .selected_text(curve.label())
+                        .show_ui(ui, |ui| {
+                            for c in RibbonCurve::ALL {
+                                ui.selectable_value(curve, c, c.label());
+                            }
+                        });
+                    ui.horizontal(|ui| {
+                        for f in freq.iter_mut() {
+                            ui.add(egui::DragValue::new(f).range(1..=16).speed(0.05));
+                        }
+                    });
+                    ui.add(egui::DragValue::new(size).range(0.1..=40.0).speed(0.05).prefix("size "));
                 }
                 NodeKind::Deform { deform } => {
                     ui.push_id(("deform", node.0), |ui| {

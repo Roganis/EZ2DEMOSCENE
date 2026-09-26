@@ -279,6 +279,37 @@ fn instancer_locals(inst: &Instancer, ctx: &EvalCtx) -> Vec<Mat4> {
                 })
                 .collect()
         }
+        Instancer::Curve {
+            curve,
+            freq,
+            size,
+            count,
+            laps,
+            align,
+        } => {
+            let n = count.clamp(1, 4096);
+            let at = |t: f32| Vec3::from(curve.point(freq, t.rem_euclid(1.0))) * size;
+            (0..n)
+                .map(|k| {
+                    let t = k as f32 / n as f32 + (ctx.phase * laps as f32).rem_euclid(1.0);
+                    let p = at(t);
+                    if !align {
+                        return Mat4::from_translation(p);
+                    }
+                    // Face along the curve (+z forward), up as close to +y
+                    // as the curve allows.
+                    let fwd = (at(t + 1e-3) - at(t - 1e-3)).normalize_or(Vec3::Z);
+                    let side = Vec3::Y.cross(fwd).normalize_or(Vec3::X);
+                    let up = fwd.cross(side);
+                    Mat4::from_cols(
+                        side.extend(0.0),
+                        up.extend(0.0),
+                        fwd.extend(0.0),
+                        p.extend(1.0),
+                    )
+                })
+                .collect()
+        }
     }
 }
 
@@ -299,6 +330,7 @@ pub fn instances_are_static(layer: &Layer, mesh: &MeshLayer) -> bool {
         && !t.scale.is_animated()
         && !t.bob.is_animated()
         && !matches!(mesh.instancer, Instancer::Orbit { .. })
+        && !matches!(mesh.instancer, Instancer::Curve { laps, .. } if laps != 0)
         && v.spin == 0
         && v.ripple == 0.0
         && v.chase == 0.0

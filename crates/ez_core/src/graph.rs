@@ -76,6 +76,17 @@ pub enum NodeKind {
     Deform { deform: Deform },
     /// Spreads colours across the copies of every incoming shape layer.
     Colors { ramp: ColorRamp },
+    /// Lays the copies of every incoming shape along a curve: the curve of
+    /// the ribbon layer on the second input (following its placement), or
+    /// the node's own.
+    FollowCurve {
+        curve: RibbonCurve,
+        freq: [u32; 3],
+        size: f32,
+        count: u32,
+        laps: i32,
+        align: bool,
+    },
     /// Makes or shapes a signal.
     Signal { sig: SignalNode },
     /// Sets one setting of every incoming layer from a signal.
@@ -105,12 +116,35 @@ impl NodeKind {
             NodeKind::Strobe { .. } => "Strobe".into(),
             NodeKind::Material { .. } => "Colour / material".into(),
             NodeKind::Deform { .. } => "Deform".into(),
+            NodeKind::FollowCurve { .. } => "Along a curve".into(),
             NodeKind::Colors { .. } => "Colours across copies".into(),
             NodeKind::Signal { sig } => sig.title().into(),
             NodeKind::Drive { path, .. } if path.is_empty() => "Drive".into(),
             NodeKind::Drive { path, .. } => format!("Drive {path}"),
             NodeKind::Merge => "Merge".into(),
             NodeKind::Output => "Output".into(),
+        }
+    }
+
+    /// Nodes whose second input is a layer they look at (a curve, a
+    /// surface, a terrain) rather than layers they pass on.
+    pub fn has_reference(&self) -> bool {
+        matches!(self, NodeKind::FollowCurve { .. })
+    }
+
+    /// Name of input `pin`.
+    pub fn input_name(&self, pin: usize) -> &'static str {
+        match self {
+            NodeKind::Signal { sig } => sig.input_names().get(pin).copied().unwrap_or("in"),
+            NodeKind::Drive { .. } if pin == 1 => "signal",
+            NodeKind::FollowCurve { .. } if pin == 1 => "ribbon",
+            _ if self.inputs() > 1
+                && !self.has_reference()
+                && !matches!(self, NodeKind::Drive { .. }) =>
+            {
+                "in"
+            }
+            _ => "layers",
         }
     }
 
@@ -137,6 +171,7 @@ impl NodeKind {
             NodeKind::Source { .. } => 0,
             NodeKind::Signal { sig } => sig.input_names().len(),
             NodeKind::Drive { .. } => 2,
+            k if k.has_reference() => 2,
             NodeKind::Merge => 4,
             NodeKind::Output => 8,
             _ => 1,
@@ -205,6 +240,14 @@ impl NodeKind {
                     ..Default::default()
                 },
             },
+            NodeKind::FollowCurve {
+                curve: RibbonCurve::Knot,
+                freq: [2, 3, 5],
+                size: 4.0,
+                count: 24,
+                laps: 1,
+                align: true,
+            },
             NodeKind::Drive {
                 path: String::new(),
                 mode: DriveMode::Replace,
@@ -213,10 +256,57 @@ impl NodeKind {
         ]
     }
 
+    /// [`NodeKind::apply`] for nodes with a reference input.
+    fn apply_with(&self, input: Vec<Layer>, reference: &[Layer]) -> Vec<Layer> {
+        match self {
+            NodeKind::FollowCurve {
+                curve,
+                freq,
+                size,
+                count,
+                laps,
+                align,
+            } => {
+                let ribbon = reference.iter().find_map(|l| match &l.kind {
+                    LayerKind::Ribbon(r) => Some((l, r)),
+                    _ => None,
+                });
+                input
+                    .into_iter()
+                    .map(|mut l| {
+                        if let LayerKind::Mesh(m) = &mut l.kind {
+                            let (curve, freq, size) = match ribbon {
+                                Some((rl, r)) => {
+                                    // Ride the ribbon wherever it is.
+                                    l.transform.position = rl.transform.position;
+                                    l.transform.rotation = rl.transform.rotation;
+                                    l.transform.spin = rl.transform.spin;
+                                    (r.curve, r.freq, rl.transform.scale.base)
+                                }
+                                None => (*curve, *freq, *size),
+                            };
+                            m.instancer = Instancer::Curve {
+                                curve,
+                                freq,
+                                size,
+                                count: *count,
+                                laps: *laps,
+                                align: *align,
+                            };
+                        }
+                        l
+                    })
+                    .collect()
+            }
+            _ => self.apply(input),
+        }
+    }
+
     fn apply(&self, input: Vec<Layer>) -> Vec<Layer> {
         match self {
             NodeKind::Source { layer } => vec![layer.clone()],
             NodeKind::Signal { .. } => Vec::new(),
+            NodeKind::FollowCurve { .. } => self.apply_with(input, &[]),
             NodeKind::Colors { ramp } => input
                 .into_iter()
                 .map(|mut l| {
@@ -595,9 +685,13 @@ impl Graph {
         visiting.push(id);
         let inputs = self.inputs_of(id, &node.kind);
         let mut stream = Vec::new();
+        let mut reference = Vec::new();
         let mut signal = None;
         for w in inputs {
             match node.kind.input_kind(w.to_pin) {
+                PinKind::Layers if w.to_pin == 1 && node.kind.has_reference() => {
+                    reference.extend(self.eval_node(w.from, ctx, visiting))
+                }
                 PinKind::Layers => stream.extend(self.eval_node(w.from, ctx, visiting)),
                 PinKind::Signal => {
                     if let Some(c) = ctx {
@@ -615,7 +709,7 @@ impl Graph {
             }
             return stream;
         }
-        node.kind.apply(stream)
+        node.kind.apply_with(stream, &reference)
     }
 
     /// The layers flowing into input `pin` of node `id` (structure only,
@@ -772,6 +866,62 @@ mod tests {
             let want = Mat4::from_scale(s) * layer_matrix(&l.transform, &ctx);
             let got = layer_matrix(&mirror_layer(l.clone(), axis, 0.0).transform, &ctx);
             assert!(want.abs_diff_eq(got, 1e-4), "axis {axis}");
+        }
+    }
+
+    #[test]
+    fn follow_curve_rides_the_ribbon() {
+        use crate::eval::{mesh_instances, Instance};
+        let mut g = Graph::default();
+        let out = g.add(NodeKind::Output, [0.0; 2]);
+        let shapes = g.add(
+            NodeKind::Source {
+                layer: Layer::new("Beads", LayerKind::Mesh(MeshLayer::default())),
+            },
+            [0.0; 2],
+        );
+        let ribbon = Layer::new(
+            "Ribbon",
+            LayerKind::Ribbon(Ribbon {
+                curve: RibbonCurve::Wave,
+                freq: [3, 1, 1],
+                ..Default::default()
+            }),
+        )
+        .at([1.0, 2.0, 3.0])
+        .scaled(5.0);
+        let rib = g.add(NodeKind::Source { layer: ribbon }, [0.0; 2]);
+        let follow = g.add(
+            NodeKind::modifier_templates()
+                .into_iter()
+                .find(|k| matches!(k, NodeKind::FollowCurve { .. }))
+                .unwrap(),
+            [0.0; 2],
+        );
+        g.connect(shapes, 0, follow, 0);
+        g.connect(rib, 0, follow, 1);
+        g.connect(follow, 0, out, 0);
+        let layers = g.compile();
+        // The ribbon is only looked at, not passed on.
+        assert_eq!(layers.len(), 1);
+        let LayerKind::Mesh(m) = &layers[0].kind else {
+            panic!()
+        };
+        let at = |phase: f32| {
+            let mut v: Vec<Instance> = Vec::new();
+            mesh_instances(&layers[0], m, &crate::EvalCtx::at(phase), &mut v);
+            v
+        };
+        let (a, b) = (at(0.0), at(1.0));
+        assert_eq!(a.len(), 24);
+        for (x, y) in a.iter().zip(&b) {
+            assert!(x.model.abs_diff_eq(y.model, 1e-3));
+        }
+        // Every copy sits on the (scaled, moved) wavy ring.
+        for i in &at(0.37) {
+            let p = i.model.w_axis.truncate() - glam::Vec3::new(1.0, 2.0, 3.0);
+            let r = (p.x * p.x + p.z * p.z).sqrt();
+            assert!((r - 5.0).abs() < 0.05, "off the ring: {p}");
         }
     }
 

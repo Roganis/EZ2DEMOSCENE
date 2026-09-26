@@ -1118,6 +1118,18 @@ pub enum Instancer {
         height: f32,
         turns: f32,
     },
+    /// Copies travelling along a closed curve (the neon ribbon's shapes).
+    Curve {
+        curve: RibbonCurve,
+        freq: [u32; 3],
+        /// Size of the curve (1 = a ribbon layer of the same scale).
+        size: f32,
+        count: u32,
+        /// Whole trips around the curve per loop (0 = still).
+        laps: i32,
+        /// Turn each copy to face along the curve.
+        align: bool,
+    },
 }
 
 impl Instancer {
@@ -1130,6 +1142,7 @@ impl Instancer {
             Instancer::Orbit { .. } => "Orbit swarm",
             Instancer::Wall { .. } => "Wall",
             Instancer::Spiral { .. } => "Spiral",
+            Instancer::Curve { .. } => "Along a curve",
         }
     }
 
@@ -1168,6 +1181,14 @@ impl Instancer {
                 radius: 3.0,
                 height: 6.0,
                 turns: 3.0,
+            },
+            Instancer::Curve {
+                curve: RibbonCurve::Knot,
+                freq: [2, 3, 5],
+                size: 4.0,
+                count: 24,
+                laps: 1,
+                align: true,
             },
         ]
     }
@@ -2687,6 +2708,30 @@ impl RibbonCurve {
             RibbonCurve::Infinity => "Figure eight",
             RibbonCurve::Wave => "Wavy ring",
             RibbonCurve::Rose => "Rose",
+        }
+    }
+
+    /// Point at `t` (0..1 around the closed curve), fitting a unit sphere.
+    pub fn point(self, freq: [u32; 3], t: f32) -> [f32; 3] {
+        use std::f32::consts::{PI, TAU};
+        let [a, b, c] = freq.map(|f| f.clamp(1, 16) as f32);
+        let x = t * TAU;
+        match self {
+            RibbonCurve::Lissajous => [
+                (a * x + 0.5 * PI).sin(),
+                (b * x).sin() * 0.6,
+                (c * x + 0.25 * PI).sin(),
+            ],
+            RibbonCurve::Knot => {
+                let rr = 0.62 + 0.28 * (b * x).cos();
+                [rr * (a * x).cos(), 0.28 * (b * x).sin(), rr * (a * x).sin()]
+            }
+            RibbonCurve::Infinity => [x.sin(), 0.15 * (a * x).sin(), x.sin() * x.cos()],
+            RibbonCurve::Wave => [x.cos(), 0.3 * (a * x).sin(), x.sin()],
+            RibbonCurve::Rose => {
+                let rr = (a * x).cos();
+                [rr * x.cos(), 0.1 * (b * x).sin(), rr * x.sin()]
+            }
         }
     }
 }
