@@ -12,7 +12,7 @@ Legend: ☐ to do · ◐ in progress · ☑ done
 
 ## Phase 0 — Fix what's there
 
-### ☐ 0.1 Preview colours match exports
+### ☑ 0.1 Preview colours match exports
 **Problem.** egui 0.36 treats user textures as gamma-encoded, but the
 viewport hands it an sRGB view of the output. The GPU decodes it to linear
 and egui shows linear values as gamma, so the preview is visibly darker
@@ -31,7 +31,7 @@ bytes match within ±1.
 
 ## Phase 1 — Big visual step: shadows
 
-### ☐ 1.1 Sun shadow map
+### ☑ 1.1 Sun shadow map
 **How.**
 - One 2048² `Depth32Float` shadow map rendered from the sun (the
   day-cycle light direction when enabled) with an orthographic projection
@@ -55,7 +55,10 @@ bytes match within ±1.
 cast (backgrounds only). WebGL2 supports depth textures with comparison
 samplers.
 
-### ☐ 1.2 Soft contact shadows (ambient occlusion)
+### ☑ 1.2 Soft contact shadows (ambient occlusion)
+**Done as:** contact shadows on the mirror floor (a multiplied soft disc
+under every copy, fading with height and fog).
+
 **How.** A cheap, stable approach instead of screen-space AO (which
 flickers and needs normals): per-instance **blob shadows** on the floor and
 terrain for mesh layers (dark discs under each copy, sized by its bounds

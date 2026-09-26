@@ -270,7 +270,7 @@ fn shade_liquid(in: TOut, depth: f32, q: vec2<f32>) -> vec3<f32> {
     let v = normalize(G.cam_pos.xyz - in.world);
     let l = normalize(G.light_dir.xyz);
     let ambient = mix(G.ground.rgb, G.sky.rgb, 0.8) * G.sky.w;
-    let sun = G.light_color.rgb * G.ground.w;
+    let sun = G.light_color.rgb * G.ground.w * sun_shadow(in.world, vec3<f32>(0.0, 1.0, 0.0));
     let base_p = hills * 6;
     switch kind {
         case 2: {
@@ -457,7 +457,7 @@ fn fs_main(in: TOut) -> @location(0) vec4<f32> {
             n = -n;
         }
         let l = normalize(G.light_dir.xyz);
-        let diffuse = G.light_color.rgb * G.ground.w * max(dot(n, l), 0.0);
+        let diffuse = G.light_color.rgb * G.ground.w * max(dot(n, l), 0.0) * sun_shadow(in.world, n);
         let ambient = mix(G.ground.rgb, G.sky.rgb, n.y * 0.5 + 0.5) * G.sky.w;
         let biome = i32(D.v[5].y + 0.5);
         var ground = D.v[3].rgb;

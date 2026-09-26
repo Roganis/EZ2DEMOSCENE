@@ -241,6 +241,37 @@ pub fn environment_ui(ui: &mut Ui, e: &mut Environment) {
         0.02,
     );
     ui.add_space(6.0);
+    let sh = &mut e.shadows;
+    toggle_section(ui, "Sun shadows", &mut sh.enabled, |ui| {
+        slider(
+            ui,
+            "Darkness",
+            "How dark the shadows are",
+            &mut sh.strength,
+            0.0..=1.0,
+        );
+        slider(
+            ui,
+            "Softness",
+            "Blur of the shadow edges",
+            &mut sh.softness,
+            0.0..=4.0,
+        );
+        slider(
+            ui,
+            "Distance",
+            "How far around the camera's target shadows reach (smaller = sharper)",
+            &mut sh.distance,
+            5.0..=150.0,
+        );
+    });
+    slider(
+        ui,
+        "Contact shadows",
+        "Soft dark patches under shapes standing on a mirror floor (0 = off)",
+        &mut e.shadows.contact,
+        0.0..=1.0,
+    );
     let hf = &mut e.height_fog;
     section(ui, "Mist (height fog)", false, |ui| {
         param(

@@ -49,7 +49,14 @@
       0.6307572
     ],
     "light_intensity": 1.6,
-    "ambient": 0.5
+    "ambient": 0.5,
+    "shadows": {
+      "enabled": true,
+      "strength": 0.85,
+      "softness": 1.5,
+      "distance": 60.0,
+      "contact": 0.0
+    }
   },
   "layers": [
     {

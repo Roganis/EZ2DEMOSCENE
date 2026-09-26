@@ -268,8 +268,15 @@ fn sample_scene(uv: vec2<f32>, bloom_k: f32) -> vec3<f32> {
     return textureSampleLevel(t_a, s_lin, uv, 0.0).rgb + textureSampleLevel(t_b, s_lin, uv, 0.0).rgb * bloom_k;
 }
 
+struct FinalOut {
+    // sRGB export image: hand the hardware linear values.
+    @location(0) output: vec4<f32>,
+    // Display image (UNORM): the gamma-encoded values as they are.
+    @location(1) display: vec4<f32>,
+};
+
 @fragment
-fn fs_final(in: VOut) -> @location(0) vec4<f32> {
+fn fs_final(in: VOut) -> FinalOut {
     let res = P.v[0].xy;
     var uv = in.uv;
     let crt = P.v[4].x > 0.5;
@@ -361,5 +368,9 @@ fn fs_final(in: VOut) -> @location(0) vec4<f32> {
     }
     // All grading above happens in display (sRGB) space; the output texture
     // is sRGB, so hand the hardware linear values and it encodes them back.
-    return vec4<f32>(to_linear(clamp(col, vec3<f32>(0.0), vec3<f32>(1.0))), 1.0);
+    let c = clamp(col, vec3<f32>(0.0), vec3<f32>(1.0));
+    var out: FinalOut;
+    out.output = vec4<f32>(to_linear(c), 1.0);
+    out.display = vec4<f32>(c, 1.0);
+    return out;
 }

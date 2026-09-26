@@ -54,6 +54,13 @@
       "density": 0.06,
       "height": 0.0,
       "falloff": 2.5
+    },
+    "shadows": {
+      "enabled": false,
+      "strength": 0.85,
+      "softness": 1.5,
+      "distance": 40.0,
+      "contact": 0.7
     }
   },
   "layers": [

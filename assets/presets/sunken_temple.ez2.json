@@ -39,9 +39,9 @@
       0.023153365
     ],
     "light_dir": [
-      0.2,
+      0.5,
       1.0,
-      0.1
+      0.3
     ],
     "light_color": [
       0.3515327,
@@ -60,6 +60,13 @@
         1.0
       ],
       "below": 100.0
+    },
+    "shadows": {
+      "enabled": true,
+      "strength": 0.7,
+      "softness": 1.5,
+      "distance": 25.0,
+      "contact": 0.0
     }
   },
   "layers": [

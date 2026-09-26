@@ -1829,6 +1829,11 @@ pub fn sunbeam_peaks() -> Project {
             light_color: hex(0xfff0d0),
             light_intensity: Param::new(1.6),
             ambient: Param::new(0.5),
+            shadows: Shadows {
+                enabled: true,
+                distance: 60.0,
+                ..Default::default()
+            },
             ..Default::default()
         },
         layers: vec![
@@ -2192,6 +2197,10 @@ pub fn club_spotlights() -> Project {
                 height: 0.0,
                 falloff: 2.5,
             },
+            shadows: Shadows {
+                contact: 0.7,
+                ..Default::default()
+            },
             ..Default::default()
         },
         layers: vec![
@@ -2309,6 +2318,11 @@ pub fn rainbow_falls() -> Project {
                 cycles: 1,
                 start: 0.35,
                 noon_height: 45.0,
+                ..Default::default()
+            },
+            shadows: Shadows {
+                enabled: true,
+                distance: 50.0,
                 ..Default::default()
             },
             ..Default::default()
@@ -2432,7 +2446,7 @@ pub fn sunken_temple() -> Project {
             fog_density: Param::new(0.04),
             sky_color: hex(0x2080b0),
             ground_color: hex(0x06202a),
-            light_dir: [0.2, 1.0, 0.1],
+            light_dir: [0.5, 1.0, 0.3],
             light_color: hex(0xa0e0ff),
             light_intensity: Param::new(1.2),
             ambient: Param::new(0.5),
@@ -2442,6 +2456,12 @@ pub fn sunken_temple() -> Project {
                 speed: 2,
                 color: hex(0x90e0ff),
                 below: 100.0,
+            },
+            shadows: Shadows {
+                enabled: true,
+                strength: 0.7,
+                distance: 25.0,
+                ..Default::default()
             },
             ..Default::default()
         },
@@ -2680,6 +2700,10 @@ pub fn music_reactor() -> Project {
             ground_color: hex(0x050505),
             light_intensity: Param::new(1.0),
             ambient: Param::new(0.2),
+            shadows: Shadows {
+                contact: 0.6,
+                ..Default::default()
+            },
             ..Default::default()
         },
         layers: vec![

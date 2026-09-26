@@ -33,6 +33,11 @@ struct Globals {
     extra: vec4<f32>,
     // xyz: direction towards the sun (also below the horizon)
     sun: vec4<f32>,
+    // Sun shadow map projection (world -> light clip space).
+    shadow_vp: mat4x4<f32>,
+    // x: strength (0 = off), y: softness (texels), z: texel size (uv),
+    // w: normal offset (world units)
+    shadow: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> G: Globals;
@@ -116,6 +121,35 @@ fn hue_rotate(c: vec3<f32>, turns: f32) -> vec3<f32> {
     ), vec3<f32>(0.0));
 }
 
+// Sun shadow map (bound for meshes, terrain and the mirror floor only).
+@group(3) @binding(0) var t_shadow: texture_depth_2d;
+@group(3) @binding(1) var s_shadow: sampler_comparison;
+
+// How much sunlight reaches `world` (1 = lit, 0 = fully shadowed), with a
+// 3x3 soft edge. No derivatives, so it may be called anywhere.
+fn sun_shadow(world: vec3<f32>, n: vec3<f32>) -> f32 {
+    if (G.shadow.x <= 0.0) {
+        return 1.0;
+    }
+    let p = G.shadow_vp * vec4<f32>(world + n * G.shadow.w, 1.0);
+    let uv = vec2<f32>(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5);
+    if (any(uv < vec2<f32>(0.0)) || any(uv > vec2<f32>(1.0)) || p.z >= 1.0) {
+        return 1.0;
+    }
+    let step = G.shadow.z * G.shadow.y;
+    var lit = 0.0;
+    for (var y = -1; y <= 1; y = y + 1) {
+        for (var x = -1; x <= 1; x = x + 1) {
+            let o = vec2<f32>(f32(x), f32(y)) * step;
+            lit = lit + textureSampleCompareLevel(t_shadow, s_shadow, uv + o, p.z - 0.0015);
+        }
+    }
+    lit = lit / 9.0;
+    // Fade out towards the edge of the shadowed area.
+    let edge = smoothstep(0.0, 0.1, min(min(uv.x, uv.y), min(1.0 - uv.x, 1.0 - uv.y)));
+    return mix(1.0, lit, G.shadow.x * edge);
+}
+
 fn fog_amount(dist: f32) -> f32 {
     return 1.0 - exp(-max(dist, 0.0) * G.fog.w);
 }
@@ -191,7 +225,8 @@ fn caustic_light(world: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
     }
     let q = (world.xz + vec2<f32>(world.y * 0.3, -world.y * 0.2)) * 0.9 / max(G.caus.y, 0.05) - vec2<f32>(250.0);
     let k = caustic_pattern(q);
-    return G.caus_col.rgb * G.caus.x * min(k * 4.0, 6.0) * below * (0.35 + 0.65 * max(n.y, 0.0));
+    // Caustics are sunlight: shadows block them.
+    return G.caus_col.rgb * G.caus.x * min(k * 4.0, 6.0) * below * (0.35 + 0.65 * max(n.y, 0.0)) * sun_shadow(world, n);
 }
 
 // --- wet ground & snow cover ----------------------------------------------

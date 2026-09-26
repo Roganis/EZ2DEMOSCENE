@@ -22,6 +22,9 @@ pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 /// Format of the final image: sRGB-encoded bytes (read back as-is for
 /// export; decoded to linear when sampled for display).
 pub const OUTPUT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+/// The same image for on-screen display: gamma-encoded bytes in a plain
+/// UNORM texture, which is what egui expects of user textures.
+pub const DISPLAY_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 const DRAW_SLOT: u64 = 256;
 const POST_SLOT: u64 = 512;
@@ -61,7 +64,12 @@ struct GlobalsRaw {
     caus_col: [f32; 4],
     extra: [f32; 4],
     sun: [f32; 4],
+    shadow_vp: [[f32; 4]; 4],
+    shadow: [f32; 4],
 }
+
+/// Size of the sun shadow map.
+const SHADOW_SIZE: u32 = 2048;
 
 /// Per-frame lighting inputs gathered from the layers (weather) on top of
 /// the environment.
@@ -139,6 +147,12 @@ enum Cmd {
     Falls {
         slot: u32,
         puffs: u32,
+    },
+    /// Contact shadows under the copies `first..first + count` of a mesh.
+    Contact {
+        slot: u32,
+        first: u32,
+        count: u32,
     },
 }
 
@@ -228,8 +242,13 @@ pub struct Renderer {
     bgl_floor: wgpu::BindGroupLayout,
     bgl_post: wgpu::BindGroupLayout,
 
-    globals_buf: [wgpu::Buffer; 2],
-    globals_bg: [wgpu::BindGroup; 2],
+    globals_buf: [wgpu::Buffer; 3],
+    globals_bg: [wgpu::BindGroup; 3],
+    shadow_mesh_pipe: wgpu::RenderPipeline,
+    contact_pipe: wgpu::RenderPipeline,
+    shadow_terrain_pipe: wgpu::RenderPipeline,
+    shadow_view: wgpu::TextureView,
+    shadow_bg: wgpu::BindGroup,
     bgl_draw: wgpu::BindGroupLayout,
     draw_buf: wgpu::Buffer,
     draw_cap: u64,
@@ -287,7 +306,9 @@ pub struct RenderTarget {
     refl_size: (u32, u32),
     pub output: wgpu::Texture,
     pub output_view: wgpu::TextureView,
-    /// sRGB view of the output, for displaying it (e.g. in egui).
+    /// The same picture as gamma-encoded UNORM, for displaying it in egui
+    /// (which treats texture values as gamma, not linear).
+    pub display: wgpu::Texture,
     pub display_view: wgpu::TextureView,
     bg_blur_h: wgpu::BindGroup,
     bg_blur_v: wgpu::BindGroup,
@@ -493,19 +514,36 @@ impl Renderer {
             ],
         });
 
-        let globals_buf = [0, 1].map(|i| {
+        let bgl_shadow = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("shadow"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
+                    count: None,
+                },
+            ],
+        });
+        let globals_buf = [0, 1, 2].map(|i| {
             device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some(if i == 0 {
-                    "globals main"
-                } else {
-                    "globals refl"
-                }),
+                label: Some(["globals main", "globals refl", "globals sun"][i]),
                 size: globals_size,
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             })
         });
-        let globals_bg = [0, 1].map(|i| {
+        let globals_bg = [0, 1, 2].map(|i| {
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("globals"),
                 layout: &bgl_globals,
@@ -537,6 +575,27 @@ impl Renderer {
             bind_group_layouts: &[Some(&bgl_globals), Some(&bgl_draw), Some(&bgl_mesh_tex)],
             immediate_size: 0,
         });
+        // Lit surfaces also read the sun shadow map (group 3).
+        let mesh_lit_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("mesh lit"),
+            bind_group_layouts: &[
+                Some(&bgl_globals),
+                Some(&bgl_draw),
+                Some(&bgl_mesh_tex),
+                Some(&bgl_shadow),
+            ],
+            immediate_size: 0,
+        });
+        let terrain_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("terrain"),
+            bind_group_layouts: &[
+                Some(&bgl_globals),
+                Some(&bgl_draw),
+                Some(&bgl_tex),
+                Some(&bgl_shadow),
+            ],
+            immediate_size: 0,
+        });
         let particle_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("particles"),
             bind_group_layouts: &[Some(&bgl_globals), Some(&bgl_draw)],
@@ -544,7 +603,12 @@ impl Renderer {
         });
         let floor_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("floor"),
-            bind_group_layouts: &[Some(&bgl_globals), Some(&bgl_draw), Some(&bgl_floor)],
+            bind_group_layouts: &[
+                Some(&bgl_globals),
+                Some(&bgl_draw),
+                Some(&bgl_floor),
+                Some(&bgl_shadow),
+            ],
             immediate_size: 0,
         });
         let post_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -627,7 +691,7 @@ impl Renderer {
                 device,
                 PipeDesc {
                     label: "mesh",
-                    layout: &mesh_layout,
+                    layout: &mesh_lit_layout,
                     module: &sh_mesh,
                     fs: "fs_main",
                     buffers: &mesh_buffers,
@@ -657,7 +721,7 @@ impl Renderer {
                 device,
                 PipeDesc {
                     label: "terrain",
-                    layout: &scene_layout,
+                    layout: &terrain_layout,
                     module: &sh_terrain,
                     fs: "fs_main",
                     buffers: &[],
@@ -752,6 +816,109 @@ impl Renderer {
                 },
             ),
         };
+        // Depth-only passes from the sun (vertex stage only).
+        let depth_pipe = |label: &str,
+                          layout: &wgpu::PipelineLayout,
+                          module: &wgpu::ShaderModule,
+                          buffers: &[Option<wgpu::VertexBufferLayout>]| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(layout),
+                vertex: wgpu::VertexState {
+                    module,
+                    entry_point: Some("vs_main"),
+                    compilation_options: Default::default(),
+                    buffers,
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    cull_mode: None,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DEPTH_FORMAT,
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(wgpu::CompareFunction::Less),
+                    stencil: Default::default(),
+                    bias: wgpu::DepthBiasState {
+                        constant: 2,
+                        slope_scale: 2.0,
+                        clamp: 0.0,
+                    },
+                }),
+                multisample: Default::default(),
+                fragment: None,
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let sh_contact = shader(
+            device,
+            "contact",
+            include_str!("shaders/contact.wgsl"),
+            true,
+        );
+        let contact_instances = [Some(wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<InstanceRaw>() as u64,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &wgpu::vertex_attr_array![4 => Float32x4, 5 => Float32x4, 6 => Float32x4, 7 => Float32x4, 8 => Float32x4],
+        })];
+        let contact_pipe = make_pipeline(
+            device,
+            PipeDesc {
+                label: "contact shadows",
+                layout: &particle_layout,
+                module: &sh_contact,
+                fs: "fs_main",
+                buffers: &contact_instances,
+                format: HDR_FORMAT,
+                samples: msaa,
+                depth: Some((false, wgpu::CompareFunction::Less)),
+                blend: Some(MULTIPLY),
+            },
+        );
+        let shadow_mesh_pipe = depth_pipe("shadow mesh", &mesh_layout, &sh_mesh, &mesh_buffers);
+        let shadow_terrain_pipe = depth_pipe("shadow terrain", &scene_layout, &sh_terrain, &[]);
+        let shadow_view = device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("sun shadow map"),
+                size: wgpu::Extent3d {
+                    width: SHADOW_SIZE,
+                    height: SHADOW_SIZE,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: DEPTH_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+            .create_view(&Default::default());
+        let shadow_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("shadow"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            compare: Some(wgpu::CompareFunction::LessEqual),
+            ..Default::default()
+        });
+        let shadow_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("shadow"),
+            layout: &bgl_shadow,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&shadow_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&shadow_sampler),
+                },
+            ],
+        });
         let main_pipes = scene_pipes(msaa);
         let refl_pipes = scene_pipes(1);
         let floor_pipe = make_pipeline(
@@ -788,7 +955,39 @@ impl Renderer {
         let warp_pipe = post_pipe("warp", "fs_warp", HDR_FORMAT, None);
         let bloom_down_pipe = post_pipe("bloom down", "fs_bloom_down", HDR_FORMAT, None);
         let bloom_up_pipe = post_pipe("bloom up", "fs_bloom_up", HDR_FORMAT, Some(ADDITIVE));
-        let final_pipe = post_pipe("final", "fs_final", OUTPUT_FORMAT, None);
+        // The final pass writes the export image and the display image.
+        let final_pipe = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("final"),
+            layout: Some(&post_layout),
+            vertex: wgpu::VertexState {
+                module: &sh_post,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            primitive: Default::default(),
+            depth_stencil: None,
+            multisample: Default::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &sh_post,
+                entry_point: Some("fs_final"),
+                compilation_options: Default::default(),
+                targets: &[
+                    Some(wgpu::ColorTargetState {
+                        format: OUTPUT_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                    Some(wgpu::ColorTargetState {
+                        format: DISPLAY_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                ],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
         let rays_pipe = post_pipe("god rays", "fs_rays", HDR_FORMAT, None);
         let rays_add_pipe = post_pipe("god rays add", "fs_rays_add", HDR_FORMAT, Some(ADDITIVE));
 
@@ -828,6 +1027,11 @@ impl Renderer {
             bgl_post,
             globals_buf,
             globals_bg,
+            shadow_mesh_pipe,
+            contact_pipe,
+            shadow_terrain_pipe,
+            shadow_view,
+            shadow_bg,
             bgl_draw,
             draw_buf,
             draw_cap,
@@ -1254,6 +1458,8 @@ impl Renderer {
                 e.rainbow.eval(ctx).max(0.0),
             ],
             sun: v4(Vec3::from(env.sun_dir), 0.0),
+            shadow_vp: m4(Mat4::IDENTITY),
+            shadow: [0.0; 4],
         }
     }
 
@@ -1770,6 +1976,28 @@ impl Renderer {
             stats.layers.push(ls);
         }
 
+        // Contact shadows under shapes on the mirror floor.
+        let contact = project.environment.shadows.contact;
+        if contact > 0.0 {
+            if let Some((_, _, fh, _)) = &floor {
+                let meshes: Vec<(u32, u32)> = cmds
+                    .iter()
+                    .filter_map(|c| match c {
+                        Cmd::Mesh { first, count, .. } if *count > 0 => Some((*first, *count)),
+                        _ => None,
+                    })
+                    .collect();
+                if !meshes.is_empty() {
+                    let mut blk: Block = Zeroable::zeroed();
+                    blk[0] = [*fh, contact.clamp(0.0, 1.0), 0.0, 0.0];
+                    let slot = blocks.len() as u32;
+                    blocks.push(blk);
+                    for (first, count) in meshes {
+                        cmds.push(Cmd::Contact { slot, first, count });
+                    }
+                }
+            }
+        }
         let e = &project.environment;
         if e.day_cycle.enabled || e.rainbow.base != 0.0 || e.rainbow.is_animated() {
             cmds.push(Cmd::SkyFx);
@@ -1814,6 +2042,57 @@ impl Renderer {
                 .write_buffer(&self.inst_buf, 0, bytemuck::cast_slice(&instances));
             self.uploaded = instances;
         }
+        // Sun shadow map: an orthographic view from the sun around the
+        // camera's target, snapped to whole texels so edges don't shimmer.
+        let sh = &project.environment.shadows;
+        let casters = cmds
+            .iter()
+            .any(|c| matches!(c, Cmd::Mesh { .. } | Cmd::Terrain { .. }));
+        let shadow = (sh.enabled && casters).then(|| {
+            let r = sh.distance.max(1.0);
+            let l = Vec3::from(env.light_dir).normalize_or(Vec3::Y);
+            let centre = cam.target;
+            let up = if l.y.abs() > 0.99 { Vec3::Z } else { Vec3::Y };
+            let eye = centre + l * r * 2.0;
+            let lview = Mat4::look_at_rh(eye, centre, up);
+            let lproj = Mat4::orthographic_rh(-r, r, -r, r, 0.05, r * 4.0);
+            let c = (lproj * lview).project_point3(centre);
+            let texel = 2.0 / SHADOW_SIZE as f32;
+            let snap = Vec3::new(
+                (c.x / texel).round() * texel - c.x,
+                (c.y / texel).round() * texel - c.y,
+                0.0,
+            );
+            let lproj = Mat4::from_translation(snap) * lproj;
+            (lview, lproj, eye, r)
+        });
+        if let Some((lview, lproj, eye, _)) = shadow {
+            let g = Self::globals(
+                project,
+                ctx,
+                &env,
+                lview,
+                lproj,
+                eye,
+                (SHADOW_SIZE, SHADOW_SIZE),
+                Vec4::ZERO,
+                &fx,
+            );
+            self.queue
+                .write_buffer(&self.globals_buf[2], 0, bytemuck::bytes_of(&g));
+        }
+        let with_shadow = |mut g: GlobalsRaw| {
+            if let Some((lview, lproj, _, r)) = shadow {
+                g.shadow_vp = m4(lproj * lview);
+                g.shadow = [
+                    sh.strength.clamp(0.0, 1.0),
+                    sh.softness.max(0.0),
+                    1.0 / SHADOW_SIZE as f32,
+                    2.0 * r / SHADOW_SIZE as f32 * 1.5,
+                ];
+            }
+            g
+        };
         let main_globals = Self::globals(
             project,
             ctx,
@@ -1825,6 +2104,7 @@ impl Renderer {
             Vec4::ZERO,
             &fx,
         );
+        let main_globals = with_shadow(main_globals);
         self.queue
             .write_buffer(&self.globals_buf[0], 0, bytemuck::bytes_of(&main_globals));
         if let Some((_, _, fh, _)) = &floor {
@@ -1843,6 +2123,7 @@ impl Renderer {
                 Vec4::new(0.0, 1.0, 0.0, -fh + 0.001),
                 &fx,
             );
+            let g = with_shadow(g);
             self.queue
                 .write_buffer(&self.globals_buf[1], 0, bytemuck::bytes_of(&g));
         }
@@ -1894,6 +2175,26 @@ impl Renderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("ez2 frame"),
             });
+
+        // --- sun shadow map -------------------------------------------------------
+        if shadow.is_some() {
+            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("sun shadow"),
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.shadow_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            self.draw_shadow_casters(&mut pass, &cmds);
+        }
 
         // --- reflection -------------------------------------------------------
         if floor.is_some() {
@@ -1999,7 +2300,17 @@ impl Renderer {
                 pass.set_bind_group(0, &self.globals_bg[0], &[]);
                 pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
                 pass.set_bind_group(2, *bg, &[]);
+                pass.set_bind_group(3, &self.shadow_bg, &[]);
                 pass.draw(0..6, 0..1);
+                for c in &cmds {
+                    if let Cmd::Contact { slot, first, count } = c {
+                        pass.set_pipeline(&self.contact_pipe);
+                        pass.set_bind_group(0, &self.globals_bg[0], &[]);
+                        pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                        pass.set_vertex_buffer(0, self.inst_buf.slice(..));
+                        pass.draw(0..6, *first..*first + *count);
+                    }
+                }
             }
             // Solid geometry before anything see-through, which doesn't
             // write depth and would otherwise be painted over.
@@ -2064,16 +2375,75 @@ impl Renderer {
                 );
             }
         }
-        self.post_pass(
-            &mut enc,
-            "final",
-            &self.final_pipe,
-            &target.output_view,
-            &target.bg_final,
-            SLOT_FINAL,
-            false,
-        );
+        {
+            let att = |view| {
+                Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })
+            };
+            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("final"),
+                color_attachments: &[att(&target.output_view), att(&target.display_view)],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&self.final_pipe);
+            pass.set_bind_group(0, &target.bg_final, &[SLOT_FINAL * POST_SLOT as u32]);
+            pass.draw(0..3, 0..1);
+        }
         self.queue.submit([enc.finish()]);
+    }
+
+    /// Meshes and terrain seen from the sun, depth only.
+    fn draw_shadow_casters(&self, pass: &mut wgpu::RenderPass<'_>, cmds: &[Cmd]) {
+        for cmd in cmds {
+            match cmd {
+                Cmd::Mesh {
+                    slot,
+                    mesh,
+                    tex,
+                    relief,
+                    pixelated,
+                    first,
+                    count,
+                } if *count > 0 => {
+                    let m = &self.meshes[mesh];
+                    pass.set_pipeline(&self.shadow_mesh_pipe);
+                    pass.set_bind_group(0, &self.globals_bg[2], &[]);
+                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                    pass.set_bind_group(
+                        2,
+                        &self.mesh_tex_bgs[&(tex.clone(), relief.clone(), *pixelated)],
+                        &[],
+                    );
+                    pass.set_vertex_buffer(0, m.vbuf.slice(..));
+                    pass.set_vertex_buffer(1, self.inst_buf.slice(..));
+                    pass.set_index_buffer(m.ibuf.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.draw_indexed(0..m.count, 0, *first..*first + *count);
+                }
+                Cmd::Terrain {
+                    slot,
+                    vertices,
+                    tex,
+                    pixelated,
+                } => {
+                    pass.set_pipeline(&self.shadow_terrain_pipe);
+                    pass.set_bind_group(0, &self.globals_bg[2], &[]);
+                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                    pass.set_bind_group(2, &self.tex_bgs[&(tex.clone(), *pixelated)], &[]);
+                    pass.draw(0..*vertices, 0..1);
+                }
+                _ => {}
+            }
+        }
     }
 
     fn draw_scene(
@@ -2113,6 +2483,7 @@ impl Renderer {
                         &self.mesh_tex_bgs[&(tex.clone(), relief.clone(), *pixelated)],
                         &[],
                     );
+                    pass.set_bind_group(3, &self.shadow_bg, &[]);
                     pass.set_vertex_buffer(0, m.vbuf.slice(..));
                     pass.set_vertex_buffer(1, self.inst_buf.slice(..));
                     pass.set_index_buffer(m.ibuf.slice(..), wgpu::IndexFormat::Uint32);
@@ -2134,6 +2505,7 @@ impl Renderer {
                     pass.set_bind_group(0, &self.globals_bg[globals], &[]);
                     pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
                     pass.set_bind_group(2, &self.tex_bgs[&(tex.clone(), *pixelated)], &[]);
+                    pass.set_bind_group(3, &self.shadow_bg, &[]);
                     pass.draw(0..*vertices, 0..1);
                 }
                 Cmd::Lasers { slot, beams } => {
@@ -2142,6 +2514,7 @@ impl Renderer {
                     pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
                     pass.draw(0..6, 0..*beams);
                 }
+                Cmd::Contact { .. } => {}
                 Cmd::SkyFx => {
                     for pipe in [&pipes.sky_mul, &pipes.sky_add] {
                         pass.set_pipeline(pipe);
@@ -2447,7 +2820,23 @@ impl Renderer {
             view_formats: &[],
         });
         let output_view = output.create_view(&Default::default());
-        let display_view = output.create_view(&Default::default());
+        let display = dev.create_texture(&wgpu::TextureDescriptor {
+            label: Some("display"),
+            size: wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: DISPLAY_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let display_view = display.create_view(&Default::default());
         let post_bg = |a: &wgpu::TextureView, b: &wgpu::TextureView| {
             dev.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("post"),
@@ -2508,6 +2897,7 @@ impl Renderer {
             refl_size: (rw, rh),
             output,
             output_view,
+            display,
             display_view,
             bg_blur_h,
             bg_blur_v,
@@ -2525,7 +2915,18 @@ impl Renderer {
     /// waiting (required on the web, where blocking is impossible). Poll the
     /// returned [`Readback`] until it is ready.
     pub fn start_readback(&self, target: &RenderTarget) -> Readback {
-        let (w, h) = (target.width, target.height);
+        self.readback_texture(&target.output, target.width, target.height)
+    }
+
+    /// Copy the display image (what the editor shows) back to the CPU
+    /// (blocking; desktop only). Used to check it matches the export image.
+    pub fn read_display_pixels(&self, target: &RenderTarget) -> Vec<u8> {
+        let rb = self.readback_texture(&target.display, target.width, target.height);
+        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+        rb.take().expect("readback finished")
+    }
+
+    fn readback_texture(&self, texture: &wgpu::Texture, w: u32, h: u32) -> Readback {
         let row = 4 * w;
         let padded =
             row.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
@@ -2538,7 +2939,7 @@ impl Renderer {
         let mut enc = self.device.create_command_encoder(&Default::default());
         enc.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
-                texture: &target.output,
+                texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,

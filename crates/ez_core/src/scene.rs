@@ -208,6 +208,37 @@ pub struct Environment {
     /// The sun travels across the sky; night falls with stars and a moon.
     #[serde(skip_serializing_if = "is_default")]
     pub day_cycle: DayCycle,
+    /// Shadows cast by the sun, and soft contact shadows on floors.
+    #[serde(skip_serializing_if = "is_default")]
+    pub shadows: Shadows,
+}
+
+/// Sun shadows (a shadow map around the camera's target) and contact
+/// shadows under shapes standing on a mirror floor.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Shadows {
+    pub enabled: bool,
+    /// How dark shadows are (0..1).
+    pub strength: f32,
+    /// Blur of the shadow edge.
+    pub softness: f32,
+    /// Radius around the camera's target that gets shadows.
+    pub distance: f32,
+    /// Soft dark patches under shapes on a mirror floor (0 = none).
+    pub contact: f32,
+}
+
+impl Default for Shadows {
+    fn default() -> Self {
+        Shadows {
+            enabled: false,
+            strength: 0.85,
+            softness: 1.5,
+            distance: 40.0,
+            contact: 0.0,
+        }
+    }
 }
 
 /// Fog that pools in valleys: `density` at `height`, halving every
@@ -413,6 +444,7 @@ impl Default for Environment {
             caustics: Caustics::default(),
             rainbow: Param::new(0.0),
             day_cycle: DayCycle::default(),
+            shadows: Shadows::default(),
         }
     }
 }

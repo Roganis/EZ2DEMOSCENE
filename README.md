@@ -54,6 +54,7 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   - Laser beams or hazy **spotlight cones** with pools of light.
   - Particles can be smoke instead of glow, and there is a tornado
     emitter.
+  - **Sun shadows** (soft shadow map) and contact shadows on floors.
   - Atmosphere: **mist** pooling in valleys, underwater **caustics**, a
     **rainbow**, and a **day & night cycle** with sunsets, stars and a
     moon.

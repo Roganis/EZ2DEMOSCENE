@@ -76,6 +76,13 @@
         0.31398875,
         0.6307572
       ]
+    },
+    "shadows": {
+      "enabled": true,
+      "strength": 0.85,
+      "softness": 1.5,
+      "distance": 50.0,
+      "contact": 0.0
     }
   },
   "layers": [

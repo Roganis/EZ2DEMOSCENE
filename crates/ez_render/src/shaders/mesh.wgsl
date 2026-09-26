@@ -188,12 +188,13 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     metallic = mix(metallic, 0.0, snow);
     rough = mix(rough, 0.85, snow);
     let l = normalize(G.light_dir.xyz);
-    let ndl = max(dot(n, l), 0.0);
+    let sun_lit = sun_shadow(in.world, n);
+    let ndl = max(dot(n, l), 0.0) * sun_lit;
     let diffuse = G.light_color.rgb * G.ground.w * ndl;
     let ambient = mix(G.ground.rgb, G.sky.rgb, n.y * 0.5 + 0.5) * G.sky.w;
     let h = normalize(l + v);
     let shin = mix(512.0, 8.0, rough);
-    let spec = pow(max(dot(n, h), 0.0), shin) * (1.0 - rough) * G.ground.w;
+    let spec = pow(max(dot(n, h), 0.0), shin) * (1.0 - rough) * G.ground.w * sun_lit;
     let ndv = max(dot(n, v), 0.0);
     let fres = pow(1.0 - ndv, 5.0);
     let f0 = mix(vec3<f32>(0.04), base, metallic);

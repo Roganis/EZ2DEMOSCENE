@@ -317,3 +317,67 @@ fn music_reactive_scene_loops_and_reacts() {
     eprintln!("music reactor reaction {react:.2}");
     assert!(react > 1.0, "the music changes nothing: {react}");
 }
+
+/// The editor shows exactly the colours that get exported.
+#[test]
+fn display_image_matches_export() {
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let target = r.create_target(96, 54);
+    let p = presets::synth_sunset();
+    let out = r.render_image(&p, &EvalCtx::new(&p.timing, 0.2, None), &target);
+    let shown = r.read_display_pixels(&target);
+    let worst = out
+        .as_raw()
+        .iter()
+        .zip(&shown)
+        .map(|(a, b)| (*a as i32 - *b as i32).abs())
+        .max()
+        .unwrap();
+    assert!(worst <= 1, "display differs from export by up to {worst}");
+}
+
+/// Sun shadows darken the ground behind a shape (away from the sun), and
+/// switching them off brings the light back.
+#[test]
+fn sun_shadows_darken_the_floor() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let target = r.create_target(160, 90);
+    let mut p = presets::empty();
+    p.post.grade.grain = Param::new(0.0);
+    p.environment.light_dir = [1.0, 0.8, 0.5];
+    p.environment.light_intensity = Param::new(2.0);
+    for l in &mut p.layers {
+        if let LayerKind::Mirror(m) = &mut l.kind {
+            m.base_color = [0.5, 0.5, 0.5];
+            m.reflectivity = Param::new(0.1);
+        }
+    }
+    let ctx = EvalCtx::new(&p.timing, 0.1, None);
+    let lum = |img: &image::RgbaImage| -> f32 {
+        img.as_raw().iter().map(|v| *v as f32).sum::<f32>() / img.as_raw().len() as f32
+    };
+    let off = r.render_image(&p, &ctx, &target);
+    p.environment.shadows.enabled = true;
+    let on = r.render_image(&p, &ctx, &target);
+    eprintln!(
+        "mean brightness without {:.2}, with shadows {:.2}",
+        lum(&off),
+        lum(&on)
+    );
+    assert!(lum(&on) < lum(&off) - 0.3, "no shadow visible");
+}
