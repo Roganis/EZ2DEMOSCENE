@@ -224,17 +224,27 @@ Garden*.
 
 ## Phase 4 — Camera paths
 
-### ☐ 4.1 Keyframed camera path
+### ☑ 4.1 Keyframed camera path
 **How.** New camera mode *Path*: a closed Catmull-Rom spline through
 points (position + look-at + roll + FOV), travelled a whole number of times
 per loop with constant speed (arc-length table). An *easing* option
 lingers at points. Viewport tools: "add point here" (from the current
 view), drag points with the gizmo, show the path line.
 
-### ☐ 4.2 Camera reacts to hits
+### ☑ 4.2 Camera reacts to hits
 Already possible through the 🎵 row on distance / FOV; add *punch-in* and
 *cut to next point on kick* (a hit-driven jump along the path, loop-safe via
 the loop-window hit list).
+
+**Done (4.1 + 4.2):** closed uniform Catmull-Rom through eye, look-at,
+roll and FOV; an arc-length table gives even speed and a smootherstep
+blend gives *Linger*. Instead of dragging points with the gizmo (the
+camera itself rides the path), shots are framed with the normal viewport
+controls in Static mode and stored with *Add this view* / ⟳, and 👁 jumps
+back to a shot; the flight line is drawn in the viewport. Cuts use the
+per-frame hit count of the music frame (count mod points, plus a drift
+during the beat); punch-in is a FOV kick on any camera mode. Crystal
+Garden flies a path.
 
 ---
 

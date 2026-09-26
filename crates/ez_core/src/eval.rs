@@ -27,13 +27,159 @@ impl CameraState {
     }
 }
 
+/// Closed uniform Catmull-Rom spline through `p` at parameter `u`
+/// (0..len, wrapping).
+fn catmull<T>(p: &[T], u: f32) -> T
+where
+    T: Copy
+        + std::ops::Add<Output = T>
+        + std::ops::Sub<Output = T>
+        + std::ops::Mul<f32, Output = T>,
+{
+    let n = p.len();
+    let u = u.rem_euclid(n as f32);
+    let i = (u.floor() as usize).min(n - 1);
+    let t = u - i as f32;
+    let at = |k: isize| p[(i as isize + k).rem_euclid(n as isize) as usize];
+    let (p0, p1, p2, p3) = (at(-1), at(0), at(1), at(2));
+    let (t2, t3) = (t * t, t * t * t);
+    (p1 * 2.0
+        + (p2 - p0) * t
+        + (p0 * 2.0 - p1 * 5.0 + p2 * 4.0 - p3) * t2
+        + (p1 * 3.0 - p0 - p2 * 3.0 + p3) * t3)
+        * 0.5
+}
+
+impl CameraPath {
+    /// Spline parameter (0..points) for a position `s` (0..1) along the
+    /// path, at an even speed.
+    fn param_at(&self, s: f32) -> f32 {
+        let eyes: Vec<Vec3> = self.points.iter().map(|p| Vec3::from(p.eye)).collect();
+        let n = eyes.len();
+        const STEPS: usize = 48;
+        let mut lengths = Vec::with_capacity(n * STEPS + 1);
+        let mut total = 0.0;
+        let mut prev = catmull(&eyes, 0.0);
+        lengths.push(0.0);
+        for k in 1..=n * STEPS {
+            let q = catmull(&eyes, k as f32 / STEPS as f32);
+            total += (q - prev).length();
+            lengths.push(total);
+            prev = q;
+        }
+        if total <= 1e-6 {
+            return s * n as f32;
+        }
+        let want = s.rem_euclid(1.0) * total;
+        let k = lengths.partition_point(|l| *l < want).clamp(1, n * STEPS);
+        let (a, b) = (lengths[k - 1], lengths[k]);
+        let f = if b > a { (want - a) / (b - a) } else { 0.0 };
+        (k as f32 - 1.0 + f) / STEPS as f32
+    }
+
+    /// `n` points along the whole flight line (for drawing it).
+    pub fn line(&self, n: usize) -> Vec<Vec3> {
+        let eyes: Vec<Vec3> = self.points.iter().map(|p| Vec3::from(p.eye)).collect();
+        if eyes.is_empty() {
+            return Vec::new();
+        }
+        (0..=n)
+            .map(|k| catmull(&eyes, k as f32 / n as f32 * eyes.len() as f32))
+            .collect()
+    }
+
+    /// Eye, target, roll (degrees) and FOV (degrees) at the moment.
+    pub fn eval(&self, ctx: &EvalCtx) -> Option<(Vec3, Vec3, f32, f32)> {
+        let n = self.points.len();
+        if n == 0 {
+            return None;
+        }
+        let u = match (self.cut_on, ctx.music.active) {
+            (Some(kind), true) => {
+                // Hard cuts: one point per hit in the loop, drifting towards
+                // the next during the beat after the cut.
+                let h = &ctx.music.hits[kind as usize];
+                let beat = ctx.beat_seconds.max(1e-3);
+                (h.count as usize % n) as f32 + (h.since / beat).clamp(0.0, 1.0) * self.drift
+            }
+            _ => {
+                let s = (ctx.phase * self.laps.max(1) as f32).rem_euclid(1.0);
+                let u = self.param_at(s);
+                // Linger at the points.
+                let (k, f) = (u.floor(), u - u.floor());
+                let eased = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+                k + f + (eased - f) * self.ease.clamp(0.0, 1.0)
+            }
+        };
+        let get = |f: fn(&PathPoint) -> Vec3| -> Vec3 {
+            let v: Vec<Vec3> = self.points.iter().map(f).collect();
+            catmull(&v, u)
+        };
+        let eye = get(|p| Vec3::from(p.eye));
+        let target = get(|p| Vec3::from(p.target));
+        let extra = get(|p| Vec3::new(p.roll, p.fov, 0.0));
+        Some((eye, target, extra.x, extra.y))
+    }
+}
+
 impl Camera {
     pub fn eval(&self, ctx: &EvalCtx) -> CameraState {
+        let mut state = self.eval_motion(ctx);
+        // Punch in on hits.
+        if self.punch > 0.0 && ctx.music.active {
+            let h = &ctx.music.hits[self.punch_on as usize];
+            let k = (-h.since * 8.0).exp() * h.strength.clamp(0.0, 1.0) * self.punch.min(1.0);
+            state.fov_y *= 1.0 - 0.35 * k;
+        }
+        state
+    }
+
+    /// The shot at the moment as a path point (before any punch-in).
+    pub fn view_point(&self, ctx: &EvalCtx) -> PathPoint {
+        let st = self.eval_motion(ctx);
+        let roll = match (self.mode, self.path.eval(ctx)) {
+            (CameraMode::Path, Some((_, _, roll, _))) => roll,
+            _ => self.roll.eval(ctx),
+        };
+        PathPoint {
+            eye: st.eye.into(),
+            target: st.target.into(),
+            roll,
+            fov: st.fov_y.to_degrees(),
+        }
+    }
+
+    /// Make this a Static camera framing `p` (to adjust it in the
+    /// viewport).
+    pub fn look_from(&mut self, p: &PathPoint) {
+        let d = Vec3::from(p.eye) - Vec3::from(p.target);
+        self.mode = CameraMode::Static;
+        self.target = p.target;
+        self.distance = crate::Param::new(d.x.hypot(d.z).max(0.1));
+        self.height = crate::Param::new(d.y);
+        self.angle = crate::Param::new(d.x.atan2(d.z).to_degrees());
+        self.fov = crate::Param::new(p.fov);
+        self.roll = crate::Param::new(p.roll);
+    }
+
+    fn eval_motion(&self, ctx: &EvalCtx) -> CameraState {
+        if self.mode == CameraMode::Path {
+            if let Some((eye, target, roll, fov)) = self.path.eval(ctx) {
+                let fwd = (target - eye).normalize_or(Vec3::NEG_Z);
+                let up = Quat::from_axis_angle(fwd, roll.to_radians()) * Vec3::Y;
+                return CameraState {
+                    eye,
+                    target,
+                    up,
+                    fov_y: fov.clamp(5.0, 170.0).to_radians(),
+                };
+            }
+        }
         let base = self.angle.eval(ctx).to_radians();
         let az = match self.mode {
             CameraMode::Orbit => base + ctx.turns(self.orbit_turns as f32),
             CameraMode::Pendulum => base + self.swing.eval(ctx).to_radians() * ctx.turns(1.0).sin(),
-            CameraMode::Static => base,
+            CameraMode::Static | CameraMode::Path => base,
         };
         let d = self.distance.eval(ctx).max(0.1);
         let h = self.height.eval(ctx);
@@ -686,6 +832,101 @@ mod tests {
             .iter()
             .zip(b.to_cols_array())
             .all(|(x, y)| (x - y).abs() < 1e-3)
+    }
+
+    #[test]
+    fn camera_path_passes_points_at_even_speed() {
+        let cam = Camera {
+            mode: CameraMode::Path,
+            ..Default::default()
+        };
+        // The default path is four points; it starts at the first.
+        let start = cam.eval(&EvalCtx::at(0.0));
+        assert!(start.eye.abs_diff_eq(Vec3::new(0.0, 2.0, 10.0), 1e-3));
+        // Even speed: equal steps in time cover (nearly) equal distances.
+        let steps: Vec<f32> = (0..64)
+            .map(|i| {
+                let a = cam.eval(&EvalCtx::at(i as f32 / 64.0)).eye;
+                let b = cam.eval(&EvalCtx::at((i + 1) as f32 / 64.0)).eye;
+                (a - b).length()
+            })
+            .collect();
+        let (lo, hi) = steps
+            .iter()
+            .fold((f32::MAX, 0.0f32), |(l, h), d| (l.min(*d), h.max(*d)));
+        assert!(hi / lo < 1.1, "{lo} .. {hi}");
+        // Easing lingers: the camera moves much less right at a point.
+        let mut eased = cam.clone();
+        eased.path.ease = 1.0;
+        let near =
+            |c: &Camera| (c.eval(&EvalCtx::at(0.0)).eye - c.eval(&EvalCtx::at(0.005)).eye).length();
+        assert!(near(&eased) < near(&cam) * 0.2);
+        let end = eased.eval(&EvalCtx::at(1.0));
+        assert!(end.eye.abs_diff_eq(start.eye, 1e-3));
+    }
+
+    #[test]
+    fn look_from_round_trips() {
+        let p = PathPoint {
+            eye: [3.0, 5.0, -7.0],
+            target: [1.0, 1.0, 2.0],
+            roll: 12.0,
+            fov: 40.0,
+        };
+        let mut cam = Camera::default();
+        cam.look_from(&p);
+        let back = cam.view_point(&EvalCtx::at(0.4));
+        assert!(
+            Vec3::from(back.eye).abs_diff_eq(Vec3::from(p.eye), 1e-3),
+            "{back:?}"
+        );
+        assert_eq!((back.target, back.roll), (p.target, p.roll));
+        assert!((back.fov - p.fov).abs() < 1e-3);
+    }
+
+    #[test]
+    fn camera_punches_in_on_hits() {
+        let cam = Camera {
+            punch: 1.0,
+            ..Default::default()
+        };
+        let mut ctx = EvalCtx::at(0.3);
+        let calm = cam.eval(&ctx).fov_y;
+        ctx.music.active = true;
+        let kick = &mut ctx.music.hits[crate::audio::HitKind::Kick as usize];
+        kick.since = 0.0;
+        kick.strength = 1.0;
+        assert!(cam.eval(&ctx).fov_y < calm * 0.7);
+        ctx.music.hits[0].since = 2.0;
+        assert!((cam.eval(&ctx).fov_y - calm).abs() < 1e-4);
+    }
+
+    #[test]
+    fn camera_cuts_on_hits() {
+        use crate::audio::HitKind;
+        let mut cam = Camera {
+            mode: CameraMode::Path,
+            ..Default::default()
+        };
+        cam.path.cut_on = Some(HitKind::Kick);
+        cam.path.drift = 0.0;
+        let with_hits = |count: u32| {
+            let mut ctx = EvalCtx::at(0.3);
+            ctx.music.active = true;
+            ctx.music.hits[HitKind::Kick as usize].count = count;
+            ctx.music.hits[HitKind::Kick as usize].since = 0.0;
+            ctx
+        };
+        for k in 0..6u32 {
+            let want = Vec3::from(cam.path.points[k as usize % 4].eye);
+            assert!(
+                cam.eval(&with_hits(k)).eye.abs_diff_eq(want, 1e-3),
+                "hit {k}"
+            );
+        }
+        // Without music it flies as usual.
+        let flying = cam.eval(&EvalCtx::at(0.3)).eye;
+        assert!(!flying.abs_diff_eq(Vec3::from(cam.path.points[0].eye), 0.1));
     }
 
     #[test]

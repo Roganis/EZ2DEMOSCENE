@@ -219,6 +219,26 @@ pub fn signal_flow() -> Project {
 pub fn crystal_garden() -> Project {
     let mut p = aurora_tundra();
     p.name = "Crystal Garden".into();
+    // Fly a loop around the halo, lingering a little at each view.
+    let point = |eye: [f32; 3], target: [f32; 3], roll: f32, fov: f32| PathPoint {
+        eye,
+        target,
+        roll,
+        fov,
+    };
+    p.camera.mode = CameraMode::Path;
+    p.camera.path = CameraPath {
+        points: vec![
+            point([0.0, 4.0, 2.0], [0.0, 4.5, -20.0], 0.0, 65.0),
+            point([14.0, 6.5, -12.0], [0.0, 4.0, -22.0], -8.0, 60.0),
+            point([6.0, 11.0, -36.0], [0.0, 4.0, -20.0], 0.0, 55.0),
+            point([-13.0, 3.5, -24.0], [2.0, 5.0, -18.0], 10.0, 70.0),
+        ],
+        laps: 1,
+        ease: 0.4,
+        cut_on: None,
+        drift: 0.2,
+    };
     p.layers.retain(|l| l.name != "Rocks");
     p.layers.push(
         Layer::new(

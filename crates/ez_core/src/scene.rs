@@ -137,15 +137,94 @@ pub enum CameraMode {
     Pendulum,
     /// Fixed position; distance/height params can still breathe.
     Static,
+    /// Flies through the points of `path`.
+    Path,
 }
 
 impl CameraMode {
-    pub const ALL: [CameraMode; 3] = [CameraMode::Orbit, CameraMode::Pendulum, CameraMode::Static];
+    pub const ALL: [CameraMode; 4] = [
+        CameraMode::Orbit,
+        CameraMode::Pendulum,
+        CameraMode::Static,
+        CameraMode::Path,
+    ];
     pub fn label(self) -> &'static str {
         match self {
             CameraMode::Orbit => "Orbit",
             CameraMode::Pendulum => "Pendulum",
             CameraMode::Static => "Static",
+            CameraMode::Path => "Path",
+        }
+    }
+}
+
+/// One stop of a camera path.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PathPoint {
+    pub eye: [f32; 3],
+    /// Where the camera looks.
+    pub target: [f32; 3],
+    /// Degrees.
+    pub roll: f32,
+    /// Vertical field of view in degrees.
+    pub fov: f32,
+}
+
+impl Default for PathPoint {
+    fn default() -> Self {
+        PathPoint {
+            eye: [0.0, 2.0, 10.0],
+            target: [0.0, 0.0, 0.0],
+            roll: 0.0,
+            fov: 55.0,
+        }
+    }
+}
+
+/// A closed flight through points, travelled a whole number of times per
+/// loop at an even speed.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CameraPath {
+    pub points: Vec<PathPoint>,
+    /// Trips around the path per loop.
+    pub laps: u32,
+    /// 0 = constant speed, 1 = slow down and linger at every point.
+    pub ease: f32,
+    /// Jump to the next point on every hit of this kind (with music);
+    /// without music the camera flies as usual.
+    pub cut_on: Option<crate::audio::HitKind>,
+    /// After a cut, how far the camera drifts towards the next point
+    /// during one beat (0..1).
+    pub drift: f32,
+}
+
+impl Default for CameraPath {
+    fn default() -> Self {
+        CameraPath {
+            points: vec![
+                PathPoint {
+                    eye: [0.0, 2.0, 10.0],
+                    ..Default::default()
+                },
+                PathPoint {
+                    eye: [10.0, 4.0, 0.0],
+                    ..Default::default()
+                },
+                PathPoint {
+                    eye: [0.0, 1.0, -10.0],
+                    ..Default::default()
+                },
+                PathPoint {
+                    eye: [-10.0, 5.0, 0.0],
+                    ..Default::default()
+                },
+            ],
+            laps: 1,
+            ease: 0.0,
+            cut_on: None,
+            drift: 0.2,
         }
     }
 }
@@ -168,6 +247,14 @@ pub struct Camera {
     pub roll: Param,
     /// Camera shake on every beat (0 = none).
     pub beat_shake: Param,
+    /// Zoom in on every hit of `punch_on` (0 = none, 1 = strong).
+    #[serde(skip_serializing_if = "is_default")]
+    pub punch: f32,
+    #[serde(skip_serializing_if = "is_default")]
+    pub punch_on: crate::audio::HitKind,
+    /// Points for the Path mode.
+    #[serde(skip_serializing_if = "is_default")]
+    pub path: CameraPath,
 }
 
 impl Default for Camera {
@@ -183,6 +270,9 @@ impl Default for Camera {
             fov: Param::new(55.0),
             roll: Param::new(0.0),
             beat_shake: Param::new(0.0),
+            punch: 0.0,
+            punch_on: crate::audio::HitKind::Kick,
+            path: CameraPath::default(),
         }
     }
 }

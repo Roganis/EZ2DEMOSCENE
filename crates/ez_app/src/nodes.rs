@@ -679,7 +679,7 @@ fn signal_ui(ui: &mut Ui, sig: &mut SignalNode) {
             for (i, v) in values.iter_mut().enumerate() {
                 ui.horizontal(|ui| {
                     num(ui, v, &format!("{}", i + 1));
-                    if ui.small_button("✕").clicked() {
+                    if ui.small_button("🗑").clicked() {
                         remove = Some(i);
                     }
                 });

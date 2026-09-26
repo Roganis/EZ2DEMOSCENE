@@ -116,7 +116,12 @@ pub fn timing_ui(ui: &mut Ui, p: &mut Project) {
 
 pub fn camera_ui(ui: &mut Ui, c: &mut Camera) {
     ui.heading("Camera");
-    ui.label(RichText::new("Tip: drag in the viewport to turn the camera, scroll to zoom.").weak());
+    let tip = if c.mode == CameraMode::Path {
+        "The camera flies through the points below; the yellow line in the viewport is its flight."
+    } else {
+        "Tip: drag in the viewport to turn the camera, scroll to zoom."
+    };
+    ui.label(RichText::new(tip).weak());
     combo(
         ui,
         "Motion",
@@ -125,6 +130,30 @@ pub fn camera_ui(ui: &mut Ui, c: &mut Camera) {
         &CameraMode::ALL,
         |m| m.label(),
     );
+    if c.mode != CameraMode::Path {
+        framing_ui(ui, c);
+    }
+    shake_punch_ui(ui, c);
+    let view: Option<PathPoint> = ui.data(|d| d.get_temp(egui::Id::new(CAMERA_VIEW)));
+    ui.add_space(6.0);
+    if let Some(v) = view {
+        if ui
+            .button("📍 Add this view to the path")
+            .on_hover_text("Store the camera as it is now as a point of the Path motion")
+            .clicked()
+        {
+            c.path.points.push(v);
+        }
+    }
+    if c.mode == CameraMode::Path || !c.path.points.is_empty() {
+        section(ui, "Path", c.mode == CameraMode::Path, |ui| {
+            path_ui(ui, c, view)
+        });
+    }
+}
+
+/// Orbit, pendulum and static cameras: where they look from.
+fn framing_ui(ui: &mut Ui, c: &mut Camera) {
     vec3(
         ui,
         "Look at",
@@ -173,6 +202,7 @@ pub fn camera_ui(ui: &mut Ui, c: &mut Camera) {
             );
         }
         CameraMode::Static => {}
+        CameraMode::Path => {}
     }
     param(
         ui,
@@ -188,6 +218,9 @@ pub fn camera_ui(ui: &mut Ui, c: &mut Camera) {
         &mut c.roll,
         -180.0..=180.0,
     );
+}
+
+fn shake_punch_ui(ui: &mut Ui, c: &mut Camera) {
     param(
         ui,
         "Beat shake",
@@ -195,6 +228,135 @@ pub fn camera_ui(ui: &mut Ui, c: &mut Camera) {
         &mut c.beat_shake,
         0.0..=1.0,
     );
+    slider(
+        ui,
+        "Punch-in",
+        "Zoom in on every hit of the music (needs a song)",
+        &mut c.punch,
+        0.0..=1.0,
+    );
+    if c.punch > 0.0 {
+        combo(ui, "On", "", &mut c.punch_on, &HIT_KINDS, hit_label);
+    }
+}
+
+/// egui temp-data key: the camera's shot right now ([`PathPoint`]).
+pub const CAMERA_VIEW: &str = "ez2-camera-view";
+
+const HIT_KINDS: [ez_core::audio::HitKind; 5] = [
+    ez_core::audio::HitKind::Kick,
+    ez_core::audio::HitKind::Snare,
+    ez_core::audio::HitKind::Hats,
+    ez_core::audio::HitKind::Any,
+    ez_core::audio::HitKind::Note,
+];
+
+fn hit_label(k: ez_core::audio::HitKind) -> &'static str {
+    match k {
+        ez_core::audio::HitKind::Kick => "Kicks",
+        ez_core::audio::HitKind::Snare => "Snares / claps",
+        ez_core::audio::HitKind::Hats => "Hi-hats",
+        ez_core::audio::HitKind::Any => "Any hit",
+        ez_core::audio::HitKind::Note => "New notes",
+    }
+}
+
+fn path_ui(ui: &mut Ui, c: &mut Camera, view: Option<PathPoint>) {
+    ui.label(
+        RichText::new(
+            "The camera flies smoothly through these points. To place one: pick Static, frame the shot \
+             by dragging in the viewport, then press “Add this view”.",
+        )
+        .weak(),
+    );
+    let mut laps = c.path.laps as i32;
+    drag_i(
+        ui,
+        "Laps / loop",
+        "Trips around the path per loop",
+        &mut laps,
+        1..=16,
+    );
+    c.path.laps = laps.max(1) as u32;
+    slider(
+        ui,
+        "Linger",
+        "0 = even speed, 1 = slow down at every point",
+        &mut c.path.ease,
+        0.0..=1.0,
+    );
+    let mut cut = c.path.cut_on.is_some();
+    row(
+        ui,
+        "Cut on hits",
+        "Jump to the next point on every hit of the music (loops with the song); without music the camera flies",
+        |ui| {
+            if ui.checkbox(&mut cut, "").changed() {
+                c.path.cut_on = cut.then_some(ez_core::audio::HitKind::Kick);
+            }
+        },
+    );
+    if let Some(k) = &mut c.path.cut_on {
+        combo(ui, "On", "", k, &HIT_KINDS, hit_label);
+        slider(
+            ui,
+            "Drift",
+            "How far the camera drifts towards the next point after each cut",
+            &mut c.path.drift,
+            0.0..=1.0,
+        );
+    }
+    let mut action = None;
+    let n = c.path.points.len();
+    for (i, p) in c.path.points.iter_mut().enumerate() {
+        ui.separator();
+        ui.horizontal(|ui| {
+            ui.strong(format!("Point {}", i + 1));
+            if ui
+                .small_button("👁")
+                .on_hover_text("Look from here (switches to Static so you can adjust it)")
+                .clicked()
+            {
+                action = Some(("look", i));
+            }
+            if let Some(v) = view {
+                if ui
+                    .small_button("⟳")
+                    .on_hover_text("Replace with the current view")
+                    .clicked()
+                {
+                    *p = v;
+                }
+            }
+            if i > 0 && ui.small_button("⬆").clicked() {
+                action = Some(("up", i));
+            }
+            if i + 1 < n && ui.small_button("⬇").clicked() {
+                action = Some(("down", i));
+            }
+            if n > 2 && ui.small_button("🗑").clicked() {
+                action = Some(("delete", i));
+            }
+        });
+        ui.push_id(("path_point", i), |ui| {
+            vec3(ui, "Eye", "Camera position", &mut p.eye, 0.05);
+            vec3(ui, "Look at", "", &mut p.target, 0.05);
+            slider(ui, "Field of view", "", &mut p.fov, 10.0..=140.0);
+            slider(ui, "Roll", "", &mut p.roll, -180.0..=180.0);
+        });
+    }
+    match action {
+        Some(("look", i)) => {
+            let p = c.path.points[i];
+            c.look_from(&p);
+        }
+        Some(("up", i)) => c.path.points.swap(i, i - 1),
+        Some(("down", i)) => c.path.points.swap(i, i + 1),
+        Some(("delete", i)) => {
+            c.path.points.remove(i);
+        }
+        _ => {}
+    }
 }
 
 pub fn environment_ui(ui: &mut Ui, e: &mut Environment) {
@@ -2343,7 +2505,7 @@ pub fn ramp_ui(ui: &mut Ui, r: &mut ColorRamp) {
     for (i, c) in r.colors.iter_mut().enumerate() {
         ui.horizontal(|ui| {
             color(ui, &format!("Colour {}", i + 1), "", c);
-            if n > 2 && ui.small_button("✕").clicked() {
+            if n > 2 && ui.small_button("🗑").clicked() {
                 remove = Some(i);
             }
         });

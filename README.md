@@ -89,6 +89,10 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   (sample & hold, smooth random, drunken walk). The ♩ menu syncs it to
   every beat, bar or loop, a live graph previews the curve, and it can
   follow the **music**. Layers can also **shake** on the beat.
+- **Camera.** Orbit, pendulum, static or a **path**: a smooth closed
+  flight through your own shots (position, look-at, field of view, roll)
+  at an even speed, with optional lingering, cuts to the next shot on
+  every kick, and a punch-in zoom on hits. The viewport draws the flight.
 - **Music.** Drop in an MP3/WAV/OGG/FLAC. It is analysed once: loudness,
   kick, bass, mids, highs and brightness, hits (kicks, snares, hats,
   onsets, notes), a 16-band spectrum, the melody's note and the tempo.

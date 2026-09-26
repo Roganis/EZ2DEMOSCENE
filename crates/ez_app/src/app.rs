@@ -1137,6 +1137,9 @@ impl EzApp {
             .map(|l| l.name.clone())
             .collect();
         ui.data_mut(|d| d.insert_temp(egui::Id::new(inspector::TERRAIN_NAMES), terrains));
+        let ctx = self.project.ctx_at(self.time, self.audio_env.as_deref());
+        let view = self.project.camera.view_point(&ctx);
+        ui.data_mut(|d| d.insert_temp(egui::Id::new(inspector::CAMERA_VIEW), view));
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             ui.add_space(4.0);
             if self.mode == Mode::Nodes {
@@ -1677,15 +1680,40 @@ impl EzApp {
                 }
             }
         }
+        // The flight line of a camera path, while the camera is selected.
+        let cam = &self.project.camera;
+        if cam.mode == CameraMode::Path && self.selection == Selection::Camera {
+            let line = cam.path.line(240);
+            let stroke = egui::Stroke::new(1.5, Color32::from_rgba_unmultiplied(255, 190, 60, 200));
+            for w in line.windows(2) {
+                if let (Some(a), Some(b)) = (proj.to_screen(w[0]), proj.to_screen(w[1])) {
+                    painter.line_segment([a, b], stroke);
+                }
+            }
+            for (i, p) in cam.path.points.iter().enumerate() {
+                if let Some(q) = proj.to_screen(glam::Vec3::from(p.eye)) {
+                    painter.circle_filled(q, 5.0, Color32::from_rgb(255, 190, 60));
+                    painter.text(
+                        q + egui::vec2(7.0, -7.0),
+                        egui::Align2::LEFT_BOTTOM,
+                        format!("{}", i + 1),
+                        egui::FontId::proportional(13.0),
+                        Color32::WHITE,
+                    );
+                }
+            }
+        }
+        // A path camera flies by itself: dragging doesn't steer it.
+        let steerable = self.project.camera.mode != CameraMode::Path;
         let multi = ui.input(|i| i.multi_touch().is_some());
-        if resp.dragged() && !on_gizmo && !self.gizmo.is_dragging() && !multi {
+        if steerable && resp.dragged() && !on_gizmo && !self.gizmo.is_dragging() && !multi {
             let d = resp.drag_delta();
             let cam = &mut self.project.camera;
             cam.angle.base = (cam.angle.base - d.x * 0.4 + 540.0).rem_euclid(360.0) - 180.0;
             cam.height.base += d.y * 0.03;
         }
         // Two fingers: pinch to zoom, twist to turn, drag up/down for height.
-        if let Some(mt) = ui.input(|i| i.multi_touch()) {
+        if let Some(mt) = ui.input(|i| i.multi_touch()).filter(|_| steerable) {
             if resp.rect.contains(mt.center_pos) {
                 let cam = &mut self.project.camera;
                 if mt.zoom_delta > 0.0 {
@@ -1697,7 +1725,7 @@ impl EzApp {
                 cam.height.base += mt.translation_delta.y * 0.03;
             }
         }
-        if resp.hovered() {
+        if steerable && resp.hovered() {
             let scroll = ui.input(|i| i.smooth_scroll_delta.y);
             if scroll != 0.0 {
                 let cam = &mut self.project.camera;

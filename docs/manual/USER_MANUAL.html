@@ -722,16 +722,33 @@ so two layers can blink in turn.</p>
 <table>
   <tr><th style="width:24%">Setting</th><th>Meaning</th></tr>
   <tr><td>Motion</td><td><b>Orbit</b> circles the target <span class="ui">Turns per loop</span> times. <b>Pendulum</b> swings back and forth by
-  <span class="ui">Swing</span> degrees. <b>Static</b> stays put, though its values can still be animated.</td></tr>
+  <span class="ui">Swing</span> degrees. <b>Static</b> stays put, though its values can still be animated. <b>Path</b> flies
+  through your own points (see <i>Camera paths</i> below).</td></tr>
   <tr><td>Look at</td><td>The point the camera aims at.</td></tr>
   <tr><td>Distance, Height</td><td>How far away and how high the camera is. Both are animatable.</td></tr>
   <tr><td>Start angle</td><td>Which side the camera starts from.</td></tr>
   <tr><td>Field of view</td><td>Zoom lens: 20–35 for a telephoto look, 60–90 for wide and dramatic.</td></tr>
   <tr><td>Roll</td><td>Tilts the horizon. Animate it for a dizzy rave feel.</td></tr>
   <tr><td>Beat shake</td><td>A small camera kick on every beat.</td></tr>
+  <tr><td>Punch-in</td><td>With a song loaded, the camera zooms in on every kick (or snare, hi-hat, any hit, note) and eases back.</td></tr>
 </table>
 <div class="tip"><b>Mouse</b>Dragging in the viewport changes <span class="ui">Start angle</span> and <span class="ui">Height</span>. Scrolling changes
-<span class="ui">Distance</span>.</div>
+<span class="ui">Distance</span>. A Path camera flies by itself, so dragging does nothing then.</div>
+<h2>Camera paths</h2>
+<p>Pick <span class="ui">Motion → Path</span> and the camera flies a smooth closed loop through your points, at an even speed,
+<span class="ui">Laps / loop</span> times per loop. Each point has a position (<span class="ui">Eye</span>), a <span class="ui">Look at</span>
+point, a field of view and a roll, and the camera blends between them. With the Camera selected, the viewport shows the flight as a
+yellow line with numbered points.</p>
+<ul>
+  <li><b>Adding shots:</b> switch to <span class="ui">Static</span>, frame the shot by dragging and scrolling in the viewport, then press
+  <span class="ui">📍 Add this view to the path</span>. Repeat, then switch back to <span class="ui">Path</span>.</li>
+  <li><b>Changing a shot:</b> press 👁 on a point to look from it (the camera switches to Static there), adjust it in the viewport, then
+  press ⟳ on that point to store the new view. ⬆ ⬇ reorder points, 🗑 removes one.</li>
+  <li><span class="ui">Linger</span> slows the camera down at every point: 0 is an even glide, 1 holds each shot for a moment.</li>
+  <li><span class="ui">Cut on hits</span>: with a song loaded, the camera cuts to the next point on every kick (or snare, hi-hat…) and
+  <span class="ui">Drift</span>s a little towards the following one. The cuts restart with the loop, so the video still loops. Without
+  music the camera just flies.</li>
+</ul>
 <h2>Light &amp; fog</h2>
 <ul>
   <li><span class="ui">Fog colour</span> / <span class="ui">Fog density</span>: distant things fade into this colour. The fog colour is also the
