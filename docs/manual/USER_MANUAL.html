@@ -170,6 +170,7 @@ pickers and menus. When you like it, you export an MP4, WebM, GIF or a folder of
   <div class="card"><img src="img/p_rainbow_falls.jpg"><div class="t">Rainbow Falls</div><div class="d">Day and night, a rainbow, a waterfall.</div></div>
   <div class="card"><img src="img/p_sunken_temple.jpg"><div class="t">Sunken Temple</div><div class="d">Underwater caustics and bubbles.</div></div>
   <div class="card"><img src="img/p_twister.jpg"><div class="t">Twister</div><div class="d">A tornado over wet, stormy plains.</div></div>
+  <div class="card"><img src="img/p_music_reactor.jpg"><div class="t">Music Reactor</div><div class="d">Load a song: equalizer, kick flashes, time warp.</div></div>
 </div>
 
 <h2>The one big idea: everything loops</h2>
@@ -764,15 +765,55 @@ so two layers can blink in turn.</p>
 <p>Because every animation is counted per loop, <b>changing the BPM speeds the whole scene up or slows it down</b>, and it
 stays in sync.</p>
 <h2>Adding music</h2>
-<p>Use <span class="ui">Load music…</span> or drop an MP3, WAV, OGG, FLAC, M4A or AAC file onto the window. Then:</p>
+<p>Use <span class="ui">Load music…</span> or drop an MP3, WAV, OGG, FLAC, M4A or AAC file onto the window. The song is
+<b>analysed</b> once when it loads: loudness, kick, bass, mids, highs and brightness curves; the <b>hits</b> (kicks, snares and claps,
+hi-hats, any onset, new notes); a 16-band spectrum; the melody's note; and the <b>tempo</b>. The timeline shows the loudness, with
+kicks as red ticks and snares as yellow ones. The <span class="ui">Meters</span> show every source live.</p>
+
+<h2>Loop a part of the song, or the whole song</h2>
 <ul>
-  <li>The music plays with the loop and restarts at the loop point. Scrubbing the timeline seeks the music.</li>
-  <li>Its loudness is drawn in the timeline, and brighter bars mean more bass.</li>
-  <li>Any animated value can follow the music with the <span class="ui">♪</span> amount in its <span class="ui">~</span> panel.</li>
-  <li><span class="ui">Detect tempo from length</span> sets the BPM so the whole track fits the loop length. This is useful for music written as a loop.</li>
-  <li>MP4 and WebM exports include the music (you can turn this off in the export dialog).</li>
+  <li><b>Loop a part of the song</b> (default): the loop reacts to a window of the song as long as the loop, starting at
+  <span class="ui">Starts at</span>. The window is treated as a circle: the last moments fade into its start, and a hit near the end
+  keeps ringing after the loop point, so the loop stays seamless. Video exports contain exactly that window of the song, repeated.
+  <span class="ui">Use song tempo</span> sets the BPM to the detected tempo and snaps the window onto a bar;
+  <span class="ui">Snap to bar</span> only snaps; <span class="ui">Fit whole song</span> makes the whole track one loop.</li>
+  <li><b>Whole song</b>: the preview and exports run from the start to the end of the song (repeats don't apply); loop animations keep
+  cycling underneath.</li>
 </ul>
-<div class="note"><b>Tip for musicians</b>Set the BPM to your track's tempo and the loop length to its bar count × 4. The visuals then
+
+<h2>Making values react: the 🎵 row</h2>
+<p>Every <span class="ui">~</span> panel has a <span class="ui">🎵</span> row under the rhythm settings. Pick a source and an amount:</p>
+<table>
+  <tr><th style="width:26%">Source</th><th>What happens</th></tr>
+  <tr><td>Follow: Loudness, Kick, Bass, Mids, Highs, Brightness</td><td>The value rises with that part of the sound. Tick
+  <span class="ui">smooth</span> for a calmer curve and use <span class="ui">ignore below</span> to react only to the loud parts.</td></tr>
+  <tr><td>Follow: Melody pitch</td><td>The melody's note from C (0) to B (11/12). On <b>Hue shift</b> with amount 1, each note gets its own
+  colour.</td></tr>
+  <tr><td>Each kick / snare / hi-hat / hit / new note</td><td>Plays a <b>shape</b> (a beat fade, e.g. Exp fade out) of the chosen
+  <b>length in beats</b> on every hit, scaled by how hard it hit. Flashes on the song's real kicks rather than on the metronome.</td></tr>
+</table>
+<p>A negative amount pulls the value down instead (e.g. the camera distance on each kick, for a punch-in). The curve preview shows the
+result with the music.</p>
+
+<h2>Time warp</h2>
+<p><span class="ui">Time warp</span> makes motion (spins, orbits, camera moves, scrolling, clouds, LFOs) run faster while the chosen source
+is strong, so the scene surges on every kick or on the loud parts. The warped time is rescaled so a full loop still ends exactly where it
+started, so the loop stays seamless. Beat fades, strobes, blinks and shakes stay on the real beat. A negative amount slows motion down on hits.</p>
+
+<h2>Equalizer copies</h2>
+<p>Shapes with copies have an <span class="ui">Equalizer</span> setting (under Copies → variation): each copy grows upwards and glows with one
+frequency band, low notes first. 16 copies in a row or an arc make a classic spectrum display (see the <b>Music Reactor</b> preset).</p>
+
+<h2>MIDI notes</h2>
+<p><span class="ui">Load MIDI notes…</span> (or drop a .mid file) takes the hits and the melody from a MIDI file instead of guessing them
+from the audio: drums on channel 10 give exact kicks, snares and hats, other channels give new notes and the melody pitch, with their
+velocities. <span class="ui">MIDI offset</span> lines the notes up with the audio. A MIDI file works without an audio file too.</p>
+
+<h2>Live input</h2>
+<p><span class="ui">Live input (microphone / line-in)</span> makes the preview react to what the microphone hears, for VJ sets. Every
+source works live, and so does time warp. Live input is not repeatable, so exports always use the music file.</p>
+<div class="note"><b>Tip for musicians</b>Load your track, press <span class="ui">Use song tempo</span>, pick a strong section with
+<span class="ui">Starts at</span>, then link the glow of your shapes to <b>Each kick</b>. Export with the music included and the visuals
 land exactly on your beats.</div>
 
 <!-- ===================================================== 11 -->

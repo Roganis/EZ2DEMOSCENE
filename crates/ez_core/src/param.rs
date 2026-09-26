@@ -5,6 +5,7 @@
 //! cycles per loop, so `eval(phase = 0) == eval(phase = 1)` always holds.
 
 use crate::clock::EvalCtx;
+use crate::music::{AudioSource, MusicMod};
 use crate::rng::hash2;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -202,8 +203,11 @@ pub struct Param {
     pub cycles: i32,
     /// Phase offset of the oscillator in cycles (0..1).
     pub offset: f32,
-    /// Amount of audio level added (0 = none).
+    /// Amount of audio level added (0 = none). Older projects; new ones
+    /// use `music`.
     pub audio: f32,
+    /// Link to the music (kick, bass, hits, pitch…).
+    pub music: MusicMod,
 }
 
 impl Param {
@@ -215,6 +219,14 @@ impl Param {
             cycles: 1,
             offset: 0.0,
             audio: 0.0,
+            music: MusicMod {
+                source: AudioSource::Kick,
+                amount: 0.0,
+                smooth: false,
+                threshold: 0.0,
+                shape: Wave::ExpOut,
+                length: 0.5,
+            },
         }
     }
 
@@ -236,8 +248,20 @@ impl Param {
         self
     }
 
+    /// Builder: react to the music.
+    pub const fn with_music(mut self, source: AudioSource, amount: f32) -> Self {
+        self.music.source = source;
+        self.music.amount = amount;
+        self
+    }
+
     pub fn is_animated(&self) -> bool {
-        self.amp != 0.0 || self.audio != 0.0
+        self.amp != 0.0 || self.audio != 0.0 || self.music.amount != 0.0
+    }
+
+    /// True when the value depends on the music.
+    pub fn uses_music(&self) -> bool {
+        self.audio != 0.0 || self.music.amount != 0.0
     }
 
     /// Evaluate at the given context.
@@ -250,12 +274,20 @@ impl Param {
     pub fn eval_offset(&self, ctx: &EvalCtx, extra: f32) -> f32 {
         let mut v = self.base;
         if self.amp != 0.0 {
-            let x = ctx.phase * self.cycles as f32 + self.offset + extra;
+            // Beat fades stay on the real beat; everything else follows the
+            // (possibly time-warped) motion clock.
+            let phase = if self.wave.is_unipolar() {
+                ctx.beat_phase
+            } else {
+                ctx.phase
+            };
+            let x = phase * self.cycles as f32 + self.offset + extra;
             v += self.amp * self.wave.eval(x, self.cycles);
         }
         if self.audio != 0.0 {
             v += self.audio * ctx.audio;
         }
+        v += self.music.eval(&ctx.music, ctx.beat_seconds);
         v
     }
 }
@@ -276,6 +308,12 @@ struct ParamFull {
     cycles: i32,
     offset: f32,
     audio: f32,
+    #[serde(skip_serializing_if = "music_off")]
+    music: MusicMod,
+}
+
+fn music_off(m: &MusicMod) -> bool {
+    m.amount == 0.0
 }
 
 impl Default for ParamFull {
@@ -288,6 +326,7 @@ impl Default for ParamFull {
             cycles: p.cycles,
             offset: p.offset,
             audio: p.audio,
+            music: p.music,
         }
     }
 }
@@ -311,6 +350,7 @@ impl Serialize for Param {
                 cycles: self.cycles,
                 offset: self.offset,
                 audio: self.audio,
+                music: self.music,
             }
             .serialize(s)
         }
@@ -328,6 +368,7 @@ impl<'de> Deserialize<'de> for Param {
                 cycles: f.cycles,
                 offset: f.offset,
                 audio: f.audio,
+                music: f.music,
             },
         })
     }

@@ -148,6 +148,23 @@ pub fn set_clock(ctx: &egui::Context, phase: f32, loop_beats: u32) {
     });
 }
 
+/// The project's music, so the `~` previews can show music-driven values.
+#[derive(Clone)]
+pub struct MusicPreview {
+    pub env: Option<std::sync::Arc<ez_core::AudioEnvelope>>,
+    pub settings: ez_core::MusicSettings,
+    pub timing: ez_core::Timing,
+    pub live: Option<ez_core::MusicFrame>,
+}
+
+pub fn set_music(ctx: &egui::Context, m: MusicPreview) {
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new("ez2_music"), m));
+}
+
+fn music(ui: &Ui) -> Option<MusicPreview> {
+    ui.ctx().data(|d| d.get_temp(egui::Id::new("ez2_music")))
+}
+
 /// Beats per loop of the current project (for beat-synced defaults).
 pub fn loop_beats(ui: &Ui) -> u32 {
     clock(ui).loop_beats
@@ -196,10 +213,21 @@ fn curve_preview(ui: &mut Ui, p: &Param, clock: Clock, range: &RangeInclusive<f3
     );
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, 3.0, ui.visuals().extreme_bg_color);
-    let ctx_at = |phase: f32| {
-        let mut c = EvalCtx::at(phase);
-        c.loop_beats = clock.loop_beats;
-        c
+    let music = music(ui);
+    let ctx_at = |phase: f32| match &music {
+        Some(m) if m.env.is_some() => {
+            EvalCtx::with_music(&m.timing, &m.settings, phase, m.env.as_deref())
+        }
+        Some(MusicPreview {
+            live: Some(f),
+            timing,
+            ..
+        }) => EvalCtx::new(timing, phase, None).with_frame(*f),
+        _ => {
+            let mut c = EvalCtx::at(phase);
+            c.loop_beats = clock.loop_beats;
+            c
+        }
     };
     let n = 120;
     let vals: Vec<f32> = (0..=n)
@@ -369,11 +397,14 @@ pub fn param(
                     )
                     .on_hover_text("Shift the timing (fraction of one cycle)")
                     .changed();
-                changed |= ui
-                    .add(egui::DragValue::new(&mut p.audio).speed(0.01).prefix("♪ "))
-                    .on_hover_text("Add the music loudness (needs a music file)")
-                    .changed();
+                if p.audio != 0.0 {
+                    changed |= ui
+                        .add(egui::DragValue::new(&mut p.audio).speed(0.01).prefix("♪ "))
+                        .on_hover_text("Adds the music loudness (older projects; use the 🎵 row)")
+                        .changed();
+                }
             });
+            changed |= music_row(ui, id, p, span);
             if wake && p.amp == 0.0 {
                 p.amp = span * 0.25;
             }
@@ -383,6 +414,111 @@ pub fn param(
         });
     }
     ui.data_mut(|d| d.insert_temp(id, open));
+    changed
+}
+
+/// The 🎵 row of a `~` panel: which part of the music drives the value.
+fn music_row(ui: &mut Ui, id: egui::Id, p: &mut Param, span: f32) -> bool {
+    use ez_core::AudioSource;
+    let mut changed = false;
+    let m = &mut p.music;
+    ui.horizontal(|ui| {
+        let text = if m.amount == 0.0 {
+            "🎵 music: off".to_string()
+        } else {
+            format!("🎵 {}", m.source.label())
+        };
+        egui::ComboBox::from_id_salt(id.with("music"))
+            .selected_text(text)
+            .width(150.0)
+            .height(420.0)
+            .show_ui(ui, |ui| {
+                if ui.selectable_label(m.amount == 0.0, "Off").clicked() {
+                    m.amount = 0.0;
+                    changed = true;
+                }
+                for (title, list) in [
+                    ("Follow", &AudioSource::FOLLOW[..]),
+                    ("On each hit", &AudioSource::HITS[..]),
+                ] {
+                    ui.separator();
+                    ui.label(RichText::new(title).small().weak());
+                    for src in list {
+                        let r = ui
+                            .selectable_label(m.amount != 0.0 && m.source == *src, src.label())
+                            .on_hover_text(src.description());
+                        if r.clicked() {
+                            m.source = *src;
+                            if m.amount == 0.0 {
+                                m.amount = if *src == AudioSource::Pitch {
+                                    1.0
+                                } else {
+                                    span * 0.3
+                                };
+                            }
+                            changed = true;
+                        }
+                    }
+                }
+            })
+            .response
+            .on_hover_text("React to the music (needs a music file, MIDI notes or live input)");
+        if m.amount != 0.0 {
+            changed |= ui
+                .add(
+                    egui::DragValue::new(&mut m.amount)
+                        .speed(span * 0.005)
+                        .prefix("× "),
+                )
+                .on_hover_text("How much the music moves the value (negative pulls it down)")
+                .changed();
+        }
+    });
+    if m.amount == 0.0 {
+        return changed;
+    }
+    ui.horizontal(|ui| {
+        if m.source.is_hit() {
+            egui::ComboBox::from_id_salt(id.with("music shape"))
+                .selected_text(m.shape.label())
+                .width(118.0)
+                .show_ui(ui, |ui| {
+                    for w in ez_core::Wave::ALL.iter().filter(|w| w.is_unipolar()) {
+                        changed |= ui
+                            .selectable_value(&mut m.shape, *w, w.label())
+                            .on_hover_text(w.description())
+                            .changed();
+                    }
+                })
+                .response
+                .on_hover_text("Shape played on every hit");
+            changed |= ui
+                .add(
+                    egui::DragValue::new(&mut m.length)
+                        .range(0.02..=16.0)
+                        .speed(0.01)
+                        .suffix(" beats"),
+                )
+                .on_hover_text("How long each hit lasts")
+                .changed();
+        } else {
+            changed |= ui
+                .checkbox(&mut m.smooth, "smooth")
+                .on_hover_text("Follow a smoothed curve instead of every twitch")
+                .changed();
+            if m.source != AudioSource::Pitch {
+                changed |= ui
+                    .add(
+                        egui::DragValue::new(&mut m.threshold)
+                            .range(0.0..=0.95)
+                            .speed(0.005)
+                            .prefix("ignore below "),
+                    )
+                    .on_hover_text("Only react to the loud parts")
+                    .changed();
+            }
+        }
+    });
     changed
 }
 

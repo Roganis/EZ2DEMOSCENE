@@ -122,10 +122,13 @@ pub fn run(args: &[String]) -> Result<Option<i32>> {
                 output: out,
                 ..Default::default()
             };
-            let audio = scene
-                .audio
-                .as_ref()
-                .and_then(|a| ez_export::analyze_audio(Path::new(a)).ok());
+            let audio = match ez_export::load_music(&scene) {
+                Ok(a) => a,
+                Err(e) => {
+                    eprintln!("warning: music ignored: {e:#}");
+                    None
+                }
+            };
             let cancel = AtomicBool::new(false);
             let mut last = 0;
             let path = ez_export::export(

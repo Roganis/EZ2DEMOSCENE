@@ -1216,6 +1216,14 @@ fn variation_ui(ui: &mut Ui, v: &mut Variation) {
         &mut v.ripple_spread,
         0.0..=8.0,
     );
+    ui.separator();
+    slider(
+        ui,
+        "Equalizer",
+        "Each copy grows and glows with one frequency band of the music, low notes first (needs music or live input)",
+        &mut v.spectrum,
+        -1.0..=4.0,
+    );
 }
 
 fn particles_ui(ui: &mut Ui, p: &mut ParticleLayer) {

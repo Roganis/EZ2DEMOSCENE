@@ -11,6 +11,7 @@ mod gizmo;
 mod inspector;
 #[cfg_attr(target_arch = "wasm32", path = "library_web.rs")]
 mod library;
+mod live;
 mod nodes;
 mod platform;
 mod viewport;

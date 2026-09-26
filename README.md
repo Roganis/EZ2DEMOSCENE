@@ -86,9 +86,18 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   (sample & hold, smooth random, drunken walk). The ♩ menu syncs it to
   every beat, bar or loop, a live graph previews the curve, and it can
   follow the **music**. Layers can also **shake** on the beat.
-- **Music.** Drop in an MP3/WAV/OGG/FLAC. It plays in sync with the loop,
-  and its loudness and kick envelopes can drive any value. It is also muxed
-  into video exports.
+- **Music.** Drop in an MP3/WAV/OGG/FLAC. It is analysed once: loudness,
+  kick, bass, mids, highs and brightness, hits (kicks, snares, hats,
+  onsets, notes), a 16-band spectrum, the melody's note and the tempo.
+  - Any value can **follow** a source or play a fade **on each hit** (the
+    🎵 row of its `~` panel), e.g. glow on every kick, hue from the melody.
+  - **Time warp** makes motion surge with the music while the loop still
+    ends where it started.
+  - **Equalizer** copies grow with the spectrum bands.
+  - Loop a window of the song (seamless, snapped to the detected tempo) or
+    run through the **whole song**; video exports mux the matching audio.
+  - **MIDI files** give exact drum hits and melody; **live input**
+    (microphone / line-in) drives the preview for VJ sets.
 - **Randomize / Surprise me.** Seeded, harmonious mutations (one global hue
   rotation, bounded counts, loop-safe motion), and every change can be
   undone.
@@ -201,6 +210,9 @@ ez2demoscene --write-textures assets/textures
 - Weather drops fall a whole number of times per loop, and lightning
   strikes are picked from time slots that wrap with the loop. Liquid
   currents drift a whole number of terrain lengths per loop.
+- Music in a loop window is sampled as a circle (curves fade into the
+  window's start, hits ring on past the loop point); time warp is
+  rescaled to end each loop exactly where it began.
 - Volumetric clouds can drift any distance: two copies of the cloud field,
   half a loop apart, cross-fade, so each one jumps back while invisible.
 - Film grain and VHS noise are hashed from a frame id that wraps with the loop.

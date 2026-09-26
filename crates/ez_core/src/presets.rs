@@ -108,6 +108,12 @@ pub fn all() -> Vec<Preset> {
             project: twister(),
         },
         Preset {
+            name: "Music Reactor",
+            description:
+                "Load a song: an equalizer wall, kick flashes, melody colours and time warp.",
+            project: music_reactor(),
+        },
+        Preset {
             name: "Empty",
             description: "A blank stage with a floor and a sky.",
             project: empty(),
@@ -2643,6 +2649,138 @@ pub fn twister() -> Project {
                 vignette: Param::new(0.6),
                 grain: Param::new(0.03),
                 ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+pub fn music_reactor() -> Project {
+    use crate::music::{AudioSource, MusicSettings, TimeWarp};
+    Project {
+        name: "Music Reactor".into(),
+        timing: crate::Timing {
+            bpm: 124.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Orbit,
+            target: [0.0, 2.5, 0.0],
+            distance: Param::new(14.0).with_music(AudioSource::KickHit, -1.2),
+            height: Param::new(3.0),
+            orbit_turns: 1,
+            fov: Param::new(60.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0x05030a),
+            fog_density: Param::new(0.02),
+            sky_color: hex(0x402060),
+            ground_color: hex(0x050505),
+            light_intensity: Param::new(1.0),
+            ambient: Param::new(0.2),
+            ..Default::default()
+        },
+        layers: vec![
+            sky(
+                BackdropKind::Nebula,
+                0x040208,
+                0x201040,
+                0xff3080,
+                RaySettings::default(),
+            ),
+            Layer::new(
+                "Floor",
+                LayerKind::Mirror(MirrorFloor {
+                    reflectivity: Param::new(0.5),
+                    grid: Param::new(0.4).with_music(AudioSource::KickHit, 2.0),
+                    grid_color: hex(0xff3080),
+                    ..Default::default()
+                }),
+            ),
+            Layer::new(
+                "Equalizer",
+                LayerKind::Mesh(MeshLayer {
+                    source: MeshSource::Primitive(Primitive::Cube),
+                    material: Material {
+                        base_color: hex(0x08080c),
+                        metallic: Param::new(0.8),
+                        roughness: Param::new(0.2),
+                        emissive: Param::new(0.8),
+                        emissive_color: hex(0x30c0ff),
+                        emissive_mode: EmissiveMode::Edges,
+                        flat_shading: true,
+                        hue_shift: Param::new(0.0).with_music(AudioSource::Pitch, 1.0),
+                        ..Default::default()
+                    },
+                    instancer: Instancer::Wall {
+                        cols: 16,
+                        rows: 1,
+                        spacing: 1.1,
+                        curve: 120.0,
+                    },
+                    variation: Variation {
+                        spectrum: 3.0,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, 0.5, -3.0]),
+            Layer::new(
+                "Core",
+                LayerKind::Mesh(mesh(
+                    Primitive::Icosahedron,
+                    Material {
+                        base_color: hex(0x101018),
+                        metallic: Param::new(0.9),
+                        roughness: Param::new(0.15),
+                        emissive: Param::new(0.3).with_music(AudioSource::KickHit, 4.0),
+                        emissive_color: hex(0xff3080),
+                        emissive_mode: EmissiveMode::Edges,
+                        flat_shading: true,
+                        ..Default::default()
+                    },
+                )),
+            )
+            .scaled(1.4)
+            .at([0.0, 2.5, 0.0])
+            .spin([1, 2, 0]),
+            Layer::new(
+                "Sparks",
+                LayerKind::Particles(ParticleLayer {
+                    emitter: Emitter::Burst,
+                    count: 600,
+                    lifetimes: 4,
+                    size: Param::new(0.05),
+                    speed: Param::new(1.0),
+                    radius: Param::new(4.0),
+                    color_a: hex(0xffe0a0),
+                    color_b: hex(0xff3080),
+                    intensity: Param::new(0.5).with_music(AudioSource::SnareHit, 4.0),
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, 2.5, 0.0]),
+        ],
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                intensity: Param::new(1.0),
+                threshold: Param::new(0.8),
+                radius: Param::new(0.8),
+            },
+            chroma: Chroma {
+                enabled: true,
+                amount: Param::new(0.0).with_music(AudioSource::KickHit, 0.012),
+            },
+            ..Default::default()
+        },
+        music: MusicSettings {
+            warp: TimeWarp {
+                source: AudioSource::Kick,
+                amount: 1.5,
             },
             ..Default::default()
         },

@@ -264,3 +264,56 @@ fn weather_liquids_and_skies_are_continuous() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// Music-driven values and time warp keep the loop seamless in loop-window
+/// mode, even with the window starting mid-bar, and actually react.
+#[test]
+fn music_reactive_scene_loops_and_reacts() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let rate = 22050.0f32;
+    let samples: Vec<f32> = (0..(rate * 12.0) as usize)
+        .map(|i| {
+            let t = i as f32 / rate;
+            let bt = (t * 124.0 / 60.0).fract() * 60.0 / 124.0;
+            let kick = (std::f32::consts::TAU * 60.0 * bt).sin() * (-bt * 30.0).exp();
+            let tone = (std::f32::consts::TAU * 330.0 * t).sin() * 0.1 * (1.0 + (t * 0.5).sin());
+            kick * 0.8 + tone
+        })
+        .collect();
+    let env = analysis::analyze(&samples, rate);
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let target = r.create_target(160, 90);
+    let mut p = presets::music_reactor();
+    p.music.offset = 1.37;
+    let mut at = |p: &Project, phase: f32, audio: Option<&AudioEnvelope>| {
+        r_render(&mut r, p, &p.ctx(phase, audio), &target)
+    };
+    fn r_render(
+        r: &mut Renderer,
+        p: &Project,
+        ctx: &EvalCtx,
+        t: &ez_render::RenderTarget,
+    ) -> Vec<u8> {
+        r.render_image(p, ctx, t).into_raw()
+    }
+    p.post.grade.grain = Param::new(0.0);
+    let a = at(&p, 0.0, Some(&env));
+    let b = at(&p, 1.0 - 2e-5, Some(&env));
+    let mid = at(&p, 0.3, Some(&env));
+    let mid_before = at(&p, 0.3 - 2e-5, Some(&env));
+    let seam = mean_abs_diff(&a, &b);
+    let baseline = mean_abs_diff(&mid, &mid_before);
+    eprintln!("music reactor seam {seam:.3} (elsewhere {baseline:.3})");
+    assert!(seam < baseline + 0.6, "music-driven loop jumps: {seam}");
+    let silent = at(&p, 0.3, None);
+    let react = mean_abs_diff(&mid, &silent);
+    eprintln!("music reactor reaction {react:.2}");
+    assert!(react > 1.0, "the music changes nothing: {react}");
+}

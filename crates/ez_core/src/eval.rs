@@ -85,7 +85,8 @@ pub fn layer_frame(t: &Transform, ctx: &EvalCtx) -> Mat4 {
 /// Offset and extra rotation of a shake at this moment.
 pub fn shake_offset(s: &Shake, ctx: &EvalCtx) -> (Vec3, Quat) {
     let n = s.per_loop.max(1);
-    let step = ((ctx.phase.rem_euclid(1.0) * n as f32).floor() as u32).min(n - 1);
+    // Jolts keep to the real beat, even with time warp.
+    let step = ((ctx.beat_phase.rem_euclid(1.0) * n as f32).floor() as u32).min(n - 1);
     let key = step.wrapping_mul(0x9e37_79b9) ^ s.seed.wrapping_mul(0x85eb_ca6b);
     let r = |k: u32| hash2(key, k) * 2.0 - 1.0;
     let dir = Vec3::new(r(11), r(12), r(13));
@@ -299,6 +300,7 @@ pub fn instances_are_static(layer: &Layer, mesh: &MeshLayer) -> bool {
         && v.spin == 0
         && v.ripple == 0.0
         && v.chase == 0.0
+        && v.spectrum == 0.0
 }
 
 /// All instances of a mesh layer in world space.
@@ -338,14 +340,26 @@ pub fn mesh_instances(layer: &Layer, mesh: &MeshLayer, ctx: &EvalCtx, out: &mut 
         if v.ripple != 0.0 {
             s *= 1.0 + v.ripple * (wave_x * TAU).sin();
         }
+        let band = if v.spectrum != 0.0 {
+            ctx.music.band_for(i, locals.len())
+        } else {
+            0.0
+        };
+
         let s = s.max(0.02);
         var *= Mat4::from_scale(Vec3::splat(s));
+        if band != 0.0 {
+            // Equalizer bars grow upwards from their base.
+            let k = (1.0 + v.spectrum * band).max(0.02);
+            var *= Mat4::from_translation(Vec3::Y * (k - 1.0) * 0.5)
+                * Mat4::from_scale(Vec3::new(1.0, k, 1.0));
+        }
         let glow = if v.chase != 0.0 {
             let w = 0.5 + 0.5 * (wave_x * TAU).sin();
             1.0 + v.chase * (w.powi(6) * 3.0 - 0.5)
         } else {
             1.0
-        };
+        } + v.spectrum.abs() * band * 2.0;
         let hue = if v.hue != 0.0 {
             v.hue * (r(10) - 0.5)
         } else {

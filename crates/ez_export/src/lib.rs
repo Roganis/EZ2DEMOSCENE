@@ -145,7 +145,7 @@ pub fn find_ffmpeg(explicit: Option<&Path>) -> Option<PathBuf> {
     })
 }
 
-/// Decode an audio file and build loudness envelopes (100 samples/s).
+/// Decode an audio file and analyse it (bands, hits, tempo, pitch).
 pub fn analyze_audio(path: &Path) -> Result<AudioEnvelope> {
     analyze_audio_asset(&path.to_string_lossy())
 }
@@ -156,62 +156,76 @@ pub fn analyze_audio_asset(path: &str) -> Result<AudioEnvelope> {
     analyze_audio_bytes(bytes.to_vec()).with_context(|| format!("decoding {path}"))
 }
 
-/// Decode audio held in memory and build loudness envelopes.
+/// Decode audio held in memory and analyse it.
 pub fn analyze_audio_bytes(bytes: Vec<u8>) -> Result<AudioEnvelope> {
     use rodio::Source;
     let dec = rodio::Decoder::new(std::io::Cursor::new(bytes))?;
     let channels = dec.channels().get() as usize;
     let rate = dec.sample_rate().get() as f32;
-    let env_rate = 100.0;
-    let hop = ((rate / env_rate) as usize).max(1) * channels;
-    let mut level = Vec::new();
-    let mut bass = Vec::new();
-    let (mut acc, mut acc_low, mut n) = (0.0f32, 0.0f32, 0usize);
-    let mut low = 0.0f32;
-    // One-pole low-pass at ~150 Hz for the "kick" band.
-    let k = 1.0 - (-2.0 * std::f32::consts::PI * 150.0 / rate).exp();
-    let mut frame_sum = 0.0f32;
-    let mut ch = 0usize;
+    let mut mono = Vec::new();
+    let (mut sum, mut ch) = (0.0f32, 0usize);
     for s in dec {
-        acc += s * s;
-        frame_sum += s;
+        sum += s;
         ch += 1;
         if ch == channels {
-            let mono = frame_sum / channels as f32;
-            low += k * (mono - low);
-            acc_low += low * low;
-            frame_sum = 0.0;
+            mono.push(sum / channels as f32);
+            sum = 0.0;
             ch = 0;
         }
-        n += 1;
-        if n == hop {
-            level.push((acc / n as f32).sqrt());
-            bass.push((acc_low / (n / channels).max(1) as f32).sqrt());
-            acc = 0.0;
-            acc_low = 0.0;
-            n = 0;
-        }
     }
-    if level.is_empty() {
+    if mono.is_empty() {
         bail!("the file contains no audio");
     }
-    let norm = |v: &mut Vec<f32>| {
-        let mut sorted = v.clone();
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        let peak = sorted[(sorted.len() as f32 * 0.98) as usize].max(1e-6);
-        for x in v.iter_mut() {
-            *x = (*x / peak).min(1.0);
-        }
+    Ok(ez_core::analysis::analyze(&mono, rate))
+}
+
+/// The music of a project: the analysed audio file and/or MIDI notes
+/// (MIDI replaces the detected hits and pitch). `None` without either.
+pub fn load_music(project: &ez_core::Project) -> Result<Option<AudioEnvelope>> {
+    let mut env = match &project.audio {
+        Some(a) => Some(analyze_audio_asset(a)?),
+        None => None,
     };
-    norm(&mut level);
-    norm(&mut bass);
-    let duration = level.len() as f32 / env_rate;
-    Ok(AudioEnvelope {
-        rate: env_rate,
-        level,
-        bass,
-        duration,
-    })
+    if let Some(m) = &project.music.midi {
+        let bytes = ez_core::store::read(m).with_context(|| format!("opening {m}"))?;
+        let midi = ez_core::midi::parse(&bytes).map_err(|e| anyhow::anyhow!("{m}: {e}"))?;
+        match &mut env {
+            Some(e) => e.apply_midi(&midi, project.music.midi_offset),
+            None => env = Some(AudioEnvelope::from_midi(&midi)),
+        }
+    }
+    Ok(env)
+}
+
+/// Frames of one export pass: one loop, or the whole song in full-track
+/// mode. Returns (frames, whether frames are loop phases).
+pub fn export_frames(
+    project: &ez_core::Project,
+    audio: Option<&AudioEnvelope>,
+    fps: f32,
+) -> (u32, bool) {
+    match (project.music.mode, audio) {
+        (ez_core::MusicMode::FullTrack, Some(a)) => {
+            (((a.duration * fps).round() as u32).max(1), false)
+        }
+        _ => (project.timing.frame_count(fps), true),
+    }
+}
+
+/// Evaluation context of frame `i` of an export pass.
+pub fn export_ctx(
+    project: &ez_core::Project,
+    audio: Option<&AudioEnvelope>,
+    fps: f32,
+    frames: u32,
+    looped: bool,
+    i: u32,
+) -> ez_core::EvalCtx {
+    if looped {
+        project.ctx((i % frames) as f32 / frames as f32, audio)
+    } else {
+        project.ctx_at(i as f64 / fps as f64, audio)
+    }
 }
 
 /// Render the loop and write it out. `progress` is called after every frame;
@@ -225,8 +239,8 @@ pub fn export(
     cancel: &AtomicBool,
 ) -> Result<PathBuf> {
     let (w, h) = (settings.width.max(16) & !1, settings.height.max(16) & !1);
-    let frames = project.timing.frame_count(settings.fps);
-    let repeats = if settings.format == ExportFormat::PngSequence {
+    let (frames, looped) = export_frames(project, audio, settings.fps);
+    let repeats = if settings.format == ExportFormat::PngSequence || !looped {
         1
     } else {
         settings.repeats.max(1)
@@ -238,8 +252,7 @@ pub fn export(
     let target = renderer.create_target(w, h);
 
     let render_frame = |renderer: &mut Renderer, i: u32| -> Vec<u8> {
-        let phase = (i % frames) as f32 / frames as f32;
-        let ctx = EvalCtx::new(&project.timing, phase, audio);
+        let ctx: EvalCtx = export_ctx(project, audio, settings.fps, frames, looped, i);
         renderer.render(project, &ctx, &target);
         renderer.read_pixels(&target)
     };
@@ -280,7 +293,22 @@ pub fn export(
                 .args(["-r", &format!("{}", settings.fps)])
                 .args(["-i", "-"]);
             if let Some(a) = audio_path {
-                cmd.args(["-stream_loop", "-1", "-i", a]);
+                if looped {
+                    // The loop window of the song, repeated with the video.
+                    let sr = audio.map(|e| e.sample_rate).unwrap_or(44100).max(1);
+                    let start = project.music.offset.max(0.0);
+                    let len = project.timing.loop_seconds();
+                    cmd.args(["-i", a]).args([
+                        "-filter_complex",
+                        &format!(
+                            "[1:a]atrim=start={start}:duration={len},asetpts=PTS-STARTPTS,aloop=loop={}:size={}[aud]",
+                            repeats.saturating_sub(1),
+                            (len * sr as f32).round() as u64
+                        ),
+                    ]);
+                } else {
+                    cmd.args(["-i", a]);
+                }
             }
             match fmt {
                 ExportFormat::Mp4 => {
@@ -312,13 +340,15 @@ pub fn export(
                 ExportFormat::PngSequence => unreachable!(),
             }
             if audio_path.is_some() {
-                cmd.args(["-map", "0:v", "-map", "1:a", "-c:a"]);
+                let track = if looped { "[aud]" } else { "1:a" };
+                cmd.args(["-map", "0:v", "-map", track, "-c:a"]);
                 cmd.arg(if fmt == ExportFormat::WebM {
                     "libopus"
                 } else {
                     "aac"
                 });
                 cmd.args(["-t", &format!("{}", loop_secs * repeats as f32)]);
+                cmd.arg("-shortest");
             }
             cmd.arg(&settings.output);
             cmd.stdin(Stdio::piped())
@@ -458,14 +488,97 @@ mod tests {
         // 1 s of 440 Hz tone with a 60 Hz "kick" in the second half.
         let path = tmp("tone.wav");
         let rate = 22050u32;
-        let mut data = Vec::new();
-        for i in 0..rate {
-            let t = i as f32 / rate as f32;
-            let mut s = (t * 440.0 * std::f32::consts::TAU).sin() * 0.3;
-            if t > 0.5 {
-                s += (t * 60.0 * std::f32::consts::TAU).sin() * 0.6;
+        let samples: Vec<f32> = (0..rate)
+            .map(|i| {
+                let t = i as f32 / rate as f32;
+                let mut s = (t * 440.0 * std::f32::consts::TAU).sin() * 0.3;
+                if t > 0.5 {
+                    s += (t * 60.0 * std::f32::consts::TAU).sin() * 0.6;
+                }
+                s
+            })
+            .collect();
+        write_wav(&path, &samples, rate);
+        let env = analyze_audio(&path).unwrap();
+        assert!((env.duration - 1.0).abs() < 0.05);
+        let (_, bass_early) = env.sample(0.25);
+        let (_, bass_late) = env.sample(0.75);
+        assert!(bass_late > bass_early * 2.0, "{bass_early} vs {bass_late}");
+    }
+
+    /// Full-track exports run through the whole song; loop-window exports
+    /// mux the window of the song, repeated.
+    #[test]
+    fn music_modes_export() {
+        if Gpu::headless().is_err() {
+            eprintln!("no GPU, skipping");
+            return;
+        }
+        let rate = 22050u32;
+        let samples: Vec<f32> = (0..rate * 3)
+            .map(|i| {
+                let t = i as f32 / rate as f32;
+                let bt = (t * 2.0).fract() / 2.0;
+                (std::f32::consts::TAU * 60.0 * bt).sin() * (-bt * 30.0).exp() * 0.8
+            })
+            .collect();
+        let wav = tmp("beat.wav");
+        write_wav(&wav, &samples, rate);
+        let mut p = presets::orbiting_solid();
+        p.timing.bpm = 240.0;
+        p.timing.loop_beats = 2; // 0.5 s
+        p.audio = Some(wav.to_string_lossy().to_string());
+        p.music.offset = 0.7;
+        let env = load_music(&p).unwrap().expect("music");
+        let cancel = AtomicBool::new(false);
+        let mut s = ExportSettings {
+            format: ExportFormat::PngSequence,
+            width: 64,
+            height: 36,
+            fps: 10.0,
+            output: tmp("fulltrack"),
+            ..Default::default()
+        };
+        p.music.mode = ez_core::MusicMode::FullTrack;
+        let _ = std::fs::remove_dir_all(&s.output);
+        export(&p, &s, Some(&env), |_| {}, &cancel).unwrap();
+        assert_eq!(std::fs::read_dir(&s.output).unwrap().count(), 30);
+        if find_ffmpeg(None).is_none() {
+            eprintln!("no ffmpeg, skipping video");
+            return;
+        }
+        p.music.mode = ez_core::MusicMode::LoopWindow;
+        s.format = ExportFormat::Mp4;
+        s.repeats = 3;
+        s.output = tmp("window.mp4");
+        export(&p, &s, Some(&env), |_| {}, &cancel).unwrap();
+        // The file has a video and an audio stream of 3 loops (1.5 s).
+        let probe = Command::new("ffprobe")
+            .args([
+                "-v",
+                "error",
+                "-show_entries",
+                "stream=codec_type,duration",
+                "-of",
+                "csv=p=0",
+            ])
+            .arg(&s.output)
+            .output();
+        if let Ok(out) = probe {
+            let text = String::from_utf8_lossy(&out.stdout).to_string();
+            assert!(text.contains("audio"), "no audio stream: {text}");
+            for line in text.lines() {
+                if let Some(d) = line.split(',').nth(1).and_then(|d| d.parse::<f32>().ok()) {
+                    assert!((d - 1.5).abs() < 0.15, "stream length {d}: {text}");
+                }
             }
-            data.extend_from_slice(&((s * 32767.0) as i16).to_le_bytes());
+        }
+    }
+
+    fn write_wav(path: &Path, samples: &[f32], rate: u32) {
+        let mut data = Vec::new();
+        for s in samples {
+            data.extend_from_slice(&((s.clamp(-1.0, 1.0) * 32767.0) as i16).to_le_bytes());
         }
         let mut wav = Vec::new();
         wav.extend_from_slice(b"RIFF");
@@ -481,11 +594,6 @@ mod tests {
         wav.extend_from_slice(b"data");
         wav.extend_from_slice(&(data.len() as u32).to_le_bytes());
         wav.extend_from_slice(&data);
-        std::fs::write(&path, wav).unwrap();
-        let env = analyze_audio(&path).unwrap();
-        assert!((env.duration - 1.0).abs() < 0.05);
-        let (_, bass_early) = env.sample(0.25);
-        let (_, bass_late) = env.sample(0.75);
-        assert!(bass_late > bass_early * 2.0, "{bass_early} vs {bass_late}");
+        std::fs::write(path, wav).unwrap();
     }
 }

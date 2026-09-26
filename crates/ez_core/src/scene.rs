@@ -37,6 +37,9 @@ pub struct Project {
     pub textures: Vec<UserTexture>,
     /// Optional music file played with the loop and used for modulation.
     pub audio: Option<String>,
+    /// Which part of the song the loop uses, MIDI notes and time warp.
+    #[serde(skip_serializing_if = "is_default")]
+    pub music: crate::music::MusicSettings,
     /// When `Some` and `use_graph` is set, layers come from the node graph.
     pub graph: Option<Graph>,
     pub use_graph: bool,
@@ -54,6 +57,7 @@ impl Default for Project {
             post: PostStack::default(),
             textures: Vec::new(),
             audio: None,
+            music: Default::default(),
             graph: None,
             use_graph: false,
         }
@@ -61,6 +65,42 @@ impl Default for Project {
 }
 
 impl Project {
+    /// Evaluation context at a loop phase (loop-window mode).
+    pub fn ctx(&self, phase: f32, audio: Option<&crate::AudioEnvelope>) -> crate::EvalCtx {
+        crate::EvalCtx::with_music(&self.timing, &self.music, phase, audio)
+    }
+
+    /// Evaluation context `seconds` after playback started: wraps around
+    /// the loop, or runs through the song in full-track mode.
+    pub fn ctx_at(&self, seconds: f64, audio: Option<&crate::AudioEnvelope>) -> crate::EvalCtx {
+        match (self.music.mode, audio) {
+            (crate::MusicMode::FullTrack, Some(a)) => {
+                crate::EvalCtx::song(&self.timing, &self.music, seconds as f32, Some(a))
+            }
+            _ => self.ctx(self.timing.phase_at(seconds), audio),
+        }
+    }
+
+    /// Length of one playback cycle: the loop, or the whole song in
+    /// full-track mode.
+    pub fn play_seconds(&self, audio: Option<&crate::AudioEnvelope>) -> f64 {
+        match (self.music.mode, audio) {
+            (crate::MusicMode::FullTrack, Some(a)) => a.duration.max(0.1) as f64,
+            _ => self.timing.loop_seconds() as f64,
+        }
+    }
+
+    /// Where the song should be playing `seconds` after playback started.
+    pub fn song_seconds(&self, seconds: f64) -> f32 {
+        match self.music.mode {
+            crate::MusicMode::FullTrack => seconds as f32,
+            crate::MusicMode::LoopWindow => {
+                self.music.offset.max(0.0)
+                    + self.timing.phase_at(seconds) * self.timing.loop_seconds()
+            }
+        }
+    }
+
     pub fn to_json(&self) -> String {
         serde_json::to_string_pretty(self).expect("project serialises")
     }
@@ -1018,6 +1058,10 @@ pub struct Variation {
     pub ripple_spread: f32,
     /// Travelling emissive wave (lights chasing along the instances).
     pub chase: f32,
+    /// Equalizer: copy i grows upwards and glows with frequency band i of
+    /// the music (low notes first).
+    #[serde(skip_serializing_if = "is_default")]
+    pub spectrum: f32,
 }
 
 impl Default for Variation {
@@ -1032,6 +1076,7 @@ impl Default for Variation {
             ripple_cycles: 1,
             ripple_spread: 1.0,
             chase: 0.0,
+            spectrum: 0.0,
         }
     }
 }

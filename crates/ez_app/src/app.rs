@@ -19,6 +19,7 @@ use std::path::Path;
 use std::path::PathBuf;
 
 pub const AUDIO_EXTENSIONS: &[&str] = &["mp3", "wav", "ogg", "flac", "m4a", "aac"];
+pub const MIDI_EXTENSIONS: &[&str] = &["mid", "midi"];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Selection {
@@ -77,7 +78,12 @@ pub struct EzApp {
     aspect: (u32, u32),
 
     audio: Option<AudioPlayer>,
-    audio_env: Option<AudioEnvelope>,
+    audio_env: Option<std::sync::Arc<AudioEnvelope>>,
+    /// What `audio_env` was built from (audio, MIDI, MIDI offset).
+    music_key: (Option<String>, Option<String>, u32),
+    /// Microphone / line-in driving the preview.
+    live: Option<crate::live::LiveInput>,
+    live_frame: Option<ez_core::MusicFrame>,
 
     presets_open: bool,
     thumbs: Vec<Thumb>,
@@ -159,6 +165,9 @@ impl EzApp {
             aspect: (16, 9),
             audio: None,
             audio_env: None,
+            music_key: (None, None, 0),
+            live: None,
+            live_frame: None,
             presets_open: false,
             thumbs: Vec::new(),
             randomize_open: false,
@@ -215,7 +224,7 @@ impl EzApp {
         self.presets_open = false;
         self.library.discard_recovery();
         self.export
-            .start_test(&format, &self.project, self.audio_env.as_ref());
+            .start_test(&format, &self.project, self.audio_env.as_deref());
     }
 
     fn set_status(&mut self, msg: impl Into<String>, error: bool) {
@@ -224,6 +233,21 @@ impl EzApp {
 
     fn loop_seconds(&self) -> f64 {
         self.project.timing.loop_seconds() as f64
+    }
+
+    /// Length of one playback cycle: the loop, or the song in full-track
+    /// mode.
+    fn play_seconds(&self) -> f64 {
+        self.project.play_seconds(self.audio_env.as_deref())
+    }
+
+    /// Everything animated values depend on right now.
+    fn eval_ctx(&self) -> EvalCtx {
+        let ctx = self.project.ctx_at(self.time, self.audio_env.as_deref());
+        match self.live_frame {
+            Some(f) => ctx.with_frame(f),
+            None => ctx,
+        }
     }
 
     fn phase(&self) -> f32 {
@@ -362,7 +386,7 @@ impl EzApp {
     /// result is handled by [`Self::finish_captures`].
     fn capture(&mut self, project: Project, w: u32, h: u32, what: Capture) {
         let target = self.viewport.renderer.create_target(w, h);
-        let ctx = EvalCtx::new(&project.timing, self.phase(), self.audio_env.as_ref());
+        let ctx = project.ctx_at(self.time, self.audio_env.as_deref());
         self.viewport.renderer.render(&project, &ctx, &target);
         let rb = self.viewport.renderer.start_readback(&target);
         self.captures.push((rb, project, what));
@@ -467,18 +491,34 @@ impl EzApp {
         self.reload_audio();
     }
 
+    fn music_key(&self) -> (Option<String>, Option<String>, u32) {
+        (
+            self.project.audio.clone(),
+            self.project.music.midi.clone(),
+            self.project.music.midi_offset.to_bits(),
+        )
+    }
+
     fn reload_audio(&mut self) {
-        self.audio = None;
+        let audio_changed = self.music_key.0 != self.project.audio;
+        self.music_key = self.music_key();
+        if audio_changed {
+            self.audio = None;
+        }
         self.audio_env = None;
-        let Some(path) = self.project.audio.clone() else {
-            return;
-        };
-        match ez_export::analyze_audio_asset(&path) {
-            Ok(env) => self.audio_env = Some(env),
+        match ez_export::load_music(&self.project) {
+            Ok(env) => self.audio_env = env.map(std::sync::Arc::new),
             Err(e) => {
                 self.set_status(format!("Music: {e:#}"), true);
                 return;
             }
+        }
+        let Some(path) = self.project.audio.clone() else {
+            self.audio = None;
+            return;
+        };
+        if self.audio.is_some() {
+            return;
         }
         match AudioPlayer::new(&path) {
             Ok(a) => self.audio = Some(a),
@@ -516,6 +556,8 @@ impl EzApp {
                         }
                     } else if AUDIO_EXTENSIONS.contains(&ext.as_str()) {
                         Purpose::LoadMusic
+                    } else if MIDI_EXTENSIONS.contains(&ext.as_str()) {
+                        Purpose::LoadMidi
                     } else {
                         self.set_status(format!("Don't know what to do with {}", p.name), true);
                         continue;
@@ -560,6 +602,14 @@ impl EzApp {
                     self.set_status(format!("Added image '{name}'"), false);
                 }
                 Purpose::LoadMusic => self.set_audio(Some(p.path.clone())),
+                Purpose::LoadMidi => {
+                    self.project.music.midi = Some(p.path.clone());
+                    self.reload_audio();
+                    self.set_status(
+                        format!("MIDI notes from {} drive the hits and pitch", p.name),
+                        false,
+                    );
+                }
                 Purpose::Dropped => {}
             }
         }
@@ -1089,33 +1139,201 @@ impl EzApp {
         ui.heading("Music");
         match self.project.audio.clone() {
             Some(p) => {
-                ui.label(RichText::new(ez_core::store::file_name(&p).to_string()).strong());
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(ez_core::store::file_name(&p).to_string()).strong());
+                    if ui
+                        .small_button("🗑")
+                        .on_hover_text("Remove the music")
+                        .clicked()
+                    {
+                        self.set_audio(None);
+                    }
+                });
                 if let Some(a) = &mut self.audio {
                     ui.add(egui::Slider::new(&mut a.volume, 0.0..=1.0).text("volume"));
                 }
-                if let Some(env) = &self.audio_env {
-                    ui.label(RichText::new(format!("{:.1} s analysed — use the ♪ amount on any animated value to react to it.", env.duration)).weak());
-                    if ui
-                        .button("Detect tempo from length")
-                        .on_hover_text(
-                            "Sets the BPM so the whole track is one loop of the current length",
-                        )
-                        .clicked()
-                        && env.duration > 0.5
-                    {
-                        self.project.timing.bpm = (self.project.timing.loop_beats as f32 * 60.0
-                            / env.duration)
-                            .clamp(40.0, 240.0);
-                    }
-                }
-                if ui.button("Remove music").clicked() {
-                    self.set_audio(None);
-                }
             }
             None => {
-                ui.label(RichText::new("Optional: drop an MP3/WAV/OGG/FLAC here or pick one. The loop plays with it and values can pulse with it.").weak());
+                ui.label(RichText::new("Optional: drop an MP3/WAV/OGG/FLAC here or pick one. The loop plays with it, and any value can react to its kicks, bass, hits or melody.").weak());
                 if ui.button("Load music…").clicked() {
                     platform::pick(Purpose::LoadMusic);
+                }
+            }
+        }
+        ui.horizontal(|ui| {
+            match self.project.music.midi.clone() {
+                Some(m) => {
+                    ui.label(format!("MIDI: {}", ez_core::store::file_name(&m)));
+                    if ui.small_button("🗑").on_hover_text("Remove the MIDI file").clicked() {
+                        self.project.music.midi = None;
+                    }
+                }
+                None => {
+                    if ui
+                        .button("Load MIDI notes…")
+                        .on_hover_text("Exact hits (drums on channel 10) and melody from a .mid file, instead of guessing them from the audio")
+                        .clicked()
+                    {
+                        platform::pick(Purpose::LoadMidi);
+                    }
+                }
+            }
+        });
+        if self.project.music.midi.is_some() && self.project.audio.is_some() {
+            widgets::slider(
+                ui,
+                "MIDI offset",
+                "Shift the notes against the audio (seconds)",
+                &mut self.project.music.midi_offset,
+                -5.0..=5.0,
+            );
+        }
+        let Some(env) = self.audio_env.clone() else {
+            self.live_ui(ui);
+            return;
+        };
+        let tempo = env.tempo;
+        ui.label(
+            RichText::new(match tempo {
+                Some((bpm, _)) => format!("{:.1} s analysed · about {bpm:.1} BPM", env.duration),
+                None => format!("{:.1} s analysed", env.duration),
+            })
+            .weak(),
+        );
+        ui.add_space(4.0);
+        let m = &mut self.project.music;
+        widgets::combo(
+            ui,
+            "Plays",
+            "Loop a part of the song (seamless) or play the whole song (exports last as long as the song)",
+            &mut m.mode,
+            &ez_core::MusicMode::ALL,
+            |m| m.label(),
+        );
+        let loop_s = self.project.timing.loop_seconds();
+        if m.mode == ez_core::MusicMode::LoopWindow {
+            let max = (env.duration - loop_s).max(0.0);
+            widgets::slider(
+                ui,
+                "Starts at",
+                "Where in the song the loop window begins (seconds)",
+                &mut m.offset,
+                0.0..=max.max(0.01),
+            );
+            ui.horizontal(|ui| {
+                if let Some((bpm, downbeat)) = tempo {
+                    if ui
+                        .button("Use song tempo")
+                        .on_hover_text(format!(
+                            "Set the tempo to {bpm:.1} BPM and snap the window to a bar"
+                        ))
+                        .clicked()
+                    {
+                        self.project.timing.bpm = bpm;
+                        let bar = 240.0 / bpm;
+                        let m = &mut self.project.music;
+                        m.offset =
+                            (downbeat + ((m.offset - downbeat) / bar).round() * bar).max(0.0);
+                    }
+                    if ui
+                        .button("Snap to bar")
+                        .on_hover_text("Move the window start onto the nearest bar of the song")
+                        .clicked()
+                    {
+                        let bar = 240.0 / self.project.timing.bpm.max(1.0);
+                        let m = &mut self.project.music;
+                        m.offset =
+                            (downbeat + ((m.offset - downbeat) / bar).round() * bar).max(0.0);
+                    }
+                }
+                if ui
+                    .button("Fit whole song")
+                    .on_hover_text(
+                        "Set the BPM so the whole track is one loop of the current length",
+                    )
+                    .clicked()
+                    && env.duration > 0.5
+                {
+                    self.project.timing.bpm = (self.project.timing.loop_beats as f32 * 60.0
+                        / env.duration)
+                        .clamp(20.0, 300.0);
+                    self.project.music.offset = 0.0;
+                }
+            });
+        } else {
+            ui.label(
+                RichText::new(format!(
+                    "The preview and exports run through the whole song ({:.1} s); loop animations keep cycling underneath.",
+                    env.duration
+                ))
+                .weak(),
+            );
+        }
+        ui.add_space(6.0);
+        let w = &mut self.project.music.warp;
+        widgets::section(ui, "Time warp", true, |ui| {
+            ui.label(RichText::new("Motion (spins, orbits, scrolling, LFOs) speeds up with the music, and the loop still ends where it started. Beat fades, strobes and blinks stay on the beat.").weak().small());
+            widgets::combo(
+                ui,
+                "Follows",
+                "",
+                &mut w.source,
+                &ez_core::AudioSource::FOLLOW[..6],
+                |s| s.label(),
+            );
+            widgets::slider(
+                ui,
+                "Amount",
+                "0 = off; 2 = up to 3× as fast on full hits; negative slows down on hits",
+                &mut w.amount,
+                -0.9..=6.0,
+            );
+        });
+        ui.add_space(6.0);
+        let frame = self.eval_ctx().music;
+        widgets::section(ui, "Meters", true, |ui| music_meters(ui, &frame));
+        self.live_ui(ui);
+    }
+
+    fn live_ui(&mut self, ui: &mut Ui) {
+        ui.add_space(6.0);
+        let mut on = self.live.is_some();
+        if ui
+            .checkbox(&mut on, "Live input (microphone / line-in)")
+            .on_hover_text("React to live sound in the preview, e.g. for VJ sets. Exports always use the music file, which is repeatable.")
+            .changed()
+        {
+            if on {
+                match crate::live::LiveInput::start() {
+                    Ok(l) => {
+                        self.set_status(format!("Listening to {}", l.name), false);
+                        self.live = Some(l);
+                    }
+                    Err(e) => self.set_status(format!("Live input: {e:#}"), true),
+                }
+            } else {
+                self.live = None;
+            }
+        }
+        #[cfg(target_arch = "wasm32")]
+        if let Some(e) = self.live.as_ref().and_then(|l| l.error()) {
+            ui.label(
+                RichText::new(format!("⚠ {e}"))
+                    .color(Color32::LIGHT_RED)
+                    .small(),
+            );
+        }
+        if self.live.is_some() {
+            ui.label(
+                RichText::new(
+                    "Live: the preview reacts to what the microphone hears (music file paused).",
+                )
+                .weak()
+                .small(),
+            );
+            if self.audio_env.is_none() {
+                if let Some(f) = self.live_frame {
+                    music_meters(ui, &f);
                 }
             }
         }
@@ -1148,9 +1366,16 @@ impl EzApp {
             );
             let painter = ui.painter_at(rect);
             painter.rect_filled(rect, 4.0, ui.visuals().extreme_bg_color);
-            for b in 0..=beats {
-                let x = rect.left() + rect.width() * b as f32 / beats as f32;
+            let play_s = self.play_seconds();
+            let full = play_s > loop_s + 1e-6;
+            // Beat ticks (bars only when showing the whole song).
+            let beat_s = loop_s / beats as f64;
+            let ticks = (play_s / beat_s).round().max(1.0) as u32;
+            let step = if ticks > 64 { 4 } else { 1 };
+            for b in (0..=ticks).step_by(step) {
+                let x = rect.left() + rect.width() * (b as f64 * beat_s / play_s) as f32;
                 let bar = b % 4 == 0;
+                let loop_start = full && b % beats == 0;
                 let h = if bar {
                     rect.height()
                 } else {
@@ -1163,7 +1388,9 @@ impl EzApp {
                     ],
                     egui::Stroke::new(
                         1.0,
-                        if bar {
+                        if loop_start {
+                            Color32::from_gray(170)
+                        } else if bar {
                             Color32::from_gray(120)
                         } else {
                             Color32::from_gray(70)
@@ -1172,10 +1399,12 @@ impl EzApp {
                 );
             }
             if let Some(env) = &self.audio_env {
+                let song_at = |f: f64| self.project.song_seconds(f * play_s);
                 let n = rect.width() as usize;
                 for i in 0..n {
-                    let t = i as f32 / n as f32 * loop_s as f32;
-                    let (lv, bass) = env.sample(t);
+                    let ts = song_at(i as f64 / n as f64);
+                    let lv = env.value(ez_core::audio::Curve::Level, false, ts);
+                    let bass = env.value(ez_core::audio::Curve::Kick, false, ts);
                     let x = rect.left() + i as f32;
                     let h = lv * rect.height() * 0.45;
                     painter.line_segment(
@@ -1194,16 +1423,42 @@ impl EzApp {
                         ),
                     );
                 }
+                // Detected (or MIDI) hits: kicks red, snares yellow.
+                let (a, b) = (song_at(0.0), song_at(0.0) + play_s as f32);
+                for (kind, col, y0) in [
+                    (
+                        ez_core::audio::HitKind::Kick,
+                        Color32::from_rgb(255, 80, 80),
+                        0.0,
+                    ),
+                    (
+                        ez_core::audio::HitKind::Snare,
+                        Color32::from_rgb(255, 220, 80),
+                        0.3,
+                    ),
+                ] {
+                    for &(t, strength) in &env.hits[kind as usize] {
+                        if t < a || t >= b {
+                            continue;
+                        }
+                        let x = rect.left() + rect.width() * ((t - a) as f64 / play_s) as f32;
+                        let y = rect.top() + rect.height() * y0;
+                        painter.line_segment(
+                            [egui::pos2(x, y), egui::pos2(x, y + rect.height() * 0.28)],
+                            egui::Stroke::new(1.0, col.gamma_multiply(0.4 + 0.6 * strength)),
+                        );
+                    }
+                }
             }
             let ph = self.phase();
-            let x = rect.left() + rect.width() * ph;
+            let x = rect.left() + rect.width() * (self.time / play_s) as f32;
             painter.line_segment(
                 [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
                 egui::Stroke::new(2.0, ACCENT),
             );
             if let Some(pos) = resp.interact_pointer_pos() {
                 let f = ((pos.x - rect.left()) / rect.width()).clamp(0.0, 0.9999);
-                self.time = f as f64 * loop_s;
+                self.time = f as f64 * play_s;
             }
             let beat = ph * beats as f32;
             if self.narrow {
@@ -1326,7 +1581,7 @@ impl EzApp {
             (size.x * ppp * self.preview_scale) as u32,
             (size.y * ppp * self.preview_scale) as u32,
         ];
-        let ctx = EvalCtx::new(&self.project.timing, self.phase(), self.audio_env.as_ref());
+        let ctx = self.eval_ctx();
         // While exporting, keep showing the last picture: the GPU time goes
         // to the export instead (this matters a lot on phones).
         let tex = match self.viewport.last_texture() {
@@ -1818,14 +2073,41 @@ impl eframe::App for EzApp {
         self.now = ctx.input(|i| i.time);
         let raw_dt = ctx.input(|i| i.unstable_dt) * 1000.0;
         self.frame_ms += (raw_dt.clamp(0.0, 1000.0) - self.frame_ms) * 0.1;
-        if self.playing {
-            self.time = (self.time + dt).rem_euclid(self.loop_seconds().max(0.01));
+        if self.music_key != self.music_key() {
+            self.reload_audio();
         }
-        let loop_s = self.loop_seconds() as f32;
-        let t = (self.phase() * loop_s).max(0.0);
+        // Live input: analyse, and let a time warp speed up the clock.
+        self.live_frame = None;
+        if let Some(live) = &mut self.live {
+            let f = live.frame(dt as f32);
+            let w = self.project.music.warp;
+            let speed = match (w.source.curve(), self.audio_env.is_none()) {
+                (Some(c), true) if w.amount != 0.0 => {
+                    (1.0 + w.amount.max(-0.9) * f.fast[c as usize]) as f64
+                }
+                _ => 1.0,
+            };
+            self.live_frame = Some(f);
+            if self.playing {
+                self.time += dt * (speed - 1.0);
+            }
+        }
+        if self.playing {
+            self.time = (self.time + dt).rem_euclid(self.play_seconds().max(0.01));
+        }
         widgets::set_clock(&ctx, self.phase(), self.project.timing.loop_beats);
+        widgets::set_music(
+            &ctx,
+            widgets::MusicPreview {
+                env: self.audio_env.clone(),
+                settings: self.project.music.clone(),
+                timing: self.project.timing,
+                live: self.live_frame,
+            },
+        );
+        let song_t = self.project.song_seconds(self.time);
         if let Some(a) = &mut self.audio {
-            a.sync(self.playing, t);
+            a.sync(self.playing && self.live.is_none(), song_t);
         }
 
         let dropped: Vec<egui::DroppedFileHandle> = ctx.input(|i| i.raw.dropped_files.clone());
@@ -1926,7 +2208,7 @@ impl eframe::App for EzApp {
         self.help_window(&ctx);
         self.graphics_window(&ctx);
         self.export
-            .show(&ctx, &self.project, self.audio_env.as_ref());
+            .show(&ctx, &self.project, self.audio_env.as_deref());
 
         let pointer_down = ctx.input(|i| i.pointer.any_down());
         self.commit_history(pointer_down);
@@ -1963,4 +2245,53 @@ fn setup_style(ctx: &egui::Context) {
         s.spacing.item_spacing = egui::vec2(6.0, 5.0);
         s.spacing.slider_width = 130.0;
     });
+}
+
+/// Live bars for every music source, hit flashes and the spectrum.
+fn music_meters(ui: &mut Ui, m: &ez_core::MusicFrame) {
+    use ez_core::AudioSource;
+    for src in AudioSource::FOLLOW {
+        let c = src.curve().unwrap() as usize;
+        ui.horizontal(|ui| {
+            ui.add_sized(
+                [120.0, 14.0],
+                egui::Label::new(RichText::new(src.label()).small()),
+            );
+            ui.add(
+                egui::ProgressBar::new(m.fast[c])
+                    .desired_width(130.0)
+                    .desired_height(8.0),
+            );
+        });
+    }
+    ui.horizontal(|ui| {
+        for src in AudioSource::HITS {
+            let h = m.hits[src.hit().unwrap() as usize];
+            let k = (1.0 - h.since / 0.25).clamp(0.0, 1.0);
+            let col = Color32::from_rgb(
+                (60.0 + 195.0 * k) as u8,
+                (60.0 + 60.0 * k) as u8,
+                (70.0 + 30.0 * k) as u8,
+            );
+            let name = src.label().trim_start_matches("Each ").to_string();
+            ui.label(RichText::new(format!("• {name}")).color(col).small());
+        }
+    });
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(250.0, 36.0), egui::Sense::hover());
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(rect, 3.0, ui.visuals().extreme_bg_color);
+    let n = m.spectrum.len();
+    let w = rect.width() / n as f32;
+    for (i, v) in m.spectrum.iter().enumerate() {
+        let h = v * (rect.height() - 4.0);
+        let x = rect.left() + i as f32 * w;
+        painter.rect_filled(
+            egui::Rect::from_min_max(
+                egui::pos2(x + 1.0, rect.bottom() - 2.0 - h),
+                egui::pos2(x + w - 1.0, rect.bottom() - 2.0),
+            ),
+            1.0,
+            ACCENT,
+        );
+    }
 }

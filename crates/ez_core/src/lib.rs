@@ -6,12 +6,15 @@
 //! of the loop *phase* (0..1) with integer cycle counts, which makes every
 //! scene seamlessly loopable by construction.
 
+pub mod analysis;
 pub mod assets;
 pub mod audio;
 pub mod clock;
 pub mod color;
 pub mod eval;
 pub mod graph;
+pub mod midi;
+pub mod music;
 pub mod palette;
 pub mod param;
 pub mod presets;
@@ -22,6 +25,7 @@ pub mod store;
 
 pub use audio::AudioEnvelope;
 pub use clock::{EvalCtx, Timing};
+pub use music::{AudioSource, MusicFrame, MusicMod, MusicMode, MusicSettings, TimeWarp};
 pub use param::{Param, Wave, WAVE_GROUPS};
 pub use scene::*;
 

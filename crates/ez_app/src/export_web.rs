@@ -181,13 +181,17 @@ impl ExportUi {
     }
 
     fn contents(&mut self, ui: &mut Ui, project: &Project, audio: Option<&AudioEnvelope>) {
-        let frames = project.timing.frame_count(self.fps);
+        let (frames, looped) = ez_export::export_frames(project, audio, self.fps);
         ui.label(
-            RichText::new(format!(
-                "One loop = {:.2} s = {} frames, rendered at exact loop positions so the file loops seamlessly.",
-                project.timing.loop_seconds(),
-                frames
-            ))
+            RichText::new(if looped {
+                format!(
+                    "One loop = {:.2} s = {} frames, rendered at exact loop positions so the file loops seamlessly.",
+                    project.timing.loop_seconds(),
+                    frames
+                )
+            } else {
+                format!("Whole song = {:.1} s = {} frames.", frames as f32 / self.fps, frames)
+            })
             .weak(),
         );
         let video_ok = video_encoder_available();
@@ -249,7 +253,7 @@ impl ExportUi {
                         }
                     });
                     ui.end_row();
-                    if self.format != WebFormat::Gif {
+                    if self.format != WebFormat::Gif && looped {
                         ui.label("Repeat loop");
                         ui.add(
                             egui::DragValue::new(&mut self.repeats)

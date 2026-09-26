@@ -139,6 +139,9 @@ pub struct ExportJob {
     sink: Option<Box<dyn FrameSink>>,
     pending: Option<Readback>,
     frames: u32,
+    /// Frames are loop phases (else seconds into the song).
+    looped: bool,
+    fps: f32,
     total: u32,
     next: u32,
     done: u32,
@@ -158,7 +161,8 @@ impl ExportJob {
         repeats: u32,
         sink: Box<dyn FrameSink>,
     ) -> ExportJob {
-        let frames = project.timing.frame_count(fps);
+        let (frames, looped) = crate::export_frames(&project, audio.as_ref(), fps);
+        let repeats = if looped { repeats } else { 1 };
         ExportJob {
             target: renderer.create_target(width.max(16) & !1, height.max(16) & !1),
             project,
@@ -166,6 +170,8 @@ impl ExportJob {
             sink: Some(sink),
             pending: None,
             frames,
+            looped,
+            fps,
             total: frames * repeats.max(1),
             next: 0,
             done: 0,
@@ -203,8 +209,14 @@ impl ExportJob {
         if self.next < self.total {
             // Frame i sits at phase i / N: the last frame is not a copy of
             // the first, so the file loops without a seam.
-            let phase = (self.next % self.frames) as f32 / self.frames as f32;
-            let ctx = EvalCtx::new(&self.project.timing, phase, self.audio.as_ref());
+            let ctx: EvalCtx = crate::export_ctx(
+                &self.project,
+                self.audio.as_ref(),
+                self.fps,
+                self.frames,
+                self.looped,
+                self.next,
+            );
             renderer.render(&self.project, &ctx, &self.target);
             self.pending = Some(renderer.start_readback(&self.target));
             self.next += 1;

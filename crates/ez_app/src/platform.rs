@@ -35,6 +35,7 @@ pub enum Purpose {
     AddImages,
     SetTexture(LayerRef, TexSlot),
     LoadMusic,
+    LoadMidi,
     /// Dropped on the window: what it is depends on the file extension.
     Dropped,
 }
@@ -50,6 +51,7 @@ impl Purpose {
                 ("Images", crate::inspector::IMAGE_EXTENSIONS)
             }
             Purpose::LoadMusic => ("Audio", crate::app::AUDIO_EXTENSIONS),
+            Purpose::LoadMidi => ("MIDI", crate::app::MIDI_EXTENSIONS),
             Purpose::Dropped => ("Any file", &[]),
         }
     }

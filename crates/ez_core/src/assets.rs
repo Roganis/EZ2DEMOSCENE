@@ -84,6 +84,9 @@ impl Project {
         if let Some(a) = &mut self.audio {
             f(a);
         }
+        if let Some(m) = &mut self.music.midi {
+            f(m);
+        }
     }
 
     /// All distinct asset paths.

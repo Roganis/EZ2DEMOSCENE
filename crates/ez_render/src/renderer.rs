@@ -1281,7 +1281,7 @@ impl Renderer {
 
         for (li, layer) in layers.iter().enumerate().filter(|(_, l)| l.enabled) {
             // Blinking layers can be hidden right now; flashing ones glow more.
-            let Some(flash) = layer.blink.eval(ctx.phase) else {
+            let Some(flash) = layer.blink.eval(ctx.beat_phase) else {
                 continue;
             };
             let mut ls = LayerStats {
@@ -1690,7 +1690,7 @@ impl Renderer {
                     blk[7] = [dir[0], dir[1], 0.0, 0.0];
                     let mut instances = count;
                     let lt = &wx.lightning;
-                    if let Some((b, slot, _)) = lt.strike(ctx.phase) {
+                    if let Some((b, slot, _)) = lt.strike(ctx.beat_phase) {
                         let flash_k = lt.flash.eval(ctx).max(0.0);
                         fx.lightning.0 += b * flash_k;
                         fx.lightning.1 = lt.color;
@@ -2376,7 +2376,7 @@ impl Renderer {
             post.crt.noise.eval(ctx),
         ];
         let frames = ctx.loop_beats as f32 * 6.0;
-        let frame_id = (ctx.phase * frames).floor().rem_euclid(frames);
+        let frame_id = (ctx.beat_phase * frames).floor().rem_euclid(frames);
         f[5] = [ctx.beat_frac(), frame_id, ctx.loop_beats as f32, 0.0];
         for (i, c) in cols.iter().take(16).enumerate() {
             f[8 + i] = c4(*c, 1.0);
