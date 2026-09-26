@@ -36,6 +36,7 @@ pub enum Purpose {
     SetTexture(LayerRef, TexSlot),
     LoadMusic,
     LoadMidi,
+    SetFont(LayerRef),
     /// Dropped on the window: what it is depends on the file extension.
     Dropped,
 }
@@ -52,6 +53,7 @@ impl Purpose {
             }
             Purpose::LoadMusic => ("Audio", crate::app::AUDIO_EXTENSIONS),
             Purpose::LoadMidi => ("MIDI", crate::app::MIDI_EXTENSIONS),
+            Purpose::SetFont(_) => ("Fonts", crate::inspector::FONT_EXTENSIONS),
             Purpose::Dropped => ("Any file", &[]),
         }
     }

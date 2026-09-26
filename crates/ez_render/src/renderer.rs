@@ -181,6 +181,14 @@ enum Cmd {
         slot: u32,
         puffs: u32,
     },
+    /// Letters `first..first + count` of the instance buffer, drawn with
+    /// the font atlas `font`.
+    Text {
+        slot: u32,
+        font: String,
+        first: u32,
+        count: u32,
+    },
     /// Contact shadows under the copies `first..first + count` of a mesh.
     Contact {
         slot: u32,
@@ -262,6 +270,7 @@ struct ScenePipes {
     sky_add: wgpu::RenderPipeline,
     spots: wgpu::RenderPipeline,
     falls: wgpu::RenderPipeline,
+    text: wgpu::RenderPipeline,
 }
 
 pub struct Renderer {
@@ -323,6 +332,8 @@ pub struct Renderer {
     /// Instances of layers that don't animate, keyed by layer hash, with
     /// the frame number they were last used.
     instance_cache: HashMap<u64, (u64, Vec<InstanceRaw>)>,
+    /// Font atlases by texture key.
+    fonts: HashMap<String, std::sync::Arc<crate::text::FontAtlas>>,
     /// Points on shape surfaces for Instancer::Surface: (mesh, count, seed).
     surface_cache: HashMap<(String, u32, u32), std::sync::Arc<Vec<ez_core::eval::SurfacePoint>>>,
     frame_no: u64,
@@ -715,7 +726,10 @@ impl Renderer {
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &wgpu::vertex_attr_array![4 => Float32x4, 5 => Float32x4, 6 => Float32x4, 7 => Float32x4, 8 => Float32x4],
         };
-        let mesh_buffers = [Some(vertex_layout), Some(instance_layout)];
+        let mesh_buffers = [Some(vertex_layout), Some(instance_layout.clone())];
+        // Letters: one instance each, the quad comes from the vertex index.
+        let glyph_buffers = [Some(instance_layout)];
+        let sh_text = shader(device, "text", include_str!("shaders/text.wgsl"), true);
 
         let scene_pipes = |samples: u32| ScenePipes {
             samples,
@@ -841,6 +855,20 @@ impl Renderer {
                     module: &sh_falls,
                     fs: "fs_main",
                     buffers: &[],
+                    format: HDR_FORMAT,
+                    samples,
+                    depth: Some((false, wgpu::CompareFunction::Less)),
+                    blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                },
+            ),
+            text: make_pipeline(
+                device,
+                PipeDesc {
+                    label: "text",
+                    layout: &scene_layout,
+                    module: &sh_text,
+                    fs: "fs_main",
+                    buffers: &glyph_buffers,
                     format: HDR_FORMAT,
                     samples,
                     depth: Some((false, wgpu::CompareFunction::Less)),
@@ -1114,6 +1142,7 @@ impl Renderer {
             mesh_tex_bgs: HashMap::new(),
             errors: HashMap::new(),
             instance_cache: HashMap::new(),
+            fonts: HashMap::new(),
             surface_cache: HashMap::new(),
             frame_no: 0,
             uploaded: Vec::new(),
@@ -1170,6 +1199,12 @@ impl Renderer {
     // Assets
 
     fn upload_texture(&mut self, key: String, img: &RgbaImage) {
+        self.upload_texture_as(key, img, wgpu::TextureFormat::Rgba8UnormSrgb)
+    }
+
+    /// Upload with mipmaps in `format` (Rgba8Unorm for data such as
+    /// distance fields).
+    fn upload_texture_as(&mut self, key: String, img: &RgbaImage, format: wgpu::TextureFormat) {
         let (w, h) = img.dimensions();
         let mips = (32 - w.max(h).max(1).leading_zeros()).max(1);
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
@@ -1182,7 +1217,7 @@ impl Renderer {
             mip_level_count: mips,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -1228,6 +1263,46 @@ impl Renderer {
                 view,
             },
         );
+    }
+
+    /// The atlas of a text layer's font, uploaded; `None` (with an error
+    /// shown) when a font file can't be used.
+    fn font_atlas(
+        &mut self,
+        t: &TextLayer,
+    ) -> Option<(String, std::sync::Arc<crate::text::FontAtlas>)> {
+        let key = match &t.font_file {
+            Some(path) => format!("__font:file:{path}"),
+            None => format!("__font:{:?}", t.font),
+        };
+        if let Some(a) = self.fonts.get(&key) {
+            return Some((key, a.clone()));
+        }
+        let atlas = match &t.font_file {
+            None => crate::text::builtin_atlas(t.font),
+            Some(path) => {
+                let built = ez_core::store::read(path)
+                    .map_err(|e| anyhow::anyhow!("{e}"))
+                    .and_then(|bytes| crate::text::build_atlas(&bytes, false));
+                match built {
+                    Ok(a) => {
+                        self.errors.remove(&key);
+                        std::sync::Arc::new(a)
+                    }
+                    Err(e) => {
+                        self.errors.insert(
+                            key.clone(),
+                            format!("Font {}: {e:#}", ez_core::store::file_name(path)),
+                        );
+                        crate::text::builtin_atlas(t.font)
+                    }
+                }
+            }
+        };
+        self.upload_texture_as(key.clone(), &atlas.image, wgpu::TextureFormat::Rgba8Unorm);
+        self.tex_bind_group(&key, false);
+        self.fonts.insert(key.clone(), atlas.clone());
+        Some((key, atlas))
     }
 
     /// Resolve a material texture name to a loaded GPU texture key.
@@ -1355,12 +1430,7 @@ impl Renderer {
         if levels == 0 || self.meshes.contains_key(&key) {
             return if levels == 0 { base } else { key };
         }
-        let mut data = match source {
-            MeshSource::Primitive(p) => primitive(p),
-            MeshSource::File { path } => {
-                load_mesh_asset(path).unwrap_or_else(|_| primitive(&Primitive::Cube))
-            }
-        };
+        let mut data = self.source_data(source, &base);
         data.subdivide(levels);
         self.upload_mesh(key.clone(), &data);
         key
@@ -1377,12 +1447,7 @@ impl Renderer {
         if let Some(p) = self.surface_cache.get(&key) {
             return p.clone();
         }
-        let data = match shape {
-            MeshSource::Primitive(p) => primitive(p),
-            MeshSource::File { path } => {
-                load_mesh_asset(path).unwrap_or_else(|_| primitive(&Primitive::Cube))
-            }
-        };
+        let data = self.source_data(shape, &key.0);
         let positions: Vec<[f32; 3]> = data.vertices.iter().map(|v| v.pos).collect();
         let points = std::sync::Arc::new(ez_core::eval::sample_surface(
             &positions,
@@ -1401,26 +1466,57 @@ impl Renderer {
         let key = match source {
             MeshSource::Primitive(p) => format!("p:{}", p.cache_key()),
             MeshSource::File { path } => format!("f:{path}"),
+            MeshSource::Text { .. } => {
+                format!("t:{}", serde_json::to_string(source).unwrap_or_default())
+            }
         };
         if self.meshes.contains_key(&key) {
             return key;
         }
-        let data = match source {
+        let data = self.source_data(source, &key);
+        self.upload_mesh(key.clone(), &data);
+        key
+    }
+
+    /// Geometry of a shape source; problems are reported under `key` and
+    /// give a cube.
+    fn source_data(&mut self, source: &MeshSource, key: &str) -> MeshData {
+        match source {
             MeshSource::Primitive(p) => primitive(p),
             MeshSource::File { path } => match load_mesh_asset(path) {
                 Ok(m) => {
-                    self.errors.remove(&key);
+                    self.errors.remove(key);
                     m
                 }
                 Err(e) => {
                     self.errors
-                        .insert(key.clone(), format!("model {path}: {e:#}"));
+                        .insert(key.to_string(), format!("model {path}: {e:#}"));
                     primitive(&Primitive::Cube)
                 }
             },
-        };
-        self.upload_mesh(key.clone(), &data);
-        key
+            MeshSource::Text {
+                text,
+                font,
+                font_file,
+                depth,
+            } => {
+                let bytes = match font_file {
+                    Some(path) => match ez_core::store::read(path) {
+                        Ok(b) => {
+                            self.errors.remove(key);
+                            Some(b)
+                        }
+                        Err(e) => {
+                            self.errors
+                                .insert(key.to_string(), format!("font {path}: {e:#}"));
+                            None
+                        }
+                    },
+                    None => None,
+                };
+                crate::text::text_mesh(text, *font, bytes.as_deref(), *depth)
+            }
+        }
     }
 
     /// Geometry of a neon ribbon, generated on first use.
@@ -1989,6 +2085,66 @@ impl Renderer {
                         }
                         blocks.push(blk);
                     }
+                }
+                LayerKind::Text(t) => {
+                    let Some((font, atlas)) = self.font_atlas(t) else {
+                        continue;
+                    };
+                    let glyphs = crate::text::layout(t, &atlas, ctx);
+                    let mut lm = layer_matrix(&layer.transform, ctx);
+                    if t.face_camera {
+                        // Keep position and size, turn to face the camera.
+                        let (scale, _, pos) = lm.to_scale_rotation_translation();
+                        let fwd = (cam.eye - pos).normalize_or(Vec3::Z);
+                        let side = cam.up.cross(fwd).normalize_or(Vec3::X);
+                        let up = fwd.cross(side);
+                        lm = Mat4::from_cols(
+                            (side * scale.x).extend(0.0),
+                            (up * scale.y).extend(0.0),
+                            (fwd * scale.z).extend(0.0),
+                            pos.extend(1.0),
+                        );
+                    }
+                    let syms = symmetry_matrices(&layer.symmetry);
+                    let size = t.size.max(0.01);
+                    let cell = crate::text::FontAtlas::cell_em() * size;
+                    let pen = crate::text::FontAtlas::pen_in_cell() * size;
+                    let first = instances.len() as u32;
+                    for sym in &syms {
+                        let base = *sym * lm;
+                        for g in &glyphs {
+                            let origin = g.pos * size - pen;
+                            let m = base
+                                * Mat4::from_translation(origin.extend(0.0))
+                                * Mat4::from_scale(Vec3::new(cell, cell, 1.0));
+                            instances.push(InstanceRaw {
+                                model: m4(m),
+                                inst: [g.cell as f32, g.alpha * flash.min(1.0), g.along, 0.0],
+                            });
+                        }
+                    }
+                    let count = instances.len() as u32 - first;
+                    ls.draws = syms.len() as u32;
+                    ls.triangles = count as u64 * 2;
+                    ls.load = 0.02 + count as f32 / 20_000.0;
+                    let mut blk: Block = Zeroable::zeroed();
+                    blk[0] = c4(t.color_top, t.glow.eval(ctx).max(0.0) * flash.max(1.0));
+                    blk[1] = c4(t.color_bottom, t.outline);
+                    blk[2] = c4(t.outline_color, t.shadow);
+                    let base_h = 1.0
+                        - (crate::text::CELL as f32
+                            - crate::text::FontAtlas::pen_in_cell().y * crate::text::EM_PX)
+                            / crate::text::CELL as f32;
+                    blk[3] = [t.chrome, atlas.cols as f32, atlas.rows as f32, base_h];
+                    if count > 0 {
+                        cmds.push(Cmd::Text {
+                            slot: blocks.len() as u32,
+                            font,
+                            first,
+                            count,
+                        });
+                    }
+                    blocks.push(blk);
                 }
                 LayerKind::Falls(fl) => {
                     let lm = layer_matrix(&layer.transform, ctx);
@@ -2823,6 +2979,19 @@ impl Renderer {
     ) {
         for cmd in cmds {
             match cmd {
+                Cmd::Text {
+                    slot,
+                    font,
+                    first,
+                    count,
+                } => {
+                    pass.set_pipeline(&pipes.text);
+                    pass.set_bind_group(0, &self.globals_bg[globals], &[]);
+                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                    pass.set_bind_group(2, &self.tex_bgs[&(font.clone(), false)], &[]);
+                    pass.set_vertex_buffer(0, self.inst_buf.slice(..));
+                    pass.draw(0..6, *first..*first + *count);
+                }
                 Cmd::BackdropUp { .. } => {}
                 Cmd::Backdrop {
                     slot, tex, kind, ..

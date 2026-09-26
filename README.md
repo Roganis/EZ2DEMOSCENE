@@ -48,6 +48,11 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     ripples, sun glints, foam, a churning crust or bubbles. Level of
     detail keeps full resolution near the camera with a quarter of the
     triangles.
+  - Text: still text, scrollers, sine scrollers, typewriters and greetings
+    lists, in a crisp pixel font, Mono, Sans or your own TTF/OTF, with
+    gradients, glow, outline, drop shadow and chrome (signed-distance
+    atlas). Shapes can also be **3D text**: extruded logos (voxel letters
+    with the pixel font) with every material option.
   - Weather: rain with splashes, snow, rising embers, a sandstorm or
     fireflies in a box that follows the camera, and **lightning** bolts
     whose flash lights up the scene. Rain wets every surface (gloss,

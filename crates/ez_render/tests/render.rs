@@ -643,3 +643,51 @@ fn terrain_copies_match_the_gpu_ground() {
         "sunk markers still show: {below} vs {above}"
     );
 }
+
+/// Text layers draw, loop, and scrollers move.
+#[test]
+fn text_layers_loop() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
+    let target = r.create_target(320, 180);
+    let mut p = presets::empty();
+    p.post.grade.grain = Param::new(0.0);
+    let plain = p.clone();
+    for (i, style) in TextStyle::ALL.into_iter().enumerate() {
+        p.layers.push(
+            Layer::new(
+                "Text",
+                LayerKind::Text(TextLayer {
+                    text: "HELLO SCENE\nLOOP FOREVER".into(),
+                    style,
+                    font: TextFont::ALL[i % 3],
+                    size: 0.5,
+                    chrome: if i == 0 { 1.0 } else { 0.0 },
+                    outline: 0.5,
+                    shadow: 0.5,
+                    face_camera: i % 2 == 0,
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, 0.5 + i as f32 * 0.7, 0.0]),
+        );
+    }
+    let at = |phase: f32| EvalCtx::new(&p.timing, phase, None);
+    let a = r.render_image(&p, &at(0.0), &target);
+    let b = r.render_image(&p, &at(1.0), &target);
+    let mid = r.render_image(&p, &at(0.4), &target);
+    let reference = r.render_image(&plain, &at(0.4), &target);
+    mid.save(snapshot_dir().join("text.png")).unwrap();
+    let seam = mean_abs_diff(a.as_raw(), b.as_raw());
+    let shown = mean_abs_diff(mid.as_raw(), reference.as_raw());
+    eprintln!("text seam {seam:.3}, visible {shown:.2}");
+    assert!(seam < 0.6);
+    assert!(shown > 1.0, "text barely visible");
+}

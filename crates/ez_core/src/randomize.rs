@@ -147,6 +147,12 @@ pub fn randomize(project: &mut Project, seed: u64, opt: RandomizeOptions) {
                     r.pulse_speed = *rng.pick(&[-2, -1, 1, 2]);
                 }
             }
+            LayerKind::Text(t) => {
+                // The words are the user's; only the motion changes.
+                if opt.motion && matches!(t.style, TextStyle::SineScroller) {
+                    t.wave_cycles = *rng.pick(&[1, 2, 3, 4]);
+                }
+            }
         }
         if opt.shapes
             && !matches!(

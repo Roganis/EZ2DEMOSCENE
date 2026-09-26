@@ -1031,6 +1031,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bytemuck",
+ "epaint_default_fonts",
  "ez_core",
  "glam",
  "gltf",
@@ -1039,6 +1040,7 @@ dependencies = [
  "naga",
  "pollster 0.4.0",
  "serde_json",
+ "skrifa",
  "tobj",
  "wgpu",
 ]

@@ -9,6 +9,7 @@ use ez_render::texgen;
 
 pub const MODEL_EXTENSIONS: &[&str] = &["gltf", "glb", "obj"];
 pub const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "bmp", "gif", "tga"];
+pub const FONT_EXTENSIONS: &[&str] = &["ttf", "otf"];
 
 /// Adds an image as a user texture and returns its name.
 /// `path` is an asset path (file or `mem://`), `file_name` its display name.
@@ -784,6 +785,7 @@ pub fn layer_ui(ui: &mut Ui, layer: &mut Layer, textures: &[UserTexture], lref: 
         LayerKind::Ribbon(r) => ribbon_ui(ui, r),
         LayerKind::Weather(w) => weather_ui(ui, w),
         LayerKind::Falls(f) => falls_ui(ui, f),
+        LayerKind::Text(t) => text_ui(ui, t, lref),
     }
     let is_mesh_like = matches!(
         layer.kind,
@@ -1059,6 +1061,7 @@ fn mesh_ui(ui: &mut Ui, m: &mut MeshLayer, textures: &[UserTexture], lref: Layer
         let label = match &m.source {
             MeshSource::Primitive(p) => p.label().to_string(),
             MeshSource::File { path } => ez_core::store::file_name(path).to_string(),
+            MeshSource::Text { .. } => "3D text".to_string(),
         };
         row(ui, "Shape", "", |ui| {
             egui::ComboBox::from_id_salt("shape")
@@ -1073,13 +1076,74 @@ fn mesh_ui(ui: &mut Ui, m: &mut MeshLayer, textures: &[UserTexture], lref: Layer
                         }
                     }
                     ui.separator();
+                    if ui
+                        .selectable_label(matches!(m.source, MeshSource::Text { .. }), "3D text")
+                        .on_hover_text("Solid letters: a logo with every material, relief and copy option")
+                        .clicked()
+                        && !matches!(m.source, MeshSource::Text { .. })
+                    {
+                        m.source = MeshSource::Text {
+                            text: "EZ2".into(),
+                            font: TextFont::Sans,
+                            font_file: None,
+                            depth: 0.3,
+                        };
+                    }
                     if ui.button("3D model file (glTF / OBJ)…").clicked() {
                         platform::pick(Purpose::SetModel(lref));
                     }
                 });
         });
-        if let MeshSource::Primitive(p) = &mut m.source {
-            primitive_params_ui(ui, p);
+        match &mut m.source {
+            MeshSource::Primitive(p) => primitive_params_ui(ui, p),
+            MeshSource::Text {
+                text,
+                font,
+                font_file,
+                depth,
+            } => {
+                ui.add(
+                    egui::TextEdit::multiline(text)
+                        .desired_rows(2)
+                        .desired_width(f32::INFINITY),
+                );
+                row(ui, "Font", "", |ui| {
+                    let label = match font_file {
+                        Some(p) => ez_core::store::file_name(p).to_string(),
+                        None => font.label().to_string(),
+                    };
+                    egui::ComboBox::from_id_salt("text_font")
+                        .selected_text(label)
+                        .show_ui(ui, |ui| {
+                            for f in TextFont::ALL {
+                                if ui
+                                    .selectable_label(font_file.is_none() && *font == f, f.label())
+                                    .on_hover_text(if f == TextFont::Pixel {
+                                        "Chunky voxel letters"
+                                    } else {
+                                        ""
+                                    })
+                                    .clicked()
+                                {
+                                    *font = f;
+                                    *font_file = None;
+                                }
+                            }
+                            ui.separator();
+                            if ui.button("Font file (TTF / OTF)…").clicked() {
+                                platform::pick(Purpose::SetFont(lref));
+                            }
+                        });
+                });
+                slider(
+                    ui,
+                    "Depth",
+                    "Thickness, in letter heights",
+                    depth,
+                    0.02..=2.0,
+                );
+            }
+            MeshSource::File { .. } => {}
         }
     });
     section(ui, "Material", true, |ui| {
@@ -1427,6 +1491,7 @@ fn instancer_ui(ui: &mut Ui, inst: &mut Instancer) {
             let label = match &*shape {
                 MeshSource::Primitive(p) => p.label().to_string(),
                 MeshSource::File { path } => ez_core::store::file_name(path).to_string(),
+                MeshSource::Text { .. } => "3D text".to_string(),
             };
             row(
                 ui,
@@ -2347,6 +2412,35 @@ pub fn add_layer_menu(ui: &mut Ui, templates: &[Layer]) -> Option<Layer> {
             }
         }
     });
+    ui.menu_button("🔤 Text", |ui| {
+        for (style, text) in [
+            (TextStyle::Static, "EZ2DEMOSCENE"),
+            (
+                TextStyle::Scroller,
+                "HELLO WORLD ... THIS SCROLLER LOOPS FOREVER ...",
+            ),
+            (TextStyle::SineScroller, "GREETINGS FROM THE SINE WAVE ..."),
+            (TextStyle::Typewriter, "LOADING DEMO..."),
+            (
+                TextStyle::Greetings,
+                "GREETINGS TO\nALL THE CREWS\nKEEP IT LOOPING",
+            ),
+        ] {
+            if ui.button(style.label()).clicked() {
+                out = Some(
+                    Layer::new(
+                        style.label(),
+                        LayerKind::Text(TextLayer {
+                            text: text.into(),
+                            style,
+                            ..Default::default()
+                        }),
+                    )
+                    .at([0.0, 2.0, 0.0]),
+                );
+            }
+        }
+    });
     ui.menu_button("☔ Weather", |ui| {
         for k in Precipitation::ALL {
             if ui.button(k.label()).clicked() {
@@ -2431,6 +2525,7 @@ pub fn layer_icon(l: &Layer) -> &'static str {
         LayerKind::Ribbon(_) => "〰",
         LayerKind::Weather(_) => "☔",
         LayerKind::Falls(_) => "🌊",
+        LayerKind::Text(_) => "🔤",
     }
 }
 
@@ -2529,4 +2624,138 @@ pub fn ramp_ui(ui: &mut Ui, r: &mut ColorRamp) {
         "Glowing copies glow in their colour",
         &mut r.glow,
     );
+}
+
+fn text_ui(ui: &mut Ui, t: &mut TextLayer, lref: LayerRef) {
+    section(ui, "Text", true, |ui| {
+        ui.add(
+            egui::TextEdit::multiline(&mut t.text)
+                .desired_rows(3)
+                .desired_width(f32::INFINITY)
+                .hint_text("Type here. Greetings: one line each."),
+        );
+        combo(ui, "Style", "", &mut t.style, &TextStyle::ALL, |s| {
+            s.label()
+        });
+        match t.style {
+            TextStyle::Scroller | TextStyle::SineScroller => {
+                slider(
+                    ui,
+                    "Window",
+                    "Width the text scrolls across",
+                    &mut t.width,
+                    1.0..=60.0,
+                );
+                drag_i(
+                    ui,
+                    "Runs / loop",
+                    "Times the text scrolls past per loop (negative = to the right)",
+                    &mut t.speed,
+                    -16..=16,
+                );
+                if t.style == TextStyle::SineScroller {
+                    param(
+                        ui,
+                        "Wave height",
+                        "In letter heights",
+                        &mut t.wave,
+                        0.0..=3.0,
+                    );
+                    slider(
+                        ui,
+                        "Wave length",
+                        "Letters per wave",
+                        &mut t.wavelength,
+                        1.0..=40.0,
+                    );
+                    drag_i(
+                        ui,
+                        "Wave rolls / loop",
+                        "Times the wave moves along per loop",
+                        &mut t.wave_cycles,
+                        -16..=16,
+                    );
+                }
+            }
+            TextStyle::Typewriter => {
+                drag_u(
+                    ui,
+                    "Letters / beat",
+                    "It starts again with the loop",
+                    &mut t.letters_per_beat,
+                    1..=32,
+                );
+            }
+            TextStyle::Greetings => {
+                drag_u(
+                    ui,
+                    "Beats / line",
+                    "4 = one line per bar",
+                    &mut t.beats_per_line,
+                    1..=32,
+                );
+            }
+            TextStyle::Static => {}
+        }
+    });
+    section(ui, "Font & look", true, |ui| {
+        row(ui, "Font", "", |ui| {
+            let label = match &t.font_file {
+                Some(p) => ez_core::store::file_name(p).to_string(),
+                None => t.font.label().to_string(),
+            };
+            egui::ComboBox::from_id_salt("font")
+                .selected_text(label)
+                .show_ui(ui, |ui| {
+                    for f in TextFont::ALL {
+                        if ui
+                            .selectable_label(t.font_file.is_none() && t.font == f, f.label())
+                            .clicked()
+                        {
+                            t.font = f;
+                            t.font_file = None;
+                        }
+                    }
+                    ui.separator();
+                    if ui.button("Font file (TTF / OTF)…").clicked() {
+                        platform::pick(Purpose::SetFont(lref));
+                    }
+                });
+        });
+        slider(ui, "Size", "Letter height", &mut t.size, 0.1..=10.0);
+        slider(
+            ui,
+            "Spacing",
+            "Extra space between letters",
+            &mut t.spacing,
+            -0.3..=1.0,
+        );
+        color(ui, "Top colour", "", &mut t.color_top);
+        color(ui, "Bottom colour", "", &mut t.color_bottom);
+        param(
+            ui,
+            "Glow",
+            "Brightness; above 1 the letters glow",
+            &mut t.glow,
+            0.0..=8.0,
+        );
+        slider(ui, "Outline", "", &mut t.outline, 0.0..=1.0);
+        if t.outline > 0.0 {
+            color(ui, "Outline colour", "", &mut t.outline_color);
+        }
+        slider(ui, "Drop shadow", "", &mut t.shadow, 0.0..=1.0);
+        slider(
+            ui,
+            "Chrome",
+            "Shiny bevelled letters reflecting the sky",
+            &mut t.chrome,
+            0.0..=1.0,
+        );
+        check(
+            ui,
+            "Face the camera",
+            "Always turn the text towards the camera (otherwise it faces +z and reads backwards from behind)",
+            &mut t.face_camera,
+        );
+    });
 }

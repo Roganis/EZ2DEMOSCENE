@@ -637,6 +637,17 @@ impl EzApp {
                         false,
                     );
                 }
+                Purpose::SetFont(lref) => {
+                    match self.layer_for(lref).map(|l| &mut l.kind) {
+                        Some(LayerKind::Text(t)) => t.font_file = Some(p.path.clone()),
+                        Some(LayerKind::Mesh(MeshLayer {
+                            source: MeshSource::Text { font_file, .. },
+                            ..
+                        })) => *font_file = Some(p.path.clone()),
+                        _ => {}
+                    }
+                    self.set_status(format!("Font {}", p.name), false);
+                }
                 Purpose::Dropped => {}
             }
         }

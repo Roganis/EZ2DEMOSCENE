@@ -364,6 +364,9 @@ into each other, so the jump back at the end of the loop happens while it is inv
   <tr><td>Star (Points, Inner radius), Gear (Teeth), Heart</td><td>Flat extruded logos and badges (<span class="ui">Depth</span> sets the thickness).</td></tr>
   <tr><td>Gem (Facets)</td><td>A brilliant-cut diamond. Lovely with <span class="ui">Glow where: Edges</span>.</td></tr>
   <tr><td>Menger sponge (Level 0–3)</td><td>The classic fractal cube. Level 3 has 8,000 cubes, so use it sparingly.</td></tr>
+  <tr><td>3D text</td><td>Solid letters for logos: type the text (several lines are fine), pick a font (Pixel gives chunky voxel
+  letters) or a TTF/OTF file, and set the <span class="ui">Depth</span>. They take every material, relief, glitch, deform and copies
+  option.</td></tr>
   <tr><td>3D model file</td><td>Your own <code>.gltf</code>, <code>.glb</code> or <code>.obj</code>. It is centred and scaled to fit automatically, and
   uses the layer's material.</td></tr>
 </table>
@@ -542,7 +545,25 @@ edge of a cliff: a terrain mesa, a shape or a wall of boulders (see the Rainbow 
   <tr><td>Foam &amp; mist / Smoke</td><td>Puffs at the foot (0 = none).</td></tr>
 </table>
 
-<div class="keep"><h2>5.11 Placing objects in the viewport</h2>
+<h2>5.11 Text</h2>
+<p>Glowing letters in the scene, on a flat sign facing forward (tick <span class="ui">Face the camera</span> to keep them readable
+from any side). They stay sharp at any size. Add one from <span class="ui">+ Add → 🔤 Text</span>.</p>
+<table>
+  <tr><th style="width:24%">Style</th><th>What it does</th></tr>
+  <tr><td>Still</td><td>The text, centred. Several lines are fine.</td></tr>
+  <tr><td>Scroller</td><td>Runs across a <span class="ui">Window</span> a whole number of times per loop (<span class="ui">Runs / loop</span>;
+  negative runs the other way). Letters fade at the window's edges.</td></tr>
+  <tr><td>Sine scroller</td><td>A scroller riding a sine wave: <span class="ui">Wave height</span>, <span class="ui">Wave length</span> (letters per
+  wave) and <span class="ui">Wave rolls / loop</span>.</td></tr>
+  <tr><td>Typewriter</td><td>Letters appear one by one, <span class="ui">Letters / beat</span>, starting again with the loop.</td></tr>
+  <tr><td>Greetings list</td><td>One line at a time, fading in and out, a new line every <span class="ui">Beats / line</span> (4 = one per bar).</td></tr>
+</table>
+<p><b>Font &amp; look:</b> Pixel (chunky demoscene letters), Mono or Sans, or your own TTF/OTF file; size and spacing; a top and a
+bottom colour; <span class="ui">Glow</span> (brightness, above 1 it blooms; it has <span class="ui">~</span>); an outline; a drop shadow; and
+<span class="ui">Chrome</span>, which bevels the letters and reflects the sky like a 90s logo. The <b>Oldschool Intro</b> preset uses all three
+styles.</p>
+
+<div class="keep"><h2>5.12 Placing objects in the viewport</h2>
 <figure><img src="img/gizmo.jpg"><figcaption>The Dodecahedron is selected: the Move handles appear on it, and the ground grid is on.</figcaption></figure></div>
 <ul>
   <li><b>Select</b> a shape or particle layer by clicking it in the viewport, or in the layer list.</li>

@@ -250,7 +250,7 @@ Garden flies a path.
 
 ## Phase 5 — Text & logos
 
-### ☐ 5.1 Text layer
+### ☑ 5.1 Text layer
 **How.**
 - A built-in bitmap font atlas generated at start-up (a crisp 8×8 / 16×16
   pixel font in the classic demoscene style, drawn in code like the texture
@@ -263,10 +263,24 @@ Garden flies a path.
 - Look: colour gradient, glow, outline, drop shadow, chrome (env reflection
   mapped on the letters).
 
-### ☐ 5.2 3D logo text
+### ☑ 5.2 3D logo text
 Extrude glyph outlines (from the TTF outlines via `ab_glyph`/`ttf-parser`,
 flattened and triangulated with ear clipping) into a mesh (`MeshSource::Text`),
 so logos get every material, relief, glitch and copy option.
+
+**Done (5.1 + 5.2):** no new dependencies: `skrifa` (already used by
+egui) reads outlines and egui's bundled Hack and Ubuntu fonts are the
+built-ins. Glyphs are flattened and turned into an exact signed distance
+field (distance to the outline's segments, sign by winding) in a 16×12
+cell atlas; the Pixel font is Hack snapped to an 11-per-em block grid
+(blocks lit when inside or near the outline, so thin strokes survive).
+Letters are one instanced quad each, laid out on the CPU per frame (loop
+tests for every style); the shader does gradient, glow halo, outline,
+drop shadow and a chrome bevel from the field's gradient. *Face the camera*
+billboarding was added. 3D text triangulates contours by ear clipping with
+hole bridging (holes found by containment depth, so TrueType and CFF
+orientations both work) and extrudes walls smoothed across gentle corners;
+the pixel font becomes voxel blocks. Presets: *Oldschool Intro*.
 
 ---
 

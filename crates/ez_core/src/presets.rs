@@ -125,6 +125,11 @@ pub fn all() -> Vec<Preset> {
             project: crystal_garden(),
         },
         Preset {
+            name: "Oldschool Intro",
+            description: "Chrome logo, sine scroller and greetings over the XOR tunnel.",
+            project: oldschool_intro(),
+        },
+        Preset {
             name: "Empty",
             description: "A blank stage with a floor and a sky.",
             project: empty(),
@@ -332,6 +337,72 @@ pub fn crystal_garden() -> Project {
         )
         .at([0.0, 5.0, -20.0])
         .scaled(0.18),
+    );
+    p
+}
+
+/// Retro Tunnel dressed as a 90s intro: a chrome logo, a sine scroller
+/// and a greetings list.
+pub fn oldschool_intro() -> Project {
+    let mut p = retro_tunnel();
+    p.name = "Oldschool Intro".into();
+    let mut logo = Layer::new(
+        "Logo",
+        LayerKind::Text(TextLayer {
+            text: "EZ2DEMOSCENE".into(),
+            font: TextFont::Sans,
+            size: 1.1,
+            color_top: hex(0xffffff),
+            color_bottom: hex(0x55ffff),
+            glow: Param::new(1.1).osc(Wave::Pulse, 0.6, 16),
+            outline: 0.5,
+            outline_color: hex(0x000040),
+            shadow: 0.8,
+            chrome: 0.9,
+            ..Default::default()
+        }),
+    )
+    .at([0.0, 2.5, 0.0]);
+    logo.transform.bob = Param::new(0.0).osc(Wave::Sine, 0.15, 2);
+    p.layers.push(logo);
+    p.layers.push(
+        Layer::new(
+            "Scroller",
+            LayerKind::Text(TextLayer {
+                text: "WELCOME TO THE LOOP ... NOTHING HERE EVER ENDS ... PRESS EXPORT AND SHARE IT ... ".into(),
+                font: TextFont::Pixel,
+                style: TextStyle::SineScroller,
+                size: 0.65,
+                width: 11.0,
+                speed: 1,
+                wave: Param::new(0.45),
+                wavelength: 9.0,
+                wave_cycles: 2,
+                color_top: hex(0xffff55),
+                color_bottom: hex(0xff55ff),
+                glow: Param::new(1.8),
+                shadow: 0.7,
+                ..Default::default()
+            }),
+        )
+        .at([0.0, -2.6, 0.5]),
+    );
+    p.layers.push(
+        Layer::new(
+            "Greetings",
+            LayerKind::Text(TextLayer {
+                text: "GREETINGS TO\nALL DEMOSCENERS\nPIXEL PUSHERS\nAND LOOP LOVERS".into(),
+                font: TextFont::Mono,
+                style: TextStyle::Greetings,
+                size: 0.38,
+                beats_per_line: 4,
+                color_top: hex(0x55ff55),
+                color_bottom: hex(0x55ff55),
+                glow: Param::new(1.5),
+                ..Default::default()
+            }),
+        )
+        .at([0.0, -0.95, 1.5]),
     );
     p
 }

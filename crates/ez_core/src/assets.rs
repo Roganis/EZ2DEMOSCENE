@@ -50,13 +50,32 @@ impl From<zip::result::ZipError> for AssetError {
     }
 }
 
-fn layer_path(l: &mut Layer) -> Option<&mut String> {
+/// Calls `f` on every file a layer uses (models, fonts).
+fn layer_paths(l: &mut Layer, f: &mut impl FnMut(&mut String)) {
     match &mut l.kind {
-        LayerKind::Mesh(MeshLayer {
-            source: MeshSource::File { path },
-            ..
-        }) => Some(path),
-        _ => None,
+        LayerKind::Mesh(m) => {
+            match &mut m.source {
+                MeshSource::File { path }
+                | MeshSource::Text {
+                    font_file: Some(path),
+                    ..
+                } => f(path),
+                _ => {}
+            }
+            if let Instancer::Surface {
+                shape: MeshSource::File { path },
+                ..
+            } = &mut m.instancer
+            {
+                f(path);
+            }
+        }
+        LayerKind::Text(t) => {
+            if let Some(path) = &mut t.font_file {
+                f(path);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -65,16 +84,12 @@ impl Project {
     /// images, music).
     pub fn for_each_asset_path(&mut self, mut f: impl FnMut(&mut String)) {
         for l in &mut self.layers {
-            if let Some(p) = layer_path(l) {
-                f(p);
-            }
+            layer_paths(l, &mut f);
         }
         if let Some(g) = &mut self.graph {
             for n in &mut g.nodes {
                 if let NodeKind::Source { layer } = &mut n.kind {
-                    if let Some(p) = layer_path(layer) {
-                        f(p);
-                    }
+                    layer_paths(layer, &mut f);
                 }
             }
         }
