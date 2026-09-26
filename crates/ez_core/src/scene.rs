@@ -1413,7 +1413,7 @@ impl Instancer {
             Instancer::Radial { .. } => "Radial",
             Instancer::Scatter { .. } => "Scatter",
             Instancer::Orbit { .. } => "Orbit swarm",
-            Instancer::Swarm { .. } => "Big swarm (GPU)",
+            Instancer::Swarm { .. } => "Big swarm",
             Instancer::Wall { .. } => "Wall",
             Instancer::Spiral { .. } => "Spiral",
             Instancer::Curve { .. } => "Along a curve",

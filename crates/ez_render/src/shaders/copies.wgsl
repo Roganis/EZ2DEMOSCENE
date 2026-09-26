@@ -1,7 +1,9 @@
-// Big swarms on the GPU: one thread per copy writes its instance (model
-// matrix + hue, glow, rand, along) straight into a vertex buffer. A line
-// for line port of `swarm_local` and the variation in ez_core's eval.rs,
-// so the CPU fallback (WebGL2) shows the same swarm.
+// Copies of shapes on the GPU: one thread per copy writes its instance
+// (model matrix + hue, glow, rand, along) straight into a vertex buffer.
+// A line for line port of `instancer_locals` (every layout), `swarm_local`
+// and the variation in ez_core's eval.rs, so the CPU fallback (WebGL2)
+// shows the same copies. Copies on a surface or a terrain are placed by
+// the CPU (they need the mesh / the landscape) and read from `locals`.
 
 const TAU: f32 = 6.28318530718;
 
@@ -12,8 +14,16 @@ struct Params {
     size: vec4<f32>,
     // radius, spread, speed (turns per loop), loop phase
     shape: vec4<f32>,
-    // form, count, seed, first output index
+    // layout, count, seed, first output index. Layouts: 0-3 swarm forms
+    // (0 is also Orbit), 4 grid, 5 radial, 6 wall, 7 spiral, 8 scatter,
+    // 9 curve, 10 single, 11 placed by the CPU
     ints: vec4<u32>,
+    // grid: counts; wall: cols, rows; scatter: shell; curve: kind and
+    // frequencies; CPU-placed: first entry in `locals`
+    lay_u: vec4<u32>,
+    // grid: spacing; radial: radius; wall: spacing, arc, width;
+    // spiral: radius, height, turns; scatter: radius; curve: size, laps, align
+    lay_f: vec4<f32>,
     // variation: rotation (radians), spin (turns), scale, ripple
     var_a: vec4<f32>,
     // variation: ripple cycles, ripple spread, chase, hue
@@ -36,6 +46,7 @@ struct Inst {
 
 @group(0) @binding(0) var<uniform> P: Params;
 @group(0) @binding(1) var<storage, read_write> out_inst: array<Inst>;
+@group(0) @binding(2) var<storage, read> locals: array<mat4x4<f32>>;
 
 fn hu(x_in: u32) -> u32 {
     var x = x_in;
@@ -131,6 +142,124 @@ fn swarm_local(i: u32) -> mat4x4<f32> {
     return to4(tumble, pos);
 }
 
+fn translate(p: vec3<f32>) -> mat4x4<f32> {
+    return mat4x4<f32>(vec4<f32>(1.0, 0.0, 0.0, 0.0), vec4<f32>(0.0, 1.0, 0.0, 0.0), vec4<f32>(0.0, 0.0, 1.0, 0.0), vec4<f32>(p, 1.0));
+}
+
+fn scatter_point(i: u32) -> vec3<f32> {
+    let seed = P.ints.z;
+    let dir = hash_dir(swarm_hash(seed, i, 0u), swarm_hash(seed, i, 1u));
+    var r = P.lay_f.x;
+    if (P.lay_u.x == 0u) {
+        r = r * pow(swarm_hash(seed, i, 2u), 1.0 / 3.0);
+    }
+    return dir * r;
+}
+
+// RibbonCurve::point, fitting a unit sphere.
+fn curve_point(t_in: f32) -> vec3<f32> {
+    let t = fract(t_in);
+    let a = f32(P.lay_u.y);
+    let b = f32(P.lay_u.z);
+    let c = f32(P.lay_u.w);
+    let x = t * TAU;
+    let PI = TAU * 0.5;
+    switch P.lay_u.x {
+        case 1u: {
+            let rr = 0.62 + 0.28 * cos(b * x);
+            return vec3<f32>(rr * cos(a * x), 0.28 * sin(b * x), rr * sin(a * x));
+        }
+        case 2u: {
+            return vec3<f32>(sin(x), 0.15 * sin(a * x), sin(x) * cos(x));
+        }
+        case 3u: {
+            return vec3<f32>(cos(x), 0.3 * sin(a * x), sin(x));
+        }
+        case 4u: {
+            let rr = cos(a * x);
+            return vec3<f32>(rr * cos(x), 0.1 * sin(b * x), rr * sin(x));
+        }
+        default: {
+            return vec3<f32>(sin(a * x + 0.5 * PI), sin(b * x) * 0.6, sin(c * x + 0.25 * PI));
+        }
+    }
+}
+
+// Where copy `i` sits in the layer, before the variation.
+fn layout_local(i: u32, n: u32) -> mat4x4<f32> {
+    let lay = P.ints.x;
+    switch lay {
+        case 4u: {
+            // Grid: x fastest, then z, then y.
+            let c = P.lay_u.xyz;
+            let ix = i % c.x;
+            let iz = (i / c.x) % c.z;
+            let iy = i / (c.x * c.z);
+            return translate(vec3<f32>(
+                (f32(ix) - f32(c.x - 1u) * 0.5) * P.lay_f.x,
+                (f32(iy) - f32(c.y - 1u) * 0.5) * P.lay_f.y,
+                (f32(iz) - f32(c.z - 1u) * 0.5) * P.lay_f.z,
+            ));
+        }
+        case 5u: {
+            return to4(rot_y(TAU * f32(i) / f32(n)), vec3<f32>(0.0)) * translate(vec3<f32>(0.0, 0.0, P.lay_f.x));
+        }
+        case 6u: {
+            // Wall: `cols` across, `rows` up, optionally bent into an arc.
+            let cols = P.lay_u.x;
+            let c = i % cols;
+            let r = i / cols;
+            var u = 0.0;
+            if (cols > 1u) {
+                u = f32(c) / f32(cols - 1u) - 0.5;
+            }
+            let spacing = P.lay_f.x;
+            let arc = P.lay_f.y;
+            let width = P.lay_f.z;
+            let y = f32(r) * spacing;
+            if (abs(arc) < 1e-3) {
+                return translate(vec3<f32>(u * width, y, 0.0));
+            }
+            let rad = width / arc;
+            let a = u * arc;
+            return translate(vec3<f32>(rad * sin(a), y, rad * (1.0 - cos(a)))) * to4(rot_y(-a), vec3<f32>(0.0));
+        }
+        case 7u: {
+            let t = f32(i) / f32(n);
+            let a = t * P.lay_f.z * TAU;
+            let h = P.lay_f.y;
+            return translate(vec3<f32>(cos(a) * P.lay_f.x, t * h - h * 0.5, sin(a) * P.lay_f.x)) * to4(rot_y(-a), vec3<f32>(0.0));
+        }
+        case 8u: {
+            return translate(scatter_point(i));
+        }
+        case 9u: {
+            let size = P.lay_f.x;
+            let t = f32(i) / f32(n) + fract(P.shape.w * P.lay_f.y);
+            let p = curve_point(t) * size;
+            if (P.lay_f.z < 0.5) {
+                return translate(p);
+            }
+            // Face along the curve (+z forward), up as close to +y as it allows.
+            var fwd = curve_point(t + 1e-3) * size - curve_point(t - 1e-3) * size;
+            fwd = select(vec3<f32>(0.0, 0.0, 1.0), normalize(fwd), dot(fwd, fwd) > 1e-12);
+            var side = cross(vec3<f32>(0.0, 1.0, 0.0), fwd);
+            side = select(vec3<f32>(1.0, 0.0, 0.0), normalize(side), dot(side, side) > 1e-12);
+            let up = cross(fwd, side);
+            return mat4x4<f32>(vec4<f32>(side, 0.0), vec4<f32>(up, 0.0), vec4<f32>(fwd, 0.0), vec4<f32>(p, 1.0));
+        }
+        case 10u: {
+            return translate(vec3<f32>(0.0));
+        }
+        case 11u: {
+            return locals[P.lay_u.x + i];
+        }
+        default: {
+            return swarm_local(i);
+        }
+    }
+}
+
 fn band_for(i: u32, n: u32) -> f32 {
     let x = (f32(i) + 0.5) / f32(n) * 16.0 - 0.5;
     let a = u32(clamp(floor(x), 0.0, 15.0));
@@ -146,7 +275,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (i >= n) {
         return;
     }
-    let local = swarm_local(i);
+    let local = layout_local(i, n);
     let phase = P.shape.w;
     // Variation (eval.rs copies_with).
     let vs = hu((P.var_c.x * 0x9e3779b9u) ^ i);

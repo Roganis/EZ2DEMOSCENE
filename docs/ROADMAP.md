@@ -439,6 +439,22 @@ compute path removes both. On llvmpipe (CPU-emulated GPU) the frame time
 is the same either way (~0.4 s, dominated by rasterising 400k
 triangles), so the gain shows on real GPUs only. Preset: Galaxy Swarm.
 
+**Follow-up: every layout on the GPU.** Orbit, Scatter and On-a-terrain
+now draw per-copy hashes instead of a sequential random stream (saved
+projects place their copies differently; the look is the same). Orbit
+is the swarm's orbit form with a lower cap. `copies.wgsl` (formerly
+`swarm.wgsl`) ports every layout — grid, radial, wall, spiral, scatter,
+curve, single, the swarm forms — and every mesh layer goes through the
+compute pass when it exists. Surface and terrain copies need the mesh
+sample / the landscape, so the CPU places them and uploads the matrices;
+the GPU applies the variation. GPU layers get analytic bounds from their
+layout (so off-screen culling still works) and contact shadows read the
+compute buffer. Sprites stay on the CPU (alpha sprites are sorted far to
+near there). Tested: GPU and CPU pictures match for every layout (mean
+difference ≤ 0.003/255), with symmetry and variation, and all loop.
+Benchmark: `render()` CPU time per frame down slightly (Gold Kaleido
+Room 0.70 → 0.58 ms), frame totals unchanged on llvmpipe.
+
 ---
 
 ## Order of work

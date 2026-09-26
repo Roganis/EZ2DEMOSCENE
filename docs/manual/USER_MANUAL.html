@@ -379,7 +379,10 @@ into each other, so the jump back at the end of the loop happens while it is inv
 </table>
 
 <h3>Copies (instancing)</h3>
-<p>One layer can show many copies of its shape. Pick a <span class="ui">Layout</span>:</p>
+<p>One layer can show many copies of its shape. Pick a <span class="ui">Layout</span>. On desktop and in WebGPU browsers the graphics
+card places the copies, variation included, so even big counts cost the processor almost nothing; in WebGL2 browsers the processor does
+the same maths and gets the same picture, just slower. (Copies on a shape's surface or on a terrain are placed by the processor
+everywhere, then finished on the graphics card.)</p>
 <table>
   <tr><th style="width:24%">Layout</th><th>Settings</th><th style="width:34%">Example</th></tr>
   <tr><td>Single</td><td>n/a</td><td>One hero object.</td></tr>
@@ -387,7 +390,7 @@ into each other, so the jump back at the end of the loop happens while it is inv
   <tr><td>Radial</td><td>Count, Radius. Copies face outward.</td><td>Panels around an arena, crystal skyline.</td></tr>
   <tr><td>Scatter</td><td>Count, Radius, Only surface, Seed</td><td>Floating debris, asteroid shells.</td></tr>
   <tr><td>Orbit swarm</td><td>Count, Radius, Spread, Orbits / loop, Seed</td><td>Debris orbiting a planet.</td></tr>
-  <tr><td>Big swarm (GPU)</td><td>Form (Orbits, Cloud, Shell, Galaxy), Count up to 250,000, Radius, Spread, Turns / loop, Seed</td><td>Huge
+  <tr><td>Big swarm</td><td>Form (Orbits, Cloud, Shell, Galaxy), Count up to 250,000, Radius, Spread, Turns / loop, Seed</td><td>Huge
   swarms, placed by the graphics card on desktop and in WebGPU browsers (in WebGL2 browsers the processor places them, the same picture
   but slower, so keep counts lower there). Use a simple shape such as a tetrahedron. The <b>Galaxy Swarm</b> preset has 40,000.</td></tr>
   <tr><td>Wall</td><td>Columns, Rows, Spacing, Curve</td><td>Orb walls, LED walls. Curve bends the wall into an arc.</td></tr>

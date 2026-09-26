@@ -359,7 +359,35 @@ pub fn sample_surface(
 
 /// Local placement of each instance inside the layer. `surface` are the
 /// points for [`Instancer::Surface`] (no copies without them).
-fn instancer_locals(
+/// How many copies a layout makes (the CPU and the compute shader agree).
+pub fn layout_count(inst: &Instancer, surface: Option<&[SurfacePoint]>) -> u32 {
+    match *inst {
+        Instancer::Single => 1,
+        Instancer::Grid { counts, .. } => counts.iter().map(|v| v.clamp(&1, &64)).product(),
+        Instancer::Radial { count, .. } => count.clamp(1, 1024),
+        Instancer::Scatter { count, .. }
+        | Instancer::Orbit { count, .. }
+        | Instancer::OnTerrain { count, .. } => count.min(20_000),
+        Instancer::Swarm { count, .. } => count.min(SWARM_MAX),
+        Instancer::Wall { cols, rows, .. } => cols.clamp(1, 128) * rows.clamp(1, 128),
+        Instancer::Spiral { count, .. } | Instancer::Curve { count, .. } => count.clamp(1, 4096),
+        Instancer::Surface { .. } => surface.map_or(0, |s| s.len() as u32),
+    }
+}
+
+/// Copy `i` of a scatter (matches `copies.wgsl`).
+pub fn scatter_point(i: u32, radius: f32, shell: bool, seed: u32) -> Vec3 {
+    let dir = hash_dir(swarm_hash(seed, i, 0), swarm_hash(seed, i, 1));
+    let r = if shell {
+        radius
+    } else {
+        radius * swarm_hash(seed, i, 2).cbrt()
+    };
+    dir * r
+}
+
+/// Local placement of every copy of a layout (before variation).
+pub fn instancer_locals(
     inst: &Instancer,
     ctx: &EvalCtx,
     surface: Option<&[SurfacePoint]>,
@@ -403,48 +431,23 @@ fn instancer_locals(
             .map(|i| swarm_local(form, i, radius, spread, speed, seed, ctx.phase))
             .collect(),
         Instancer::Scatter {
-            count,
             radius,
             shell,
             seed,
-        } => {
-            let mut rng = Rng::new(seed as u64 * 7919 + 17);
-            (0..count.min(20_000))
-                .map(|_| {
-                    let dir = random_dir(&mut rng);
-                    let r = if shell {
-                        radius
-                    } else {
-                        radius * rng.f32().cbrt()
-                    };
-                    Mat4::from_translation(dir * r)
-                })
-                .collect()
-        }
+            ..
+        } => (0..layout_count(inst, surface))
+            .map(|i| Mat4::from_translation(scatter_point(i, radius, shell, seed)))
+            .collect(),
+        // The same orbits as a big swarm's, capped lower.
         Instancer::Orbit {
-            count,
             radius,
             spread,
             speed,
             seed,
-        } => {
-            let mut rng = Rng::new(seed as u64 * 104_729 + 3);
-            (0..count.min(20_000))
-                .map(|_| {
-                    let tilt = Quat::from_axis_angle(random_dir(&mut rng), rng.range(0.0, 0.6));
-                    let r = (radius + spread * rng.signed()).max(0.0);
-                    let y = spread * 0.5 * rng.signed();
-                    let fast = if rng.chance(0.3) { 2 } else { 1 };
-                    let start = rng.f32();
-                    let a = TAU * (start + ctx.phase * (speed * fast) as f32);
-                    let axis = random_dir(&mut rng);
-                    let tumble_turns = if rng.chance(0.5) { 1.0 } else { -1.0 };
-                    let tumble = Quat::from_axis_angle(axis, ctx.turns(tumble_turns));
-                    let pos = tilt * Vec3::new(a.cos() * r, y, a.sin() * r);
-                    Mat4::from_rotation_translation(tumble, pos)
-                })
-                .collect()
-        }
+            ..
+        } => (0..layout_count(inst, surface))
+            .map(|i| swarm_local(SwarmForm::Orbit, i, radius, spread, speed, seed, ctx.phase))
+            .collect(),
         Instancer::Wall {
             cols,
             rows,
@@ -512,10 +515,9 @@ fn instancer_locals(
             let frame = layer_frame(placement, ctx);
             let (_, base_rot, _) = frame.to_scale_rotation_translation();
             let up = base_rot * Vec3::Y;
-            let mut rng = Rng::new(seed as u64 * 15_485_863 + 5);
             (0..count.min(20_000))
-                .map(|_| {
-                    let (u, w) = (rng.f32(), rng.f32());
+                .map(|i| {
+                    let (u, w) = (swarm_hash(seed, i, 0), swarm_hash(seed, i, 1));
                     let (p, n, fade) = g.point(u, w);
                     let n = full.transform_vector3(n).normalize_or(up);
                     let rot = if align {
@@ -583,7 +585,7 @@ fn instancer_locals(
     }
 }
 
-/// Random number `k` of copy `i` of a swarm (matches `swarm.wgsl`).
+/// Random number `k` of copy `i` of a swarm (matches `copies.wgsl`).
 pub fn swarm_hash(seed: u32, i: u32, k: u32) -> f32 {
     let key = hash_u32(
         i.wrapping_mul(0x9e37_79b9) ^ hash_u32(seed.wrapping_add(k.wrapping_mul(0x85eb_ca6b))),
@@ -599,7 +601,7 @@ fn hash_dir(u: f32, v: f32) -> Vec3 {
 }
 
 /// Copy `i` of a swarm at `phase`: a pure function of its number, so the
-/// compute shader (`swarm.wgsl`) can place any copy on its own.
+/// compute shader (`copies.wgsl`) can place any copy on its own.
 pub fn swarm_local(
     form: SwarmForm,
     i: u32,
@@ -650,13 +652,6 @@ pub fn swarm_local(
         }
     };
     Mat4::from_rotation_translation(tumble, pos)
-}
-
-fn random_dir(rng: &mut Rng) -> Vec3 {
-    let z = rng.signed();
-    let a = rng.f32() * TAU;
-    let r = (1.0 - z * z).max(0.0).sqrt();
-    Vec3::new(r * a.cos(), z, r * a.sin())
 }
 
 /// True when a mesh layer's instances do not change over the loop, so the
