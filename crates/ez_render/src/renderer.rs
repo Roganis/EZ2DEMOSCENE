@@ -1578,7 +1578,7 @@ impl Renderer {
     }
 
     pub fn render(&mut self, project: &Project, ctx: &EvalCtx, target: &RenderTarget) {
-        let layers = project.scene_layers();
+        let layers = project.scene_layers(ctx);
         let (w, h) = (target.width, target.height);
         let cam = project.camera.eval(ctx);
         let view = cam.view();

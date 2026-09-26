@@ -109,10 +109,11 @@ impl Project {
         serde_json::from_str(s)
     }
 
-    /// Layers to render: either the plain layer list or the compiled graph.
-    pub fn scene_layers(&self) -> Cow<'_, [Layer]> {
+    /// Layers to render at `ctx`: either the plain layer list or the
+    /// compiled graph (with its Drive nodes applied).
+    pub fn scene_layers(&self, ctx: &crate::EvalCtx) -> Cow<'_, [Layer]> {
         match (&self.graph, self.use_graph) {
-            (Some(g), true) => Cow::Owned(g.compile()),
+            (Some(g), true) => Cow::Owned(g.compile_at(ctx)),
             _ => Cow::Borrowed(&self.layers),
         }
     }

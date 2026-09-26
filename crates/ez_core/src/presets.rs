@@ -114,11 +114,99 @@ pub fn all() -> Vec<Preset> {
             project: music_reactor(),
         },
         Preset {
+            name: "Signal Flow",
+            description:
+                "Node graph: a sequence and a smoothed random walk drive the glow and size.",
+            project: signal_flow(),
+        },
+        Preset {
             name: "Empty",
             description: "A blank stage with a floor and a sky.",
             project: empty(),
         },
     ]
+}
+
+/// Orbiting Solid rebuilt as a node graph whose signals drive the
+/// centrepiece: a stepped glow sequence and a smoothed random scale.
+pub fn signal_flow() -> Project {
+    use crate::graph::{Graph, NodeKind};
+    use crate::signal::{DriveMode, SignalNode};
+    let mut p = orbiting_solid();
+    p.name = "Signal Flow".into();
+    let mut g = Graph::default();
+    let out = g.add(NodeKind::Output, [980.0, 240.0]);
+    let mut y = 20.0;
+    // One output pin per layer keeps their order.
+    for (pin, l) in p.layers.iter().enumerate() {
+        let src = g.add(NodeKind::Source { layer: l.clone() }, [40.0, y]);
+        y += 105.0;
+        if l.name != "Dodecahedron" {
+            g.connect(src, 0, out, pin);
+            continue;
+        }
+        let glow = g.add(
+            NodeKind::Drive {
+                path: "kind.material.emissive".into(),
+                mode: DriveMode::Replace,
+            },
+            [380.0, 640.0],
+        );
+        let size = g.add(
+            NodeKind::Drive {
+                path: "transform.scale".into(),
+                mode: DriveMode::Multiply,
+            },
+            [680.0, 640.0],
+        );
+        let seq = g.add(
+            NodeKind::Signal {
+                sig: SignalNode::Sequence {
+                    values: vec![0.1, 1.6, 0.4, 2.4],
+                    beats: 2,
+                    glide: false,
+                },
+            },
+            [40.0, 700.0],
+        );
+        let walk = g.add(
+            NodeKind::Signal {
+                sig: SignalNode::Wave {
+                    param: Param::new(0.0).osc(Wave::Random, 1.0, 8),
+                },
+            },
+            [40.0, 980.0],
+        );
+        let smooth = g.add(
+            NodeKind::Signal {
+                sig: SignalNode::Smooth { beats: 2.0 },
+            },
+            [380.0, 980.0],
+        );
+        let remap = g.add(
+            NodeKind::Signal {
+                sig: SignalNode::Remap {
+                    in_min: -1.0,
+                    in_max: 1.0,
+                    out_min: 0.7,
+                    out_max: 1.35,
+                    clamp: true,
+                },
+            },
+            [680.0, 980.0],
+        );
+        g.connect(src, 0, glow, 0);
+        g.connect(seq, 0, glow, 1);
+        g.connect(glow, 0, size, 0);
+        g.connect(walk, 0, smooth, 0);
+        g.connect(smooth, 0, remap, 0);
+        g.connect(remap, 0, size, 1);
+        g.connect(size, 0, out, pin);
+    }
+    p.layers = g.compile();
+    p.graph = Some(g);
+    p.use_graph = true;
+    p
 }
 
 pub fn by_name(name: &str) -> Option<Project> {

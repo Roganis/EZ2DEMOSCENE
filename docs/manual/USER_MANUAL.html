@@ -888,6 +888,7 @@ through <b>modifiers</b> into an <b>Output</b>. Everything connected to Output i
   <tr><td>Mirror</td><td>Adds a mirrored copy of every incoming layer, across the X, Y or Z plane at a chosen position.</td></tr>
   <tr><td>Strobe</td><td>Sets the Blink / strobe of every incoming layer (chapter 7).</td></tr>
   <tr><td>Colour / material</td><td>Sets the glow colour, multiplies the glow, and for shapes can set a texture, a neon wireframe look and a glitch.</td></tr>
+  <tr><td>Drive</td><td>Sets one setting of every incoming layer from a signal (see <i>Signals</i> below).</td></tr>
   <tr><td>Merge</td><td>Combines up to 4 streams.</td></tr>
   <tr><td>Output</td><td>Up to 8 inputs. Everything here is drawn.</td></tr>
 </table>
@@ -897,6 +898,35 @@ right-click a node to <span class="ui">Duplicate</span> or <span class="ui">Dele
 <span class="ui">Rebuild from layers</span> starts a new graph from your layers; and <span class="ui">Bake to layers</span> turns
 the graph's result into ordinary layers and returns to Simple mode.</p>
 <figure><img src="img/nodes.jpg" ><figcaption>Nodes mode: the viewport on top, the graph below, the inspector on the right.</figcaption></figure>
+
+<h2>Signals: wire any setting to a wave, a beat or the music</h2>
+<p>Besides layers, wires can carry <b>signals</b>: one number that changes over the loop. Signal pins are <b style="color:#3cb35a">green</b>
+(outputs are squares). A signal node shows a small graph of its value over the whole loop, with the current moment marked in pink.
+Add them from the right-click menu under <span class="ui">Signal</span>.</p>
+<table>
+  <tr><th style="width:22%">Signal node</th><th>What it does</th></tr>
+  <tr><td>Wave / music</td><td>Any animation: a wave with whole cycles per loop, a fade on every beat, random steps, or a link to the music
+  (follow the kick, bass or melody, or react to hits). It uses the same <span class="ui">~</span> and 🎵 controls as every other value.</td></tr>
+  <tr><td>Math</td><td>A + B, A − B, A × B, A ÷ B, the smaller or larger one, or A &gt; B / A &lt; B (1 or 0). Unconnected inputs use the
+  numbers typed in the node.</td></tr>
+  <tr><td>Remap</td><td>Maps one range to another, e.g. −1…1 to 0.7…1.35. <span class="ui">stay in range</span> clamps.</td></tr>
+  <tr><td>Quantize</td><td>Rounds to steps (4 steps per 1 → 0, 0.25, 0.5…).</td></tr>
+  <tr><td>Smooth</td><td>Averages over a few beats around each moment. Great on random steps. Music links have their own smoothing
+  (the 🎵 row), which works better for them.</td></tr>
+  <tr><td>Mix</td><td>Blends A to B by T.</td></tr>
+  <tr><td>Sequence</td><td>Steps through your list of values, one every N beats, starting over with the loop. <span class="ui">glide</span>
+  slides from each value to the next.</td></tr>
+  <tr><td>Hit counter</td><td>Counts kicks (or snares, hats, any hit, notes) since the start of the loop: 0, 1, 2… up to
+  <span class="ui">count to</span> − 1, then starts again. Through a Remap (0…3 → 0…1) it steps a setting on every kick.</td></tr>
+</table>
+<p>A <b>Drive</b> node puts a signal to work. Wire layers into its first input and a signal into the second, then pick the
+<b>setting</b> from the list: <code>kind.…</code> are the layer's own settings (for a shape, <code>kind.material.emissive</code> is its glow),
+<code>transform.…</code> its placement, and <code>.0 .1 .2</code> are x, y, z (or red, green, blue). Choose how the signal is used:
+<span class="ui">set to</span> replaces the value, <span class="ui">add</span> adds to it (the setting keeps its own animation), and
+<span class="ui">multiply by</span> scales it. Chain Drive nodes to drive several settings.</p>
+<p>Signals are worked out from the loop position and the music at that moment, so graphs always loop seamlessly. The
+<b>Signal Flow</b> preset shows a stepped glow Sequence and a smoothed random size on the centrepiece. <span class="ui">Bake to layers</span>
+drops the Drive nodes (settings keep their own values).</p>
 
 <!-- ===================================================== 13 -->
 <h1 id="export"><span class="num">13</span>Exporting your loop</h1>

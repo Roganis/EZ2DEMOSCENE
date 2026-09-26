@@ -7,7 +7,18 @@
 use crate::color::{hue_rotate, Rgb};
 use crate::rng::Rng;
 use crate::scene::*;
+use crate::signal::{DriveMode, SignalNode};
+use crate::EvalCtx;
 use serde::{Deserialize, Serialize};
+
+/// What flows along a wire.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PinKind {
+    /// A stream of layers.
+    Layers,
+    /// One number that changes over the loop.
+    Signal,
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "node")]
@@ -60,6 +71,14 @@ pub enum NodeKind {
         glitch: f32,
         glitch_style: GlitchStyle,
     },
+    /// Makes or shapes a signal.
+    Signal { sig: SignalNode },
+    /// Sets one setting of every incoming layer from a signal.
+    Drive {
+        /// Setting path (see [`crate::signal::setting_paths`]).
+        path: String,
+        mode: DriveMode,
+    },
     /// Concatenates any number of streams.
     Merge,
     /// Final output: everything connected here is rendered.
@@ -80,8 +99,28 @@ impl NodeKind {
             NodeKind::Mirror { .. } => "Mirror".into(),
             NodeKind::Strobe { .. } => "Strobe".into(),
             NodeKind::Material { .. } => "Colour / material".into(),
+            NodeKind::Signal { sig } => sig.title().into(),
+            NodeKind::Drive { path, .. } if path.is_empty() => "Drive".into(),
+            NodeKind::Drive { path, .. } => format!("Drive {path}"),
             NodeKind::Merge => "Merge".into(),
             NodeKind::Output => "Output".into(),
+        }
+    }
+
+    /// What input pin `pin` takes.
+    pub fn input_kind(&self, pin: usize) -> PinKind {
+        match self {
+            NodeKind::Signal { .. } => PinKind::Signal,
+            NodeKind::Drive { .. } if pin == 1 => PinKind::Signal,
+            _ => PinKind::Layers,
+        }
+    }
+
+    /// What the output pins give.
+    pub fn output_kind(&self) -> PinKind {
+        match self {
+            NodeKind::Signal { .. } => PinKind::Signal,
+            _ => PinKind::Layers,
         }
     }
 
@@ -89,6 +128,8 @@ impl NodeKind {
     pub fn inputs(&self) -> usize {
         match self {
             NodeKind::Source { .. } => 0,
+            NodeKind::Signal { sig } => sig.input_names().len(),
+            NodeKind::Drive { .. } => 2,
             NodeKind::Merge => 4,
             NodeKind::Output => 8,
             _ => 1,
@@ -145,6 +186,10 @@ impl NodeKind {
                 glitch: 0.0,
                 glitch_style: GlitchStyle::Jitter,
             },
+            NodeKind::Drive {
+                path: String::new(),
+                mode: DriveMode::Replace,
+            },
             NodeKind::Merge,
         ]
     }
@@ -152,7 +197,9 @@ impl NodeKind {
     fn apply(&self, input: Vec<Layer>) -> Vec<Layer> {
         match self {
             NodeKind::Source { layer } => vec![layer.clone()],
-            NodeKind::Merge | NodeKind::Output => input,
+            NodeKind::Signal { .. } => Vec::new(),
+            // Driving needs the moment; see Graph::eval_node.
+            NodeKind::Drive { .. } | NodeKind::Merge | NodeKind::Output => input,
             NodeKind::Symmetry { symmetry } => input
                 .into_iter()
                 .map(|mut l| {
@@ -462,8 +509,19 @@ impl Graph {
         self.nodes.iter().find(|n| n.id == id)
     }
 
-    /// Compile the graph to a layer list (cycles are ignored).
+    /// Compile the graph to a layer list (cycles are ignored). Drive nodes
+    /// are left out: this is the graph's structure, e.g. for converting it
+    /// to plain layers. [`Graph::compile_at`] is what gets rendered.
     pub fn compile(&self) -> Vec<Layer> {
+        self.compile_with(None)
+    }
+
+    /// The layers at one moment, with every Drive node applied.
+    pub fn compile_at(&self, ctx: &EvalCtx) -> Vec<Layer> {
+        self.compile_with(Some(ctx))
+    }
+
+    fn compile_with(&self, ctx: Option<&EvalCtx>) -> Vec<Layer> {
         let Some(out) = self
             .nodes
             .iter()
@@ -472,10 +530,25 @@ impl Graph {
             return Vec::new();
         };
         let mut visiting = Vec::new();
-        self.eval_node(out.id, &mut visiting)
+        self.eval_node(out.id, ctx, &mut visiting)
     }
 
-    fn eval_node(&self, id: u32, visiting: &mut Vec<u32>) -> Vec<Layer> {
+    /// Wires into `id`, sorted by pin, whose source gives what the pin takes.
+    fn inputs_of(&self, id: u32, kind: &NodeKind) -> Vec<&Wire> {
+        let mut inputs: Vec<&Wire> = self
+            .wires
+            .iter()
+            .filter(|w| w.to == id)
+            .filter(|w| {
+                self.node(w.from)
+                    .is_some_and(|f| f.kind.output_kind() == kind.input_kind(w.to_pin))
+            })
+            .collect();
+        inputs.sort_by_key(|w| w.to_pin);
+        inputs
+    }
+
+    fn eval_node(&self, id: u32, ctx: Option<&EvalCtx>, visiting: &mut Vec<u32>) -> Vec<Layer> {
         if visiting.contains(&id) || visiting.len() > 256 {
             return Vec::new();
         }
@@ -483,14 +556,89 @@ impl Graph {
             return Vec::new();
         };
         visiting.push(id);
-        let mut inputs: Vec<&Wire> = self.wires.iter().filter(|w| w.to == id).collect();
-        inputs.sort_by_key(|w| w.to_pin);
+        let inputs = self.inputs_of(id, &node.kind);
         let mut stream = Vec::new();
+        let mut signal = None;
         for w in inputs {
-            stream.extend(self.eval_node(w.from, visiting));
+            match node.kind.input_kind(w.to_pin) {
+                PinKind::Layers => stream.extend(self.eval_node(w.from, ctx, visiting)),
+                PinKind::Signal => {
+                    if let Some(c) = ctx {
+                        signal = self.eval_signal(w.from, &crate::signal::wrapped(c), visiting);
+                    }
+                }
+            }
         }
         visiting.pop();
+        if let (NodeKind::Drive { path, mode }, Some(v)) = (&node.kind, signal) {
+            if !path.is_empty() {
+                for l in &mut stream {
+                    crate::signal::drive(l, path, *mode, v);
+                }
+            }
+            return stream;
+        }
         node.kind.apply(stream)
+    }
+
+    /// The layers flowing into input `pin` of node `id` (structure only,
+    /// no drives): what a Drive node can set.
+    pub fn upstream_layers(&self, id: u32, pin: usize) -> Vec<Layer> {
+        let Some(node) = self.node(id) else {
+            return Vec::new();
+        };
+        self.inputs_of(id, &node.kind)
+            .into_iter()
+            .filter(|w| w.to_pin == pin)
+            .flat_map(|w| self.eval_node(w.from, None, &mut vec![id]))
+            .collect()
+    }
+
+    /// Value of signal node `id` at `ctx` (`None` for a missing or
+    /// non-signal node, or a cycle).
+    pub fn signal_at(&self, id: u32, ctx: &EvalCtx) -> Option<f32> {
+        self.eval_signal(id, &crate::signal::wrapped(ctx), &mut Vec::new())
+    }
+
+    fn eval_signal(&self, id: u32, ctx: &EvalCtx, visiting: &mut Vec<u32>) -> Option<f32> {
+        if visiting.contains(&id) || visiting.len() > 256 {
+            return None;
+        }
+        let node = self.node(id)?;
+        let NodeKind::Signal { sig } = &node.kind else {
+            return None;
+        };
+        visiting.push(id);
+        let mut inputs = vec![None; sig.input_names().len()];
+        for w in self.inputs_of(id, &node.kind) {
+            if w.to_pin >= inputs.len() {
+                continue;
+            }
+            inputs[w.to_pin] = match sig {
+                // A symmetric window over the (circular) loop keeps it exact.
+                SignalNode::Smooth { beats } => {
+                    // Midpoints of N slices: never exactly on a beat, where
+                    // steps change.
+                    const N: usize = 16;
+                    let width = beats.abs();
+                    let mut sum = 0.0;
+                    let mut got = 0;
+                    for k in 0..N {
+                        let d = width * ((k as f32 + 0.5) / N as f32 - 0.5);
+                        let c = crate::signal::shifted(ctx, d);
+                        if let Some(v) = self.eval_signal(w.from, &c, visiting) {
+                            sum += v;
+                            got += 1;
+                        }
+                    }
+                    (got > 0).then(|| sum / got as f32)
+                }
+                _ => self.eval_signal(w.from, ctx, visiting),
+            };
+        }
+        visiting.pop();
+        let v = sig.eval(&inputs, ctx);
+        Some(if v.is_finite() { v } else { 0.0 })
     }
 }
 

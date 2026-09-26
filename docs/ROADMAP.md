@@ -154,7 +154,7 @@ visibly).
 
 ## Phase 3 — Signal nodes (the node graph becomes a modulation system)
 
-### ☐ 3.1 Signal wires
+### ☑ 3.1 Signal wires
 **How.** Nodes today pass *layers*. Add a second pin type, **signal** (one
 number per frame, evaluated from the `EvalCtx`). The compiled graph keeps
 layers plus a list of *bindings* `(layer, setting path, signal expression)`.
@@ -165,7 +165,7 @@ parameters, so the renderer stays unchanged.
   small `visit_params(&mut Layer, |path, &mut Param|)` walker.
 - Binding modes: replace, add, multiply.
 
-### ☐ 3.2 Signal nodes
+### ☑ 3.2 Signal nodes
 - **Sources:** LFO (all wave shapes, whole cycles), Beat (fade per beat or
   bar), Random (per step, loop-safe), Noise (closed circle in noise space),
   Music (every follow source and every hit kind with shape and length),
@@ -184,6 +184,20 @@ sparkline of its value over the loop.
 **Loop safety.** Every source is a function of the loop phase and the
 loop-window music; math is pointwise; lag is a symmetric window over the
 circular loop. A test evaluates random graphs at phase 0 and 1.
+
+**Done (3.1 + 3.2):** pins are typed (layers / signal) and mismatched
+wires are refused. Setting paths come from a generic serde walk of the
+layer (every number, animatable setting and colour channel, so new
+settings are drivable automatically); Drive applies replace/add/multiply
+through one JSON round trip per layer (no measurable cost). Sources reuse
+the animatable `Param` (waves, beat fades, random steps, music follow and
+hits in one node); plus Math, Remap, Quantize, Smooth (16 midpoint samples
+of a symmetric window), Mix, Sequence (with glide that wraps) and Hit
+counter (a new per-frame hit count in the music frame). Hold and a
+separate Noise source were dropped: Sequence and the Param's smooth-random
+and drunk waves cover them. A test evaluates 200 random graphs at phase 0
+and 1 (it caught a float edge in nested Smooth, fixed by wrapping phases).
+Preset: *Signal Flow*.
 
 ### ☐ 3.3 Geometry and layout nodes
 - **Deform:** Twist, Bend, Taper, Noise displacement, Explode (per-face

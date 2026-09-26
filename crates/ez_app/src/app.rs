@@ -885,7 +885,10 @@ impl EzApp {
             }
             if ui
                 .button("Bake to layers")
-                .on_hover_text("Turn the graph result into plain layers and go back to Simple mode")
+                .on_hover_text(
+                    "Turn the graph result into plain layers and go back to Simple mode \
+                     (Drive nodes are dropped: settings keep their own values)",
+                )
                 .clicked()
             {
                 if let Some(g) = &self.project.graph {
@@ -896,8 +899,15 @@ impl EzApp {
             }
         });
         let templates = self.library.template_layers();
+        let project = &self.project;
+        let audio = self.audio_env.clone();
+        let ctx_at = |phase: f32| project.ctx(phase, audio.as_deref());
+        let now = self
+            .project
+            .ctx_at(self.time, self.audio_env.as_deref())
+            .phase;
         if let Some(n) = &mut self.nodes {
-            n.show(ui, &templates);
+            n.show(ui, &templates, &ctx_at, now);
         }
     }
 

@@ -257,6 +257,8 @@ pub struct HitState {
     /// Seconds since the last hit (huge when there was none).
     pub since: f32,
     pub strength: f32,
+    /// Hits so far in the loop window (or the song, in full-track mode).
+    pub count: u32,
 }
 
 impl Default for HitState {
@@ -264,6 +266,7 @@ impl Default for HitState {
         HitState {
             since: 1e6,
             strength: 0.0,
+            count: 0,
         }
     }
 }
@@ -364,6 +367,7 @@ fn song_frame(env: &AudioEnvelope, ts: f32, window: Option<(f32, f32, f32)>) -> 
                 Some((t, s)) => HitState {
                     since: ts - t,
                     strength: s,
+                    ..Default::default()
                 },
                 None => HitState::default(),
             },
@@ -374,17 +378,23 @@ fn song_frame(env: &AudioEnvelope, ts: f32, window: Option<(f32, f32, f32)>) -> 
                     Some((ht, s)) => HitState {
                         since: start + t - ht,
                         strength: s,
+                        ..Default::default()
                     },
                     None => match env.last_hit(kind, start + t, start + len - 1e-4) {
                         Some((ht, s)) => HitState {
                             since: t + (start + len - ht),
                             strength: s,
+                            ..Default::default()
                         },
                         None => HitState::default(),
                     },
                 }
             }
         };
+        let h = &env.hits[kind as usize];
+        let upto = h.partition_point(|(t, _)| *t <= ts);
+        let from = window.map_or(0, |(start, _, _)| h.partition_point(|(t, _)| *t < start));
+        f.hits[k].count = upto.saturating_sub(from) as u32;
     }
     f
 }

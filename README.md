@@ -110,6 +110,11 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   Colour/material, Merge) into Output. The
   graph compiles to the same layer list the simple mode uses, and *Bake to
   layers* brings it back into simple mode.
+  - **Signals:** green wires carry a number that changes over the loop.
+    Wave/music, Math, Remap, Quantize, Smooth, Mix, Sequence and Hit
+    counter nodes (each with a live graph of its value) feed **Drive**
+    nodes, which set any setting of the layers flowing through them
+    (replace, add or multiply). Loop-safe by construction.
 - **Project files.** Readable `.ez2.json` files. Static values are saved as
   plain numbers, and assets inside the project folder are stored with
   relative paths, so projects can be moved.

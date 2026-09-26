@@ -21,7 +21,7 @@ pub enum Curve {
 pub const CURVES: usize = 7;
 
 /// Detected (or MIDI) hits.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum HitKind {
     Kick = 0,
     Snare,
