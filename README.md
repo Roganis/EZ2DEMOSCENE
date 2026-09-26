@@ -56,6 +56,10 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     **Raymarched shapes** (metaballs, gyroid, fractal bulb, melting box)
     are drawn per pixel inside a box: smooth, depth-correct against
     everything else, with sun shadows and the usual material.
+  - **Sprites**: billboards, upright or fixed image planes with alpha,
+    additive or cutout blending and any copy layout; sprite sheets play a
+    whole number of times per loop (built-in explosion, flame, coin and
+    sparkle sheets).
   - Weather: rain with splashes, snow, rising embers, a sandstorm or
     fireflies in a box that follows the camera, and **lightning** bolts
     whose flash lights up the scene. Rain wets every surface (gloss,

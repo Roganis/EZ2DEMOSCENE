@@ -140,6 +140,11 @@ pub fn all() -> Vec<Preset> {
             project: liquid_metal(),
         },
         Preset {
+            name: "Campfire Sprites",
+            description: "Sprite-sheet flames round a fire, twinkling sparkles and a ring of spinning pixel coins under the aurora.",
+            project: campfire_sprites(),
+        },
+        Preset {
             name: "Empty",
             description: "A blank stage with a floor and a sky.",
             project: empty(),
@@ -496,6 +501,119 @@ pub fn liquid_metal() -> Project {
         .scaled(0.55)
         .at([0.0, 1.5, 0.0]),
     );
+    p
+}
+
+/// Sprites: flames and sparkles playing built-in sprite sheets, and pixel
+/// coins spinning in a ring.
+pub fn campfire_sprites() -> Project {
+    let mut p = empty();
+    p.name = "Campfire Sprites".into();
+    p.timing.bpm = 96.0;
+    p.camera.distance = Param::new(7.5);
+    p.camera.height = Param::new(2.2).osc(Wave::Sine, 0.6, 1);
+    p.camera.target = [0.0, 1.2, 0.0];
+    p.camera.mode = CameraMode::Orbit;
+    p.environment.fog_color = hex(0x060a14);
+    p.environment.ambient = Param::new(0.25);
+    p.post.bloom.enabled = true;
+    p.layers = vec![
+        sky(
+            BackdropKind::Aurora,
+            0x040814,
+            0x20ff80,
+            0x8040ff,
+            RaySettings::default(),
+        ),
+        Layer::new(
+            "Floor",
+            LayerKind::Mirror(MirrorFloor {
+                base_color: hex(0x101418),
+                reflectivity: Param::new(0.3),
+                ..Default::default()
+            }),
+        ),
+        Layer::new(
+            "Fire",
+            LayerKind::Sprite(SpriteLayer {
+                image: Some("sheet_flame".into()),
+                columns: 4,
+                rows: 4,
+                cycles: 8,
+                facing: SpriteFacing::Upright,
+                blend: SpriteBlend::Additive,
+                size: Param::new(2.4).osc(Wave::ExpOut, 0.4, 16),
+                glow: Param::new(1.6),
+                ..Default::default()
+            }),
+        )
+        .at([0.0, 1.15, 0.0]),
+        Layer::new(
+            "Torches",
+            LayerKind::Sprite(SpriteLayer {
+                image: Some("sheet_flame".into()),
+                columns: 4,
+                rows: 4,
+                cycles: 8,
+                random_start: true,
+                facing: SpriteFacing::Upright,
+                blend: SpriteBlend::Additive,
+                size: Param::new(0.8),
+                glow: Param::new(1.3),
+                instancer: Instancer::Radial {
+                    count: 8,
+                    radius: 3.0,
+                },
+                ..Default::default()
+            }),
+        )
+        .at([0.0, 0.4, 0.0]),
+        Layer::new(
+            "Sparkles",
+            LayerKind::Sprite(SpriteLayer {
+                image: Some("sheet_sparkle".into()),
+                columns: 4,
+                rows: 4,
+                cycles: 4,
+                random_start: true,
+                blend: SpriteBlend::Additive,
+                size: Param::new(0.35),
+                tint: hex(0xffd080),
+                glow: Param::new(2.0),
+                instancer: Instancer::Orbit {
+                    count: 50,
+                    radius: 2.2,
+                    spread: 1.2,
+                    speed: 1,
+                    seed: 4,
+                },
+                ..Default::default()
+            }),
+        )
+        .at([0.0, 2.0, 0.0]),
+        Layer::new(
+            "Coins",
+            LayerKind::Sprite(SpriteLayer {
+                image: Some("sheet_coin".into()),
+                columns: 4,
+                rows: 4,
+                cycles: 4,
+                random_start: true,
+                facing: SpriteFacing::Upright,
+                blend: SpriteBlend::Cutout,
+                pixelated: true,
+                size: Param::new(0.5),
+                glow: Param::new(1.2),
+                instancer: Instancer::Radial {
+                    count: 12,
+                    radius: 4.2,
+                },
+                ..Default::default()
+            }),
+        )
+        .at([0.0, 1.0, 0.0])
+        .spin([0, 1, 0]),
+    ];
     p
 }
 

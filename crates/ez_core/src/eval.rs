@@ -617,16 +617,28 @@ pub fn mesh_instances_with(
     surface: Option<&[SurfacePoint]>,
     out: &mut Vec<Instance>,
 ) {
+    copies_with(layer, &mesh.instancer, &mesh.variation, ctx, surface, out)
+}
+
+/// World-space copies of a layer (shapes, sprites) from its instancer and
+/// variation.
+pub fn copies_with(
+    layer: &Layer,
+    instancer: &Instancer,
+    v: &Variation,
+    ctx: &EvalCtx,
+    surface: Option<&[SurfacePoint]>,
+    out: &mut Vec<Instance>,
+) {
     // Copies on a terrain are placed in the world already.
-    let l = if matches!(mesh.instancer, Instancer::OnTerrain { .. }) {
+    let l = if matches!(instancer, Instancer::OnTerrain { .. }) {
         Mat4::IDENTITY
     } else {
         layer_frame(&layer.transform, ctx)
     };
     let size = Mat4::from_scale(layer_scale(&layer.transform, ctx));
     let syms = symmetry_matrices(&layer.symmetry);
-    let locals = instancer_locals(&mesh.instancer, ctx, surface);
-    let v = &mesh.variation;
+    let locals = instancer_locals(instancer, ctx, surface);
     let n = locals.len().max(1) as f32;
     for (i, local) in locals.iter().enumerate() {
         let i32_ = i as u32;

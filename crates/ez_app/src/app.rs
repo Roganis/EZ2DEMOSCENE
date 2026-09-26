@@ -627,6 +627,7 @@ impl EzApp {
                             (LayerKind::Backdrop(b), _) => b.texture = Some(name.clone()),
                             (LayerKind::Mirror(f), _) => f.texture = Some(name.clone()),
                             (LayerKind::Terrain(t), _) => t.texture = Some(name.clone()),
+                            (LayerKind::Sprite(sp), _) => sp.image = Some(name.clone()),
                             _ => {}
                         }
                     }

@@ -976,3 +976,91 @@ fn raymarched_objects_loop_and_cast_shadows() {
         assert!(shadow > 0.1, "{} casts no shadow", form.label());
     }
 }
+
+/// Sprites in every blend and facing: visible, the sheet plays, and the
+/// loop closes.
+#[test]
+fn sprites_play_sheets_and_loop() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let target = r.create_target(240, 136);
+    let mut plain = presets::empty();
+    plain.post.grade.grain = Param::new(0.0);
+    plain
+        .layers
+        .retain(|l| !matches!(l.kind, LayerKind::Mesh(_)));
+    let at = |p: &Project, phase: f32| EvalCtx::new(&p.timing, phase, None);
+    let cases = [
+        ("dots", None, SpriteFacing::Camera, SpriteBlend::Additive),
+        (
+            "flames",
+            Some("sheet_flame"),
+            SpriteFacing::Upright,
+            SpriteBlend::Additive,
+        ),
+        (
+            "explosion",
+            Some("sheet_explosion"),
+            SpriteFacing::Camera,
+            SpriteBlend::Alpha,
+        ),
+        (
+            "coins",
+            Some("sheet_coin"),
+            SpriteFacing::Fixed,
+            SpriteBlend::Cutout,
+        ),
+    ];
+    for (name, image, facing, blend) in cases {
+        let mut p = plain.clone();
+        let (columns, rows) = if image.is_some() { (4, 4) } else { (1, 1) };
+        p.layers.push(
+            Layer::new(
+                name,
+                LayerKind::Sprite(SpriteLayer {
+                    image: image.map(String::from),
+                    columns,
+                    rows,
+                    cycles: 2,
+                    random_start: true,
+                    facing,
+                    blend,
+                    size: Param::new(1.2),
+                    glow: Param::new(1.5),
+                    instancer: Instancer::Radial {
+                        count: 6,
+                        radius: 2.0,
+                    },
+                    // The dots move by growing and shrinking instead.
+                    variation: Variation {
+                        ripple: if image.is_none() { 0.5 } else { 0.0 },
+                        ripple_cycles: 1,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, 1.2, 0.0]),
+        );
+        let a = r.render_image(&p, &at(&p, 0.0), &target);
+        let b = r.render_image(&p, &at(&p, 1.0), &target);
+        let mid = r.render_image(&p, &at(&p, 0.3), &target);
+        let reference = r.render_image(&plain, &at(&p, 0.3), &target);
+        mid.save(snapshot_dir().join(format!("sprite_{name}.png")))
+            .unwrap();
+        let seam = mean_abs_diff(a.as_raw(), b.as_raw());
+        let plays = mean_abs_diff(a.as_raw(), mid.as_raw());
+        let shown = mean_abs_diff(mid.as_raw(), reference.as_raw());
+        eprintln!("{name}: seam {seam:.3}, plays {plays:.2}, visible {shown:.2}");
+        assert!(seam < 0.6, "{name} doesn't loop");
+        assert!(shown > 0.5, "{name} barely visible");
+        assert!(plays > 0.05, "{name} doesn't animate");
+    }
+}

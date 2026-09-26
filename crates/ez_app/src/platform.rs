@@ -24,6 +24,7 @@ pub enum TexSlot {
     Mirror,
     Terrain,
     Relief,
+    Sprite,
 }
 
 /// What a picked file is for.

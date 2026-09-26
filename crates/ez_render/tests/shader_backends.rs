@@ -75,6 +75,10 @@ fn modules() -> Vec<(&'static str, String)> {
         ),
         ("sdf", with_common(include_str!("../src/shaders/sdf.wgsl"))),
         (
+            "sprite",
+            with_common(include_str!("../src/shaders/sprite.wgsl")),
+        ),
+        (
             "weather",
             with_common(include_str!("../src/shaders/weather.wgsl")),
         ),

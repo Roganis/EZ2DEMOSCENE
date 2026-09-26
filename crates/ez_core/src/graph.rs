@@ -309,7 +309,7 @@ impl NodeKind {
                 input
                     .into_iter()
                     .map(|mut l| {
-                        if let LayerKind::Mesh(m) = &mut l.kind {
+                        if let Some(copies) = l.kind.instancer_mut() {
                             let (curve, freq, size) = match ribbon {
                                 Some((rl, r)) => {
                                     // Ride the ribbon wherever it is.
@@ -320,7 +320,7 @@ impl NodeKind {
                                 }
                                 None => (*curve, *freq, *size),
                             };
-                            m.instancer = Instancer::Curve {
+                            *copies = Instancer::Curve {
                                 curve,
                                 freq,
                                 size,
@@ -349,11 +349,11 @@ impl NodeKind {
                 input
                     .into_iter()
                     .map(|mut l| {
-                        if let LayerKind::Mesh(m) = &mut l.kind {
+                        if let Some(copies) = l.kind.instancer_mut() {
                             l.transform.position = sl.transform.position;
                             l.transform.rotation = sl.transform.rotation;
                             l.transform.spin = sl.transform.spin;
-                            m.instancer = Instancer::Surface {
+                            *copies = Instancer::Surface {
                                 shape: sm.source.clone(),
                                 size: sl.transform.scale.base,
                                 count: *count,
@@ -381,8 +381,8 @@ impl NodeKind {
                 input
                     .into_iter()
                     .map(|mut l| {
-                        if let LayerKind::Mesh(m) = &mut l.kind {
-                            m.instancer = Instancer::OnTerrain {
+                        if let Some(copies) = l.kind.instancer_mut() {
+                            *copies = Instancer::OnTerrain {
                                 terrain: tl.name.clone(),
                                 count: *count,
                                 seed: *seed,
@@ -610,6 +610,7 @@ pub fn set_layer_color(l: &mut Layer, c: Rgb) {
         LayerKind::Weather(w) => w.color = c,
         LayerKind::Falls(f) => f.color = c,
         LayerKind::Text(t) => t.color_bottom = c,
+        LayerKind::Sprite(sp) => sp.tint = c,
     }
 }
 
@@ -672,6 +673,11 @@ pub fn tint_layer(l: &mut Layer, hue: f32, glow: f32) {
             t.color_bottom = hue_rotate(t.color_bottom, hue);
             t.glow.base *= glow;
             t.glow.amp *= glow;
+        }
+        LayerKind::Sprite(sp) => {
+            sp.tint = hue_rotate(sp.tint, hue);
+            sp.glow.base *= glow;
+            sp.glow.amp *= glow;
         }
     }
 }

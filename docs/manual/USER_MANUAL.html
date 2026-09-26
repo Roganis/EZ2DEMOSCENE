@@ -570,7 +570,28 @@ bottom colour; <span class="ui">Glow</span> (brightness, above 1 it blooms; it h
 <span class="ui">Chrome</span>, which bevels the letters and reflects the sky like a 90s logo. The <b>Oldschool Intro</b> preset uses all three
 styles.</p>
 
-<div class="keep"><h2>5.12 Placing objects in the viewport</h2>
+<h2>5.12 Sprites</h2>
+<p>Pictures in the scene, one per copy: glows, flames, sparkles, coins, a logo on a sign. Add them from
+<span class="ui">+ Add → 🖼 Sprites</span> (Glow dots, Flames, Explosion or Image plane).</p>
+<table>
+  <tr><th style="width:24%">Setting</th><th>What it does</th></tr>
+  <tr><td>Image</td><td>A built-in texture, one of your images, or none (a soft glowing dot). The built-in <b>sheet_…</b> images are
+  animated sprite sheets: explosion (plays once), flame, spinning coin and sparkle (these loop).</td></tr>
+  <tr><td>Facing</td><td><b>Face the camera</b> (always square on), <b>Upright</b> (stands up and only turns around, like trees or
+  flames) or <b>Fixed plane</b> (a flat picture you place and turn like any layer).</td></tr>
+  <tr><td>Blend</td><td><b>Alpha</b>: soft edges from the image's transparency (copies are drawn far to near). <b>Additive</b>: light adds up,
+  for glows and fire. <b>Cutout</b>: hard edges at half transparency, solid like a shape (best for pixel art).</td></tr>
+  <tr><td>Size, Opacity, Tint, Glow</td><td>Height (the width follows the picture), transparency, a colour multiplied in, and brightness
+  (above 1 it blooms). All but Tint have <span class="ui">~</span> and 🎵.</td></tr>
+  <tr><td>Animation</td><td>For a sprite sheet (frames in a grid, left to right, top to bottom): <span class="ui">Columns</span>,
+  <span class="ui">Rows</span>, <span class="ui">Frames</span> used (0 = all) and <span class="ui">Plays / loop</span>, a whole number so the
+  animation lines up with the loop. <span class="ui">Each copy starts on its own frame</span> keeps a crowd of flames from flickering in
+  step. Picking a built-in sheet sets the grid for you.</td></tr>
+  <tr><td>Copies</td><td>The same copy layouts and variation as shapes (grid, ring, scatter, orbit, on a curve, on a terrain…).</td></tr>
+</table>
+<p>The <b>Campfire Sprites</b> preset uses flames, sparkles and spinning pixel coins.</p>
+
+<div class="keep"><h2>5.13 Placing objects in the viewport</h2>
 <figure><img src="img/gizmo.jpg"><figcaption>The Dodecahedron is selected: the Move handles appear on it, and the ground grid is on.</figcaption></figure></div>
 <ul>
   <li><b>Select</b> a shape or particle layer by clicking it in the viewport, or in the layer list.</li>

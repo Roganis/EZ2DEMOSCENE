@@ -388,9 +388,20 @@ cycles per loop; copies vary by their random seed. Tested: every shape
 shows, moves, loops exactly, cuts a bar through it and casts a shadow.
 Preset: Liquid Metal.
 
-### ☐ 8.2 Sprites & image planes
+### ☑ 8.2 Sprites & image planes
 Billboards or fixed planes with an image or an image sequence (frames
 chosen by loop phase), alpha or additive.
+
+**Done.** A Sprite layer (`LayerKind::Sprite`): facing camera, upright
+or fixed; alpha (copies sorted far to near), additive or cutout (writes
+depth and draws with the solid pass); size, opacity and glow as Params.
+Copies reuse the shape instancers through a shared `copies_with()` (graph
+nodes and terrain linking now go through `LayerKind::instancer_mut()`).
+Sheets play `cycles` whole passes per loop, optionally offset per copy;
+the shader caps the mip level and insets samples so frames never bleed
+into each other. Four built-in 4×4 sheets with alpha (explosion, flame,
+coin, sparkle). Tested: every blend and facing shows, plays and loops.
+Preset: Campfire Sprites.
 
 ### ☐ 8.3 Lightning arcs
 A tesla-coil arc between two points (or from a point to the nearest copy),

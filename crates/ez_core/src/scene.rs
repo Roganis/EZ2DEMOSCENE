@@ -709,6 +709,7 @@ impl Layer {
             LayerKind::Weather(_) => "Weather",
             LayerKind::Falls(_) => "Waterfall",
             LayerKind::Text(_) => "Text",
+            LayerKind::Sprite(_) => "Sprites",
         }
     }
 }
@@ -727,6 +728,26 @@ pub enum LayerKind {
     Weather(Weather),
     Falls(Falls),
     Text(TextLayer),
+    Sprite(SpriteLayer),
+}
+
+impl LayerKind {
+    /// The copies of a shape or sprite layer.
+    pub fn instancer_mut(&mut self) -> Option<&mut Instancer> {
+        match self {
+            LayerKind::Mesh(m) => Some(&mut m.instancer),
+            LayerKind::Sprite(s) => Some(&mut s.instancer),
+            _ => None,
+        }
+    }
+
+    pub fn instancer(&self) -> Option<&Instancer> {
+        match self {
+            LayerKind::Mesh(m) => Some(&m.instancer),
+            LayerKind::Sprite(s) => Some(&s.instancer),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -833,8 +854,8 @@ impl Symmetry {
 /// layer they name.
 fn link_terrains(layers: &mut Cow<'_, [Layer]>) {
     let wants = |l: &Layer| {
-        matches!(&l.kind, LayerKind::Mesh(m) if matches!(&m.instancer,
-            Instancer::OnTerrain { ground: None, terrain, .. } if !terrain.is_empty()))
+        matches!(l.kind.instancer(),
+            Some(Instancer::OnTerrain { ground: None, terrain, .. }) if !terrain.is_empty())
     };
     if !layers.iter().any(wants) {
         return;
@@ -847,10 +868,10 @@ fn link_terrains(layers: &mut Cow<'_, [Layer]>) {
         })
         .collect();
     for l in layers.to_mut().iter_mut() {
-        if let LayerKind::Mesh(m) = &mut l.kind {
-            if let Instancer::OnTerrain {
+        {
+            if let Some(Instancer::OnTerrain {
                 terrain, ground, ..
-            } = &mut m.instancer
+            }) = l.kind.instancer_mut()
             {
                 if ground.is_none() {
                     *ground = terrains
@@ -3102,6 +3123,128 @@ impl TextStyle {
             TextStyle::SineScroller => "Sine scroller",
             TextStyle::Typewriter => "Typewriter",
             TextStyle::Greetings => "Greetings list",
+        }
+    }
+}
+
+/// How sprites turn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum SpriteFacing {
+    /// Always square on to the camera.
+    #[default]
+    Camera,
+    /// Stand upright and turn around the vertical axis only (trees, people).
+    Upright,
+    /// A plane in the scene facing +z, turned with the layer and the copies.
+    Fixed,
+}
+
+impl SpriteFacing {
+    pub const ALL: [SpriteFacing; 3] = [
+        SpriteFacing::Camera,
+        SpriteFacing::Upright,
+        SpriteFacing::Fixed,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SpriteFacing::Camera => "Face the camera",
+            SpriteFacing::Upright => "Upright",
+            SpriteFacing::Fixed => "Fixed plane",
+        }
+    }
+}
+
+/// How sprites mix with what is behind them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum SpriteBlend {
+    /// Soft edges from the image's alpha (copies drawn back to front).
+    #[default]
+    Alpha,
+    /// Light adds up: glows, flares, fire.
+    Additive,
+    /// Hard edges at half alpha; solid, so no sorting is needed.
+    Cutout,
+}
+
+impl SpriteBlend {
+    pub const ALL: [SpriteBlend; 3] = [
+        SpriteBlend::Alpha,
+        SpriteBlend::Additive,
+        SpriteBlend::Cutout,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SpriteBlend::Alpha => "Alpha",
+            SpriteBlend::Additive => "Additive (glow)",
+            SpriteBlend::Cutout => "Cutout",
+        }
+    }
+}
+
+/// Images in the scene: billboards or planes, one per copy, optionally
+/// playing a sprite sheet in step with the loop.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SpriteLayer {
+    /// A texture (built-in or added to the project); none draws a soft
+    /// glowing dot.
+    pub image: Option<String>,
+    /// Sprite sheet: frames in a grid, read left to right, top to bottom.
+    pub columns: u32,
+    pub rows: u32,
+    /// Frames used (0 = the whole grid).
+    pub frames: u32,
+    /// Whole passes through the frames per loop (0 = first frame only).
+    pub cycles: i32,
+    /// Each copy starts at a different frame.
+    pub random_start: bool,
+    pub facing: SpriteFacing,
+    pub blend: SpriteBlend,
+    /// Height of a sprite; the width follows the frame's shape.
+    pub size: Param,
+    pub opacity: Param,
+    /// Multiplies the image colour.
+    pub tint: [f32; 3],
+    /// Brightness (above 1 blooms).
+    pub glow: Param,
+    /// Nearest-neighbour sampling for pixel art.
+    pub pixelated: bool,
+    pub instancer: Instancer,
+    pub variation: Variation,
+}
+
+impl Default for SpriteLayer {
+    fn default() -> Self {
+        SpriteLayer {
+            image: None,
+            columns: 1,
+            rows: 1,
+            frames: 0,
+            cycles: 1,
+            random_start: false,
+            facing: SpriteFacing::Camera,
+            blend: SpriteBlend::Alpha,
+            size: Param::new(1.0),
+            opacity: Param::new(1.0),
+            tint: [1.0, 1.0, 1.0],
+            glow: Param::new(1.0),
+            pixelated: false,
+            instancer: Instancer::Single,
+            variation: Variation::default(),
+        }
+    }
+}
+
+impl SpriteLayer {
+    /// Frames played (at least one).
+    pub fn frame_count(&self) -> u32 {
+        let grid = self.columns.max(1) * self.rows.max(1);
+        if self.frames == 0 {
+            grid
+        } else {
+            self.frames.min(grid)
         }
     }
 }

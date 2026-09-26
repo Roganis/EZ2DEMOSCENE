@@ -2,7 +2,7 @@
 //! scale it, optional ground grid. Hold Ctrl to snap.
 
 use egui::{Color32, Pos2, Rect, Stroke, Vec2};
-use ez_core::eval::{mesh_instances, CameraState};
+use ez_core::eval::{copies_with, mesh_instances, CameraState};
 use ez_core::{EvalCtx, Layer, LayerKind};
 use glam::{Mat4, Vec3, Vec4};
 
@@ -97,6 +97,15 @@ fn pick_points(layer: &Layer, ctx: &EvalCtx, proj: &Projector) -> Vec<Pos2> {
         LayerKind::Mesh(m) => {
             let mut inst = Vec::new();
             mesh_instances(layer, m, ctx, &mut inst);
+            for i in inst.iter().take(512) {
+                if let Some(p) = proj.to_screen(i.model.w_axis.truncate()) {
+                    pts.push(p);
+                }
+            }
+        }
+        LayerKind::Sprite(sp) => {
+            let mut inst = Vec::new();
+            copies_with(layer, &sp.instancer, &sp.variation, ctx, None, &mut inst);
             for i in inst.iter().take(512) {
                 if let Some(p) = proj.to_screen(i.model.w_axis.truncate()) {
                     pts.push(p);

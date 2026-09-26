@@ -853,6 +853,7 @@ pub fn layer_ui(ui: &mut Ui, layer: &mut Layer, textures: &[UserTexture], lref: 
         LayerKind::Weather(w) => weather_ui(ui, w),
         LayerKind::Falls(f) => falls_ui(ui, f),
         LayerKind::Text(t) => text_ui(ui, t, lref),
+        LayerKind::Sprite(sp) => sprite_ui(ui, sp, textures, lref),
     }
     let is_mesh_like = matches!(
         layer.kind,
@@ -2542,6 +2543,75 @@ pub fn add_layer_menu(ui: &mut Ui, templates: &[Layer]) -> Option<Layer> {
             }
         }
     });
+    ui.menu_button("🖼 Sprites", |ui| {
+        let sprites: [(&str, &str, SpriteLayer); 4] = [
+            (
+                "Glow dots",
+                "A swarm of soft glowing dots",
+                SpriteLayer {
+                    blend: SpriteBlend::Additive,
+                    size: Param::new(0.4),
+                    tint: [0.5, 0.8, 1.0],
+                    glow: Param::new(2.0),
+                    instancer: Instancer::Orbit {
+                        count: 60,
+                        radius: 3.0,
+                        spread: 1.0,
+                        speed: 1,
+                        seed: 1,
+                    },
+                    ..Default::default()
+                },
+            ),
+            (
+                "Flames",
+                "Flickering flames standing up (sprite sheet)",
+                SpriteLayer {
+                    image: Some("sheet_flame".into()),
+                    columns: 4,
+                    rows: 4,
+                    cycles: 4,
+                    random_start: true,
+                    facing: SpriteFacing::Upright,
+                    blend: SpriteBlend::Additive,
+                    glow: Param::new(1.5),
+                    instancer: Instancer::Radial {
+                        count: 8,
+                        radius: 2.5,
+                    },
+                    ..Default::default()
+                },
+            ),
+            (
+                "Explosion",
+                "A fireball, once per loop (sprite sheet)",
+                SpriteLayer {
+                    image: Some("sheet_explosion".into()),
+                    columns: 4,
+                    rows: 4,
+                    size: Param::new(3.0),
+                    glow: Param::new(1.4),
+                    ..Default::default()
+                },
+            ),
+            (
+                "Image plane",
+                "A flat picture in the scene (choose your image)",
+                SpriteLayer {
+                    image: Some("win9x".into()),
+                    facing: SpriteFacing::Fixed,
+                    blend: SpriteBlend::Cutout,
+                    size: Param::new(2.0),
+                    ..Default::default()
+                },
+            ),
+        ];
+        for (name, tip, sp) in sprites {
+            if ui.button(name).on_hover_text(tip).clicked() {
+                out = Some(Layer::new(name, LayerKind::Sprite(sp)).at([0.0, 1.5, 0.0]));
+            }
+        }
+    });
     ui.menu_button("🔤 Text", |ui| {
         for (style, text) in [
             (TextStyle::Static, "EZ2DEMOSCENE"),
@@ -2656,6 +2726,7 @@ pub fn layer_icon(l: &Layer) -> &'static str {
         LayerKind::Weather(_) => "☔",
         LayerKind::Falls(_) => "🌊",
         LayerKind::Text(_) => "🔤",
+        LayerKind::Sprite(_) => "🖼",
     }
 }
 
@@ -2754,6 +2825,103 @@ pub fn ramp_ui(ui: &mut Ui, r: &mut ColorRamp) {
         "Glowing copies glow in their colour",
         &mut r.glow,
     );
+}
+
+fn sprite_ui(ui: &mut Ui, sp: &mut SpriteLayer, textures: &[UserTexture], lref: LayerRef) {
+    section(ui, "Image", true, |ui| {
+        let before = sp.image.clone();
+        texture_picker(
+            ui,
+            "Image",
+            &mut sp.image,
+            textures,
+            Some((lref, platform::TexSlot::Sprite)),
+        );
+        // Built-in sheets set their own grid.
+        if sp.image != before {
+            if let Some((c, r)) = sp.image.as_deref().and_then(texgen::sheet_grid) {
+                sp.columns = c;
+                sp.rows = r;
+                sp.frames = 0;
+            } else if before.as_deref().and_then(texgen::sheet_grid).is_some() {
+                sp.columns = 1;
+                sp.rows = 1;
+            }
+        }
+        if sp.image.is_none() {
+            ui.label(
+                RichText::new("No image: a soft glowing dot.")
+                    .weak()
+                    .small(),
+            );
+        }
+        combo(ui, "Facing", "", &mut sp.facing, &SpriteFacing::ALL, |f| {
+            f.label()
+        });
+        combo(
+            ui,
+            "Blend",
+            "Alpha: soft edges. Additive: light adds up. Cutout: hard edges, solid.",
+            &mut sp.blend,
+            &SpriteBlend::ALL,
+            |b| b.label(),
+        );
+        param(
+            ui,
+            "Size",
+            "Height; the width follows the image",
+            &mut sp.size,
+            0.0..=10.0,
+        );
+        param(ui, "Opacity", "", &mut sp.opacity, 0.0..=1.0);
+        color(ui, "Tint", "Multiplies the image", &mut sp.tint);
+        param(
+            ui,
+            "Glow",
+            "Brightness: above 1 blooms",
+            &mut sp.glow,
+            0.0..=5.0,
+        );
+        ui.checkbox(&mut sp.pixelated, "Pixelated (sharp pixel art)");
+    });
+    section(
+        ui,
+        "Animation (sprite sheet)",
+        sp.columns * sp.rows > 1,
+        |ui| {
+            drag_u(
+                ui,
+                "Columns",
+                "Frames across the sheet",
+                &mut sp.columns,
+                1..=64,
+            );
+            drag_u(ui, "Rows", "Frames down the sheet", &mut sp.rows, 1..=64);
+            drag_u(
+                ui,
+                "Frames",
+                "Frames used, left to right, top to bottom (0 = all)",
+                &mut sp.frames,
+                0..=4096,
+            );
+            drag_i(
+                ui,
+                "Plays / loop",
+                "Whole passes through the frames per loop (0 = first frame)",
+                &mut sp.cycles,
+                -32..=32,
+            );
+            ui.checkbox(&mut sp.random_start, "Each copy starts on its own frame");
+        },
+    );
+    section(ui, "Copies (instancing)", true, |ui| {
+        instancer_ui(ui, &mut sp.instancer)
+    });
+    if !matches!(sp.instancer, Instancer::Single) {
+        section(ui, "Variation", false, |ui| {
+            variation_ui(ui, &mut sp.variation)
+        });
+    }
 }
 
 fn text_ui(ui: &mut Ui, t: &mut TextLayer, lref: LayerRef) {

@@ -3,7 +3,8 @@ use crate::mesh::{primitive, MeshData, Vertex};
 use crate::texgen;
 use bytemuck::{Pod, Zeroable};
 use ez_core::eval::{
-    instances_are_static, layer_matrix, mesh_instances_with, symmetry_matrices, Instance,
+    copies_with, instances_are_static, layer_matrix, mesh_instances_with, symmetry_matrices,
+    Instance,
 };
 use ez_core::palette::PaletteId;
 use ez_core::*;
@@ -194,6 +195,14 @@ enum Cmd {
         first: u32,
         count: u32,
     },
+    Sprite {
+        slot: u32,
+        tex: String,
+        pixelated: bool,
+        blend: SpriteBlend,
+        first: u32,
+        count: u32,
+    },
     /// Contact shadows under the copies `first..first + count` of a mesh.
     Contact {
         slot: u32,
@@ -277,6 +286,8 @@ struct ScenePipes {
     falls: wgpu::RenderPipeline,
     text: wgpu::RenderPipeline,
     sdf: wgpu::RenderPipeline,
+    /// Sprites: alpha, additive, cutout.
+    sprite: [wgpu::RenderPipeline; 3],
 }
 
 /// Where a target's feedback history is and what the last step was.
@@ -779,9 +790,31 @@ impl Renderer {
         let glyph_buffers = [Some(instance_layout)];
         let sh_text = shader(device, "text", include_str!("shaders/text.wgsl"), true);
         let sh_sdf = shader(device, "sdf", include_str!("shaders/sdf.wgsl"), true);
+        let sh_sprite = shader(device, "sprite", include_str!("shaders/sprite.wgsl"), true);
 
         let scene_pipes = |samples: u32| ScenePipes {
             samples,
+            sprite: [
+                (Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING), false),
+                (Some(ADDITIVE), false),
+                (None, true),
+            ]
+            .map(|(blend, write)| {
+                make_pipeline(
+                    device,
+                    PipeDesc {
+                        label: "sprite",
+                        layout: &scene_layout,
+                        module: &sh_sprite,
+                        fs: "fs_main",
+                        buffers: &glyph_buffers,
+                        format: HDR_FORMAT,
+                        samples,
+                        depth: Some((write, wgpu::CompareFunction::Less)),
+                        blend,
+                    },
+                )
+            }),
             sdf: make_pipeline(
                 device,
                 PipeDesc {
@@ -2480,6 +2513,74 @@ impl Renderer {
                     }
                     blocks.push(blk);
                 }
+                LayerKind::Sprite(sp) => {
+                    let tex = self.texture_key(project, sp.image.as_deref());
+                    self.tex_bind_group(&tex, sp.pixelated);
+                    scratch.clear();
+                    copies_with(layer, &sp.instancer, &sp.variation, ctx, None, &mut scratch);
+                    if sp.blend == SpriteBlend::Alpha {
+                        // Soft edges need the far copies drawn first.
+                        let d =
+                            |i: &Instance| (i.model.w_axis.truncate() - cam.eye).length_squared();
+                        scratch.sort_by(|a, b| d(b).total_cmp(&d(a)));
+                    }
+                    let first = instances.len() as u32;
+                    instances.extend(scratch.iter().map(|i| InstanceRaw {
+                        model: m4(i.model),
+                        inst: [i.hue, i.glow, i.rand, i.along],
+                    }));
+                    let count = scratch.len() as u32;
+                    ls.triangles = count as u64 * 2;
+                    ls.load = 0.01 + count as f32 / 20_000.0;
+                    let has_image = sp.image.as_deref().is_some_and(|n| !n.is_empty());
+                    let (cols, rows) = (sp.columns.max(1), sp.rows.max(1));
+                    let aspect = if has_image {
+                        let t = &self.textures[&tex]._texture;
+                        (t.width() as f32 / cols as f32)
+                            / (t.height() as f32 / rows as f32).max(1.0)
+                    } else {
+                        1.0
+                    };
+                    let mut blk: Block = Zeroable::zeroed();
+                    blk[0] = c4(sp.tint, sp.glow.eval(ctx).max(0.0) * flash);
+                    blk[1] = [
+                        cols as f32,
+                        rows as f32,
+                        sp.frame_count() as f32,
+                        (ctx.phase * sp.cycles as f32).rem_euclid(1.0),
+                    ];
+                    blk[2] = [
+                        match sp.facing {
+                            SpriteFacing::Camera => 0.0,
+                            SpriteFacing::Upright => 1.0,
+                            SpriteFacing::Fixed => 2.0,
+                        },
+                        if sp.random_start { 1.0 } else { 0.0 },
+                        aspect,
+                        if has_image { 1.0 } else { 0.0 },
+                    ];
+                    blk[3] = [
+                        sp.size.eval(ctx).max(0.0),
+                        sp.opacity.eval(ctx).clamp(0.0, 1.0),
+                        match sp.blend {
+                            SpriteBlend::Alpha => 0.0,
+                            SpriteBlend::Additive => 1.0,
+                            SpriteBlend::Cutout => 2.0,
+                        },
+                        0.0,
+                    ];
+                    if count > 0 {
+                        cmds.push(Cmd::Sprite {
+                            slot: blocks.len() as u32,
+                            tex,
+                            pixelated: sp.pixelated,
+                            blend: sp.blend,
+                            first,
+                            count,
+                        });
+                    }
+                    blocks.push(blk);
+                }
                 LayerKind::Falls(fl) => {
                     let lm = layer_matrix(&layer.transform, ctx);
                     let syms = symmetry_matrices(&layer.symmetry);
@@ -2961,7 +3062,14 @@ impl Renderer {
                 let (solid, clear): (Vec<Cmd>, Vec<Cmd>) = cmds.iter().cloned().partition(|c| {
                     matches!(
                         c,
-                        Cmd::Backdrop { .. } | Cmd::SkyFx | Cmd::Mesh { .. } | Cmd::Terrain { .. }
+                        Cmd::Backdrop { .. }
+                            | Cmd::SkyFx
+                            | Cmd::Mesh { .. }
+                            | Cmd::Terrain { .. }
+                            | Cmd::Sprite {
+                                blend: SpriteBlend::Cutout,
+                                ..
+                            }
                     )
                 });
                 self.draw_scene(&mut pass, &self.refl_pipes, 1, &solid);
@@ -3114,9 +3222,17 @@ impl Renderer {
                     None => true,
                 })
                 .collect();
-            let (solid, clear): (Vec<Cmd>, Vec<Cmd>) = rest
-                .into_iter()
-                .partition(|c| matches!(c, Cmd::Mesh { .. } | Cmd::Terrain { .. }));
+            let (solid, clear): (Vec<Cmd>, Vec<Cmd>) = rest.into_iter().partition(|c| {
+                matches!(
+                    c,
+                    Cmd::Mesh { .. }
+                        | Cmd::Terrain { .. }
+                        | Cmd::Sprite {
+                            blend: SpriteBlend::Cutout,
+                            ..
+                        }
+                )
+            });
             self.draw_scene(&mut pass, &self.main_pipes, 0, &solid);
             self.draw_scene(&mut pass, &self.main_pipes, 0, &clear);
         }
@@ -3487,6 +3603,26 @@ impl Renderer {
                     pass.set_bind_group(0, &self.globals_bg[globals], &[]);
                     pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
                     pass.set_bind_group(2, &self.tex_bgs[&(font.clone(), false)], &[]);
+                    pass.set_vertex_buffer(0, self.inst_buf.slice(..));
+                    pass.draw(0..6, *first..*first + *count);
+                }
+                Cmd::Sprite {
+                    slot,
+                    tex,
+                    pixelated,
+                    blend,
+                    first,
+                    count,
+                } => {
+                    let i = match blend {
+                        SpriteBlend::Alpha => 0,
+                        SpriteBlend::Additive => 1,
+                        SpriteBlend::Cutout => 2,
+                    };
+                    pass.set_pipeline(&pipes.sprite[i]);
+                    pass.set_bind_group(0, &self.globals_bg[globals], &[]);
+                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                    pass.set_bind_group(2, &self.tex_bgs[&(tex.clone(), *pixelated)], &[]);
                     pass.set_vertex_buffer(0, self.inst_buf.slice(..));
                     pass.draw(0..6, *first..*first + *count);
                 }
