@@ -133,11 +133,22 @@ job on a thread, the web spends ~10 ms per frame on it; a spinner with a
 percentage shows in the viewport bar and exports wait for it. The audio
 analysis is cached, so MIDI and MIDI-offset changes apply instantly.
 
-### ☐ 2.6 Terrain level of detail
+### ☑ 2.6 Terrain level of detail
 Grid cells get coarser with distance from the camera (a radial ring layout
 generated from the vertex index instead of a uniform grid), with morphing
 between levels to avoid popping. Allows 4× bigger landscapes for the same
 cost.
+
+**Done, differently:** instead of rings (which need morphing and crack
+stitching), a *graded* grid. Grid lines are spread so the spacing is the
+full resolution at the camera and grows linearly with distance (the
+grading is solved on the CPU per axis, the vertex shader maps each index in
+closed form), so there are no levels, no pops and no cracks. It draws half
+the cells per side (a quarter of the triangles). Sunbeam Peaks: 204 → 103
+ms/frame on the software rasterizer. On in six terrain presets (mean image
+change ≤ 1.4/255); Vector Valley and Dune Sea keep the full grid (the
+wireframe's lines are the art; the dunes' distant ridges simplify
+visibly).
 
 ---
 

@@ -1794,9 +1794,10 @@ impl Renderer {
                     let tex = self.texture_key(project, t.texture.as_deref());
                     self.tex_bind_group(&tex, t.pixelated);
                     let lm = layer_matrix(&layer.transform, ctx);
-                    let cells = t.cells.clamp(4, 256);
+                    let cells = t.cells.clamp(4, t.max_cells());
+                    let drawn = t.drawn_cells();
                     let syms = symmetry_matrices(&layer.symmetry);
-                    ls.triangles = (cells * cells * 2) as u64 * syms.len() as u64;
+                    ls.triangles = (drawn * drawn * 2) as u64 * syms.len() as u64;
                     ls.draws = syms.len() as u32;
                     ls.load = ls.triangles as f32 / 150_000.0 + 0.05;
                     for sym in syms {
@@ -1841,10 +1842,23 @@ impl Renderer {
                             TAU * (ctx.phase * bars).rem_euclid(1.0),
                             0.0,
                         ];
-                        blk[8..12].copy_from_slice(&m4(sym * lm));
+                        let model = sym * lm;
+                        blk[8..12].copy_from_slice(&m4(model));
+                        if t.lod {
+                            // Detail follows the camera: its position over
+                            // the terrain, in 0..1.
+                            let size = t.size.max(1.0);
+                            let eye = model.inverse().transform_point3(cam.eye);
+                            let fu = (eye.x / size + 0.5).clamp(0.0, 1.0);
+                            let fw = (eye.z / size + 0.5).clamp(0.0, 1.0);
+                            let (kx, sx) = ez_core::scene::lod_grading(cells, drawn, fu);
+                            let (kz, sz) = ez_core::scene::lod_grading(cells, drawn, fw);
+                            blk[12] = [fu, fw, kx, kz];
+                            blk[13] = [sx, sz, drawn as f32, 0.0];
+                        }
                         cmds.push(Cmd::Terrain {
                             slot: blocks.len() as u32,
-                            vertices: cells * cells * 6,
+                            vertices: drawn * drawn * 6,
                             tex: tex.clone(),
                             pixelated: t.pixelated,
                         });

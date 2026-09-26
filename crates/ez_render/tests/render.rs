@@ -381,3 +381,63 @@ fn sun_shadows_darken_the_floor() {
     );
     assert!(lum(&on) < lum(&off) - 0.3, "no shadow visible");
 }
+
+/// Terrain level of detail: still loops, and looks like the full grid (with
+/// twice the cells, the same triangle count, for solid terrains; grid lines
+/// sit on every cell, so line styles keep their cells).
+#[test]
+fn terrain_lod_loops_and_matches_the_full_grid() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
+    let target = r.create_target(320, 180);
+    let mut tested = 0;
+    for preset in presets::all() {
+        let mut full = preset.project;
+        for l in &mut full.layers {
+            if let LayerKind::Terrain(t) = &mut l.kind {
+                t.lod = false;
+            }
+        }
+        if !full
+            .layers
+            .iter()
+            .any(|l| matches!(l.kind, LayerKind::Terrain(_)))
+        {
+            continue;
+        }
+        let mut lod = full.clone();
+        for l in &mut lod.layers {
+            if let LayerKind::Terrain(t) = &mut l.kind {
+                t.lod = true;
+                if t.style == TerrainStyle::Solid {
+                    t.cells *= 2;
+                }
+            }
+        }
+        let at = |phase: f32| EvalCtx::new(&full.timing, phase, None);
+        let a = r.render_image(&lod, &at(0.0), &target);
+        let b = r.render_image(&lod, &at(1.0), &target);
+        let seam = mean_abs_diff(a.as_raw(), b.as_raw());
+        let reference = r.render_image(&full, &at(0.0), &target);
+        let change = mean_abs_diff(a.as_raw(), reference.as_raw());
+        eprintln!(
+            "{:<22} LOD seam {seam:.3}  vs full grid {change:.2}",
+            preset.name
+        );
+        assert!(seam < 0.6, "{} does not loop with LOD: {seam}", preset.name);
+        assert!(
+            change < 4.0,
+            "{} looks different with LOD: {change}",
+            preset.name
+        );
+        tested += 1;
+    }
+    assert!(tested >= 3);
+}

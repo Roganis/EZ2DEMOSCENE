@@ -1641,6 +1641,7 @@ pub fn stormy_lake() -> Project {
                 LayerKind::Terrain(Terrain {
                     size: 120.0,
                     cells: 128,
+                    lod: true,
                     height: Param::new(12.0),
                     hills: 4,
                     roughness: Param::new(0.5),
@@ -1751,6 +1752,7 @@ pub fn lava_world() -> Project {
                 LayerKind::Terrain(Terrain {
                     size: 110.0,
                     cells: 128,
+                    lod: true,
                     height: Param::new(7.0),
                     hills: 3,
                     roughness: Param::new(0.6),
@@ -1873,6 +1875,7 @@ pub fn sunbeam_peaks() -> Project {
                 LayerKind::Terrain(Terrain {
                     size: 140.0,
                     cells: 128,
+                    lod: true,
                     height: Param::new(16.0),
                     hills: 4,
                     roughness: Param::new(0.55),
@@ -1978,6 +1981,7 @@ pub fn aurora_tundra() -> Project {
                 LayerKind::Terrain(Terrain {
                     size: 120.0,
                     cells: 112,
+                    lod: true,
                     height: Param::new(10.0),
                     hills: 4,
                     roughness: Param::new(0.5),
@@ -2362,6 +2366,7 @@ pub fn rainbow_falls() -> Project {
                 LayerKind::Terrain(Terrain {
                     size: 120.0,
                     cells: 112,
+                    lod: true,
                     height: Param::new(14.0),
                     hills: 3,
                     roughness: Param::new(0.5),
@@ -2628,6 +2633,7 @@ pub fn twister() -> Project {
                 LayerKind::Terrain(Terrain {
                     size: 120.0,
                     cells: 96,
+                    lod: true,
                     height: Param::new(3.0),
                     hills: 3,
                     roughness: Param::new(0.4),

@@ -4,6 +4,8 @@
 //!
 //! `bench [preset name] [full|half|quarter]` times a preset instead of the
 //! stress scene, optionally forcing its background resolution.
+//! `EZ2_LOD=1` turns terrain level of detail on; `EZ2_LOD=2` also doubles
+//! the terrain's cells (same triangle count, twice the near detail).
 
 use ez_core::*;
 use ez_render::gpu::Gpu;
@@ -61,6 +63,16 @@ fn main() -> anyhow::Result<()> {
         for l in &mut p.layers {
             if let LayerKind::Backdrop(b) = &mut l.kind {
                 b.resolution = res;
+            }
+        }
+    }
+    if let Ok(lod) = std::env::var("EZ2_LOD") {
+        for l in &mut p.layers {
+            if let LayerKind::Terrain(t) = &mut l.kind {
+                t.lod = lod != "0";
+                if lod == "2" {
+                    t.cells *= 2;
+                }
             }
         }
     }

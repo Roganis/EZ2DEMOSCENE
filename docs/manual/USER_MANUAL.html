@@ -444,7 +444,10 @@ The look is controlled by <span class="ui">Sprite</span> (soft glow, pixel squar
   <tr><td>Line colour, Line glow, Ground colour</td><td>The look. Animate Line glow with a Pulse for beat flashes.</td></tr>
   <tr><td>Texture, Tiles, Texture on lines, Chunky pixels</td><td>Maps a texture onto the ground (and optionally the grid lines). It moves with the
   landscape; <span class="ui">Tiles</span> is how many times it repeats across the terrain, a whole number so the loop stays seamless.</td></tr>
-  <tr><td>Size, Grid cells</td><td>Its extent and resolution. More cells is smoother but slower.</td></tr>
+  <tr><td>Size, Grid cells</td><td>Its extent and resolution. More cells is smoother but slower. Grid lines sit on every cell.</td></tr>
+  <tr><td>Level of detail</td><td>Full resolution near the camera, gradually coarser further away, with no visible steps: a quarter
+  of the triangles. Raise <span class="ui">Grid cells</span> (up to 512) or <span class="ui">Size</span> for sharper or bigger
+  landscapes at the same cost. Distant ridges get slightly simpler.</td></tr>
   <tr><td>Shape</td><td><b>Hills</b> (rolling), <b>Ridged mountains</b> (sharp crests), <b>Mesas</b> (flat terraces with cliffs), <b>Sand dunes</b>
   (gentle on one side, steep on the other), <b>Canyons</b> (a plateau cut by winding gorges) and <b>Craters</b>.</td></tr>
   <tr><td>Biome</td><td>Colours solid ground by height and steepness instead of one <span class="ui">Ground colour</span>:

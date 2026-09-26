@@ -10,6 +10,8 @@
 // D.v[6]: liquid colour, liquid glow
 // D.v[7]: waves, flow offset (0..1), time angle (whole turns per bar), _
 // D.v[8..11]: layer model matrix
+// D.v[12]: level of detail: focus u, focus w (0..1), grading kx, kz
+// D.v[13]: grid index at the focus x, z; drawn cells (0 = uniform grid), _
 @group(2) @binding(0) var t_tex: texture_2d<f32>;
 @group(2) @binding(1) var s_tex: sampler;
 
@@ -171,6 +173,15 @@ fn t_height(u: f32, w: f32) -> f32 {
     return h * height;
 }
 
+fn lod_position(i: f32, n: f32, focus: f32, k: f32, s0: f32) -> f32 {
+    let x = i - s0;
+    var d = abs(x) / n;
+    if (k >= 1e-4) {
+        d = (exp(abs(x) * k / n) - 1.0) / k;
+    }
+    return clamp(focus + sign(x) * d, 0.0, 1.0);
+}
+
 @vertex
 fn vs_main(@builtin(vertex_index) vid: u32) -> TOut {
     let size = D.v[0].x;
@@ -185,8 +196,18 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> TOut {
         case 4u: { o = vec2<u32>(1u, 1u); }
         default: {}
     }
-    let g = vec2<f32>(f32(cell % cells + o.x), f32(cell / cells + o.y));
     let n = f32(cells);
+    var g = vec2<f32>(f32(cell % cells + o.x), f32(cell / cells + o.y));
+    let drawn = u32(D.v[13].z + 0.5);
+    if (drawn > 0u) {
+        // Graded grid: full resolution at the focus, coarser away from it
+        // (see ez_core::scene::lod_grading).
+        let i = vec2<f32>(f32(cell % drawn + o.x), f32(cell / drawn + o.y));
+        g = vec2<f32>(
+            lod_position(i.x, n, D.v[12].x, D.v[12].z, D.v[13].x),
+            lod_position(i.y, n, D.v[12].y, D.v[12].w, D.v[13].y)
+        ) * n;
+    }
     let u = g.x / n;
     // The landscape moves towards +z: sample further back as time passes.
     let w = g.y / n - scroll;

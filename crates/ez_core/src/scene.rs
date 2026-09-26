@@ -2063,6 +2063,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn lod_grading_spans_the_terrain() {
+        for (cells, drawn) in [(128u32, 64u32), (512, 256), (64, 64)] {
+            for focus in [0.0f32, 0.2, 0.5, 0.93, 1.0] {
+                let (k, s0) = lod_grading(cells, drawn, focus);
+                let at = |i: f32| lod_position(i, cells, focus, k, s0);
+                assert!(at(0.0).abs() < 1e-4, "{cells} {focus}: {}", at(0.0));
+                assert!(
+                    (at(drawn as f32) - 1.0).abs() < 1e-4,
+                    "{}",
+                    at(drawn as f32)
+                );
+                let mut last = -1.0;
+                for i in 0..=drawn {
+                    let t = at(i as f32);
+                    assert!(t >= last, "not monotonic at {i}");
+                    last = t;
+                }
+                // Full resolution next to the focus.
+                let near = (at(s0 + 0.5) - at(s0 - 0.5)) * cells as f32;
+                if focus > 0.01 && focus < 0.99 {
+                    assert!((near - 1.0).abs() < 0.05, "{cells} {focus}: {near}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn default_project_roundtrip() {
         let p = Project::default();
         let back = Project::from_json(&p.to_json()).unwrap();
@@ -2125,6 +2152,11 @@ pub struct Terrain {
     pub size: f32,
     /// Grid cells along each side.
     pub cells: u32,
+    /// Level of detail: `cells` is the resolution near the camera and the
+    /// grid gets gradually coarser away from it (a quarter of the
+    /// triangles).
+    #[serde(skip_serializing_if = "is_default")]
+    pub lod: bool,
     /// Mountain height (animatable).
     pub height: Param,
     /// Hills across the terrain (whole number, keeps it tileable).
@@ -2160,11 +2192,68 @@ pub struct Terrain {
     pub liquid: Liquid,
 }
 
+impl Terrain {
+    /// Highest `cells`: 256, or 512 with level of detail.
+    pub fn max_cells(&self) -> u32 {
+        if self.lod {
+            512
+        } else {
+            256
+        }
+    }
+
+    /// Grid cells along each side actually drawn.
+    pub fn drawn_cells(&self) -> u32 {
+        let cells = self.cells.clamp(4, self.max_cells());
+        if self.lod {
+            (cells / 2).max(4)
+        } else {
+            cells
+        }
+    }
+}
+
+/// Graded grid for terrain level of detail, along one axis: `drawn` grid
+/// lines spread over 0..1 so the spacing is `1 / cells` at `focus` and
+/// grows linearly with distance from it (`1 + k·d` times). Returns `k` and
+/// the (fractional) grid index that lands on the focus. `k` = 0 is uniform.
+pub fn lod_grading(cells: u32, drawn: u32, focus: f32) -> (f32, f32) {
+    let (n, m, c) = (cells as f64, drawn as f64, focus.clamp(0.0, 1.0) as f64);
+    if drawn >= cells {
+        return (0.0, (c * m) as f32);
+    }
+    let total = |k: f64| n / k * ((1.0 + k * c).ln() + (1.0 + k * (1.0 - c)).ln());
+    // total() falls from n (k -> 0) towards 0: bisect for total(k) = m.
+    let (mut lo, mut hi) = (1e-6f64, 1e6f64);
+    for _ in 0..100 {
+        let mid = (lo * hi).sqrt();
+        if total(mid) > m {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    let k = (lo * hi).sqrt();
+    (k as f32, (n / k * (1.0 + k * c).ln()) as f32)
+}
+
+/// Where grid line `i` of a [`lod_grading`] lands (0..1).
+pub fn lod_position(i: f32, cells: u32, focus: f32, k: f32, s0: f32) -> f32 {
+    let x = i - s0;
+    let d = if k < 1e-4 {
+        x.abs() / cells as f32
+    } else {
+        ((x.abs() * k / cells as f32).exp() - 1.0) / k
+    };
+    (focus + x.signum() * d).clamp(0.0, 1.0)
+}
+
 impl Default for Terrain {
     fn default() -> Self {
         Terrain {
             size: 60.0,
             cells: 64,
+            lod: false,
             height: Param::new(4.0),
             hills: 4,
             roughness: Param::new(0.5),

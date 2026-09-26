@@ -45,7 +45,9 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     ridged mountains, mesas, dunes, canyons, craters), biomes that colour
     it by height and slope (alpine, desert, volcanic, arctic, alien), and
     **water, lava, toxic goo or ice** filling the low ground, with
-    ripples, sun glints, foam, a churning crust or bubbles.
+    ripples, sun glints, foam, a churning crust or bubbles. Level of
+    detail keeps full resolution near the camera with a quarter of the
+    triangles.
   - Weather: rain with splashes, snow, rising embers, a sandstorm or
     fireflies in a box that follows the camera, and **lightning** bolts
     whose flash lights up the scene. Rain wets every surface (gloss,

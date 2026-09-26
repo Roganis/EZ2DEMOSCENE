@@ -187,6 +187,7 @@
         "type": "Terrain",
         "size": 120.0,
         "cells": 112,
+        "lod": true,
         "height": 14.0,
         "hills": 3,
         "roughness": 0.5,

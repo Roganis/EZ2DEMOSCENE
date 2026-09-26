@@ -1542,13 +1542,21 @@ fn terrain_ui(ui: &mut Ui, t: &mut Terrain, textures: &[UserTexture], lref: Laye
             );
         }
         slider(ui, "Size", "Width and depth", &mut t.size, 5.0..=200.0);
+        let max = t.max_cells();
         drag_u(
             ui,
             "Grid cells",
-            "Resolution (more = smoother, slower)",
+            "Resolution (more = smoother, slower). With level of detail, the resolution near the camera",
             &mut t.cells,
-            4..=256,
+            4..=max,
         );
+        check(
+            ui,
+            "Level of detail",
+            "Full resolution near the camera, gradually coarser further away: a quarter of the triangles, so you can raise the grid cells or the size for the same cost",
+            &mut t.lod,
+        );
+        t.cells = t.cells.min(t.max_cells());
     });
     section(ui, "Water & lava", true, |ui| liquid_ui(ui, &mut t.liquid));
 }
