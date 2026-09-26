@@ -118,9 +118,11 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
 - **Web app:** <https://roganis.github.io/ez2demoscene/>. Runs in Chrome, Edge or
   Firefox on desktop and in Chrome on Android. It can be installed as a PWA and
   works offline after the first visit.
-- **Android APK:** built by `.github/workflows/android.yml`. Every push has a debug APK
-  as a workflow artifact, and tagged releases attach it (plus a signed release APK
-  when the signing secrets are set).
+- **Android APK:** built by `.github/workflows/android.yml` on every push.
+  - Newest build of `main`: the [`android-latest`](https://github.com/roganis/ez2demoscene/releases/tag/android-latest) prerelease.
+  - Newest build of a work branch: the [`android-preview`](https://github.com/roganis/ez2demoscene/releases/tag/android-preview) prerelease.
+  - Every run also keeps the APK as a workflow artifact, and tagged releases attach it
+    (plus a signed release APK when the signing secrets are set).
 
 Tagged releases (`v*`) are built for Windows, Linux and macOS by
 `.github/workflows/release.yml`. The Windows and Linux archives include
