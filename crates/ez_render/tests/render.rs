@@ -526,3 +526,52 @@ fn color_ramp_across_copies_loops() {
     assert!(seam < 0.6);
     assert!(change > 1.0, "ramp barely visible");
 }
+
+/// Copies scattered over a shape's surface render around it.
+#[test]
+fn copies_cover_a_surface() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
+    let target = r.create_target(320, 180);
+    let mut p = presets::orbiting_solid();
+    p.layers
+        .retain(|l| l.name == "Deep space" || l.name == "Dodecahedron");
+    let without = p.clone();
+    let spikes = Layer::new(
+        "Spikes",
+        LayerKind::Mesh(MeshLayer {
+            source: MeshSource::Primitive(Primitive::Cone { segments: 8 }),
+            instancer: Instancer::Surface {
+                shape: MeshSource::Primitive(Primitive::Dodecahedron),
+                size: 1.6,
+                count: 120,
+                seed: 4,
+                align: true,
+                lift: 0.1,
+            },
+            material: Material {
+                emissive: Param::new(2.0),
+                emissive_color: [1.0, 0.3, 0.1],
+                ..Default::default()
+            },
+            ..Default::default()
+        }),
+    )
+    .scaled(0.12)
+    .spin([1, 1, 0]);
+    p.layers.push(spikes);
+    let ctx = EvalCtx::new(&p.timing, 0.2, None);
+    let a = r.render_image(&p, &ctx, &target);
+    let b = r.render_image(&without, &ctx, &target);
+    a.save(snapshot_dir().join("surface.png")).unwrap();
+    let change = mean_abs_diff(a.as_raw(), b.as_raw());
+    eprintln!("surface copies change {change:.2}");
+    assert!(change > 1.0);
+}

@@ -87,6 +87,14 @@ pub enum NodeKind {
         laps: i32,
         align: bool,
     },
+    /// Scatters the copies of every incoming shape over the surface of the
+    /// shape layer on the second input (following its placement).
+    OnSurface {
+        count: u32,
+        seed: u32,
+        align: bool,
+        lift: f32,
+    },
     /// Makes or shapes a signal.
     Signal { sig: SignalNode },
     /// Sets one setting of every incoming layer from a signal.
@@ -117,6 +125,7 @@ impl NodeKind {
             NodeKind::Material { .. } => "Colour / material".into(),
             NodeKind::Deform { .. } => "Deform".into(),
             NodeKind::FollowCurve { .. } => "Along a curve".into(),
+            NodeKind::OnSurface { .. } => "On a surface".into(),
             NodeKind::Colors { .. } => "Colours across copies".into(),
             NodeKind::Signal { sig } => sig.title().into(),
             NodeKind::Drive { path, .. } if path.is_empty() => "Drive".into(),
@@ -129,7 +138,10 @@ impl NodeKind {
     /// Nodes whose second input is a layer they look at (a curve, a
     /// surface, a terrain) rather than layers they pass on.
     pub fn has_reference(&self) -> bool {
-        matches!(self, NodeKind::FollowCurve { .. })
+        matches!(
+            self,
+            NodeKind::FollowCurve { .. } | NodeKind::OnSurface { .. }
+        )
     }
 
     /// Name of input `pin`.
@@ -138,6 +150,7 @@ impl NodeKind {
             NodeKind::Signal { sig } => sig.input_names().get(pin).copied().unwrap_or("in"),
             NodeKind::Drive { .. } if pin == 1 => "signal",
             NodeKind::FollowCurve { .. } if pin == 1 => "ribbon",
+            NodeKind::OnSurface { .. } if pin == 1 => "surface",
             _ if self.inputs() > 1
                 && !self.has_reference()
                 && !matches!(self, NodeKind::Drive { .. }) =>
@@ -248,6 +261,12 @@ impl NodeKind {
                 laps: 1,
                 align: true,
             },
+            NodeKind::OnSurface {
+                count: 80,
+                seed: 1,
+                align: true,
+                lift: 0.0,
+            },
             NodeKind::Drive {
                 path: String::new(),
                 mode: DriveMode::Replace,
@@ -298,6 +317,39 @@ impl NodeKind {
                     })
                     .collect()
             }
+            NodeKind::OnSurface {
+                count,
+                seed,
+                align,
+                lift,
+            } => {
+                let Some((sl, sm)) = reference.iter().find_map(|l| match &l.kind {
+                    LayerKind::Mesh(m) => Some((l, m)),
+                    _ => None,
+                }) else {
+                    // Nothing to cover yet.
+                    return input;
+                };
+                input
+                    .into_iter()
+                    .map(|mut l| {
+                        if let LayerKind::Mesh(m) = &mut l.kind {
+                            l.transform.position = sl.transform.position;
+                            l.transform.rotation = sl.transform.rotation;
+                            l.transform.spin = sl.transform.spin;
+                            m.instancer = Instancer::Surface {
+                                shape: sm.source.clone(),
+                                size: sl.transform.scale.base,
+                                count: *count,
+                                seed: *seed,
+                                align: *align,
+                                lift: *lift,
+                            };
+                        }
+                        l
+                    })
+                    .collect()
+            }
             _ => self.apply(input),
         }
     }
@@ -306,7 +358,9 @@ impl NodeKind {
         match self {
             NodeKind::Source { layer } => vec![layer.clone()],
             NodeKind::Signal { .. } => Vec::new(),
-            NodeKind::FollowCurve { .. } => self.apply_with(input, &[]),
+            NodeKind::FollowCurve { .. } | NodeKind::OnSurface { .. } => {
+                self.apply_with(input, &[])
+            }
             NodeKind::Colors { ramp } => input
                 .into_iter()
                 .map(|mut l| {

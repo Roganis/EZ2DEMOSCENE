@@ -1251,6 +1251,53 @@ fn instancer_ui(ui: &mut Ui, inst: &mut Instancer) {
             );
             check(ui, "Face along", "Turn each copy along the curve", align);
         }
+        Instancer::Surface {
+            shape,
+            size,
+            count,
+            seed,
+            align,
+            lift,
+        } => {
+            let label = match &*shape {
+                MeshSource::Primitive(p) => p.label().to_string(),
+                MeshSource::File { path } => ez_core::store::file_name(path).to_string(),
+            };
+            row(
+                ui,
+                "On shape",
+                "The shape whose surface the copies cover. In Nodes mode, wire a shape layer into “On a surface” to follow it exactly.",
+                |ui| {
+                    egui::ComboBox::from_id_salt("surface_shape")
+                        .selected_text(label)
+                        .height(400.0)
+                        .show_ui(ui, |ui| {
+                            for p in Primitive::all_defaults() {
+                                if ui.selectable_label(false, p.label()).clicked() {
+                                    *shape = MeshSource::Primitive(p);
+                                }
+                            }
+                        });
+                },
+            );
+            slider(
+                ui,
+                "Shape size",
+                "Match the scale of that shape's layer",
+                size,
+                0.1..=40.0,
+            );
+            drag_u(ui, "Count", "", count, 1..=5000);
+            drag_u(ui, "Seed", "", seed, 0..=9999);
+            check(ui, "Stand up", "Copies stand up along the surface", align);
+            slider(
+                ui,
+                "Lift",
+                "Push copies out from the surface",
+                lift,
+                -2.0..=4.0,
+            );
+        }
     }
 }
 

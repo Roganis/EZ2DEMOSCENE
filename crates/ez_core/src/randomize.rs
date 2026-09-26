@@ -225,6 +225,10 @@ fn scale_counts(inst: &mut Instancer, rng: &mut Rng, k: f32) {
             *rows = f(rng, *rows, 1, 12);
         }
         Instancer::Curve { count, .. } => *count = f(rng, *count, 6, 120),
+        Instancer::Surface { count, seed, .. } => {
+            *count = f(rng, *count, 10, 400);
+            *seed = rng.next_u32() % 1000;
+        }
         Instancer::Grid { .. } | Instancer::Single => {}
     }
 }

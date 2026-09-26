@@ -3,7 +3,7 @@ use crate::mesh::{primitive, MeshData, Vertex};
 use crate::texgen;
 use bytemuck::{Pod, Zeroable};
 use ez_core::eval::{
-    instances_are_static, layer_matrix, mesh_instances, symmetry_matrices, Instance,
+    instances_are_static, layer_matrix, mesh_instances_with, symmetry_matrices, Instance,
 };
 use ez_core::palette::PaletteId;
 use ez_core::*;
@@ -323,6 +323,8 @@ pub struct Renderer {
     /// Instances of layers that don't animate, keyed by layer hash, with
     /// the frame number they were last used.
     instance_cache: HashMap<u64, (u64, Vec<InstanceRaw>)>,
+    /// Points on shape surfaces for Instancer::Surface: (mesh, count, seed).
+    surface_cache: HashMap<(String, u32, u32), std::sync::Arc<Vec<ez_core::eval::SurfacePoint>>>,
     frame_no: u64,
     /// Instance data currently in `inst_buf` (skip identical uploads).
     uploaded: Vec<InstanceRaw>,
@@ -1112,6 +1114,7 @@ impl Renderer {
             mesh_tex_bgs: HashMap::new(),
             errors: HashMap::new(),
             instance_cache: HashMap::new(),
+            surface_cache: HashMap::new(),
             frame_no: 0,
             uploaded: Vec::new(),
             floor_bg_cache: None,
@@ -1361,6 +1364,37 @@ impl Renderer {
         data.subdivide(levels);
         self.upload_mesh(key.clone(), &data);
         key
+    }
+
+    /// `count` points evenly spread over `shape`'s surface.
+    fn surface_points(
+        &mut self,
+        shape: &MeshSource,
+        count: u32,
+        seed: u32,
+    ) -> std::sync::Arc<Vec<ez_core::eval::SurfacePoint>> {
+        let key = (self.mesh_key(shape), count, seed);
+        if let Some(p) = self.surface_cache.get(&key) {
+            return p.clone();
+        }
+        let data = match shape {
+            MeshSource::Primitive(p) => primitive(p),
+            MeshSource::File { path } => {
+                load_mesh_asset(path).unwrap_or_else(|_| primitive(&Primitive::Cube))
+            }
+        };
+        let positions: Vec<[f32; 3]> = data.vertices.iter().map(|v| v.pos).collect();
+        let points = std::sync::Arc::new(ez_core::eval::sample_surface(
+            &positions,
+            &data.indices,
+            count,
+            seed,
+        ));
+        if self.surface_cache.len() > 64 {
+            self.surface_cache.clear();
+        }
+        self.surface_cache.insert(key, points.clone());
+        points
     }
 
     fn mesh_key(&mut self, source: &MeshSource) -> String {
@@ -1669,6 +1703,13 @@ impl Renderer {
                         "__white".to_string()
                     };
                     self.mesh_tex_bind_group(&tex, &relief, mat.pixelated);
+                    let surface = match &m.instancer {
+                        Instancer::Surface {
+                            shape, count, seed, ..
+                        } => Some(self.surface_points(shape, *count, *seed)),
+                        _ => None,
+                    };
+                    let surface = surface.as_deref().map(|v| v.as_slice());
                     let first = instances.len() as u32;
                     let to_raw = |i: &Instance| InstanceRaw {
                         model: m4(i.model),
@@ -1679,7 +1720,7 @@ impl Renderer {
                         let frame = self.frame_no;
                         let entry = self.instance_cache.entry(key).or_insert_with(|| {
                             scratch.clear();
-                            mesh_instances(layer, m, ctx, &mut scratch);
+                            mesh_instances_with(layer, m, ctx, surface, &mut scratch);
                             (frame, scratch.iter().map(to_raw).collect())
                         });
                         entry.0 = frame;
@@ -1688,7 +1729,7 @@ impl Renderer {
                         entry.1.len()
                     } else {
                         scratch.clear();
-                        mesh_instances(layer, m, ctx, &mut scratch);
+                        mesh_instances_with(layer, m, ctx, surface, &mut scratch);
                         instances.extend(scratch.iter().map(to_raw));
                         scratch.len()
                     };

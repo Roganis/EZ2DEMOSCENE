@@ -1130,6 +1130,18 @@ pub enum Instancer {
         /// Turn each copy to face along the curve.
         align: bool,
     },
+    /// Copies scattered over the surface of a shape (evenly by area).
+    Surface {
+        shape: MeshSource,
+        /// Size of that shape (1 = a shape layer of scale 1).
+        size: f32,
+        count: u32,
+        seed: u32,
+        /// Stand each copy up along the surface.
+        align: bool,
+        /// Push copies out from the surface.
+        lift: f32,
+    },
 }
 
 impl Instancer {
@@ -1143,6 +1155,7 @@ impl Instancer {
             Instancer::Wall { .. } => "Wall",
             Instancer::Spiral { .. } => "Spiral",
             Instancer::Curve { .. } => "Along a curve",
+            Instancer::Surface { .. } => "On a shape's surface",
         }
     }
 
@@ -1189,6 +1202,14 @@ impl Instancer {
                 count: 24,
                 laps: 1,
                 align: true,
+            },
+            Instancer::Surface {
+                shape: MeshSource::Primitive(Primitive::Sphere { detail: 3 }),
+                size: 3.0,
+                count: 80,
+                seed: 1,
+                align: true,
+                lift: 0.0,
             },
         ]
     }

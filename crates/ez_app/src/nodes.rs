@@ -426,6 +426,22 @@ impl SnarlViewer<NodeKind> for Viewer<'_> {
                     });
                     ui.add(egui::DragValue::new(size).range(0.1..=40.0).speed(0.05).prefix("size "));
                 }
+                NodeKind::OnSurface {
+                    count,
+                    seed,
+                    align,
+                    lift,
+                } => {
+                    ui.add(egui::DragValue::new(count).range(1..=5000).prefix("copies "));
+                    ui.add(egui::DragValue::new(seed).range(0..=9999).prefix("seed "));
+                    ui.checkbox(align, "stand up");
+                    ui.add(egui::Slider::new(lift, -2.0..=4.0).text("lift"));
+                    ui.label(
+                        egui::RichText::new("Wire the shape to cover into “surface”")
+                            .small()
+                            .weak(),
+                    );
+                }
                 NodeKind::Deform { deform } => {
                     ui.push_id(("deform", node.0), |ui| {
                         crate::inspector::deform_ui(ui, deform)

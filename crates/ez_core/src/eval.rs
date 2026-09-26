@@ -156,8 +156,68 @@ pub struct Instance {
     pub along: f32,
 }
 
-/// Local placement of each instance inside the layer.
-fn instancer_locals(inst: &Instancer, ctx: &EvalCtx) -> Vec<Mat4> {
+/// A point on a shape's surface with the surface's normal there.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SurfacePoint {
+    pub pos: [f32; 3],
+    pub normal: [f32; 3],
+}
+
+/// `count` points spread over the triangles (`indices` into `positions`)
+/// in proportion to their area, the same for the same `seed`.
+pub fn sample_surface(
+    positions: &[[f32; 3]],
+    indices: &[u32],
+    count: u32,
+    seed: u32,
+) -> Vec<SurfacePoint> {
+    let tris: Vec<[Vec3; 3]> = indices
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .filter_map(|t| {
+            let p = |i: u32| positions.get(i as usize).map(|v| Vec3::from(*v));
+            Some([p(t[0])?, p(t[1])?, p(t[2])?])
+        })
+        .collect();
+    let mut cumulative = Vec::with_capacity(tris.len());
+    let mut total = 0.0f32;
+    for [a, b, c] in &tris {
+        total += (*b - *a).cross(*c - *a).length() * 0.5;
+        cumulative.push(total);
+    }
+    if tris.is_empty() || total <= 0.0 {
+        return Vec::new();
+    }
+    let mut rng = Rng::new(seed as u64 * 48_271 + 11);
+    (0..count.min(20_000))
+        .map(|_| {
+            let x = rng.f32() * total;
+            let k = cumulative.partition_point(|c| *c < x).min(tris.len() - 1);
+            let [a, b, c] = tris[k];
+            // Uniform point in the triangle.
+            let (mut u, mut v) = (rng.f32(), rng.f32());
+            if u + v > 1.0 {
+                u = 1.0 - u;
+                v = 1.0 - v;
+            }
+            let pos = a + (b - a) * u + (c - a) * v;
+            let normal = (b - a).cross(c - a).normalize_or(Vec3::Y);
+            SurfacePoint {
+                pos: pos.into(),
+                normal: normal.into(),
+            }
+        })
+        .collect()
+}
+
+/// Local placement of each instance inside the layer. `surface` are the
+/// points for [`Instancer::Surface`] (no copies without them).
+fn instancer_locals(
+    inst: &Instancer,
+    ctx: &EvalCtx,
+    surface: Option<&[SurfacePoint]>,
+) -> Vec<Mat4> {
     match *inst {
         Instancer::Single => vec![Mat4::IDENTITY],
         Instancer::Grid { counts, spacing } => {
@@ -279,6 +339,22 @@ fn instancer_locals(inst: &Instancer, ctx: &EvalCtx) -> Vec<Mat4> {
                 })
                 .collect()
         }
+        Instancer::Surface {
+            size, align, lift, ..
+        } => surface
+            .unwrap_or(&[])
+            .iter()
+            .map(|sp| {
+                let n = Vec3::from(sp.normal);
+                let p = Vec3::from(sp.pos) * size + n * lift;
+                if align {
+                    // Copies stand up along the surface normal.
+                    Mat4::from_rotation_translation(Quat::from_rotation_arc(Vec3::Y, n), p)
+                } else {
+                    Mat4::from_translation(p)
+                }
+            })
+            .collect(),
         Instancer::Curve {
             curve,
             freq,
@@ -342,10 +418,22 @@ pub fn instances_are_static(layer: &Layer, mesh: &MeshLayer) -> bool {
 /// The layer scale sizes each copy; instancer distances (radius, spacing)
 /// are in world units and are not affected by it.
 pub fn mesh_instances(layer: &Layer, mesh: &MeshLayer, ctx: &EvalCtx, out: &mut Vec<Instance>) {
+    mesh_instances_with(layer, mesh, ctx, None, out)
+}
+
+/// [`mesh_instances`] with the surface points an [`Instancer::Surface`]
+/// needs (see [`sample_surface`]).
+pub fn mesh_instances_with(
+    layer: &Layer,
+    mesh: &MeshLayer,
+    ctx: &EvalCtx,
+    surface: Option<&[SurfacePoint]>,
+    out: &mut Vec<Instance>,
+) {
     let l = layer_frame(&layer.transform, ctx);
     let size = Mat4::from_scale(layer_scale(&layer.transform, ctx));
     let syms = symmetry_matrices(&layer.symmetry);
-    let locals = instancer_locals(&mesh.instancer, ctx);
+    let locals = instancer_locals(&mesh.instancer, ctx, surface);
     let v = &mesh.variation;
     let n = locals.len().max(1) as f32;
     for (i, local) in locals.iter().enumerate() {
@@ -408,6 +496,71 @@ pub fn mesh_instances(layer: &Layer, mesh: &MeshLayer, ctx: &EvalCtx, out: &mut 
                 along: frac,
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod surface_tests {
+    use super::*;
+
+    #[test]
+    fn surface_samples_follow_area() {
+        // Two triangles, areas 0.5 and 3.
+        let pos = [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [10.0, 0.0, 0.0],
+            [13.0, 0.0, 0.0],
+            [10.0, 0.0, 2.0],
+        ];
+        let pts = sample_surface(&pos, &[0, 1, 2, 3, 4, 5], 4000, 3);
+        assert_eq!(pts.len(), 4000);
+        let big = pts.iter().filter(|p| p.pos[0] >= 10.0).count() as f32 / 4000.0;
+        assert!((big - 3.0 / 3.5).abs() < 0.03, "{big}");
+        for p in &pts {
+            assert!(p.pos[1].abs() < 1e-6);
+            assert!((p.normal[1].abs() - 1.0).abs() < 1e-5);
+        }
+        assert_eq!(pts, sample_surface(&pos, &[0, 1, 2, 3, 4, 5], 4000, 3));
+        assert!(sample_surface(&pos, &[], 10, 1).is_empty());
+    }
+
+    #[test]
+    fn surface_copies_stand_on_the_points() {
+        let layer = Layer::new(
+            "Moss",
+            LayerKind::Mesh(MeshLayer {
+                instancer: Instancer::Surface {
+                    shape: MeshSource::Primitive(Primitive::Cube),
+                    size: 2.0,
+                    count: 3,
+                    seed: 1,
+                    align: true,
+                    lift: 0.5,
+                },
+                ..Default::default()
+            }),
+        );
+        let LayerKind::Mesh(m) = &layer.kind else {
+            unreachable!()
+        };
+        let pts = [SurfacePoint {
+            pos: [0.0, 0.0, 0.5],
+            normal: [0.0, 0.0, 1.0],
+        }];
+        let mut out = Vec::new();
+        mesh_instances_with(&layer, m, &EvalCtx::at(0.0), Some(&pts), &mut out);
+        assert_eq!(out.len(), 1);
+        let p = out[0].model.w_axis.truncate();
+        assert!(p.abs_diff_eq(Vec3::new(0.0, 0.0, 1.5), 1e-5), "{p}");
+        // Up along the normal.
+        let up = out[0].model.y_axis.truncate().normalize();
+        assert!(up.abs_diff_eq(Vec3::Z, 1e-5));
+        // Without points, no copies.
+        out.clear();
+        mesh_instances(&layer, m, &EvalCtx::at(0.0), &mut out);
+        assert!(out.is_empty());
     }
 }
 
