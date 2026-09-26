@@ -1001,6 +1001,14 @@ pub enum MeshSource {
     File {
         path: String,
     },
+    /// A raymarched distance-field object: drawn inside its box (it fits
+    /// the unit sphere like the built-in shapes), so it intersects other
+    /// shapes, casts and takes shadows and gets the usual material.
+    Sdf {
+        form: SdfShape,
+        /// Whole cycles of its built-in motion per loop (0 = still).
+        cycles: i32,
+    },
     /// 3D letters: the text extruded (one line per line).
     Text {
         text: String,
@@ -1010,6 +1018,68 @@ pub enum MeshSource {
         /// Thickness, in letter heights.
         depth: f32,
     },
+}
+
+/// Raymarched distance-field shapes (see `sdf.wgsl`).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum SdfShape {
+    /// Balls that melt into each other as they orbit.
+    Metaballs { balls: u32, blend: f32 },
+    /// A ball carved into a gyroid lattice that flows through it.
+    Gyroid { scale: f32, thickness: f32 },
+    /// The Mandelbulb fractal; its power breathes when it moves.
+    Bulb { power: f32 },
+    /// A rounded box with a ball passing through it, melted together.
+    SoftBox { blend: f32, round: f32 },
+}
+
+impl SdfShape {
+    pub fn all_defaults() -> [SdfShape; 4] {
+        [
+            SdfShape::Metaballs {
+                balls: 5,
+                blend: 0.35,
+            },
+            SdfShape::Gyroid {
+                scale: 8.0,
+                thickness: 0.08,
+            },
+            SdfShape::Bulb { power: 8.0 },
+            SdfShape::SoftBox {
+                blend: 0.25,
+                round: 0.08,
+            },
+        ]
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            SdfShape::Metaballs { .. } => "Metaballs",
+            SdfShape::Gyroid { .. } => "Gyroid",
+            SdfShape::Bulb { .. } => "Fractal bulb",
+            SdfShape::SoftBox { .. } => "Melting box",
+        }
+    }
+
+    pub fn index(&self) -> u32 {
+        match self {
+            SdfShape::Metaballs { .. } => 0,
+            SdfShape::Gyroid { .. } => 1,
+            SdfShape::Bulb { .. } => 2,
+            SdfShape::SoftBox { .. } => 3,
+        }
+    }
+
+    /// Settings as the shader reads them.
+    pub fn params(&self) -> [f32; 3] {
+        match *self {
+            SdfShape::Metaballs { balls, blend } => [balls.clamp(1, 8) as f32, blend.max(0.0), 0.0],
+            SdfShape::Gyroid { scale, thickness } => [scale.max(0.5), thickness.max(0.005), 0.0],
+            SdfShape::Bulb { power } => [power.clamp(2.0, 16.0), 0.0, 0.0],
+            SdfShape::SoftBox { blend, round } => [blend.max(0.0), round.clamp(0.0, 0.5), 0.0],
+        }
+    }
 }
 
 /// Built-in procedural meshes.

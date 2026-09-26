@@ -1,0 +1,420 @@
+{
+  "version": 2,
+  "name": "Liquid Metal",
+  "timing": {
+    "bpm": 120.0,
+    "loop_beats": 8
+  },
+  "camera": {
+    "mode": "Pendulum",
+    "target": [
+      0.0,
+      1.4,
+      0.0
+    ],
+    "distance": {
+      "base": 7.0,
+      "amp": 0.8,
+      "wave": "Sine",
+      "cycles": 1,
+      "offset": 0.0,
+      "audio": 0.0
+    },
+    "height": {
+      "base": 1.5,
+      "amp": 1.0,
+      "wave": "Sine",
+      "cycles": 1,
+      "offset": 0.0,
+      "audio": 0.0
+    },
+    "angle": 0.0,
+    "orbit_turns": 1,
+    "swing": 25.0,
+    "fov": 50.0,
+    "roll": 0.0,
+    "beat_shake": 0.0
+  },
+  "environment": {
+    "fog_color": [
+      0.0,
+      0.000607054,
+      0.002428216
+    ],
+    "fog_density": 0.01,
+    "sky_color": [
+      0.21586053,
+      0.5271152,
+      1.0
+    ],
+    "ground_color": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "light_dir": [
+      -0.4,
+      1.0,
+      0.5
+    ],
+    "light_color": [
+      0.74540436,
+      0.8713672,
+      1.0
+    ],
+    "light_intensity": 2.2,
+    "ambient": 0.15,
+    "shadows": {
+      "enabled": true,
+      "strength": 0.85,
+      "softness": 1.5,
+      "distance": 40.0,
+      "contact": 0.0
+    }
+  },
+  "layers": [
+    {
+      "name": "Deep space",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Backdrop",
+        "kind": "Starfield",
+        "color_a": [
+          0.0,
+          0.0,
+          0.000910581
+        ],
+        "color_b": [
+          0.001821162,
+          0.0074990317,
+          0.029556833
+        ],
+        "color_c": [
+          0.21586053,
+          0.4341537,
+          1.0
+        ],
+        "speed": 1,
+        "intensity": 0.6,
+        "detail": 1.0,
+        "texture": null
+      }
+    },
+    {
+      "name": "Floor",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mirror",
+        "size": 40.0,
+        "base_color": [
+          0.005181517,
+          0.00699541,
+          0.011612245
+        ],
+        "reflectivity": 0.6,
+        "blur": 0.2,
+        "tint": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "texture": null,
+        "texture_scale": 1.0,
+        "grid": 0.0,
+        "grid_color": [
+          1.0,
+          0.014443844,
+          0.051269468
+        ],
+        "grid_scale": 1.0,
+        "grid_scroll": 0
+      }
+    },
+    {
+      "name": "Blob",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.9,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          1,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Sdf",
+          "form": {
+            "kind": "Metaballs",
+            "balls": 6,
+            "blend": 0.4
+          },
+          "cycles": 1
+        },
+        "material": {
+          "base_color": [
+            0.68668544,
+            0.77582234,
+            0.8713672
+          ],
+          "metallic": 1.0,
+          "roughness": 0.12,
+          "emissive_color": [
+            1.0,
+            0.029556833,
+            0.014443844
+          ],
+          "emissive": 0.0,
+          "emissive_mode": "Full",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": false,
+          "rim": 0.5,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Single"
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    },
+    {
+      "name": "Lattice moons",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 0.55,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Sdf",
+          "form": {
+            "kind": "Gyroid",
+            "scale": 7.0,
+            "thickness": 0.1
+          },
+          "cycles": 2
+        },
+        "material": {
+          "base_color": [
+            1.0,
+            0.27889434,
+            0.051269468
+          ],
+          "metallic": 0.6,
+          "roughness": 0.25,
+          "emissive_color": [
+            1.0,
+            0.11697067,
+            0.005181517
+          ],
+          "emissive": {
+            "base": 1.5,
+            "amp": 1.0,
+            "wave": "ExpOut",
+            "cycles": 8,
+            "offset": 0.0,
+            "audio": 0.0
+          },
+          "emissive_mode": "Edges",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": false,
+          "rim": 0.3,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Orbit",
+          "count": 6,
+          "radius": 3.0,
+          "spread": 0.4,
+          "speed": 1,
+          "seed": 5
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    }
+  ],
+  "post": {
+    "bloom": {
+      "enabled": true,
+      "intensity": 0.9,
+      "threshold": 0.9,
+      "radius": 0.7
+    },
+    "kaleido": {
+      "enabled": false,
+      "segments": 6,
+      "angle": 0.0,
+      "turns": 0,
+      "zoom": 1.0,
+      "center": [
+        0.5,
+        0.5
+      ]
+    },
+    "mirror": {
+      "enabled": false,
+      "mode": "LeftToRight"
+    },
+    "chroma": {
+      "enabled": true,
+      "amount": 0.003
+    },
+    "pixelate": {
+      "enabled": false,
+      "size": 4.0
+    },
+    "palette": {
+      "enabled": false,
+      "palette": "Ega",
+      "dither": 0.6
+    },
+    "crt": {
+      "enabled": false,
+      "scanlines": 0.5,
+      "curvature": 0.15,
+      "noise": 0.1
+    },
+    "grade": {
+      "exposure": 1.0,
+      "contrast": 1.1,
+      "saturation": 1.1,
+      "vignette": 0.5,
+      "grain": 0.03,
+      "beat_flash": 0.0
+    }
+  },
+  "textures": [],
+  "audio": null,
+  "graph": null,
+  "use_graph": false
+}

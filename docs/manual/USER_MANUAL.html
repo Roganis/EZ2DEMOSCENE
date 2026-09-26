@@ -367,6 +367,13 @@ into each other, so the jump back at the end of the loop happens while it is inv
   <tr><td>3D text</td><td>Solid letters for logos: type the text (several lines are fine), pick a font (Pixel gives chunky voxel
   letters) or a TTF/OTF file, and set the <span class="ui">Depth</span>. They take every material, relief, glitch, deform and copies
   option.</td></tr>
+  <tr><td>Raymarched shapes</td><td><b>Metaballs</b> (balls melting together as they orbit), <b>Gyroid</b> (a ball carved into a flowing
+  lattice), <b>Fractal bulb</b> (the Mandelbulb) and <b>Melting box</b> (two balls passing through a rounded box). They are worked
+  out per pixel, so they are perfectly smooth, cut into other shapes, floors and terrain correctly, cast and take sun shadows and use
+  the layer's colour, metal, roughness, rim, glow and colour ramp (with <span class="ui">Glow where</span> other than Whole, the creases
+  glow). <span class="ui">Motion</span> sets how many times their own movement repeats per loop (0 = still), and copies each get
+  their own variation. Textures, relief, deform and glitch don't apply. They cost per pixel they cover, so a few big ones or a dozen
+  small ones are fine; the <b>Liquid Metal</b> preset shows both.</td></tr>
   <tr><td>3D model file</td><td>Your own <code>.gltf</code>, <code>.glb</code> or <code>.obj</code>. It is centred and scaled to fit automatically, and
   uses the layer's material.</td></tr>
 </table>

@@ -53,6 +53,9 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     gradients, glow, outline, drop shadow and chrome (signed-distance
     atlas). Shapes can also be **3D text**: extruded logos (voxel letters
     with the pixel font) with every material option.
+    **Raymarched shapes** (metaballs, gyroid, fractal bulb, melting box)
+    are drawn per pixel inside a box: smooth, depth-correct against
+    everything else, with sun shadows and the usual material.
   - Weather: rain with splashes, snow, rising embers, a sandstorm or
     fireflies in a box that follows the camera, and **lightning** bolts
     whose flash lights up the scene. Rain wets every surface (gloss,

@@ -135,6 +135,11 @@ pub fn all() -> Vec<Preset> {
             project: scene_tour(),
         },
         Preset {
+            name: "Liquid Metal",
+            description: "Chrome metaballs melting together, orbited by gyroid lattice balls, all raymarched.",
+            project: liquid_metal(),
+        },
+        Preset {
             name: "Empty",
             description: "A blank stage with a floor and a sky.",
             project: empty(),
@@ -408,6 +413,88 @@ pub fn oldschool_intro() -> Project {
             }),
         )
         .at([0.0, -0.95, 1.5]),
+    );
+    p
+}
+
+/// Raymarched objects: a chrome metaball blob over a mirror, orbited by
+/// small gyroid balls, casting sun shadows.
+pub fn liquid_metal() -> Project {
+    let mut p = orbiting_solid();
+    p.name = "Liquid Metal".into();
+    p.camera.target = [0.0, 1.4, 0.0];
+    p.environment.shadows.enabled = true;
+    p.environment.light_dir = [-0.4, 1.0, 0.5];
+    p.layers
+        .retain(|l| matches!(l.kind, LayerKind::Backdrop(_)));
+    p.layers.push(Layer::new(
+        "Floor",
+        LayerKind::Mirror(MirrorFloor {
+            base_color: hex(0x10141c),
+            ..Default::default()
+        }),
+    ));
+    p.layers.push(
+        Layer::new(
+            "Blob",
+            LayerKind::Mesh(MeshLayer {
+                source: MeshSource::Sdf {
+                    form: SdfShape::Metaballs {
+                        balls: 6,
+                        blend: 0.4,
+                    },
+                    cycles: 1,
+                },
+                ..mesh(
+                    Primitive::Cube,
+                    Material {
+                        base_color: hex(0xd8e4f0),
+                        metallic: Param::new(1.0),
+                        roughness: Param::new(0.12),
+                        rim: Param::new(0.5),
+                        ..Default::default()
+                    },
+                )
+            }),
+        )
+        .scaled(1.9)
+        .at([0.0, 1.5, 0.0])
+        .spin([0, 1, 0]),
+    );
+    p.layers.push(
+        Layer::new(
+            "Lattice moons",
+            LayerKind::Mesh(MeshLayer {
+                source: MeshSource::Sdf {
+                    form: SdfShape::Gyroid {
+                        scale: 7.0,
+                        thickness: 0.1,
+                    },
+                    cycles: 2,
+                },
+                instancer: Instancer::Orbit {
+                    count: 6,
+                    radius: 3.0,
+                    spread: 0.4,
+                    speed: 1,
+                    seed: 5,
+                },
+                ..mesh(
+                    Primitive::Cube,
+                    Material {
+                        base_color: hex(0xff9040),
+                        metallic: Param::new(0.6),
+                        roughness: Param::new(0.25),
+                        emissive_color: hex(0xff6010),
+                        emissive_mode: EmissiveMode::Edges,
+                        emissive: Param::new(1.5).osc(Wave::ExpOut, 1.0, 8),
+                        ..Default::default()
+                    },
+                )
+            }),
+        )
+        .scaled(0.55)
+        .at([0.0, 1.5, 0.0]),
     );
     p
 }

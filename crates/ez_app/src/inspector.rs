@@ -1129,6 +1129,7 @@ fn mesh_ui(ui: &mut Ui, m: &mut MeshLayer, textures: &[UserTexture], lref: Layer
             MeshSource::Primitive(p) => p.label().to_string(),
             MeshSource::File { path } => ez_core::store::file_name(path).to_string(),
             MeshSource::Text { .. } => "3D text".to_string(),
+            MeshSource::Sdf { form, .. } => form.label().to_string(),
         };
         row(ui, "Shape", "", |ui| {
             egui::ComboBox::from_id_salt("shape")
@@ -1140,6 +1141,18 @@ fn mesh_ui(ui: &mut Ui, m: &mut MeshLayer, textures: &[UserTexture], lref: Layer
                         let same = matches!(&m.source, MeshSource::Primitive(q) if std::mem::discriminant(q) == std::mem::discriminant(&p));
                         if ui.selectable_label(same, p.label()).clicked() && !same {
                             m.source = MeshSource::Primitive(p);
+                        }
+                    }
+                    ui.separator();
+                    for f in SdfShape::all_defaults() {
+                        let same = matches!(&m.source, MeshSource::Sdf { form, .. } if form.index() == f.index());
+                        if ui
+                            .selectable_label(same, f.label())
+                            .on_hover_text("Raymarched: smooth, organic surfaces worked out per pixel (heavier than a mesh)")
+                            .clicked()
+                            && !same
+                        {
+                            m.source = MeshSource::Sdf { form: f, cycles: 1 };
                         }
                     }
                     ui.separator();
@@ -1208,6 +1221,55 @@ fn mesh_ui(ui: &mut Ui, m: &mut MeshLayer, textures: &[UserTexture], lref: Layer
                     "Thickness, in letter heights",
                     depth,
                     0.02..=2.0,
+                );
+            }
+            MeshSource::Sdf { form, cycles } => {
+                match form {
+                    SdfShape::Metaballs { balls, blend } => {
+                        drag_u(ui, "Balls", "", balls, 1..=8);
+                        slider(
+                            ui,
+                            "Melt",
+                            "How far the balls melt into each other",
+                            blend,
+                            0.0..=0.8,
+                        );
+                    }
+                    SdfShape::Gyroid { scale, thickness } => {
+                        slider(ui, "Lattice", "How fine the lattice is", scale, 2.0..=16.0);
+                        slider(ui, "Thickness", "", thickness, 0.02..=0.5);
+                    }
+                    SdfShape::Bulb { power } => {
+                        slider(
+                            ui,
+                            "Power",
+                            "The fractal's symmetry: 8 is the classic bulb",
+                            power,
+                            2.0..=12.0,
+                        );
+                    }
+                    SdfShape::SoftBox { blend, round } => {
+                        slider(
+                            ui,
+                            "Melt",
+                            "How far the ball melts into the box",
+                            blend,
+                            0.0..=0.6,
+                        );
+                        slider(ui, "Rounding", "", round, 0.0..=0.45);
+                    }
+                }
+                drag_i(
+                    ui,
+                    "Motion",
+                    "Whole cycles of the shape's own motion per loop (0 = still)",
+                    cycles,
+                    -8..=8,
+                );
+                ui.label(
+                    RichText::new("Raymarched: costs per pixel it covers. Textures, relief, deform and glitch don't apply.")
+                        .weak()
+                        .small(),
                 );
             }
             MeshSource::File { .. } => {}
@@ -1559,6 +1621,7 @@ fn instancer_ui(ui: &mut Ui, inst: &mut Instancer) {
                 MeshSource::Primitive(p) => p.label().to_string(),
                 MeshSource::File { path } => ez_core::store::file_name(path).to_string(),
                 MeshSource::Text { .. } => "3D text".to_string(),
+                MeshSource::Sdf { form, .. } => form.label().to_string(),
             };
             row(
                 ui,

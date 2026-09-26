@@ -154,6 +154,8 @@ enum Cmd {
         pixelated: bool,
         first: u32,
         count: u32,
+        /// A raymarched object in its box proxy (`sdf.wgsl`).
+        sdf: bool,
     },
     Particles {
         slot: u32,
@@ -274,6 +276,7 @@ struct ScenePipes {
     spots: wgpu::RenderPipeline,
     falls: wgpu::RenderPipeline,
     text: wgpu::RenderPipeline,
+    sdf: wgpu::RenderPipeline,
 }
 
 /// Where a target's feedback history is and what the last step was.
@@ -302,6 +305,7 @@ pub struct Renderer {
     globals_buf: [wgpu::Buffer; 3],
     globals_bg: [wgpu::BindGroup; 3],
     shadow_mesh_pipe: wgpu::RenderPipeline,
+    shadow_sdf_pipe: wgpu::RenderPipeline,
     contact_pipe: wgpu::RenderPipeline,
     /// Background pipelines specialised per kind, built when first used:
     /// (kind, samples, low resolution).
@@ -313,6 +317,7 @@ pub struct Renderer {
     shadow_terrain_pipe: wgpu::RenderPipeline,
     /// Depth of field: distance-to-camera passes for meshes and terrain.
     dof_mesh_pipe: wgpu::RenderPipeline,
+    dof_sdf_pipe: wgpu::RenderPipeline,
     dof_terrain_pipe: wgpu::RenderPipeline,
     dof_floor_pipe: wgpu::RenderPipeline,
     shadow_view: wgpu::TextureView,
@@ -773,9 +778,24 @@ impl Renderer {
         // Letters: one instance each, the quad comes from the vertex index.
         let glyph_buffers = [Some(instance_layout)];
         let sh_text = shader(device, "text", include_str!("shaders/text.wgsl"), true);
+        let sh_sdf = shader(device, "sdf", include_str!("shaders/sdf.wgsl"), true);
 
         let scene_pipes = |samples: u32| ScenePipes {
             samples,
+            sdf: make_pipeline(
+                device,
+                PipeDesc {
+                    label: "sdf",
+                    layout: &mesh_lit_layout,
+                    module: &sh_sdf,
+                    fs: "fs_main",
+                    buffers: &mesh_buffers,
+                    format: HDR_FORMAT,
+                    samples,
+                    depth: Some((true, wgpu::CompareFunction::Less)),
+                    blend: None,
+                },
+            ),
             mesh: make_pipeline(
                 device,
                 PipeDesc {
@@ -1002,6 +1022,38 @@ impl Renderer {
         );
         let shadow_mesh_pipe = depth_pipe("shadow mesh", &mesh_layout, &sh_mesh, &mesh_buffers);
         let shadow_terrain_pipe = depth_pipe("shadow terrain", &scene_layout, &sh_terrain, &[]);
+        // Raymarched objects write their own depth from the fragment stage.
+        let shadow_sdf_pipe = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("shadow sdf"),
+            layout: Some(&mesh_layout),
+            vertex: wgpu::VertexState {
+                module: &sh_sdf,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &mesh_buffers,
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: Default::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &sh_sdf,
+                entry_point: Some("fs_shadow"),
+                compilation_options: Default::default(),
+                targets: &[],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
         let dof_pipe = |label: &str,
                         layout: &wgpu::PipelineLayout,
                         module: &wgpu::ShaderModule,
@@ -1043,6 +1095,7 @@ impl Renderer {
             })
         };
         let dof_mesh_pipe = dof_pipe("dof mesh", &mesh_layout, &sh_mesh, &mesh_buffers);
+        let dof_sdf_pipe = dof_pipe("dof sdf", &mesh_layout, &sh_sdf, &mesh_buffers);
         let dof_terrain_pipe = dof_pipe("dof terrain", &scene_layout, &sh_terrain, &[]);
         let dof_floor_pipe = dof_pipe("dof floor", &particle_layout, &sh_floor, &[]);
         let shadow_view = device
@@ -1233,6 +1286,7 @@ impl Renderer {
             globals_buf,
             globals_bg,
             shadow_mesh_pipe,
+            shadow_sdf_pipe,
             contact_pipe,
             bg_pipes: HashMap::new(),
             bg_module: sh_backdrop,
@@ -1240,6 +1294,7 @@ impl Renderer {
             bg_up_pipe,
             shadow_terrain_pipe,
             dof_mesh_pipe,
+            dof_sdf_pipe,
             dof_terrain_pipe,
             dof_floor_pipe,
             shadow_view,
@@ -1602,6 +1657,18 @@ impl Renderer {
             MeshSource::Text { .. } => {
                 format!("t:{}", serde_json::to_string(source).unwrap_or_default())
             }
+            // Every raymarched shape is drawn in the same box.
+            MeshSource::Sdf { .. } => {
+                let key = "sdf-box".to_string();
+                if !self.meshes.contains_key(&key) {
+                    let mut data = primitive(&Primitive::Cube);
+                    for v in &mut data.vertices {
+                        v.pos = (Vec3::from(v.pos) * 2.04).into();
+                    }
+                    self.upload_mesh(key.clone(), &data);
+                }
+                return key;
+            }
         };
         if self.meshes.contains_key(&key) {
             return key;
@@ -1616,6 +1683,14 @@ impl Renderer {
     fn source_data(&mut self, source: &MeshSource, key: &str) -> MeshData {
         match source {
             MeshSource::Primitive(p) => primitive(p),
+            // Copies on a raymarched shape stand on a ball of about its size.
+            MeshSource::Sdf { .. } => {
+                let mut data = primitive(&Primitive::Sphere { detail: 3 });
+                for v in &mut data.vertices {
+                    v.pos = (Vec3::from(v.pos) * 0.8).into();
+                }
+                data
+            }
             MeshSource::File { path } => match load_mesh_asset(path) {
                 Ok(m) => {
                     self.errors.remove(key);
@@ -2019,7 +2094,12 @@ impl Renderer {
                     blocks.push(blk);
                 }
                 LayerKind::Mesh(m) => {
-                    let mesh = self.mesh_key_subdivided(&m.source, m.subdivide);
+                    let sdf = matches!(m.source, MeshSource::Sdf { .. });
+                    let mesh = if sdf {
+                        self.mesh_key(&m.source)
+                    } else {
+                        self.mesh_key_subdivided(&m.source, m.subdivide)
+                    };
                     let mat = &m.material;
                     let tex = self.texture_key(project, mat.texture.as_deref());
                     let rel = &mat.relief;
@@ -2147,6 +2227,24 @@ impl Renderer {
                             df.reach(ctx),
                         ];
                     }
+                    if let MeshSource::Sdf { form, cycles } = &m.source {
+                        // No glitch, relief or deform on raymarched shapes:
+                        // their slots hold the shape instead.
+                        let [a, b, c] = form.params();
+                        blk[4] = [form.index() as f32, a, b, c];
+                        blk[5] = [
+                            TAU * (ctx.phase * *cycles as f32).rem_euclid(1.0),
+                            if *cycles != 0 { 1.5 } else { 0.0 },
+                            0.0,
+                            0.0,
+                        ];
+                        blk[8] = [0.0; 4];
+                        blk[9] = [0.0; 4];
+                        blk[10] = [0.0; 4];
+                        // Marching costs per pixel, not per triangle.
+                        ls.triangles = 0;
+                        ls.load = count as f32 / 40.0;
+                    }
                     cmds.push(Cmd::Mesh {
                         slot: blocks.len() as u32,
                         mesh,
@@ -2155,6 +2253,7 @@ impl Renderer {
                         pixelated: mat.pixelated,
                         first,
                         count: count as u32,
+                        sdf,
                     });
                     blocks.push(blk);
                 }
@@ -2455,6 +2554,7 @@ impl Renderer {
                         pixelated: false,
                         first,
                         count: syms.len() as u32,
+                        sdf: false,
                     });
                     blocks.push(blk);
                 }
@@ -3276,9 +3376,14 @@ impl Renderer {
                     pixelated,
                     first,
                     count,
+                    sdf,
                 } if *count > 0 => {
                     let m = &self.meshes[mesh];
-                    pass.set_pipeline(&self.shadow_mesh_pipe);
+                    pass.set_pipeline(if *sdf {
+                        &self.shadow_sdf_pipe
+                    } else {
+                        &self.shadow_mesh_pipe
+                    });
                     pass.set_bind_group(0, &self.globals_bg[2], &[]);
                     pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
                     pass.set_bind_group(
@@ -3326,9 +3431,14 @@ impl Renderer {
                     pixelated,
                     first,
                     count,
+                    sdf,
                 } if *count > 0 => {
                     let m = &self.meshes[mesh];
-                    pass.set_pipeline(&self.dof_mesh_pipe);
+                    pass.set_pipeline(if *sdf {
+                        &self.dof_sdf_pipe
+                    } else {
+                        &self.dof_mesh_pipe
+                    });
                     pass.set_bind_group(0, &self.globals_bg[0], &[]);
                     pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
                     pass.set_bind_group(
@@ -3398,12 +3508,13 @@ impl Renderer {
                     pixelated,
                     first,
                     count,
+                    sdf,
                 } => {
                     if *count == 0 {
                         continue;
                     }
                     let m = &self.meshes[mesh];
-                    pass.set_pipeline(&pipes.mesh);
+                    pass.set_pipeline(if *sdf { &pipes.sdf } else { &pipes.mesh });
                     pass.set_bind_group(0, &self.globals_bg[globals], &[]);
                     pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
                     pass.set_bind_group(

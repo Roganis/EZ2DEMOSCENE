@@ -277,6 +277,59 @@ fn env_color(dir: vec3<f32>, rough: f32) -> vec3<f32> {
     return mix(c, G.fog.rgb + G.sky.rgb * 0.2, rough * 0.5);
 }
 
+// Sun, sky, reflections, rim light and the weather on a lit surface
+// (meshes and raymarched objects). `v` points to the camera; `ao` darkens
+// the sky light and reflections in creases.
+fn lit_surface(
+    base_in: vec3<f32>,
+    metallic_in: f32,
+    rough_in: f32,
+    n_in: vec3<f32>,
+    world: vec3<f32>,
+    v: vec3<f32>,
+    rim_k: f32,
+    ao: f32,
+) -> vec3<f32> {
+    var base = base_in;
+    var metallic = metallic_in;
+    var rough = rough_in;
+    var n = n_in;
+    // Weather on the surface: wet and glossy in the rain (puddles on flat
+    // tops), snow on everything facing up.
+    let wet = G.caus_col.w * smoothstep(-0.3, 0.5, n.y);
+    base = base * (1.0 - 0.45 * wet);
+    rough = mix(rough, rough * 0.35, wet);
+    let pud = puddle(world, n);
+    if (pud > 0.0) {
+        rough = mix(rough, 0.02, pud);
+        n = normalize(mix(n, vec3<f32>(0.0, 1.0, 0.0), pud));
+    }
+    let snow = snow_cover(world, n);
+    base = mix(base, vec3<f32>(0.88, 0.91, 0.96), snow);
+    metallic = mix(metallic, 0.0, snow);
+    rough = mix(rough, 0.85, snow);
+    let l = normalize(G.light_dir.xyz);
+    let sun_lit = sun_shadow(world, n);
+    let ndl = max(dot(n, l), 0.0) * sun_lit;
+    let diffuse = G.light_color.rgb * G.ground.w * ndl;
+    let ambient = mix(G.ground.rgb, G.sky.rgb, n.y * 0.5 + 0.5) * G.sky.w * ao;
+    let h = normalize(l + v);
+    let shin = mix(512.0, 8.0, rough);
+    let spec = pow(max(dot(n, h), 0.0), shin) * (1.0 - rough) * G.ground.w * sun_lit;
+    let ndv = max(dot(n, v), 0.0);
+    let fres = pow(1.0 - ndv, 5.0);
+    let f0 = mix(vec3<f32>(0.04), base, metallic);
+    let fr = f0 + (vec3<f32>(1.0) - f0) * fres;
+    let env = env_color(reflect(-v, n), rough) * ao;
+
+    var col = base * (1.0 - metallic) * (diffuse + ambient);
+    col = col + (spec * G.light_color.rgb + env * (1.0 - rough * 0.6)) * fr;
+    col = col + G.sky.rgb * rim_k * pow(1.0 - ndv, 3.0) * 0.6;
+    col = col + base * caustic_light(world, n);
+    col = col + env * pud * rain_rings(world) * 0.6;
+    return col;
+}
+
 fn clip_visible(world: vec3<f32>) -> bool {
     if (dot(G.clip.xyz, G.clip.xyz) == 0.0) {
         return true;

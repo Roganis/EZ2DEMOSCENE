@@ -368,11 +368,25 @@ N+1 matches loop N exactly (tested: loop-to-loop difference 0).
 
 ## Phase 8 — More layers
 
-### ☐ 8.1 Raymarched objects in the scene
+### ☑ 8.1 Raymarched objects in the scene
 SDF objects (metaballs, gyroid, fractal bulb, smooth unions of spheres and
 boxes) drawn as a box proxy mesh; the fragment shader marches inside the
 box and writes `frag_depth`, so they intersect meshes correctly and get
 the usual lighting, fog and shadows.
+
+**Done.** `MeshSource::Sdf { form, cycles }` (Metaballs, Gyroid, Fractal
+bulb, Melting box) on the mesh layer, so copies, transforms, materials,
+music links and ramps all apply. `sdf.wgsl` draws a ±1 box; only its far
+faces march (from the near plane through the pixel, via
+`inv_view_proj`, so perspective, the orthographic sun view and the
+mirrored reflection view all work), in object space through the
+inverse model matrix (flat varyings), and writes `frag_depth`. Separate
+pipelines for the sun shadow map (depth only, with its own bias) and the
+depth-of-field distance pass. The lighting moved from `mesh.wgsl` to a
+shared `lit_surface()` (plus SDF ambient occlusion). Motion is whole
+cycles per loop; copies vary by their random seed. Tested: every shape
+shows, moves, loops exactly, cuts a bar through it and casts a shadow.
+Preset: Liquid Metal.
 
 ### ☐ 8.2 Sprites & image planes
 Billboards or fixed planes with an image or an image sequence (frames

@@ -268,39 +268,7 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
         tex = texel;
     }
     var base = hue_rotate(base_in * tex, hue);
-    // Weather on the surface: wet and glossy in the rain (puddles on flat
-    // tops), snow on everything facing up.
-    let wet = G.caus_col.w * smoothstep(-0.3, 0.5, n.y);
-    base = base * (1.0 - 0.45 * wet);
-    rough = mix(rough, rough * 0.35, wet);
-    let pud = puddle(in.world, n);
-    if (pud > 0.0) {
-        rough = mix(rough, 0.02, pud);
-        n = normalize(mix(n, vec3<f32>(0.0, 1.0, 0.0), pud));
-    }
-    let snow = snow_cover(in.world, n);
-    base = mix(base, vec3<f32>(0.88, 0.91, 0.96), snow);
-    metallic = mix(metallic, 0.0, snow);
-    rough = mix(rough, 0.85, snow);
-    let l = normalize(G.light_dir.xyz);
-    let sun_lit = sun_shadow(in.world, n);
-    let ndl = max(dot(n, l), 0.0) * sun_lit;
-    let diffuse = G.light_color.rgb * G.ground.w * ndl;
-    let ambient = mix(G.ground.rgb, G.sky.rgb, n.y * 0.5 + 0.5) * G.sky.w;
-    let h = normalize(l + v);
-    let shin = mix(512.0, 8.0, rough);
-    let spec = pow(max(dot(n, h), 0.0), shin) * (1.0 - rough) * G.ground.w * sun_lit;
-    let ndv = max(dot(n, v), 0.0);
-    let fres = pow(1.0 - ndv, 5.0);
-    let f0 = mix(vec3<f32>(0.04), base, metallic);
-    let fr = f0 + (vec3<f32>(1.0) - f0) * fres;
-    let env = env_color(reflect(-v, n), rough);
-
-    var col = base * (1.0 - metallic) * (diffuse + ambient);
-    col = col + (spec * G.light_color.rgb + env * (1.0 - rough * 0.6)) * fr;
-    col = col + G.sky.rgb * rim_k * pow(1.0 - ndv, 3.0) * 0.6;
-    col = col + base * caustic_light(in.world, n);
-    col = col + env * pud * rain_rings(in.world) * 0.6;
+    var col = lit_surface(base, metallic, rough, n, in.world, v, rim_k, 1.0);
 
     var mask = 1.0;
     switch mode {

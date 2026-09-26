@@ -897,3 +897,82 @@ fn feedback_trails_repeat_every_loop() {
     assert!(steady < 0.6, "the trails don't settle into the loop");
     assert!(trails > 1.0, "no visible trails");
 }
+
+/// Raymarched objects: every shape shows, moves with the loop, closes the
+/// loop, cuts into other shapes by depth and casts a sun shadow.
+#[test]
+fn raymarched_objects_loop_and_cast_shadows() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let target = r.create_target(240, 136);
+    let mut p = presets::empty();
+    p.post.grade.grain = Param::new(0.0);
+    p.environment.light_dir = [0.6, 1.0, 0.3];
+    p.environment.light_intensity = Param::new(2.0);
+    p.environment.shadows.enabled = true;
+    p.layers.retain(|l| !matches!(l.kind, LayerKind::Mesh(_)));
+    for l in &mut p.layers {
+        if let LayerKind::Mirror(m) = &mut l.kind {
+            m.base_color = [0.5, 0.5, 0.5];
+            m.reflectivity = Param::new(0.1);
+        }
+    }
+    let plain = p.clone();
+    let at = |p: &Project, phase: f32| EvalCtx::new(&p.timing, phase, None);
+    for form in SdfShape::all_defaults() {
+        let mut p = plain.clone();
+        let mut layer = Layer::new(
+            "Blob",
+            LayerKind::Mesh(MeshLayer {
+                source: MeshSource::Sdf { form, cycles: 1 },
+                ..Default::default()
+            }),
+        )
+        .at([0.0, 1.2, 0.0]);
+        layer.transform.scale = Param::new(1.2);
+        // A bar straight through it: the depth test has to cut it.
+        let mut bar = Layer::new(
+            "Bar",
+            LayerKind::Mesh(MeshLayer {
+                source: MeshSource::Primitive(Primitive::Cube),
+                ..Default::default()
+            }),
+        )
+        .at([0.0, 1.2, 0.0]);
+        bar.transform.stretch = [4.0, 0.15, 0.15];
+        p.layers.push(layer);
+        p.layers.push(bar);
+        let a = r.render_image(&p, &at(&p, 0.0), &target);
+        let b = r.render_image(&p, &at(&p, 1.0), &target);
+        let mid = r.render_image(&p, &at(&p, 0.37), &target);
+        let reference = r.render_image(&plain, &at(&p, 0.37), &target);
+        // The depth-of-field distance pass marches too.
+        p.post.dof.enabled = true;
+        r.render_image(&p, &at(&p, 0.37), &target);
+        p.post.dof.enabled = false;
+        p.environment.shadows.enabled = false;
+        let unshadowed = r.render_image(&p, &at(&p, 0.37), &target);
+        let name = form.label().to_lowercase().replace(' ', "_");
+        mid.save(snapshot_dir().join(format!("sdf_{name}.png")))
+            .unwrap();
+        let seam = mean_abs_diff(a.as_raw(), b.as_raw());
+        let moves = mean_abs_diff(a.as_raw(), mid.as_raw());
+        let shown = mean_abs_diff(mid.as_raw(), reference.as_raw());
+        let shadow = mean_abs_diff(mid.as_raw(), unshadowed.as_raw());
+        eprintln!(
+            "{}: seam {seam:.3}, moves {moves:.2}, visible {shown:.2}, shadow {shadow:.2}",
+            form.label()
+        );
+        assert!(seam < 0.6, "{} doesn't loop", form.label());
+        assert!(shown > 1.0, "{} barely visible", form.label());
+        assert!(moves > 0.05, "{} doesn't move", form.label());
+        assert!(shadow > 0.1, "{} casts no shadow", form.label());
+    }
+}
