@@ -260,7 +260,6 @@ pub fn crystal_garden() -> Project {
                     rim: Param::new(0.6),
                     ..Default::default()
                 },
-                ..Default::default()
             }),
         )
         .scaled(2.4)
