@@ -691,3 +691,94 @@ fn text_layers_loop() {
     assert!(seam < 0.6);
     assert!(shown > 1.0, "text barely visible");
 }
+
+/// A two-scene sequence: each clip shows its scene, transitions mix them,
+/// and the whole sequence loops.
+#[test]
+fn sequences_play_scenes_with_transitions() {
+    use ez_core::sequence::*;
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let target = r.create_target(160, 90);
+    let mut p = presets::orbiting_solid();
+    p.post.grade.grain = Param::new(0.0);
+    let alone = p.clone();
+    p.start_sequence();
+    // Scene B: another preset's look.
+    let b = p.add_scene(false);
+    let other = presets::synth_sunset();
+    if let Some(s) = p.sequence.scenes.iter_mut().find(|s| s.id == b) {
+        s.layers = other.layers.clone();
+        s.camera = other.camera.clone();
+        s.environment = other.environment.clone();
+        s.post = other.post.clone();
+        s.post.grade.grain = Param::new(0.0);
+    }
+    for kind in [
+        TransitionKind::Crossfade,
+        TransitionKind::Wipe,
+        TransitionKind::Iris,
+        TransitionKind::Flash,
+        TransitionKind::Glitch,
+    ] {
+        p.sequence.clips = vec![
+            Clip {
+                scene: p.sequence.scene_id,
+                beats: 8,
+                transition: Transition {
+                    kind,
+                    beats: 4.0,
+                    angle: 30.0,
+                },
+            },
+            Clip {
+                scene: b,
+                beats: 8,
+                transition: Transition {
+                    kind,
+                    beats: 4.0,
+                    angle: 30.0,
+                },
+            },
+        ];
+        p.sync_sequence_length();
+        let at = |beat: f32| EvalCtx::new(&p.timing, beat / 16.0, None);
+        let start = r.render_image(&p, &at(0.0), &target);
+        let end = r.render_image(&p, &at(16.0), &target);
+        let seam = mean_abs_diff(start.as_raw(), end.as_raw());
+        let clip_a = r.render_image(&p, &at(6.0), &target);
+        let clip_b = r.render_image(&p, &at(14.0), &target);
+        let mid = r.render_image(&p, &at(10.0), &target);
+        mid.save(snapshot_dir().join(format!("transition_{kind:?}.png")))
+            .unwrap();
+        let (da, db) = (
+            mean_abs_diff(mid.as_raw(), clip_a.as_raw()),
+            mean_abs_diff(mid.as_raw(), clip_b.as_raw()),
+        );
+        eprintln!("{kind:?}: seam {seam:.3}, mid vs A {da:.1}, vs B {db:.1}");
+        assert!(seam < 0.6, "{kind:?} sequence does not loop");
+        assert!(
+            mean_abs_diff(clip_a.as_raw(), clip_b.as_raw()) > 5.0,
+            "scenes look alike"
+        );
+        assert!(
+            da > 1.0 && db > 1.0,
+            "{kind:?}: the transition shows only one scene"
+        );
+    }
+    // Away from transitions, clip A is exactly scene A at its own moment.
+    let clip_a = r.render_image(&p, &EvalCtx::new(&p.timing, 6.0 / 16.0, None), &target);
+    let own = r.render_image(
+        &alone,
+        &EvalCtx::new(&alone.timing, 6.0 / alone.timing.loop_beats as f32, None),
+        &target,
+    );
+    assert!(mean_abs_diff(clip_a.as_raw(), own.as_raw()) < 0.5);
+}

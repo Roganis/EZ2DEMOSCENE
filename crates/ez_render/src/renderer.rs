@@ -332,6 +332,10 @@ pub struct Renderer {
     /// Instances of layers that don't animate, keyed by layer hash, with
     /// the frame number they were last used.
     instance_cache: HashMap<u64, (u64, Vec<InstanceRaw>)>,
+    /// Scene transitions: the two pictures, and the mixing pass.
+    seq_targets: Option<SeqTargets>,
+    compose_pipe: wgpu::RenderPipeline,
+    compose_buf: wgpu::Buffer,
     /// Font atlases by texture key.
     fonts: HashMap<String, std::sync::Arc<crate::text::FontAtlas>>,
     /// Points on shape surfaces for Instancer::Surface: (mesh, count, seed).
@@ -344,6 +348,15 @@ pub struct Renderer {
 }
 
 /// All size-dependent GPU resources for one output image.
+/// Two pictures for scene transitions and their compositing inputs.
+struct SeqTargets {
+    width: u32,
+    height: u32,
+    a: RenderTarget,
+    b: RenderTarget,
+    bind: wgpu::BindGroup,
+}
+
 pub struct RenderTarget {
     id: u64,
     pub width: u32,
@@ -1068,6 +1081,44 @@ impl Renderer {
             multiview_mask: None,
             cache: None,
         });
+        let compose_pipe = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("compose"),
+            layout: Some(&post_layout),
+            vertex: wgpu::VertexState {
+                module: &sh_post,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            primitive: Default::default(),
+            depth_stencil: None,
+            multisample: Default::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &sh_post,
+                entry_point: Some("fs_compose"),
+                compilation_options: Default::default(),
+                targets: &[
+                    Some(wgpu::ColorTargetState {
+                        format: OUTPUT_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                    Some(wgpu::ColorTargetState {
+                        format: DISPLAY_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                ],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
+        let compose_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("compose params"),
+            size: POST_SLOT,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         let rays_pipe = post_pipe("god rays", "fs_rays", HDR_FORMAT, None);
         let rays_add_pipe = post_pipe("god rays add", "fs_rays_add", HDR_FORMAT, Some(ADDITIVE));
 
@@ -1142,6 +1193,9 @@ impl Renderer {
             mesh_tex_bgs: HashMap::new(),
             errors: HashMap::new(),
             instance_cache: HashMap::new(),
+            seq_targets: None,
+            compose_pipe,
+            compose_buf,
             fonts: HashMap::new(),
             surface_cache: HashMap::new(),
             frame_no: 0,
@@ -1707,7 +1761,109 @@ impl Renderer {
         self.bg_pipes.insert((kind, samples, low), pipe);
     }
 
+    /// Render a frame of `project` at `ctx` into `target`: its scene, or
+    /// with a sequence the scene playing now (two mixed during a
+    /// transition).
     pub fn render(&mut self, project: &Project, ctx: &EvalCtx, target: &RenderTarget) {
+        let Some(frame) = project.sequence.frame_at(ctx) else {
+            return self.render_scene(project, ctx, target);
+        };
+        let Some(current) = project.scene_view(frame.scene) else {
+            return self.render_scene(project, ctx, target);
+        };
+        let Some((from, from_ctx, t, tr)) = frame.from else {
+            return self.render_scene(&current, &frame.ctx, target);
+        };
+        let Some(previous) = project.scene_view(from) else {
+            return self.render_scene(&current, &frame.ctx, target);
+        };
+        let (w, h) = (target.width, target.height);
+        let seq = match self.seq_targets.take() {
+            Some(s) if s.width == w && s.height == h => s,
+            _ => {
+                let a = self.create_target(w, h);
+                let b = self.create_target(w, h);
+                let bind = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("compose"),
+                    layout: &self.bgl_post,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                                buffer: &self.compose_buf,
+                                offset: 0,
+                                size: wgpu::BufferSize::new(POST_SLOT),
+                            }),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(&a.output_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::TextureView(&b.output_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: wgpu::BindingResource::Sampler(&self.sampler_clamp),
+                        },
+                    ],
+                });
+                SeqTargets {
+                    width: w,
+                    height: h,
+                    a,
+                    b,
+                    bind,
+                }
+            }
+        };
+        self.render_scene(&previous, &from_ctx, &seq.a);
+        self.render_scene(&current, &frame.ctx, &seq.b);
+        let mut params = [[0.0f32; 4]; (POST_SLOT / 16) as usize];
+        params[0] = [
+            tr.kind.index() as f32,
+            t,
+            tr.angle.to_radians(),
+            w as f32 / h.max(1) as f32,
+        ];
+        self.queue
+            .write_buffer(&self.compose_buf, 0, bytemuck::cast_slice(&params));
+        let mut enc = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("compose"),
+            });
+        {
+            let att = |view| {
+                Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })
+            };
+            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("compose"),
+                color_attachments: &[att(&target.output_view), att(&target.display_view)],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&self.compose_pipe);
+            pass.set_bind_group(0, &seq.bind, &[0]);
+            pass.draw(0..3, 0..1);
+        }
+        self.queue.submit([enc.finish()]);
+        self.seq_targets = Some(seq);
+    }
+
+    /// Render one scene (no sequence).
+    fn render_scene(&mut self, project: &Project, ctx: &EvalCtx, target: &RenderTarget) {
         let layers = project.scene_layers(ctx);
         let (w, h) = (target.width, target.height);
         let cam = project.camera.eval(ctx);

@@ -24,6 +24,7 @@ pub const MIDI_EXTENSIONS: &[&str] = &["mid", "midi"];
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Selection {
     Timing,
+    Sequence,
     Camera,
     Environment,
     Post,
@@ -83,6 +84,8 @@ pub struct EzApp {
     music_key: (Option<String>, Option<String>, u32),
     /// Music being decoded and analysed.
     music_task: Option<crate::music_task::MusicTask>,
+    /// With a sequence: preview only the scene being edited.
+    solo_scene: bool,
     /// The last analysed audio file (path, analysis before MIDI).
     audio_cache: Option<(String, AudioEnvelope)>,
     /// Microphone / line-in driving the preview.
@@ -171,6 +174,7 @@ impl EzApp {
             audio_env: None,
             music_key: (None, None, 0),
             music_task: None,
+            solo_scene: true,
             audio_cache: None,
             live: None,
             live_frame: None,
@@ -992,6 +996,7 @@ impl EzApp {
             (Selection::Environment, "☀  Light & fog"),
             (Selection::Post, "🎞  Post effects"),
             (Selection::Textures, "🖼  Your images"),
+            (Selection::Sequence, "🎬  Scenes & timeline"),
         ];
         for (sel, label) in items {
             if ui.selectable_label(self.selection == sel, label).clicked() {
@@ -1177,6 +1182,14 @@ impl EzApp {
                 Selection::Environment => inspector::environment_ui(ui, &mut self.project.environment),
                 Selection::Post => inspector::post_ui(ui, &mut self.project.post),
                 Selection::Textures => inspector::textures_ui(ui, &mut self.project.textures),
+                Selection::Sequence => {
+                    let audio = self.audio_env.clone();
+                    if inspector::sequence_ui(ui, &mut self.project, audio.as_deref()) {
+                        // Another scene is now the one being edited.
+                        self.selection = Selection::Sequence;
+                        self.nodes = None;
+                    }
+                }
                 Selection::Layer(i) => {
                     let Project { layers, textures, .. } = &mut self.project;
                     match layers.get_mut(i) {
@@ -1620,6 +1633,15 @@ impl EzApp {
             }
             ui.checkbox(&mut self.gizmo.grid, "Grid")
                 .on_hover_text("G — show a ground grid (1 unit squares)");
+            if self.project.sequence.is_active() {
+                ui.separator();
+                ui.selectable_value(&mut self.solo_scene, true, "This scene")
+                    .on_hover_text("Preview only the scene you are editing, looping on its own");
+                ui.selectable_value(&mut self.solo_scene, false, "🎬 Timeline")
+                    .on_hover_text(
+                        "Preview the whole sequence with its transitions (what gets exported)",
+                    );
+            }
             if let Some(task) = &self.music_task {
                 ui.spinner();
                 ui.label(format!("Analysing music… {:.0}%", task.progress() * 100.0))
@@ -1646,12 +1668,47 @@ impl EzApp {
             (size.x * ppp * self.preview_scale) as u32,
             (size.y * ppp * self.preview_scale) as u32,
         ];
-        let ctx = self.eval_ctx();
+        // With a sequence, preview the whole timeline or only the scene
+        // being edited.
+        let seq_on = self.project.sequence.is_active();
+        let solo = if seq_on && self.solo_scene {
+            self.project.scene_view(self.project.sequence.scene_id)
+        } else {
+            None
+        };
+        let ctx = match &solo {
+            Some(v) => {
+                let c = v.ctx_at(self.time, self.audio_env.as_deref());
+                match self.live_frame {
+                    Some(f) => c.with_frame(f),
+                    None => c,
+                }
+            }
+            None => self.eval_ctx(),
+        };
+        // The gizmo belongs to the edited scene: hide it while the timeline
+        // shows another one.
+        let (gizmo_ok, ctx) = match (seq_on && solo.is_none())
+            .then(|| self.project.sequence.frame_at(&ctx))
+            .flatten()
+        {
+            Some(f) if f.scene == self.project.sequence.scene_id && f.from.is_none() => {
+                (true, f.ctx)
+            }
+            Some(_) => (false, ctx),
+            None => (true, ctx),
+        };
         // While exporting, keep showing the last picture: the GPU time goes
         // to the export instead (this matters a lot on phones).
         let tex = match self.viewport.last_texture() {
             Some(t) if self.export.is_running() => t,
-            _ => self.viewport.render(&self.project, &ctx, px),
+            _ => match &solo {
+                Some(v) => self.viewport.render(v, &ctx, px),
+                None => {
+                    let global = self.eval_ctx();
+                    self.viewport.render(&self.project, &global, px)
+                }
+            },
         };
         let resp = ui
             .centered_and_justified(|ui| {
@@ -1674,7 +1731,7 @@ impl EzApp {
         }
         let snapping = ui.input(|i| i.modifiers.command);
         let mut on_gizmo = false;
-        if self.mode == Mode::Simple && !self.project.use_graph {
+        if gizmo_ok && self.mode == Mode::Simple && !self.project.use_graph {
             if let Selection::Layer(i) = self.selection {
                 if let Some(layer) = self.project.layers.get_mut(i) {
                     on_gizmo = self.gizmo.show(&painter, &resp, &proj, layer, snapping);
@@ -2163,6 +2220,7 @@ impl eframe::App for EzApp {
         self.now = ctx.input(|i| i.time);
         let raw_dt = ctx.input(|i| i.unstable_dt) * 1000.0;
         self.frame_ms += (raw_dt.clamp(0.0, 1000.0) - self.frame_ms) * 0.1;
+        self.project.sync_sequence_length();
         if self.music_key != self.music_key() {
             self.reload_audio();
         }

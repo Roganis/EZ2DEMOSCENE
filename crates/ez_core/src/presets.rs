@@ -130,6 +130,11 @@ pub fn all() -> Vec<Preset> {
             project: oldschool_intro(),
         },
         Preset {
+            name: "Scene Tour",
+            description: "A timeline of three scenes: wipe, iris and glitch transitions, looping as one.",
+            project: scene_tour(),
+        },
+        Preset {
             name: "Empty",
             description: "A blank stage with a floor and a sky.",
             project: empty(),
@@ -404,6 +409,56 @@ pub fn oldschool_intro() -> Project {
         )
         .at([0.0, -0.95, 1.5]),
     );
+    p
+}
+
+/// Three presets as scenes on one timeline, each coming in with its own
+/// transition.
+pub fn scene_tour() -> Project {
+    use crate::sequence::{Clip, Scene, Transition, TransitionKind};
+    let mut p = synth_sunset();
+    p.name = "Scene Tour".into();
+    p.timing.bpm = 120.0;
+    p.sequence.scene_name = "Sunset".into();
+    p.start_sequence();
+    let mut clips = vec![Clip {
+        scene: p.sequence.scene_id,
+        beats: 8,
+        transition: Transition {
+            kind: TransitionKind::Glitch,
+            beats: 2.0,
+            angle: 0.0,
+        },
+    }];
+    for (name, other, kind) in [
+        ("Tunnel", retro_tunnel(), TransitionKind::Wipe),
+        ("Kaleidoscope", plasma_kaleido(), TransitionKind::Iris),
+    ] {
+        let id = p.sequence.next_id();
+        p.sequence.scenes.push(Scene {
+            id,
+            name: name.into(),
+            loop_beats: 8,
+            camera: other.camera,
+            environment: other.environment,
+            layers: other.layers,
+            post: other.post,
+            graph: None,
+            use_graph: false,
+        });
+        clips.push(Clip {
+            scene: id,
+            beats: 8,
+            transition: Transition {
+                kind,
+                beats: 2.0,
+                angle: 20.0,
+            },
+        });
+    }
+    p.sequence.scene_beats = 8;
+    p.sequence.clips = clips;
+    p.sync_sequence_length();
     p
 }
 

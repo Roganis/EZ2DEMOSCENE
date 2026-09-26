@@ -286,21 +286,35 @@ the pixel font becomes voxel blocks. Presets: *Oldschool Intro*.
 
 ## Phase 6 — Scenes & sequencer
 
-### ☐ 6.1 Several scenes, one timeline
+### ☑ 6.1 Several scenes, one timeline
 **How.** `Project.scenes: Vec<Scene>` where a scene holds what a project
 holds today (layers, camera, environment, post, graph), plus a sequence of
 clips `(scene, start bar, length in bars, transition)`. Old projects are a
 single scene. The loop length becomes the whole sequence; each scene still
 sees its own phase, so scenes loop internally. The sequence itself loops.
 
-### ☐ 6.2 Transitions
+### ☑ 6.2 Transitions
 Crossfade, wipe (angle), iris, glitch cut, flash-to-white, and
 "cut on kick" (music mode). Rendered by drawing both scenes into two HDR
 targets during the transition and mixing in the post pass.
 
-### ☐ 6.3 Sections from the music
+### ☑ 6.3 Sections from the music
 Full-song mode proposes clip boundaries at detected section changes
 (novelty in the smoothed spectrum), snapped to bars.
+
+**Done (6.1–6.3):** the project's own fields stay "the scene being
+edited" and other scenes wait in `Project.sequence` (switching swaps
+contents, so every panel, the node editor and undo keep working). Clips
+map the whole-sequence moment to each scene's own moment; a transition
+covers the start of the incoming clip while the outgoing scene keeps
+running, so the wrap is seamless by construction. Each scene is rendered
+with its own post effects into its own target and a compositing pass mixes
+the finished pictures (instead of mixing HDR before post, which would have
+forced one post stack on both). Section detection: per-bar spectrum and
+loudness, novelty between the 4 bars before and after each boundary,
+peaks above mean + ½σ at least 4 bars apart; the button makes one clip
+per section (tested on a synthetic three-part song). Preset: *Scene
+Tour*.
 
 ---
 

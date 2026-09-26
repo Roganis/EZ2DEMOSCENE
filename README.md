@@ -94,6 +94,11 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   (sample & hold, smooth random, drunken walk). The ♩ menu syncs it to
   every beat, bar or loop, a live graph previews the curve, and it can
   follow the **music**. Layers can also **shake** on the beat.
+- **Scenes & timeline.** Several scenes (each with its own layers, camera,
+  light and effects) played by a timeline of clips with transitions:
+  crossfade, wipe, iris, flash, glitch or a cut on the next kick. The
+  whole timeline is the loop; each scene keeps looping inside its clips.
+  With a song, clips can follow its sections (drops, breakdowns).
 - **Camera.** Orbit, pendulum, static or a **path**: a smooth closed
   flight through your own shots (position, look-at, field of view, roll)
   at an even speed, with optional lingering, cuts to the next shot on

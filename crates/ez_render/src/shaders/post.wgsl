@@ -374,3 +374,60 @@ fn fs_final(in: VOut) -> FinalOut {
     out.display = vec4<f32>(c, 1.0);
     return out;
 }
+
+// Scene transitions: mixes two finished pictures (t_a = the scene going
+// out, t_b = the scene coming in; both linear from sRGB textures).
+// P.v[0]: kind (see TransitionKind), progress 0..1, angle (radians), aspect
+@fragment
+fn fs_compose(in: VOut) -> FinalOut {
+    let uv = in.uv;
+    let kind = i32(P.v[0].x + 0.5);
+    let t = clamp(P.v[0].y, 0.0, 1.0);
+    let aspect = max(P.v[0].w, 0.01);
+    let a = textureSampleLevel(t_a, s_lin, uv, 0.0).rgb;
+    let b = textureSampleLevel(t_b, s_lin, uv, 0.0).rgb;
+    var c = select(a, b, t >= 1.0);
+    let p = (uv - 0.5) * vec2<f32>(aspect, 1.0);
+    switch kind {
+        case 1: {
+            c = mix(a, b, smoothstep(0.0, 1.0, t));
+        }
+        case 2: {
+            // Wipe: a soft edge sweeps across, the new scene behind it.
+            let dir = vec2<f32>(cos(P.v[0].z), sin(P.v[0].z));
+            let extent = 0.5 * (abs(dir.x) * aspect + abs(dir.y)) + 0.05;
+            let edge = mix(-extent, extent, t);
+            c = mix(b, a, smoothstep(edge - 0.03, edge + 0.03, dot(p, dir)));
+        }
+        case 3: {
+            // Iris: a circle opening from the middle.
+            let r = t * (0.5 * length(vec2<f32>(aspect, 1.0)) + 0.05);
+            c = mix(b, a, smoothstep(r - 0.02, r + 0.02, length(p)));
+        }
+        case 4: {
+            // Flash to white and back.
+            let w = 1.0 - abs(t * 2.0 - 1.0);
+            c = mix(select(b, a, t < 0.5), vec3<f32>(1.0), pow(w, 0.6));
+        }
+        case 5: {
+            // Glitch: blocks of the new scene pop in, rows jitter.
+            let cell = floor(uv * vec2<f32>(16.0, 9.0));
+            let r = hash1(u32(cell.x) + u32(cell.y) * 97u + 13u);
+            let step = u32(t * 12.0);
+            let band = hash1(u32(uv.y * 24.0) * 31u + step * 7919u);
+            let shift = vec2<f32>((band - 0.5) * 0.08 * sin(PI * t), 0.0);
+            let a2 = textureSampleLevel(t_a, s_lin, uv + shift, 0.0).rgb;
+            let b2 = textureSampleLevel(t_b, s_lin, uv - shift, 0.0).rgb;
+            c = select(a2, b2, r < t);
+            let split = sin(PI * t) * 0.006;
+            let rr = select(textureSampleLevel(t_a, s_lin, uv + vec2<f32>(split, 0.0), 0.0).r,
+                textureSampleLevel(t_b, s_lin, uv + vec2<f32>(split, 0.0), 0.0).r, r < t);
+            c = vec3<f32>(rr, c.g, c.b);
+        }
+        default: {}
+    }
+    var out: FinalOut;
+    out.output = vec4<f32>(c, 1.0);
+    out.display = vec4<f32>(to_srgb(c), 1.0);
+    return out;
+}

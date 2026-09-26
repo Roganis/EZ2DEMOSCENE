@@ -43,6 +43,9 @@ pub struct Project {
     /// When `Some` and `use_graph` is set, layers come from the node graph.
     pub graph: Option<Graph>,
     pub use_graph: bool,
+    /// Other scenes and the timeline playing them (inactive by default).
+    #[serde(skip_serializing_if = "is_default")]
+    pub sequence: crate::sequence::Sequence,
 }
 
 impl Default for Project {
@@ -60,6 +63,7 @@ impl Default for Project {
             music: Default::default(),
             graph: None,
             use_graph: false,
+            sequence: Default::default(),
         }
     }
 }

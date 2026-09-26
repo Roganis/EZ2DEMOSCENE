@@ -512,6 +512,88 @@ fn finish(
 }
 
 // ---------------------------------------------------------------------------
+// Song sections
+
+/// Split the song into sections where its sound changes (a drop, a
+/// breakdown, a new part), as lengths in bars from `start` seconds; bars
+/// are `4 × beat_seconds` long. Sections are at least `min_bars` long and
+/// the lengths add up to every whole bar left in the song.
+pub fn sections(env: &AudioEnvelope, beat_seconds: f32, start: f32, min_bars: u32) -> Vec<u32> {
+    let bar = beat_seconds.max(0.05) * 4.0;
+    let bars = ((env.duration - start) / bar).floor().max(0.0) as usize;
+    if bars < 2 {
+        return vec![bars.max(1) as u32];
+    }
+    // One feature vector per bar: average spectrum and loudness.
+    const SAMPLES: usize = 16;
+    let feature = |b: usize| {
+        let mut f = [0.0f32; SPECTRUM_BANDS + 1];
+        for k in 0..SAMPLES {
+            let t = start + (b as f32 + (k as f32 + 0.5) / SAMPLES as f32) * bar;
+            let s = env.spectrum_at(t);
+            for (x, v) in f.iter_mut().zip(s) {
+                *x += v / SAMPLES as f32;
+            }
+            f[SPECTRUM_BANDS] += env.value(Curve::Level, true, t) * 2.0 / SAMPLES as f32;
+        }
+        f
+    };
+    let feats: Vec<[f32; SPECTRUM_BANDS + 1]> = (0..bars).map(feature).collect();
+    // Novelty at each bar boundary: how different the bars before and
+    // after are.
+    let novelty: Vec<f32> = (0..=bars)
+        .map(|b| {
+            let w = 4.min(b).min(bars - b);
+            if w == 0 {
+                return 0.0;
+            }
+            let mean = |r: std::ops::Range<usize>| {
+                let mut m = [0.0f32; SPECTRUM_BANDS + 1];
+                for f in &feats[r.clone()] {
+                    for (a, v) in m.iter_mut().zip(f) {
+                        *a += v / r.len() as f32;
+                    }
+                }
+                m
+            };
+            let (a, c) = (mean(b - w..b), mean(b..b + w));
+            a.iter()
+                .zip(&c)
+                .map(|(x, y)| (x - y) * (x - y))
+                .sum::<f32>()
+                .sqrt()
+        })
+        .collect();
+    let inner = &novelty[1..bars];
+    let avg = inner.iter().sum::<f32>() / inner.len().max(1) as f32;
+    let sd =
+        (inner.iter().map(|v| (v - avg).powi(2)).sum::<f32>() / inner.len().max(1) as f32).sqrt();
+    let min_bars = min_bars.max(1) as usize;
+    let mut candidates: Vec<usize> = (1..bars)
+        .filter(|&b| novelty[b] >= novelty[b - 1] && novelty[b] >= novelty[b + 1])
+        .filter(|&b| novelty[b] > avg + 0.5 * sd && novelty[b] > 1e-3)
+        .collect();
+    candidates.sort_by(|a, b| novelty[*b].total_cmp(&novelty[*a]));
+    let mut cuts: Vec<usize> = Vec::new();
+    for b in candidates {
+        if b < min_bars || bars - b < min_bars {
+            continue;
+        }
+        if cuts.iter().all(|c| c.abs_diff(b) >= min_bars) {
+            cuts.push(b);
+        }
+    }
+    cuts.sort();
+    let mut out = Vec::new();
+    let mut last = 0;
+    for c in cuts.into_iter().chain(std::iter::once(bars)) {
+        out.push((c - last) as u32);
+        last = c;
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------
 // Live analysis (microphone)
 
 /// Real-time analysis of an incoming stream. Feed it samples, then read a
@@ -719,6 +801,53 @@ mod tests {
         // 440 Hz is an A (pitch class 9).
         let p = env.fast[Curve::Pitch as usize][300];
         assert!((p * 12.0 - 9.0).abs() < 0.01, "pitch {p}");
+    }
+
+    #[test]
+    fn finds_song_sections() {
+        // 40 bars at 120 BPM: quiet lows, loud highs from bar 12, lows again
+        // from bar 28.
+        let rate = 100.0;
+        let bar = 2.0;
+        let duration = 40.0 * bar;
+        let frames = (duration * rate) as usize + 1;
+        let mut env = AudioEnvelope {
+            rate,
+            duration,
+            ..Default::default()
+        };
+        let part = |t: f32| {
+            if t < 12.0 * bar || t >= 28.0 * bar {
+                0
+            } else {
+                1
+            }
+        };
+        env.spectrum = (0..frames)
+            .map(|i| {
+                let mut s = [0.0; SPECTRUM_BANDS];
+                let t = i as f32 / rate;
+                // A little movement within parts, so novelty isn't flat.
+                let wobble = 0.05 * (t * 3.0).sin();
+                if part(t) == 0 {
+                    s[1] = 0.8 + wobble;
+                    s[2] = 0.6;
+                } else {
+                    s[10] = 0.9 + wobble;
+                    s[12] = 0.7;
+                }
+                s
+            })
+            .collect();
+        for c in 0..CURVES {
+            env.fast[c] = vec![0.0; frames];
+            env.smooth[c] = (0..frames)
+                .map(|i| if part(i as f32 / rate) == 0 { 0.2 } else { 0.9 })
+                .collect();
+        }
+        let s = sections(&env, 0.5, 0.0, 4);
+        assert_eq!(s, vec![12, 16, 12], "{s:?}");
+        assert_eq!(s.iter().sum::<u32>(), 40);
     }
 
     #[test]

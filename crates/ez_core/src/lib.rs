@@ -21,6 +21,7 @@ pub mod presets;
 pub mod randomize;
 pub mod rng;
 pub mod scene;
+pub mod sequence;
 pub mod signal;
 pub mod store;
 pub mod terrain;

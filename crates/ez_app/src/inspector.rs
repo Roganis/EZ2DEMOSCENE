@@ -98,20 +98,28 @@ pub fn timing_ui(ui: &mut Ui, p: &mut Project) {
         &mut p.timing.bpm,
         40.0..=220.0,
     );
-    drag_u(
-        ui,
-        "Loop length",
-        "Length of the loop in beats",
-        &mut p.timing.loop_beats,
-        1..=256,
-    );
-    ui.horizontal(|ui| {
-        for b in [4, 8, 16, 32, 64] {
-            if ui.small_button(format!("{b} beats")).clicked() {
-                p.timing.loop_beats = b;
+    if p.sequence.is_active() {
+        // The timeline sets the loop; the scene has its own.
+        ui.label(format!(
+            "Loop = the timeline: {} beats. This scene loops every {} beats (Scenes & timeline).",
+            p.timing.loop_beats, p.sequence.scene_beats
+        ));
+    } else {
+        drag_u(
+            ui,
+            "Loop length",
+            "Length of the loop in beats",
+            &mut p.timing.loop_beats,
+            1..=256,
+        );
+        ui.horizontal(|ui| {
+            for b in [4, 8, 16, 32, 64] {
+                if ui.small_button(format!("{b} beats")).clicked() {
+                    p.timing.loop_beats = b;
+                }
             }
-        }
-    });
+        });
+    }
     ui.label(format!("= {:.2} seconds", p.timing.loop_seconds()));
 }
 
@@ -2758,4 +2766,221 @@ fn text_ui(ui: &mut Ui, t: &mut TextLayer, lref: LayerRef) {
             &mut t.face_camera,
         );
     });
+}
+
+/// Scenes and the timeline playing them. Returns true when another scene
+/// became the one being edited.
+pub fn sequence_ui(ui: &mut Ui, p: &mut Project, audio: Option<&AudioEnvelope>) -> bool {
+    use ez_core::sequence::{Clip, Transition, TransitionKind};
+    ui.heading("Scenes & timeline");
+    if !p.sequence.is_active() {
+        ui.label(
+            "Chain several scenes into one loop: each scene keeps its own layers, camera, \
+             light and effects, and the timeline plays them one after another with transitions.",
+        );
+        ui.add_space(6.0);
+        if ui
+            .button("🎬 Start a timeline")
+            .on_hover_text("This scene becomes the first clip; then add scenes and clips")
+            .clicked()
+        {
+            p.start_sequence();
+        }
+        return false;
+    }
+    let mut switched = false;
+    let seq_beats = p.sequence.total_beats();
+    ui.label(
+        RichText::new(format!(
+            "The loop is the whole timeline: {} beats ({:.1} s). Pick “This scene” or “🎬 Timeline” above the preview.",
+            seq_beats,
+            p.timing.loop_seconds()
+        ))
+        .weak(),
+    );
+    section(ui, "Scenes", true, |ui| {
+        ui.horizontal(|ui| {
+            ui.label("Editing");
+            ui.text_edit_singleline(&mut p.sequence.scene_name);
+        });
+        let mut beats = p.sequence.scene_beats;
+        if drag_u(
+            ui,
+            "Own loop",
+            "This scene's own loop inside its clips (beats)",
+            &mut beats,
+            1..=256,
+        ) {
+            p.sequence.scene_beats = beats;
+        }
+        ui.separator();
+        let mut edit = None;
+        let mut remove = None;
+        for s in &p.sequence.scenes {
+            ui.horizontal(|ui| {
+                ui.label(format!("{}  ·  {} beats", s.name, s.loop_beats));
+                if ui
+                    .small_button("✏ edit")
+                    .on_hover_text("Work on this scene")
+                    .clicked()
+                {
+                    edit = Some(s.id);
+                }
+                if ui
+                    .small_button("🗑")
+                    .on_hover_text("Delete the scene and its clips")
+                    .clicked()
+                {
+                    remove = Some(s.id);
+                }
+            });
+        }
+        if let Some(id) = edit {
+            switched = p.edit_scene(id);
+        }
+        if let Some(id) = remove {
+            p.remove_scene(id);
+        }
+        ui.horizontal(|ui| {
+            if ui.button("+ Empty scene").clicked() {
+                p.add_scene(false);
+            }
+            if ui.button("+ Copy of this scene").clicked() {
+                p.add_scene(true);
+            }
+        });
+    });
+    section(ui, "Timeline", true, |ui| {
+        let ids = p.sequence.scene_ids();
+        let names: Vec<String> = ids.iter().map(|id| p.sequence.scene_name(*id)).collect();
+        let n = p.sequence.clips.len();
+        let mut action = None;
+        let mut start = 0;
+        for (i, clip) in p.sequence.clips.iter_mut().enumerate() {
+            ui.push_id(("clip", i), |ui| {
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.strong(format!("{}.", i + 1));
+                    let name = ids
+                        .iter()
+                        .position(|id| *id == clip.scene)
+                        .map_or("?", |k| names[k].as_str());
+                    egui::ComboBox::from_id_salt("scene")
+                        .selected_text(name)
+                        .show_ui(ui, |ui| {
+                            for (id, name) in ids.iter().zip(&names) {
+                                ui.selectable_value(&mut clip.scene, *id, name);
+                            }
+                        });
+                    ui.add(
+                        egui::DragValue::new(&mut clip.beats)
+                            .range(1..=1024)
+                            .suffix(" beats"),
+                    );
+                    if i > 0 && ui.small_button("⬆").clicked() {
+                        action = Some(("up", i));
+                    }
+                    if i + 1 < n && ui.small_button("⬇").clicked() {
+                        action = Some(("down", i));
+                    }
+                    if n > 1 && ui.small_button("🗑").clicked() {
+                        action = Some(("delete", i));
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(format!("from beat {start}, comes in with")).weak());
+                    egui::ComboBox::from_id_salt("transition")
+                        .selected_text(clip.transition.kind.label())
+                        .show_ui(ui, |ui| {
+                            for k in TransitionKind::ALL {
+                                ui.selectable_value(&mut clip.transition.kind, k, k.label());
+                            }
+                        });
+                    if clip.transition.kind != TransitionKind::Cut {
+                        ui.add(
+                            egui::DragValue::new(&mut clip.transition.beats)
+                                .range(0.25..=64.0)
+                                .speed(0.05)
+                                .suffix(" beats"),
+                        );
+                    }
+                    if clip.transition.kind == TransitionKind::Wipe {
+                        ui.add(
+                            egui::DragValue::new(&mut clip.transition.angle)
+                                .range(-180.0..=180.0)
+                                .suffix("°"),
+                        );
+                    }
+                });
+                if clip.transition.kind == TransitionKind::CutOnKick {
+                    ui.label(
+                        RichText::new("Cuts on the first kick of the song in that window.")
+                            .weak()
+                            .small(),
+                    );
+                }
+            });
+            start += clip.beats;
+        }
+        match action {
+            Some(("up", i)) => p.sequence.clips.swap(i, i - 1),
+            Some(("down", i)) => p.sequence.clips.swap(i, i + 1),
+            Some(("delete", i)) => {
+                p.sequence.clips.remove(i);
+            }
+            _ => {}
+        }
+        ui.add_space(4.0);
+        if let Some(env) = audio {
+            if ui
+                .button("🎵 Clips from the song's sections")
+                .on_hover_text(
+                    "Split the song where its sound changes (drops, breakdowns…) and give each part a clip, \
+                     taking turns through your scenes. The loop becomes the whole song from its start.",
+                )
+                .clicked()
+            {
+                let lens = ez_core::analysis::sections(
+                    env,
+                    p.timing.beat_seconds(),
+                    p.music.offset,
+                    4,
+                );
+                let ids = p.sequence.scene_ids();
+                p.sequence.clips = lens
+                    .iter()
+                    .enumerate()
+                    .map(|(i, bars)| Clip {
+                        scene: ids[i % ids.len()],
+                        beats: bars * 4,
+                        transition: Transition::default(),
+                    })
+                    .collect();
+            }
+        }
+        if ui.button("+ Add clip").clicked() {
+            let scene = p
+                .sequence
+                .clips
+                .last()
+                .map_or(p.sequence.scene_id, |c| c.scene);
+            p.sequence.clips.push(Clip {
+                scene,
+                beats: p.sequence.scene_beats(scene),
+                transition: Transition::default(),
+            });
+        }
+        ui.separator();
+        if ui
+            .button("Stop the timeline")
+            .on_hover_text(
+                "Back to one looping scene (the one being edited); other scenes are kept",
+            )
+            .clicked()
+        {
+            p.stop_sequence();
+        }
+    });
+    p.sync_sequence_length();
+    switched
 }
