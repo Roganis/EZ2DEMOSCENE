@@ -2052,6 +2052,37 @@ pub struct PostStack {
     /// Blur what is nearer or further than the focus.
     #[serde(skip_serializing_if = "is_default")]
     pub dof: DepthOfField,
+    /// Trails: the previous frames linger, zooming, turning and changing
+    /// colour.
+    #[serde(skip_serializing_if = "is_default")]
+    pub feedback: Feedback,
+}
+
+/// Video feedback trails.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Feedback {
+    pub enabled: bool,
+    /// How long trails last (0 = none, 1 = very long).
+    pub length: Param,
+    /// Zoom per second (1 = none, above 1 trails fly outwards).
+    pub zoom: f32,
+    /// Turn per second, in degrees.
+    pub turn: f32,
+    /// Hue change per second, in turns.
+    pub hue: f32,
+}
+
+impl Default for Feedback {
+    fn default() -> Self {
+        Feedback {
+            enabled: false,
+            length: Param::new(0.6),
+            zoom: 1.2,
+            turn: 0.0,
+            hue: 0.0,
+        }
+    }
 }
 
 /// Camera-lens blur away from a focus distance.

@@ -346,12 +346,23 @@ its own blur reaches the centre so sharp fronts don't smear. Auto focus
 uses the camera's look-at point; focus and blur are animatable and
 music-linkable.
 
-### ☐ 7.3 Feedback trails (loop-exact)
+### ☑ 7.3 Feedback trails (loop-exact)
 A feedback post effect (zoom, rotate, fade, hue shift of the previous
 frame). Made exact by rendering one full loop as warm-up before the frames
 that are kept, from a fixed state, so the export and the scrubbed preview
 match and the loop closes (the feedback decays below visibility within a
 loop). The preview uses the running history.
+
+**Done.** `post.feedback` (length as a Param, zoom/turn/hue per second)
+runs after god rays: `fs_feedback` mixes the new frame with the zoomed,
+turned, hue-shifted history in two ping-pong textures. Per-second rates
+with fade = keep^(dt·30) keep it frame-rate independent; a jump (dt over
+half a second) resets the history, and drawing the same moment again (a
+paused preview while editing) redoes the last step from the same history
+instead of feeding the picture back into itself. Looped exports render
+the whole loop once as warm-up (not written) through both the CLI
+pipeline and the web `ExportJob`, so frame 0 carries trails and loop
+N+1 matches loop N exactly (tested: loop-to-loop difference 0).
 
 ---
 

@@ -810,6 +810,11 @@ yellow line with numbered points.</p>
   <tr><td>Depth of field</td><td>A camera lens blur: things nearer or further than the focus go soft, with round bokeh. <span class="ui">Auto
   focus</span> keeps the point the camera looks at sharp (or set a <span class="ui">Focus</span> distance); <span class="ui">Blur</span> sets how
   soft it gets. Both have <span class="ui">~</span> and 🎵, so the focus can pull or the blur can breathe on the kick.</td></tr>
+  <tr><td>Feedback trails</td><td>Each frame keeps a fading copy of the previous ones, so moving things leave echoes. <span class="ui">Trail length</span>
+  (with <span class="ui">~</span> and 🎵) sets how long they linger; <span class="ui">Zoom / second</span> makes the echoes fly out (above 1) or fall in,
+  <span class="ui">Turn / second</span> spins them and <span class="ui">Colour drift</span> changes their hue as they fade. The speeds are per second, so they
+  look the same at any frame rate. The preview builds trails as it plays and starts fresh after a jump; exports render one loop first
+  (not saved), so frame 0 already has its trails and the loop closes seamlessly.</td></tr>
   <tr><td>Heat haze</td><td>The picture shimmers as if seen through rising hot air: above hot, bright things (lava, fire, the sun), near
   the bottom of the picture (hot ground) or everywhere. <span class="ui">Rises / loop</span> sets its speed.</td></tr>
   <tr><td>Chromatic aberration</td><td>An RGB colour split towards the edges, like a cheap lens. Pulse it on the beat.</td></tr>

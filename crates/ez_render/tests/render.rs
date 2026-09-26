@@ -826,3 +826,74 @@ fn depth_of_field_blurs() {
     let b = r.render_image(&p, &at(1.0), &target);
     assert!(mean_abs_diff(a.as_raw(), b.as_raw()) < 0.6);
 }
+
+/// Feedback trails reach a steady state that repeats every loop, so an
+/// export that starts after one loop of warm-up closes seamlessly.
+#[test]
+fn feedback_trails_repeat_every_loop() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let target = r.create_target(160, 90);
+    let mut p = presets::orbiting_solid();
+    p.post.grade.grain = Param::new(0.0);
+    p.timing.loop_beats = 4; // 2 s
+    p.post.feedback = Feedback {
+        enabled: true,
+        length: Param::new(0.7),
+        zoom: 1.3,
+        turn: 20.0,
+        hue: 0.2,
+    };
+    let frames = 24;
+    let mut loops = Vec::new();
+    for _ in 0..3 {
+        let mut first = None;
+        for i in 0..frames {
+            let img = r.render_image(
+                &p,
+                &EvalCtx::new(&p.timing, i as f32 / frames as f32, None),
+                &target,
+            );
+            if i == 5 {
+                first = Some(img);
+            }
+        }
+        loops.push(first.unwrap());
+    }
+    // Drawing the same moment again (a paused preview) doesn't feed the
+    // picture back into itself.
+    let again = r.render_image(
+        &p,
+        &EvalCtx::new(&p.timing, 5.0 / frames as f32, None),
+        &target,
+    );
+    let again2 = r.render_image(
+        &p,
+        &EvalCtx::new(&p.timing, 5.0 / frames as f32, None),
+        &target,
+    );
+    assert!(
+        mean_abs_diff(again.as_raw(), again2.as_raw()) < 0.01,
+        "a paused frame keeps changing"
+    );
+    let steady = mean_abs_diff(loops[1].as_raw(), loops[2].as_raw());
+    let mut plain = p.clone();
+    plain.post.feedback.enabled = false;
+    let without = r.render_image(
+        &plain,
+        &EvalCtx::new(&p.timing, 5.0 / frames as f32, None),
+        &target,
+    );
+    let trails = mean_abs_diff(loops[2].as_raw(), without.as_raw());
+    loops[2].save(snapshot_dir().join("feedback.png")).unwrap();
+    eprintln!("feedback: loop-to-loop {steady:.3}, trails {trails:.2}");
+    assert!(steady < 0.6, "the trails don't settle into the loop");
+    assert!(trails > 1.0, "no visible trails");
+}

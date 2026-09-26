@@ -463,3 +463,36 @@ fn fs_compose(in: VOut) -> FinalOut {
     out.display = vec4<f32>(to_srgb(c), 1.0);
     return out;
 }
+
+// Feedback trails: the previous result (t_b), zoomed and turned around the
+// centre and faded, under the new picture (t_a).
+// P.v[0]: fade (0..1, this frame), zoom (this frame), turn (radians), hue (turns)
+// P.v[1]: aspect, start over (1 = no history)
+@fragment
+fn fs_feedback(in: VOut) -> @location(0) vec4<f32> {
+    let cur = textureSampleLevel(t_a, s_lin, in.uv, 0.0).rgb;
+    if (P.v[1].y > 0.5) {
+        return vec4<f32>(cur, 1.0);
+    }
+    let aspect = max(P.v[1].x, 0.01);
+    var p = (in.uv - 0.5) * vec2<f32>(aspect, 1.0) / max(P.v[0].y, 0.01);
+    let c = cos(-P.v[0].z);
+    let s = sin(-P.v[0].z);
+    p = vec2<f32>(c * p.x - s * p.y, s * p.x + c * p.y);
+    let q = p / vec2<f32>(aspect, 1.0) + 0.5;
+    var prev = textureSampleLevel(t_b, s_lin, q, 0.0).rgb * P.v[0].x;
+    // Outside the old picture there is nothing to trail.
+    let inside = step(0.0, q.x) * step(q.x, 1.0) * step(0.0, q.y) * step(q.y, 1.0);
+    prev = prev * inside;
+    if (P.v[0].w != 0.0) {
+        prev = hue_turn(prev, P.v[0].w);
+    }
+    return vec4<f32>(max(cur, prev), 1.0);
+}
+
+fn hue_turn(c: vec3<f32>, turns: f32) -> vec3<f32> {
+    let a = turns * TAU;
+    let k = vec3<f32>(0.57735);
+    let cosa = cos(a);
+    return c * cosa + cross(k, c) * sin(a) + k * dot(k, c) * (1.0 - cosa);
+}

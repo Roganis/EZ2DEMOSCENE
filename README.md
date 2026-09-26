@@ -85,7 +85,8 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   palette-reduced and dithered.
 - **Post FX.** Bloom, **god rays** (light shafts from the sun or the
   picture centre) with lens flare, **heat haze**, **depth of field**
-  (auto focus, round bokeh), kaleidoscope, mirror split, chromatic aberration,
+  (auto focus, round bokeh), **feedback trails** (zoom/turn/hue-drifting
+  echoes that still loop exactly), kaleidoscope, mirror split, chromatic aberration,
   pixelation, palette reduction with Bayer dithering (EGA, CGA, C64, Game
   Boy, PICO-8, Amiga copper, ZX Spectrum, VGA cube, phosphor), CRT
   scanlines/curvature/VHS wobble, grading, vignette, grain and beat flash.

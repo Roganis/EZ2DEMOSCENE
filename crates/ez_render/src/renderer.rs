@@ -42,6 +42,7 @@ const SLOT_BLOOM_UP: u32 = 8; // .. +BLOOM_LEVELS
 const SLOT_FINAL: u32 = 14;
 const SLOT_RAYS: u32 = 15;
 const SLOT_RAYS_ADD: u32 = 16;
+const SLOT_FEEDBACK: u32 = 17;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -275,6 +276,17 @@ struct ScenePipes {
     text: wgpu::RenderPipeline,
 }
 
+/// Where a target's feedback history is and what the last step was.
+#[derive(Clone, Copy)]
+struct FeedbackState {
+    /// History texture the last step read from, and the one it wrote.
+    read: usize,
+    write: usize,
+    phase: f32,
+    dt: f32,
+    fresh: bool,
+}
+
 pub struct Renderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -340,6 +352,9 @@ pub struct Renderer {
     instance_cache: HashMap<u64, (u64, Vec<InstanceRaw>)>,
     /// Scene transitions: the two pictures, and the mixing pass.
     seq_targets: Option<SeqTargets>,
+    feedback_pipe: wgpu::RenderPipeline,
+    /// Feedback history per target: (history to read next, last phase).
+    feedback: HashMap<u64, FeedbackState>,
     compose_pipe: wgpu::RenderPipeline,
     compose_buf: wgpu::Buffer,
     /// Font atlases by texture key.
@@ -398,6 +413,11 @@ pub struct RenderTarget {
     /// depth buffer.
     dof_dist: wgpu::TextureView,
     dof_z: wgpu::TextureView,
+    /// Feedback trails: the post image as a texture (to copy into), the
+    /// two history images and their bind groups (reading history `i`).
+    hdr2_tex: wgpu::Texture,
+    fb: [(wgpu::Texture, wgpu::TextureView); 2],
+    bg_fb: [wgpu::BindGroup; 2],
 }
 
 fn m4(m: Mat4) -> [[f32; 4]; 4] {
@@ -1173,6 +1193,7 @@ impl Renderer {
             mapped_at_creation: false,
         });
         let rays_pipe = post_pipe("god rays", "fs_rays", HDR_FORMAT, None);
+        let feedback_pipe = post_pipe("feedback", "fs_feedback", HDR_FORMAT, None);
         let rays_add_pipe = post_pipe("god rays add", "fs_rays_add", HDR_FORMAT, Some(ADDITIVE));
 
         let sampler = |addr, filter| {
@@ -1250,6 +1271,8 @@ impl Renderer {
             errors: HashMap::new(),
             instance_cache: HashMap::new(),
             seq_targets: None,
+            feedback_pipe,
+            feedback: HashMap::new(),
             compose_pipe,
             compose_buf,
             fonts: HashMap::new(),
@@ -3062,6 +3085,75 @@ impl Renderer {
                 true,
             );
         }
+        let fb = &project.post.feedback;
+        if fb.enabled {
+            let loop_s = project.timing.loop_seconds().max(0.01);
+            let state = self.feedback.get(&target.id).copied();
+            let next = match state {
+                // The same moment drawn again (a paused preview while
+                // editing): redo the last step from the same history
+                // instead of feeding the picture back into itself.
+                Some(st) if st.phase == ctx.phase => st,
+                Some(st) => {
+                    // Seconds since the last frame of this target: a jump
+                    // (a scrub, the first frame) starts over without history.
+                    let dt = (ctx.phase - st.phase).rem_euclid(1.0) * loop_s;
+                    FeedbackState {
+                        read: st.write,
+                        write: st.read,
+                        phase: ctx.phase,
+                        dt,
+                        fresh: dt > 0.5,
+                    }
+                }
+                None => FeedbackState {
+                    read: 0,
+                    write: 1,
+                    phase: ctx.phase,
+                    dt: 0.0,
+                    fresh: true,
+                },
+            };
+            let (dt, fresh, read, write) = (next.dt, next.fresh, next.read, next.write);
+            let keep = 0.5 + 0.49 * fb.length.eval(ctx).clamp(0.0, 1.0);
+            let mut params = [[0.0f32; 4]; (POST_SLOT / 16) as usize];
+            params[0] = [
+                keep.powf(dt * 30.0),
+                fb.zoom.max(0.01).powf(dt),
+                (fb.turn * dt).to_radians(),
+                fb.hue * dt,
+            ];
+            params[1] = [
+                target.width as f32 / target.height.max(1) as f32,
+                if fresh { 1.0 } else { 0.0 },
+                0.0,
+                0.0,
+            ];
+            self.queue.write_buffer(
+                &self.post_buf,
+                SLOT_FEEDBACK as u64 * POST_SLOT,
+                bytemuck::cast_slice(&params),
+            );
+            self.post_pass(
+                &mut enc,
+                "feedback",
+                &self.feedback_pipe,
+                &target.fb[write].1,
+                &target.bg_fb[read],
+                SLOT_FEEDBACK,
+                false,
+            );
+            enc.copy_texture_to_texture(
+                target.fb[write].0.as_image_copy(),
+                target.hdr2_tex.as_image_copy(),
+                wgpu::Extent3d {
+                    width: target.width,
+                    height: target.height,
+                    depth_or_array_layers: 1,
+                },
+            );
+            self.feedback.insert(target.id, next);
+        }
         if project.post.bloom.enabled {
             for i in 0..BLOOM_LEVELS {
                 self.post_pass(
@@ -3642,7 +3734,29 @@ impl Renderer {
             (self.msaa > 1).then(|| tex("msaa color", w, h, HDR_FORMAT, self.msaa, none));
         let depth = tex("depth", w, h, DEPTH_FORMAT, self.msaa, none);
         let hdr = tex("hdr", w, h, HDR_FORMAT, 1, sampled);
-        let hdr2 = tex("hdr2", w, h, HDR_FORMAT, 1, sampled);
+        let full_tex = |label: &str, extra: wgpu::TextureUsages| {
+            let t = dev.create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size: wgpu::Extent3d {
+                    width: w,
+                    height: h,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: HDR_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | sampled | extra,
+                view_formats: &[],
+            });
+            let v = t.create_view(&Default::default());
+            (t, v)
+        };
+        let (hdr2_tex, hdr2) = full_tex("hdr2", wgpu::TextureUsages::COPY_DST);
+        let fb = [
+            full_tex("feedback a", wgpu::TextureUsages::COPY_SRC),
+            full_tex("feedback b", wgpu::TextureUsages::COPY_SRC),
+        ];
         let mut bloom = Vec::new();
         let (mut bw, mut bh) = (w, h);
         for _ in 0..BLOOM_LEVELS {
@@ -3719,6 +3833,7 @@ impl Renderer {
         };
         let bg_blur_h = post_bg(&refl, &refl);
         let bg_blur_v = post_bg(&refl_tmp, &refl_tmp);
+        let bg_fb = [post_bg(&hdr2, &fb[0].1), post_bg(&hdr2, &fb[1].1)];
         let (dw, dh) = ((w / 2).max(1), (h / 2).max(1));
         let dof_dist = tex("dof distance", dw, dh, DOF_FORMAT, 1, sampled);
         let dof_z = tex("dof depth", dw, dh, DEPTH_FORMAT, 1, none);
@@ -3794,6 +3909,9 @@ impl Renderer {
             rays,
             dof_dist,
             dof_z,
+            hdr2_tex,
+            fb,
+            bg_fb,
         }
     }
 

@@ -513,6 +513,26 @@ pub fn export(
         export_ctx_at(project, audio, settings.fps, frames, looped, frame)
     };
     let blur = MotionBlur::new(settings.motion_blur, settings.shutter);
+    // Feedback trails need a loop of history before the first frame, so the
+    // file's end flows into its start.
+    let warmup = if looped && project.uses_feedback() {
+        frames
+    } else {
+        0
+    };
+    let ctx_of = |frame: f64| -> EvalCtx {
+        if frame < 0.0 {
+            return export_ctx_at(
+                project,
+                audio,
+                settings.fps,
+                frames,
+                looped,
+                frame + frames as f64,
+            );
+        }
+        ctx_of(frame)
+    };
 
     match settings.format {
         ExportFormat::PngSequence => {
@@ -536,6 +556,7 @@ pub fn export(
                 frames,
                 ctx_of,
                 blur,
+                warmup,
                 cancel,
                 |i, px| {
                     tx.send((i, px))
@@ -660,6 +681,7 @@ pub fn export(
                 to_render,
                 ctx_of,
                 blur,
+                warmup,
                 cancel,
                 |i, px| {
                     let px = Arc::new(px);
@@ -720,10 +742,15 @@ fn render_pipelined(
     count: u32,
     ctx_of: impl Fn(f64) -> EvalCtx,
     mut blur: MotionBlur,
+    warmup: u32,
     cancel: &AtomicBool,
     mut sink: impl FnMut(u32, Vec<u8>) -> Result<()>,
 ) -> Result<()> {
     const IN_FLIGHT: usize = 3;
+    // Warm-up frames (a whole loop before frame 0) only build history.
+    for i in 0..warmup {
+        renderer.render(project, &ctx_of(i as f64 - warmup as f64), target);
+    }
     let offsets: Vec<f64> = (0..blur.subframes()).map(|j| blur.offset(j)).collect();
     let mut pending = std::collections::VecDeque::with_capacity(IN_FLIGHT);
     let mut finish_one = |renderer: &Renderer,

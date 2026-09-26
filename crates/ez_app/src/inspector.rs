@@ -622,6 +622,41 @@ pub fn post_ui(ui: &mut Ui, post: &mut PostStack) {
             0.0..=3.0,
         );
     });
+    toggle_section(ui, "Feedback trails", &mut post.feedback.enabled, |ui| {
+        param(
+            ui,
+            "Trail length",
+            "How long the previous frames linger",
+            &mut post.feedback.length,
+            0.0..=1.0,
+        );
+        slider(
+            ui,
+            "Zoom / second",
+            "Above 1 the trails fly outwards, below 1 they fall inwards",
+            &mut post.feedback.zoom,
+            0.5..=2.0,
+        );
+        slider(
+            ui,
+            "Turn / second",
+            "Degrees the trails turn each second",
+            &mut post.feedback.turn,
+            -180.0..=180.0,
+        );
+        slider(
+            ui,
+            "Colour drift",
+            "Hue turns per second: trails change colour as they fade",
+            &mut post.feedback.hue,
+            -2.0..=2.0,
+        );
+        ui.label(
+            RichText::new("Exports render one loop first, so the trails are already there at the start and the loop closes.")
+                .weak()
+                .small(),
+        );
+    });
     toggle_section(ui, "Depth of field", &mut post.dof.enabled, |ui| {
         check(
             ui,

@@ -317,6 +317,12 @@ impl Project {
         }
     }
 
+    /// True when a scene uses feedback trails, whose history needs one loop
+    /// of warm-up before an export's first frame.
+    pub fn uses_feedback(&self) -> bool {
+        self.post.feedback.enabled || self.sequence.scenes.iter().any(|s| s.post.feedback.enabled)
+    }
+
     /// Keep the loop as long as the sequence.
     pub fn sync_sequence_length(&mut self) {
         if self.sequence.is_active() {

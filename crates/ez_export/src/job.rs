@@ -149,6 +149,8 @@ pub struct ExportJob {
     /// Motion blur (sub-frames per frame) and the sub-frame to render next.
     blur: crate::MotionBlur,
     sub: u32,
+    /// Feedback warm-up frames still to render (a loop before frame 0).
+    warmup: u32,
 }
 
 impl ExportJob {
@@ -166,6 +168,7 @@ impl ExportJob {
         sink: Box<dyn FrameSink>,
     ) -> ExportJob {
         let (frames, looped) = crate::export_frames(&project, audio.as_ref(), fps);
+        let project_uses_feedback = project.uses_feedback();
         let repeats = if looped { repeats } else { 1 };
         ExportJob {
             target: renderer.create_target(width.max(16) & !1, height.max(16) & !1),
@@ -181,6 +184,11 @@ impl ExportJob {
             done: 0,
             blur: crate::MotionBlur::new(1, 0.0),
             sub: 0,
+            warmup: if looped && project_uses_feedback {
+                frames
+            } else {
+                0
+            },
         }
     }
 
@@ -220,6 +228,20 @@ impl ExportJob {
                 sink.add_frame(&frame, w, h)?;
             }
             self.done += 1;
+        }
+        if self.warmup > 0 {
+            // A loop of warm-up (not kept) builds the feedback history.
+            let ctx = crate::export_ctx_at(
+                &self.project,
+                self.audio.as_ref(),
+                self.fps,
+                self.frames,
+                self.looped,
+                (self.frames - self.warmup) as f64,
+            );
+            renderer.render(&self.project, &ctx, &self.target);
+            self.warmup -= 1;
+            return Ok(JobState::Running(self.progress()));
         }
         if self.next < self.total && self.pending.len() < IN_FLIGHT {
             // Frame i sits at phase i / N: the last frame is not a copy of
@@ -368,5 +390,62 @@ mod tests {
             .sum::<f32>()
             / sharp[2].as_raw().len() as f32;
         assert!(diff > 0.5, "motion blur changed nothing ({diff})");
+    }
+
+    #[test]
+    fn feedback_export_starts_with_trails_and_closes_the_loop() {
+        let Ok(gpu) = Gpu::headless() else {
+            eprintln!("no GPU, skipping");
+            return;
+        };
+        let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+        let mut p = presets::orbiting_solid();
+        p.timing.bpm = 240.0;
+        p.timing.loop_beats = 2;
+        p.post.grade.grain = ez_core::Param::new(0.0);
+        p.post.feedback.enabled = true;
+        p.post.feedback.length = ez_core::Param::new(0.7);
+        p.post.feedback.zoom = 1.3;
+        let export = |p: &ez_core::Project, r: &mut Renderer| {
+            let mut job = ExportJob::new(
+                r,
+                p.clone(),
+                None,
+                64,
+                36,
+                12.0,
+                1,
+                Box::<PngZipSink>::default(),
+            );
+            let bytes = run(&mut job, r);
+            let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+            (0..zip.len())
+                .map(|i| {
+                    let mut f = zip.by_index(i).unwrap();
+                    let mut v = Vec::new();
+                    std::io::Read::read_to_end(&mut f, &mut v).unwrap();
+                    image::load_from_memory(&v).unwrap().to_rgba8()
+                })
+                .collect::<Vec<_>>()
+        };
+        let diff = |a: &image::RgbaImage, b: &image::RgbaImage| {
+            a.as_raw()
+                .iter()
+                .zip(b.as_raw())
+                .map(|(a, b)| (*a as i32 - *b as i32).unsigned_abs() as f32)
+                .sum::<f32>()
+                / a.as_raw().len() as f32
+        };
+        let first = export(&p, &mut r);
+        // A second export from a renderer with other history gives the
+        // same frames: the warm-up starts from a fixed state.
+        let second = export(&p, &mut r);
+        assert_eq!(first.len(), 6);
+        assert!(diff(&first[0], &second[0]) < 0.01);
+        let mut plain = p.clone();
+        plain.post.feedback.enabled = false;
+        let without = export(&plain, &mut r);
+        // Frame 0 already has trails (it follows the warm-up loop).
+        assert!(diff(&first[0], &without[0]) > 1.0, "no trails on frame 0");
     }
 }
