@@ -10,6 +10,8 @@
 // D.v[8]: relief strength, displacement, relief mode (0 bump, 1 normal map), has relief
 // D.v[9]: deform: twist (turns bottom to top), bend (radians), taper, wobble
 // D.v[10]: deform: wobble scale, wobble angle (loop-safe), explode, reach (0 = no deform)
+// D.v[11..14]: colour ramp colours (rgb); D.v[11].w colour count, D.v[12].w glow strength
+// D.v[15]: ramp on, mode (0 gradient, 1 steps), shift along the copies (0..1), colour the glow
 
 @group(2) @binding(0) var t_tex: texture_2d<f32>;
 @group(2) @binding(1) var s_tex: sampler;
@@ -175,11 +177,34 @@ fn vs_main(in: VIn) -> VOut {
     return out;
 }
 
+// Colour of the ramp at t (0..1, wrapping back to the first colour).
+fn ramp_color(t_in: f32) -> vec3<f32> {
+    let n = max(i32(D.v[11].w + 0.5), 1);
+    let t = fract(t_in);
+    if (D.v[15].y > 0.5) {
+        let k = min(i32(floor(t * f32(n))), n - 1);
+        return D.v[11 + k].rgb;
+    }
+    let x = t * f32(n);
+    let k = min(i32(floor(x)), n - 1);
+    let a = D.v[11 + k].rgb;
+    let b = D.v[11 + (k + 1) % n].rgb;
+    let f = fract(x);
+    return mix(a, b, f * f * (3.0 - 2.0 * f));
+}
+
 @fragment
 fn fs_main(in: VOut) -> @location(0) vec4<f32> {
-    let base_in = D.v[0].rgb;
+    var base_in = D.v[0].rgb;
     var metallic = D.v[0].w;
-    let emissive_in = D.v[1].rgb;
+    var emissive_in = D.v[1].rgb;
+    if (D.v[15].x > 0.5) {
+        let rc = ramp_color(in.inst.w + D.v[15].z);
+        base_in = rc;
+        if (D.v[15].w > 0.5) {
+            emissive_in = rc * D.v[12].w;
+        }
+    }
     var rough = clamp(D.v[1].w, 0.02, 1.0);
     let mode = i32(D.v[2].x + 0.5);
     let has_tex = D.v[2].y > 0.5;

@@ -943,6 +943,10 @@ fn mesh_ui(ui: &mut Ui, m: &mut MeshLayer, textures: &[UserTexture], lref: Layer
         section(ui, "Variation", false, |ui| {
             variation_ui(ui, &mut m.variation)
         });
+        let mut on = m.ramp.enabled;
+        let ramp = &mut m.ramp;
+        toggle_section(ui, "Colours across copies", &mut on, |ui| ramp_ui(ui, ramp));
+        m.ramp.enabled = on;
     }
 }
 
@@ -2196,5 +2200,48 @@ pub fn deform_ui(ui: &mut Ui, d: &mut Deform) {
         "Faces fly apart (clearest with flat shading); try ~ with a beat fade",
         &mut d.explode,
         0.0..=2.0,
+    );
+}
+
+pub fn ramp_ui(ui: &mut Ui, r: &mut ColorRamp) {
+    combo(
+        ui,
+        "Blend",
+        "Gradient blends smoothly; Steps gives each copy one colour in turn",
+        &mut r.mode,
+        &[RampMode::Gradient, RampMode::Steps],
+        |m| match m {
+            RampMode::Gradient => "Gradient",
+            RampMode::Steps => "Steps",
+        },
+    );
+    let mut remove = None;
+    let n = r.colors.len();
+    for (i, c) in r.colors.iter_mut().enumerate() {
+        ui.horizontal(|ui| {
+            color(ui, &format!("Colour {}", i + 1), "", c);
+            if n > 2 && ui.small_button("✕").clicked() {
+                remove = Some(i);
+            }
+        });
+    }
+    if let Some(i) = remove {
+        r.colors.remove(i);
+    }
+    if r.colors.len() < 4 && ui.small_button("+ colour").clicked() {
+        r.colors.push(r.colors.last().copied().unwrap_or([1.0; 3]));
+    }
+    drag_i(
+        ui,
+        "Travel / loop",
+        "Times the colours run along all the copies per loop (0 = still)",
+        &mut r.cycles,
+        -16..=16,
+    );
+    check(
+        ui,
+        "Colour the glow",
+        "Glowing copies glow in their colour",
+        &mut r.glow,
     );
 }

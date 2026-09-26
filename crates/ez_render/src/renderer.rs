@@ -1672,7 +1672,7 @@ impl Renderer {
                     let first = instances.len() as u32;
                     let to_raw = |i: &Instance| InstanceRaw {
                         model: m4(i.model),
-                        inst: [i.hue, i.glow, i.rand, 0.0],
+                        inst: [i.hue, i.glow, i.rand, i.along],
                     };
                     let count = if instances_are_static(layer, m) {
                         let key = layer_hash(layer);
@@ -1741,6 +1741,25 @@ impl Renderer {
                             0.0
                         },
                     ];
+                    let ramp = &m.ramp;
+                    if ramp.enabled && !ramp.colors.is_empty() {
+                        let n = ramp.colors.len().min(4);
+                        for k in 0..4 {
+                            let c = ramp.colors[k.min(n - 1)];
+                            blk[11 + k] = c4(c, 0.0);
+                        }
+                        blk[11][3] = n as f32;
+                        blk[12][3] = e;
+                        blk[15] = [
+                            1.0,
+                            match ramp.mode {
+                                RampMode::Gradient => 0.0,
+                                RampMode::Steps => 1.0,
+                            },
+                            (ctx.phase * ramp.cycles as f32).rem_euclid(1.0),
+                            if ramp.glow { 1.0 } else { 0.0 },
+                        ];
+                    }
                     let df = &m.deform;
                     if df.is_active() {
                         blk[9] = [

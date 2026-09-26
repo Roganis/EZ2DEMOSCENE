@@ -152,6 +152,8 @@ pub struct Instance {
     pub glow: f32,
     /// Stable random value (0..1) for shader variation.
     pub rand: f32,
+    /// Position among the copies (0 for the first, towards 1 for the last).
+    pub along: f32,
 }
 
 /// Local placement of each instance inside the layer.
@@ -371,6 +373,7 @@ pub fn mesh_instances(layer: &Layer, mesh: &MeshLayer, ctx: &EvalCtx, out: &mut 
                 hue,
                 glow: glow.max(0.0),
                 rand: r(11),
+                along: frac,
             });
         }
     }

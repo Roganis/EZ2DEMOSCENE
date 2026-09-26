@@ -486,3 +486,43 @@ fn deformed_shapes_loop() {
     assert!(seam < 0.6);
     assert!(change > 1.0, "deform barely visible");
 }
+
+/// Colours across copies: visible, and cycling keeps the loop seamless.
+#[test]
+fn color_ramp_across_copies_loops() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
+    let target = r.create_target(320, 180);
+    let plain = presets::orbiting_solid();
+    let mut p = plain.clone();
+    for l in &mut p.layers {
+        if let LayerKind::Mesh(m) = &mut l.kind {
+            if l.name == "Debris swarm" {
+                m.material.emissive = Param::new(1.5);
+                m.ramp = ColorRamp {
+                    enabled: true,
+                    colors: vec![[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.2, 1.0]],
+                    cycles: 2,
+                    ..Default::default()
+                };
+            }
+        }
+    }
+    let at = |phase: f32| EvalCtx::new(&p.timing, phase, None);
+    let a = r.render_image(&p, &at(0.0), &target);
+    let b = r.render_image(&p, &at(1.0), &target);
+    let reference = r.render_image(&plain, &at(0.0), &target);
+    a.save(snapshot_dir().join("ramp.png")).unwrap();
+    let seam = mean_abs_diff(a.as_raw(), b.as_raw());
+    let change = mean_abs_diff(a.as_raw(), reference.as_raw());
+    eprintln!("ramp seam {seam:.3} vs plain {change:.2}");
+    assert!(seam < 0.6);
+    assert!(change > 1.0, "ramp barely visible");
+}

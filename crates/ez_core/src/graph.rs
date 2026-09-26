@@ -74,6 +74,8 @@ pub enum NodeKind {
     /// Sets the deformation (twist, bend, taper, wobble, explode) of every
     /// incoming shape layer.
     Deform { deform: Deform },
+    /// Spreads colours across the copies of every incoming shape layer.
+    Colors { ramp: ColorRamp },
     /// Makes or shapes a signal.
     Signal { sig: SignalNode },
     /// Sets one setting of every incoming layer from a signal.
@@ -103,6 +105,7 @@ impl NodeKind {
             NodeKind::Strobe { .. } => "Strobe".into(),
             NodeKind::Material { .. } => "Colour / material".into(),
             NodeKind::Deform { .. } => "Deform".into(),
+            NodeKind::Colors { .. } => "Colours across copies".into(),
             NodeKind::Signal { sig } => sig.title().into(),
             NodeKind::Drive { path, .. } if path.is_empty() => "Drive".into(),
             NodeKind::Drive { path, .. } => format!("Drive {path}"),
@@ -196,6 +199,12 @@ impl NodeKind {
                     ..Default::default()
                 },
             },
+            NodeKind::Colors {
+                ramp: ColorRamp {
+                    enabled: true,
+                    ..Default::default()
+                },
+            },
             NodeKind::Drive {
                 path: String::new(),
                 mode: DriveMode::Replace,
@@ -208,6 +217,15 @@ impl NodeKind {
         match self {
             NodeKind::Source { layer } => vec![layer.clone()],
             NodeKind::Signal { .. } => Vec::new(),
+            NodeKind::Colors { ramp } => input
+                .into_iter()
+                .map(|mut l| {
+                    if let LayerKind::Mesh(m) = &mut l.kind {
+                        m.ramp = ramp.clone();
+                    }
+                    l
+                })
+                .collect(),
             NodeKind::Deform { deform } => input
                 .into_iter()
                 .map(|mut l| {

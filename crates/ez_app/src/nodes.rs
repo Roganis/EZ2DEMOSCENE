@@ -391,6 +391,12 @@ impl SnarlViewer<NodeKind> for Viewer<'_> {
                 NodeKind::Signal { sig } => {
                     ui.push_id(("signal", node.0), |ui| signal_ui(ui, sig));
                 }
+                NodeKind::Colors { ramp } => {
+                    ui.push_id(("ramp", node.0), |ui| {
+                        ui.checkbox(&mut ramp.enabled, "on");
+                        crate::inspector::ramp_ui(ui, ramp)
+                    });
+                }
                 NodeKind::Deform { deform } => {
                     ui.push_id(("deform", node.0), |ui| {
                         crate::inspector::deform_ui(ui, deform)

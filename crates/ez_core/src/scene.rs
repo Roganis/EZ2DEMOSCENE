@@ -748,6 +748,9 @@ pub struct MeshLayer {
     /// Twist, bend, taper, wobble and explode the shape.
     #[serde(skip_serializing_if = "is_default")]
     pub deform: Deform,
+    /// Colours spread across the copies (and cycling through them).
+    #[serde(skip_serializing_if = "is_default")]
+    pub ramp: ColorRamp,
 }
 
 impl Default for MeshLayer {
@@ -759,6 +762,44 @@ impl Default for MeshLayer {
             variation: Variation::default(),
             subdivide: 0,
             deform: Deform::default(),
+            ramp: ColorRamp::default(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum RampMode {
+    /// Smooth blend from colour to colour (back to the first at the end).
+    #[default]
+    Gradient,
+    /// Each copy takes one of the colours, in turn.
+    Steps,
+}
+
+/// Colours across the copies of a shape: copy 0 at the start of the ramp,
+/// the last copy near its end. It can cycle along the copies a whole
+/// number of times per loop.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ColorRamp {
+    pub enabled: bool,
+    /// 2 to 4 colours.
+    pub colors: Vec<Rgb>,
+    pub mode: RampMode,
+    /// Times the colours travel along all the copies per loop.
+    pub cycles: i32,
+    /// Also colour the glow (keeping its strength).
+    pub glow: bool,
+}
+
+impl Default for ColorRamp {
+    fn default() -> Self {
+        ColorRamp {
+            enabled: false,
+            colors: vec![hex(0xff2bd6), hex(0x00e5ff), hex(0xffd000)],
+            mode: RampMode::Gradient,
+            cycles: 1,
+            glow: true,
         }
     }
 }
