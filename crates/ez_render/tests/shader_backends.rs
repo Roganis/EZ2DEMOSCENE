@@ -33,7 +33,27 @@ fn modules() -> Vec<(&'static str, String)> {
         ),
         (
             "lasers",
-            with_common(include_str!("../src/shaders/lasers.wgsl")),
+            with_common(&format!(
+                "{}\n{}",
+                include_str!("../src/shaders/beams.wgsl"),
+                include_str!("../src/shaders/lasers.wgsl")
+            )),
+        ),
+        (
+            "spots",
+            with_common(&format!(
+                "{}\n{}",
+                include_str!("../src/shaders/beams.wgsl"),
+                include_str!("../src/shaders/spots.wgsl")
+            )),
+        ),
+        (
+            "sky fx",
+            with_common(include_str!("../src/shaders/skyfx.wgsl")),
+        ),
+        (
+            "falls",
+            with_common(include_str!("../src/shaders/falls.wgsl")),
         ),
         (
             "weather",

@@ -166,6 +166,10 @@ pickers and menus. When you like it, you export an MP4, WebM, GIF or a folder of
   <div class="card"><img src="img/p_sunbeam_peaks.jpg"><div class="t">Sunbeam Peaks</div><div class="d">Volumetric clouds, god rays, lens flare.</div></div>
   <div class="card"><img src="img/p_aurora_tundra.jpg"><div class="t">Aurora Tundra</div><div class="d">Northern lights, frozen lake, snow.</div></div>
   <div class="card"><img src="img/p_dune_sea.jpg"><div class="t">Dune Sea</div><div class="d">Sand dunes, sandstorm, a toxic oasis.</div></div>
+  <div class="card"><img src="img/p_club_spotlights.jpg"><div class="t">Club Spotlights</div><div class="d">Spotlight cones, light pools, mist.</div></div>
+  <div class="card"><img src="img/p_rainbow_falls.jpg"><div class="t">Rainbow Falls</div><div class="d">Day and night, a rainbow, a waterfall.</div></div>
+  <div class="card"><img src="img/p_sunken_temple.jpg"><div class="t">Sunken Temple</div><div class="d">Underwater caustics and bubbles.</div></div>
+  <div class="card"><img src="img/p_twister.jpg"><div class="t">Twister</div><div class="d">A tornado over wet, stormy plains.</div></div>
 </div>
 
 <h2>The one big idea: everything loops</h2>
@@ -413,7 +417,11 @@ speakers and light panels are each built once and mirrored.</div>
   <tr><td>Warp stars</td><td>Streams towards the viewer (hyperspace). Add a <span class="ui">Trail</span> for streaks.</td></tr>
   <tr><td>Vortex</td><td>Spirals upwards like embers.</td></tr>
   <tr><td>Snow / glitter</td><td>Falls slowly and sparkles.</td></tr>
+  <tr><td>Tornado</td><td>Spirals up a swaying funnel that widens with height, with debris circling its foot. Use it with
+  <span class="ui">Smoke</span> for a dark twister, or bright blue for a water spout.</td></tr>
 </table>
+<p><span class="ui">Smoke</span> makes particles cover what is behind them instead of adding light, so they can be dark (smoke,
+dust, a tornado). <span class="ui">Brightness</span> then becomes <span class="ui">Opacity</span>.</p>
 <p><span class="ui">Count</span> is the number of particles. <span class="ui">Lives / loop</span> is how many times each particle is
 reborn in one loop, so higher means faster. <span class="ui">Area</span> is the size of the emitter.
 The look is controlled by <span class="ui">Sprite</span> (soft glow, pixel square, star, ring), <span class="ui">Size</span>, two colours
@@ -461,6 +469,9 @@ and use <span class="ui">Mirror X</span> symmetry for a pair of laser rigs.</p>
   <tr><td>Colour (first/last)</td><td>The beams blend from the first colour to the last.</td></tr>
   <tr><td>Sweep, Sweeps / loop</td><td>How far the beams swing, and how often per loop (for the cone, also how fast it turns).</td></tr>
   <tr><td>Beat strobe</td><td>Makes the beams flash on every beat and fade until the next one.</td></tr>
+  <tr><td>Style</td><td><b>Laser beams</b> or <b>Spotlight cones</b>: wide, hazy cones of light, brightest where you look through the
+  most haze. Set their <span class="ui">Cone angle</span>, and tick <span class="ui">Light pools</span> for bright spots where the cones hit the
+  ground (height 0). Point the layer down (Rotation x 180) to hang the lamps from a ceiling. Add some <b>Mist</b> for a club look.</td></tr>
 </table>
 <h2>5.8 Neon ribbon</h2>
 <p>A glowing tube along a closed curve, with pulses of light running along it. Choose a <span class="ui">Curve</span>
@@ -480,13 +491,28 @@ camera, so the weather is everywhere you look. Its <span class="ui">Ground heigh
   <tr><td>Falls / loop</td><td>How many times each drop falls per loop: higher is faster. It is a whole number, so the weather loops.</td></tr>
   <tr><td>Wind, Wind direction</td><td>Slants the rain and snow. Animate Wind with a Sine for gusts.</td></tr>
   <tr><td>Area, Height</td><td>The size of the box around the camera.</td></tr>
+  <tr><td>Wet ground / Snow cover</td><td>Rain makes every surface darker and glossier, with puddles on flat ground that mirror the sky and
+  ripple with rain rings. Snow settles on everything facing up. A snow cover can't really build up over a loop (it would have to jump back
+  at the end), but you can animate it, for example with a <b>Swell</b> so it builds up and melts away.</td></tr>
   <tr><td>Lightning</td><td>Jagged bolts that strike in front of the camera and a flash that lights up the whole scene, clouds included.
   <span class="ui">Chances / loop</span> and <span class="ui">Chance</span> decide how often; each strike flickers two or three times.</td></tr>
 </table>
 <div class="tip"><b>Performance</b>Weather drops cost about as much as particles. Volumetric clouds are the heavy part of a storm scene:
 lower their <span class="ui">Quality</span> on phones.</div>
 
-<div class="keep"><h2>5.10 Placing objects in the viewport</h2>
+<h2>5.10 Waterfall</h2>
+<p><span class="ui">+ Add → 🌊 Waterfall</span> adds a curtain of <b>water</b>, <b>lava</b> or <b>toxic goo</b> that pours from the layer's
+position downwards and arcs out along its Z axis, with streaks running down it and foam, spray or smoke at its foot. Place it on the
+edge of a cliff: a terrain mesa, a shape or a wall of boulders (see the Rainbow Falls preset).</p>
+<table>
+  <tr><th style="width:24%">Setting</th><th>Meaning</th></tr>
+  <tr><td>Width, Height, Arc</td><td>The size of the curtain and how far it arcs out from the edge.</td></tr>
+  <tr><td>Flow / loop</td><td>How many times the streaks run down per loop (a whole number, so it loops).</td></tr>
+  <tr><td>Brightness / Glow</td><td>Water brightness, or the glow of lava and goo.</td></tr>
+  <tr><td>Foam &amp; mist / Smoke</td><td>Puffs at the foot (0 = none).</td></tr>
+</table>
+
+<div class="keep"><h2>5.11 Placing objects in the viewport</h2>
 <figure><img src="img/gizmo.jpg"><figcaption>The Dodecahedron is selected: the Move handles appear on it, and the ground grid is on.</figcaption></figure></div>
 <ul>
   <li><b>Select</b> a shape or particle layer by clicking it in the viewport, or in the layer list.</li>
@@ -683,6 +709,16 @@ so two layers can blink in turn.</p>
   <li><span class="ui">Sky light</span> / <span class="ui">Ground light</span> / <span class="ui">Ambient</span>: soft light from above and below.
   The sky colour is also what glossy surfaces reflect, which gives black gloss its highlights.</li>
   <li><span class="ui">Sun colour</span>, <span class="ui">Sun strength</span>, <span class="ui">Sun direction</span>: the main light.</li>
+  <li><span class="ui">Mist (height fog)</span>: fog that is thick near the ground and thins out higher up, so it pools in valleys
+  and over water. <span class="ui">Base height</span> is where it is densest, <span class="ui">Thickness</span> how high it reaches.
+  It also hides the horizon of the background.</li>
+  <li><span class="ui">Underwater caustics</span>: the rippling web of light you see at the bottom of a pool, on every surface.
+  <span class="ui">Only below</span> limits it to things under a water line.</li>
+  <li><span class="ui">Rainbow</span>: a rainbow (with a faint second bow) opposite the sun. Like a real one, it needs the sun fairly
+  low: with the sun high above, the bow sinks below the horizon.</li>
+  <li><span class="ui">Day &amp; night cycle</span>: the sun rises, crosses the sky and sets a whole number of times per loop. The light,
+  fog and sky turn warm at sunrise and sunset; at night the sky darkens, stars come out, the moon rises opposite the sun and moonlight takes
+  over. <span class="ui">Sun direction</span> sets where the sun is at noon. Clouds, god rays and reflections all follow the sun.</li>
 </ul>
 
 <!-- ===================================================== 9 -->
@@ -697,6 +733,8 @@ so two layers can blink in turn.</p>
   <tr><td>God rays &amp; lens flare</td><td>Shafts of light streaming from the sun (or from the picture centre, for "light at the end of the tunnel").
   Bright sky near the light is smeared towards it, so clouds, mountains and shapes in front cast streaks of shadow. Length, Threshold and
   Tint shape the rays; <span class="ui">Lens flare</span> adds ghosts and a streak when you look into the light, and fades when the sun is hidden.</td></tr>
+  <tr><td>Heat haze</td><td>The picture shimmers as if seen through rising hot air: above hot, bright things (lava, fire, the sun), near
+  the bottom of the picture (hot ground) or everywhere. <span class="ui">Rises / loop</span> sets its speed.</td></tr>
   <tr><td>Chromatic aberration</td><td>An RGB colour split towards the edges, like a cheap lens. Pulse it on the beat.</td></tr>
   <tr><td>Pixelate</td><td>Fat pixels (the size is measured at 1080p, so previews match exports).</td></tr>
   <tr><td>Retro palette</td><td>Reduces the image to a classic computer palette with ordered (Bayer) dithering.</td></tr>
@@ -988,6 +1026,14 @@ the app goes back to <b>Automatic</b> by itself.</p>
   Give the lava Glow a slow Sine.</li>
   <li>Add <b>Weather → Rising embers</b> with a strong Brightness so they bloom.</li>
   <li>Post: <b>God rays</b> with a warm tint, and Bloom.</li>
+</ol>
+
+<h2>Sunken temple (underwater)</h2>
+<ol>
+  <li>Background <b>Gradient sky</b> from light blue (top) to deep blue. Fog colour deep blue, Fog density 0.04.</li>
+  <li>Turn on <b>Underwater caustics</b> (Amount 1.6, pale blue).</li>
+  <li>Add a <b>Mirror floor</b> with Reflection 0.05 and a sandy colour, pillars (Cylinder, Radial copies) and a glowing gem.</li>
+  <li>Add <b>Fountain</b> particles with the Ring sprite as bubbles, and <b>God rays</b> with a low threshold.</li>
 </ol>
 
 <!-- ===================================================== 15 -->

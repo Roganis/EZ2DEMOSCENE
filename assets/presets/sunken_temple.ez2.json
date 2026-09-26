@@ -1,0 +1,467 @@
+{
+  "version": 2,
+  "name": "Sunken Temple",
+  "timing": {
+    "bpm": 84.0,
+    "loop_beats": 16
+  },
+  "camera": {
+    "mode": "Orbit",
+    "target": [
+      0.0,
+      2.0,
+      0.0
+    ],
+    "distance": 13.0,
+    "height": 2.0,
+    "angle": 0.0,
+    "orbit_turns": 1,
+    "swing": 30.0,
+    "fov": 60.0,
+    "roll": 0.0,
+    "beat_shake": 0.0
+  },
+  "environment": {
+    "fog_color": [
+      0.000910581,
+      0.019382361,
+      0.04231141
+    ],
+    "fog_density": 0.04,
+    "sky_color": [
+      0.014443844,
+      0.21586053,
+      0.4341537
+    ],
+    "ground_color": [
+      0.001821162,
+      0.014443844,
+      0.023153365
+    ],
+    "light_dir": [
+      0.2,
+      1.0,
+      0.1
+    ],
+    "light_color": [
+      0.3515327,
+      0.74540436,
+      1.0
+    ],
+    "light_intensity": 1.2,
+    "ambient": 0.5,
+    "caustics": {
+      "amount": 1.6,
+      "scale": 1.2,
+      "speed": 2,
+      "color": [
+        0.27889434,
+        0.74540436,
+        1.0
+      ],
+      "below": 100.0
+    }
+  },
+  "layers": [
+    {
+      "name": "Sky",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Backdrop",
+        "kind": "Gradient",
+        "color_a": [
+          0.023153365,
+          0.27889434,
+          0.5271152
+        ],
+        "color_b": [
+          0.000607054,
+          0.008023192,
+          0.017641952
+        ],
+        "color_c": [
+          0.11697067,
+          0.5271152,
+          0.74540436
+        ],
+        "speed": 1,
+        "intensity": 1.0,
+        "detail": 1.0,
+        "texture": null
+      }
+    },
+    {
+      "name": "Sea floor",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mirror",
+        "size": 60.0,
+        "base_color": [
+          0.051269468,
+          0.09758736,
+          0.06480328
+        ],
+        "reflectivity": 0.05,
+        "blur": 0.2,
+        "tint": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "texture": "tech_panel",
+        "texture_scale": 0.5,
+        "grid": 0.0,
+        "grid_color": [
+          1.0,
+          0.014443844,
+          0.051269468
+        ],
+        "grid_scale": 1.0,
+        "grid_scroll": 0
+      }
+    },
+    {
+      "name": "Pillars",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          2.5,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          0.6,
+          5.0,
+          0.6
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Cylinder",
+          "segments": 12
+        },
+        "material": {
+          "base_color": [
+            0.25415218,
+            0.32314324,
+            0.27889434
+          ],
+          "metallic": 0.2,
+          "roughness": 0.8,
+          "emissive_color": [
+            1.0,
+            0.029556833,
+            0.014443844
+          ],
+          "emissive": 0.0,
+          "emissive_mode": "Full",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": true,
+          "rim": 0.3,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Radial",
+          "count": 8,
+          "radius": 6.0
+        },
+        "variation": {
+          "seed": 3,
+          "rotation": 6.0,
+          "scale": 0.3,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    },
+    {
+      "name": "Idol",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          1.6,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.3,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          1,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Gem",
+          "facets": 8
+        },
+        "material": {
+          "base_color": [
+            0.029556833,
+            0.014443844,
+            0.005181517
+          ],
+          "metallic": 0.9,
+          "roughness": 0.25,
+          "emissive_color": [
+            1.0,
+            0.5271152,
+            0.051269468
+          ],
+          "emissive": {
+            "base": 1.2,
+            "amp": 0.6,
+            "wave": "Sine",
+            "cycles": 4,
+            "offset": 0.0,
+            "audio": 0.0
+          },
+          "emissive_mode": "Edges",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": true,
+          "rim": 0.3,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Single"
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    },
+    {
+      "name": "Bubbles",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Particles",
+        "emitter": "Fountain",
+        "count": 300,
+        "lifetimes": 2,
+        "size": 0.06,
+        "speed": 1.0,
+        "radius": 4.0,
+        "color_a": [
+          0.5271152,
+          0.8713672,
+          1.0
+        ],
+        "color_b": [
+          0.11697067,
+          0.3515327,
+          0.5271152
+        ],
+        "intensity": 0.8,
+        "trail": 0,
+        "trail_spacing": 0.01,
+        "sprite": "Ring",
+        "seed": 1
+      }
+    }
+  ],
+  "post": {
+    "bloom": {
+      "enabled": true,
+      "intensity": 0.8,
+      "threshold": 0.8,
+      "radius": 0.8
+    },
+    "kaleido": {
+      "enabled": false,
+      "segments": 6,
+      "angle": 0.0,
+      "turns": 0,
+      "zoom": 1.0,
+      "center": [
+        0.5,
+        0.5
+      ]
+    },
+    "mirror": {
+      "enabled": false,
+      "mode": "LeftToRight"
+    },
+    "chroma": {
+      "enabled": false,
+      "amount": 0.004
+    },
+    "pixelate": {
+      "enabled": false,
+      "size": 4.0
+    },
+    "palette": {
+      "enabled": false,
+      "palette": "Ega",
+      "dither": 0.6
+    },
+    "crt": {
+      "enabled": false,
+      "scanlines": 0.5,
+      "curvature": 0.15,
+      "noise": 0.1
+    },
+    "grade": {
+      "exposure": 1.0,
+      "contrast": 1.05,
+      "saturation": 1.1,
+      "vignette": 0.35,
+      "grain": 0.03,
+      "beat_flash": 0.0
+    },
+    "rays": {
+      "enabled": true,
+      "source": "Sun",
+      "intensity": 1.2,
+      "length": 0.9,
+      "threshold": 0.25,
+      "tint": [
+        0.3515327,
+        0.80695236,
+        1.0
+      ],
+      "flare": 0.0
+    }
+  },
+  "textures": [],
+  "audio": null,
+  "graph": null,
+  "use_graph": false
+}

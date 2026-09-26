@@ -1,54 +1,54 @@
 {
   "version": 2,
-  "name": "Stormy Lake",
+  "name": "Twister",
   "timing": {
-    "bpm": 90.0,
+    "bpm": 100.0,
     "loop_beats": 16
   },
   "camera": {
     "mode": "Pendulum",
     "target": [
       0.0,
-      2.0,
+      5.0,
       -20.0
     ],
     "distance": 22.0,
-    "height": 3.0,
+    "height": -1.0,
     "angle": 0.0,
     "orbit_turns": 1,
-    "swing": 12.0,
-    "fov": 60.0,
+    "swing": 10.0,
+    "fov": 62.0,
     "roll": 0.0,
     "beat_shake": 0.0
   },
   "environment": {
     "fog_color": [
-      0.010329823,
-      0.014443844,
-      0.02121901
+      0.04231141,
+      0.051269468,
+      0.039546236
     ],
-    "fog_density": 0.018,
+    "fog_density": 0.015,
     "sky_color": [
-      0.06847818,
-      0.09758736,
+      0.14412849,
+      0.17464739,
       0.13843162
     ],
     "ground_color": [
-      0.005181517,
-      0.00699541,
+      0.014443844,
+      0.017641952,
       0.009134057
     ],
     "light_dir": [
       0.3,
-      0.5,
+      0.6,
       -1.0
     ],
     "light_color": [
-      0.4341537,
-      0.5271152,
-      0.6307572
+      0.6307572,
+      0.68668544,
+      0.5271152
     ],
-    "light_intensity": 0.7,
+    "light_intensity": 0.8,
     "ambient": 0.6
   },
   "layers": [
@@ -86,19 +86,19 @@
         "type": "Backdrop",
         "kind": "Clouds",
         "color_a": [
-          0.023153365,
-          0.034339808,
-          0.051269468
+          0.051269468,
+          0.06480328,
+          0.048171822
         ],
         "color_b": [
-          0.045186203,
-          0.06480328,
-          0.09084173
+          0.1620294,
+          0.19461781,
+          0.13843162
         ],
         "color_c": [
-          0.029556833,
-          0.04231141,
-          0.06480328
+          0.039546236,
+          0.048171822,
+          0.036889445
         ],
         "speed": 1,
         "intensity": 1.0,
@@ -107,11 +107,11 @@
         "ray": {
           "variant": 2,
           "pattern": 0,
-          "size": 1.2,
+          "size": 1.0,
           "twist": 0.0,
-          "warp": 1.1,
-          "bend": 1.4,
-          "glow": 0.3,
+          "warp": 1.0,
+          "bend": 1.2,
+          "glow": 0.4,
           "fog": 1.0,
           "steps": 0,
           "spin": 0
@@ -119,12 +119,12 @@
       }
     },
     {
-      "name": "Mountains",
+      "name": "Plains",
       "enabled": true,
       "transform": {
         "position": [
           0.0,
-          0.0,
+          -1.0,
           -40.0
         ],
         "rotation": [
@@ -151,12 +151,12 @@
       "kind": {
         "type": "Terrain",
         "size": 120.0,
-        "cells": 128,
-        "height": 12.0,
-        "hills": 4,
-        "roughness": 0.5,
+        "cells": 96,
+        "height": 3.0,
+        "hills": 3,
+        "roughness": 0.4,
         "scroll": 1,
-        "valley": 0.45,
+        "valley": 0.0,
         "style": "Solid",
         "line_color": [
           1.0,
@@ -165,29 +165,71 @@
         ],
         "glow": 1.0,
         "fill_color": [
-          0.00303527,
-          0.001214108,
-          0.009134057
+          0.04231141,
+          0.06847818,
+          0.014443844
         ],
-        "seed": 21,
+        "seed": 4,
         "texture": null,
         "tiles": 8,
         "texture_lines": false,
-        "pixelated": false,
-        "shape": "Mountains",
-        "biome": "Alpine",
-        "liquid": {
-          "kind": "Water",
-          "level": 0.12,
-          "color": [
-            0.00303527,
-            0.014443844,
-            0.02121901
-          ],
-          "glow": 0.5,
-          "waves": 1.5,
-          "flow": 1
-        }
+        "pixelated": false
+      }
+    },
+    {
+      "name": "Tornado",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          -0.5,
+          -28.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Particles",
+        "emitter": "Tornado",
+        "count": 6000,
+        "lifetimes": 2,
+        "size": 0.9,
+        "speed": 1.0,
+        "radius": 4.5,
+        "color_a": [
+          0.023153365,
+          0.023153365,
+          0.019382361
+        ],
+        "color_b": [
+          0.06847818,
+          0.06847818,
+          0.057805434
+        ],
+        "intensity": 0.35,
+        "trail": 0,
+        "trail_spacing": 0.01,
+        "sprite": "Glow",
+        "seed": 1,
+        "smoke": true
       }
     },
     {
@@ -196,7 +238,7 @@
       "transform": {
         "position": [
           0.0,
-          1.5,
+          -1.0,
           0.0
         ],
         "rotation": [
@@ -223,19 +265,12 @@
       "kind": {
         "type": "Weather",
         "kind": "Rain",
-        "count": 9000,
-        "area": 20.0,
-        "height": 16.0,
-        "falls": 14,
-        "wind": {
-          "base": 12.0,
-          "amp": 6.0,
-          "wave": "Sine",
-          "cycles": 2,
-          "offset": 0.0,
-          "audio": 0.0
-        },
-        "wind_dir": 30.0,
+        "count": 5000,
+        "area": 18.0,
+        "height": 14.0,
+        "falls": 12,
+        "wind": 25.0,
+        "wind_dir": 0.0,
         "size": 0.05,
         "streak": 1.0,
         "color": [
@@ -243,7 +278,7 @@
           0.39157256,
           0.5775805
         ],
-        "intensity": 0.5,
+        "intensity": 0.35,
         "splashes": 0.6,
         "seed": 1,
         "lightning": {
@@ -256,18 +291,18 @@
             0.68668544,
             1.0
           ],
-          "distance": 45.0,
-          "seed": 11
+          "distance": 50.0,
+          "seed": 9
         },
-        "ground": 0.6
+        "ground": 0.9
       }
     }
   ],
   "post": {
     "bloom": {
       "enabled": true,
-      "intensity": 0.7,
-      "threshold": 1.0,
+      "intensity": 0.8,
+      "threshold": 0.8,
       "radius": 0.7
     },
     "kaleido": {
@@ -307,9 +342,9 @@
     "grade": {
       "exposure": 1.0,
       "contrast": 1.05,
-      "saturation": 0.8,
-      "vignette": 0.5,
-      "grain": 0.04,
+      "saturation": 0.7,
+      "vignette": 0.6,
+      "grain": 0.03,
       "beat_flash": 0.0
     }
   },

@@ -14,41 +14,6 @@ struct LOut {
     @location(2) world: vec3<f32>,
 };
 
-fn beam_dir(i: u32) -> vec3<f32> {
-    let count = max(D.v[0].x, 1.0);
-    let pattern = i32(D.v[0].y + 0.5);
-    let spread = D.v[0].z;
-    let sweep = D.v[3].x;
-    let sp = D.v[3].y;
-    let seed = u32(D.v[3].z);
-    let fi = f32(i);
-    var t = 0.5;
-    if (count > 1.5) {
-        t = fi / (count - 1.0);
-    }
-    switch pattern {
-        case 1: {
-            // Rotating cone.
-            let az = TAU * (fi / count + D.v[3].w);
-            let polar = clamp(spread * 0.5 + sweep * 0.5 * sin(TAU * (sp + fi / count)), 0.0, PI);
-            return vec3<f32>(sin(polar) * cos(az), cos(polar), sin(polar) * sin(az));
-        }
-        case 2: {
-            // Random directions inside the cone that wobble.
-            let r1 = hash2u(i, seed);
-            let r2 = hash2u(i, seed ^ 0x5bd1e995u);
-            let az = TAU * r2 + sweep * sin(TAU * (sp + r1));
-            let polar = clamp(spread * 0.5 * sqrt(r1) + sweep * 0.3 * sin(TAU * (sp + r2)), 0.0, PI);
-            return vec3<f32>(sin(polar) * cos(az), cos(polar), sin(polar) * sin(az));
-        }
-        default: {
-            // Flat fan in the local XY plane, sweeping side to side.
-            let a = (t - 0.5) * spread + sweep * sin(TAU * (sp + t * 0.5));
-            return vec3<f32>(sin(a), cos(a), 0.0);
-        }
-    }
-}
-
 @vertex
 fn vs_main(@builtin(vertex_index) vid: u32, @builtin(instance_index) beam: u32) -> LOut {
     let model = mat4x4<f32>(D.v[8], D.v[9], D.v[10], D.v[11]);
@@ -94,7 +59,6 @@ fn fs_main(in: LOut) -> @location(0) vec4<f32> {
     let halo = exp(-abs(x) * 3.0) * 0.35;
     // Bright at the source, fading towards the tip.
     let fade = pow(1.0 - in.uv.x, 1.5) * smoothstep(0.0, 0.01, in.uv.x + 0.002);
-    let dist = length(G.cam_pos.xyz - in.world);
-    let a = (core + halo) * fade * (1.0 - fog_amount(dist));
+    let a = (core + halo) * fade * (1.0 - fog_amount_at(in.world));
     return vec4<f32>(in.color * a, 0.0);
 }

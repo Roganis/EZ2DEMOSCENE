@@ -239,7 +239,7 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
         col = mix(col, col * vec3<f32>(1.0, 0.35, 0.2), life);
     }
     let dist = length(cam - wp);
-    let fog = 1.0 - fog_amount(dist);
+    let fog = 1.0 - fog_amount_at(wp);
     // Drops brushing past the lens would smear across the picture.
     let near = smoothstep(0.8, 2.5, dist);
     out.color = col * D.v[2].z * max(alpha, 0.0) * fog * near;

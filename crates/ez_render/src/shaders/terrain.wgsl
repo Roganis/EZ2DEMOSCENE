@@ -434,7 +434,7 @@ fn fs_main(in: TOut) -> @location(0) vec4<f32> {
         var col = shade_liquid(in, depth, q);
         // Grid lines shine faintly through the surface.
         col = col + D.v[2].rgb * line * in.border * select(0.15, 0.0, style == 1);
-        return vec4<f32>(apply_fog(col, dist), 1.0);
+        return vec4<f32>(apply_fog_at(col, in.world), 1.0);
     }
     var glow = D.v[2].rgb * line * in.border;
     if (has_tex && D.v[4].y > 0.5) {
@@ -478,10 +478,23 @@ fn fs_main(in: TOut) -> @location(0) vec4<f32> {
         if (liquid_kind == 1) {
             ground = ground * mix(1.0, 0.55, smoothstep(0.25, 0.0, -depth));
         }
-        col = ground * (diffuse + ambient) + emit;
+        // Rain darkens the ground; snow settles on the flatter parts.
+        ground = ground * (1.0 - 0.4 * G.caus_col.w);
+        let snow = snow_cover(in.world, n);
+        ground = mix(ground, vec3<f32>(0.88, 0.91, 0.96), snow);
+        col = ground * (diffuse + ambient + caustic_light(in.world, n)) + emit;
+        // Puddles mirror the sky.
+        let pud = puddle(in.world, n) * (1.0 - snow);
+        if (pud > 0.0) {
+            let r = reflect(-v, vec3<f32>(0.0, 1.0, 0.0));
+            let fres = 0.1 + 0.9 * pow(1.0 - max(v.y, 0.0), 4.0);
+            let sky_r = mix(G.sky.rgb, G.fog.rgb, 0.4 - 0.4 * smoothstep(0.0, 0.5, r.y)) * 1.8;
+            let sheen = sky_r * fres + G.light_color.rgb * G.ground.w * pow(max(dot(r, l), 0.0), 300.0) * 1.5;
+            col = mix(col, col * 0.4 + sheen * (1.0 + rain_rings(in.world)), pud);
+        }
         if (style == 2) {
             col = col + glow;
         }
     }
-    return vec4<f32>(apply_fog(col, dist), 1.0);
+    return vec4<f32>(apply_fog_at(col, in.world), 1.0);
 }

@@ -108,9 +108,9 @@ fn vs_main(in: VIn) -> VOut {
 @fragment
 fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let base_in = D.v[0].rgb;
-    let metallic = D.v[0].w;
+    var metallic = D.v[0].w;
     let emissive_in = D.v[1].rgb;
-    let rough = clamp(D.v[1].w, 0.02, 1.0);
+    var rough = clamp(D.v[1].w, 0.02, 1.0);
     let mode = i32(D.v[2].x + 0.5);
     let has_tex = D.v[2].y > 0.5;
     let tex_scale = D.v[2].z;
@@ -172,7 +172,21 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     if (has_tex) {
         tex = texel;
     }
-    let base = hue_rotate(base_in * tex, hue);
+    var base = hue_rotate(base_in * tex, hue);
+    // Weather on the surface: wet and glossy in the rain (puddles on flat
+    // tops), snow on everything facing up.
+    let wet = G.caus_col.w * smoothstep(-0.3, 0.5, n.y);
+    base = base * (1.0 - 0.45 * wet);
+    rough = mix(rough, rough * 0.35, wet);
+    let pud = puddle(in.world, n);
+    if (pud > 0.0) {
+        rough = mix(rough, 0.02, pud);
+        n = normalize(mix(n, vec3<f32>(0.0, 1.0, 0.0), pud));
+    }
+    let snow = snow_cover(in.world, n);
+    base = mix(base, vec3<f32>(0.88, 0.91, 0.96), snow);
+    metallic = mix(metallic, 0.0, snow);
+    rough = mix(rough, 0.85, snow);
     let l = normalize(G.light_dir.xyz);
     let ndl = max(dot(n, l), 0.0);
     let diffuse = G.light_color.rgb * G.ground.w * ndl;
@@ -189,6 +203,8 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     var col = base * (1.0 - metallic) * (diffuse + ambient);
     col = col + (spec * G.light_color.rgb + env * (1.0 - rough * 0.6)) * fr;
     col = col + G.sky.rgb * rim_k * pow(1.0 - ndv, 3.0) * 0.6;
+    col = col + base * caustic_light(in.world, n);
+    col = col + env * pud * rain_rings(in.world) * 0.6;
 
     var mask = 1.0;
     switch mode {
@@ -216,6 +232,5 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let emissive = hue_rotate(emissive_in, hue) * mask * in.inst.y;
     col = col + emissive;
 
-    let dist = length(G.cam_pos.xyz - in.world);
-    return vec4<f32>(apply_fog(col, dist), 1.0);
+    return vec4<f32>(apply_fog_at(col, in.world), 1.0);
 }

@@ -56,6 +56,23 @@ struct GlobalsRaw {
     light_color: [f32; 4],
     clip: [f32; 4],
     audio: [f32; 4],
+    hfog: [f32; 4],
+    caus: [f32; 4],
+    caus_col: [f32; 4],
+    extra: [f32; 4],
+    sun: [f32; 4],
+}
+
+/// Per-frame lighting inputs gathered from the layers (weather) on top of
+/// the environment.
+#[derive(Clone, Copy, Default)]
+struct FrameEnv {
+    /// Lightning flash brightness and colour.
+    lightning: (f32, [f32; 3]),
+    /// Ground wetness from rain (0..1).
+    wet: f32,
+    /// Snow cover (0..1).
+    snow: f32,
 }
 
 #[repr(C)]
@@ -112,7 +129,24 @@ enum Cmd {
         slot: u32,
         instances: u32,
     },
+    /// Night, stars, moon and rainbow over the backgrounds.
+    SkyFx,
+    Spots {
+        slot: u32,
+        beams: u32,
+        pools: bool,
+    },
+    Falls {
+        slot: u32,
+        puffs: u32,
+    },
 }
+
+/// Vertices of one spotlight cone (see spots.wgsl).
+const SPOT_VERTICES: u32 = 24 * 6;
+/// Vertices of a waterfall curtain (see falls.wgsl).
+const FALL_VERTICES: u32 = 12 * 40 * 6;
+const FALL_PUFFS: u32 = 48;
 
 /// Instances of one lightning bolt (main channel + branch), see weather.wgsl.
 const BOLT_SEGMENTS: u32 = 28 + 14;
@@ -176,6 +210,10 @@ struct ScenePipes {
     terrain: wgpu::RenderPipeline,
     lasers: wgpu::RenderPipeline,
     weather: wgpu::RenderPipeline,
+    sky_mul: wgpu::RenderPipeline,
+    sky_add: wgpu::RenderPipeline,
+    spots: wgpu::RenderPipeline,
+    falls: wgpu::RenderPipeline,
 }
 
 pub struct Renderer {
@@ -362,6 +400,20 @@ fn make_pipeline(device: &wgpu::Device, d: PipeDesc) -> wgpu::RenderPipeline {
     })
 }
 
+/// Multiplies what is already there by the shader's colour.
+const MULTIPLY: wgpu::BlendState = wgpu::BlendState {
+    color: wgpu::BlendComponent {
+        src_factor: wgpu::BlendFactor::Zero,
+        dst_factor: wgpu::BlendFactor::Src,
+        operation: wgpu::BlendOperation::Add,
+    },
+    alpha: wgpu::BlendComponent {
+        src_factor: wgpu::BlendFactor::Zero,
+        dst_factor: wgpu::BlendFactor::One,
+        operation: wgpu::BlendOperation::Add,
+    },
+};
+
 const ADDITIVE: wgpu::BlendState = wgpu::BlendState {
     color: wgpu::BlendComponent {
         src_factor: wgpu::BlendFactor::One,
@@ -521,7 +573,21 @@ impl Renderer {
             include_str!("shaders/terrain.wgsl"),
             true,
         );
-        let sh_lasers = shader(device, "lasers", include_str!("shaders/lasers.wgsl"), true);
+        let beams = include_str!("shaders/beams.wgsl");
+        let sh_lasers = shader(
+            device,
+            "lasers",
+            &format!("{beams}\n{}", include_str!("shaders/lasers.wgsl")),
+            true,
+        );
+        let sh_spots = shader(
+            device,
+            "spots",
+            &format!("{beams}\n{}", include_str!("shaders/spots.wgsl")),
+            true,
+        );
+        let sh_skyfx = shader(device, "sky fx", include_str!("shaders/skyfx.wgsl"), true);
+        let sh_falls = shader(device, "falls", include_str!("shaders/falls.wgsl"), true);
         let sh_weather = shader(
             device,
             "weather",
@@ -582,7 +648,9 @@ impl Renderer {
                     format: HDR_FORMAT,
                     samples,
                     depth: Some((false, wgpu::CompareFunction::Less)),
-                    blend: Some(ADDITIVE),
+                    // Glowing particles output alpha 0 (pure addition);
+                    // smoke outputs its coverage.
+                    blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                 },
             ),
             terrain: make_pipeline(
@@ -625,6 +693,62 @@ impl Renderer {
                     samples,
                     depth: Some((false, wgpu::CompareFunction::Less)),
                     blend: Some(ADDITIVE),
+                },
+            ),
+            sky_mul: make_pipeline(
+                device,
+                PipeDesc {
+                    label: "sky fx mul",
+                    layout: &particle_layout,
+                    module: &sh_skyfx,
+                    fs: "fs_mul",
+                    buffers: &[],
+                    format: HDR_FORMAT,
+                    samples,
+                    depth: Some((false, wgpu::CompareFunction::Always)),
+                    blend: Some(MULTIPLY),
+                },
+            ),
+            sky_add: make_pipeline(
+                device,
+                PipeDesc {
+                    label: "sky fx add",
+                    layout: &particle_layout,
+                    module: &sh_skyfx,
+                    fs: "fs_add",
+                    buffers: &[],
+                    format: HDR_FORMAT,
+                    samples,
+                    depth: Some((false, wgpu::CompareFunction::Always)),
+                    blend: Some(ADDITIVE),
+                },
+            ),
+            spots: make_pipeline(
+                device,
+                PipeDesc {
+                    label: "spots",
+                    layout: &particle_layout,
+                    module: &sh_spots,
+                    fs: "fs_main",
+                    buffers: &[],
+                    format: HDR_FORMAT,
+                    samples,
+                    depth: Some((false, wgpu::CompareFunction::Less)),
+                    blend: Some(ADDITIVE),
+                },
+            ),
+            falls: make_pipeline(
+                device,
+                PipeDesc {
+                    label: "falls",
+                    layout: &particle_layout,
+                    module: &sh_falls,
+                    fs: "fs_main",
+                    buffers: &[],
+                    format: HDR_FORMAT,
+                    samples,
+                    depth: Some((false, wgpu::CompareFunction::Less)),
+                    blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                 },
             ),
         };
@@ -1066,21 +1190,24 @@ impl Renderer {
     fn globals(
         project: &Project,
         ctx: &EvalCtx,
+        env: &EnvState,
         view: Mat4,
         proj: Mat4,
         eye: Vec3,
         res: (u32, u32),
         clip: Vec4,
-        flash: (f32, [f32; 3]),
+        fx: &FrameEnv,
     ) -> GlobalsRaw {
-        let env = &project.environment;
+        let e = &project.environment;
+        let flash = fx.lightning;
         // Lightning brightens the ambient light and the fog.
         let fog_color = color::add(env.fog_color, color::scale(flash.1, flash.0 * 0.12));
         let vp = proj * view;
         let inv_view = view.inverse();
         let right = inv_view.x_axis.truncate().normalize_or(Vec3::X);
         let up = inv_view.y_axis.truncate().normalize_or(Vec3::Y);
-        let ld = Vec3::from(env.light_dir).normalize_or(Vec3::Y);
+        let hf = &e.height_fog;
+        let ca = &e.caustics;
         GlobalsRaw {
             view_proj: m4(vp),
             inv_view_proj: m4(vp.inverse()),
@@ -1100,13 +1227,33 @@ impl Renderer {
                 1.0 / res.0 as f32,
                 1.0 / res.1 as f32,
             ],
-            fog: c4(fog_color, env.fog_density.eval(ctx).max(0.0)),
-            sky: c4(env.sky_color, env.ambient.eval(ctx) + flash.0 * 0.8),
-            ground: c4(env.ground_color, env.light_intensity.eval(ctx)),
-            light_dir: v4(ld, 0.0),
+            fog: c4(fog_color, env.fog_density),
+            sky: c4(env.sky_color, env.ambient + flash.0 * 0.8),
+            ground: c4(env.ground_color, env.light_intensity),
+            light_dir: v4(Vec3::from(env.light_dir), 0.0),
             light_color: c4(env.light_color, 1.0),
             clip: clip.into(),
             audio: [ctx.audio, ctx.bass, flash.0, 0.0],
+            hfog: [
+                hf.density.eval(ctx).max(0.0),
+                hf.height,
+                hf.falloff.max(0.05),
+                0.0,
+            ],
+            caus: [
+                ca.amount.eval(ctx).max(0.0),
+                ca.scale.max(0.05),
+                TAU * (ctx.phase * ca.speed as f32).rem_euclid(1.0),
+                ca.below,
+            ],
+            caus_col: c4(ca.color, fx.wet.clamp(0.0, 1.0)),
+            extra: [
+                fx.snow.clamp(0.0, 1.0),
+                env.night,
+                env.dusk,
+                e.rainbow.eval(ctx).max(0.0),
+            ],
+            sun: v4(Vec3::from(env.sun_dir), 0.0),
         }
     }
 
@@ -1126,7 +1273,11 @@ impl Renderer {
         self.frame_no += 1;
         let mut stats = FrameStats::default();
         // Lightning flash lighting up the whole scene: brightness, colour.
-        let mut lightning = (0.0f32, [1.0f32; 3]);
+        let mut fx = FrameEnv {
+            lightning: (0.0, [1.0; 3]),
+            ..Default::default()
+        };
+        let env = project.environment.eval(ctx);
 
         for (li, layer) in layers.iter().enumerate().filter(|(_, l)| l.enabled) {
             // Blinking layers can be hidden right now; flashing ones glow more.
@@ -1303,7 +1454,12 @@ impl Renderer {
                             p.trail.min(16) as f32,
                             p.trail_spacing.eval(ctx),
                         ];
-                        blk[4] = [p.sprite.index() as f32, 0.0, 0.0, 0.0];
+                        blk[4] = [
+                            p.sprite.index() as f32,
+                            if p.smoke { 1.0 } else { 0.0 },
+                            0.0,
+                            0.0,
+                        ];
                         let model = m4(sym * lm);
                         blk[8..12].copy_from_slice(&model);
                         cmds.push(Cmd::Particles {
@@ -1381,6 +1537,10 @@ impl Renderer {
                     ls.draws = syms.len() as u32;
                     ls.triangles = beams as u64 * 2 * syms.len() as u64;
                     ls.load = 0.05 * syms.len() as f32;
+                    if z.style == BeamStyle::Spotlight {
+                        ls.triangles = beams as u64 * 48 * syms.len() as u64;
+                        ls.load = 0.15 * syms.len() as f32 * (beams as f32 / 8.0).max(1.0);
+                    }
                     // Beat strobe: full on each beat, decaying until the next.
                     let beat_flash = (1.0 - ctx.beat_frac()).powi(3);
                     let strobe = z.strobe.eval(ctx).clamp(0.0, 1.0);
@@ -1405,9 +1565,50 @@ impl Renderer {
                             (ctx.phase * cycles.max(1.0)).rem_euclid(1.0),
                         ];
                         blk[8..12].copy_from_slice(&m4(sym * lm));
-                        cmds.push(Cmd::Lasers {
+                        let slot = blocks.len() as u32;
+                        if z.style == BeamStyle::Spotlight {
+                            let half = (z.cone.0.eval(ctx).clamp(1.0, 170.0) * 0.5).to_radians();
+                            blk[4] = [half.tan(), if z.pools { 1.0 } else { 0.0 }, 0.0, 0.0];
+                            cmds.push(Cmd::Spots {
+                                slot,
+                                beams,
+                                pools: z.pools,
+                            });
+                        } else {
+                            cmds.push(Cmd::Lasers { slot, beams });
+                        }
+                        blocks.push(blk);
+                    }
+                }
+                LayerKind::Falls(fl) => {
+                    let lm = layer_matrix(&layer.transform, ctx);
+                    let syms = symmetry_matrices(&layer.symmetry);
+                    ls.draws = syms.len() as u32 * 2;
+                    ls.triangles = (FALL_VERTICES / 3 + FALL_PUFFS * 2) as u64 * syms.len() as u64;
+                    ls.load = 0.1 * syms.len() as f32;
+                    for sym in syms {
+                        let mut blk: Block = Zeroable::zeroed();
+                        blk[0] = [
+                            fl.kind.index() as f32,
+                            fl.width.max(0.05),
+                            fl.height.max(0.05),
+                            fl.push,
+                        ];
+                        blk[1] = c4(fl.color, fl.glow.eval(ctx).max(0.0) * flash);
+                        blk[2] = [
+                            (ctx.phase * fl.flow as f32).rem_euclid(1.0),
+                            fl.foam.eval(ctx).max(0.0),
+                            (fl.seed % 65536) as f32,
+                            (fl.flow / 2).max(1) as f32,
+                        ];
+                        blk[8..12].copy_from_slice(&m4(sym * lm));
+                        cmds.push(Cmd::Falls {
                             slot: blocks.len() as u32,
-                            beams,
+                            puffs: if fl.foam.is_animated() || fl.foam.base > 0.0 {
+                                FALL_PUFFS
+                            } else {
+                                0
+                            },
                         });
                         blocks.push(blk);
                     }
@@ -1491,8 +1692,8 @@ impl Renderer {
                     let lt = &wx.lightning;
                     if let Some((b, slot, _)) = lt.strike(ctx.phase) {
                         let flash_k = lt.flash.eval(ctx).max(0.0);
-                        lightning.0 += b * flash_k;
-                        lightning.1 = lt.color;
+                        fx.lightning.0 += b * flash_k;
+                        fx.lightning.1 = lt.color;
                         // The bolt: in front of the camera, at a random
                         // bearing and distance for each strike.
                         let hs = |k: u32| {
@@ -1521,6 +1722,12 @@ impl Renderer {
                         blk[5] = v4(foot, (slot * 7919 + lt.seed) as f32 % 65536.0);
                         blk[6] = c4(lt.color, 0.0);
                         instances += BOLT_SEGMENTS;
+                    }
+                    let ground_k = wx.ground.eval(ctx).clamp(0.0, 1.0);
+                    match wx.kind {
+                        Precipitation::Rain => fx.wet = fx.wet.max(ground_k),
+                        Precipitation::Snow => fx.snow = fx.snow.max(ground_k),
+                        _ => {}
                     }
                     ls.particles = count as u64;
                     ls.draws = 1;
@@ -1561,6 +1768,11 @@ impl Renderer {
                 }
             }
             stats.layers.push(ls);
+        }
+
+        let e = &project.environment;
+        if e.day_cycle.enabled || e.rainbow.base != 0.0 || e.rainbow.is_animated() {
+            cmds.push(Cmd::SkyFx);
         }
 
         // Frame statistics. A mirror floor renders the scene a second time
@@ -1605,12 +1817,13 @@ impl Renderer {
         let main_globals = Self::globals(
             project,
             ctx,
+            &env,
             view,
             proj,
             cam.eye,
             (w, h),
             Vec4::ZERO,
-            lightning,
+            &fx,
         );
         self.queue
             .write_buffer(&self.globals_buf[0], 0, bytemuck::bytes_of(&main_globals));
@@ -1622,12 +1835,13 @@ impl Renderer {
             let g = Self::globals(
                 project,
                 ctx,
+                &env,
                 rview,
                 proj,
                 reye,
                 target.refl_size,
                 Vec4::new(0.0, 1.0, 0.0, -fh + 0.001),
-                lightning,
+                &fx,
             );
             self.queue
                 .write_buffer(&self.globals_buf[1], 0, bytemuck::bytes_of(&g));
@@ -1639,6 +1853,7 @@ impl Renderer {
             floor.as_ref().map(|f| f.3).unwrap_or(0.0),
             proj * view,
             cam.eye,
+            &env,
         );
 
         // Floor bind group (references the target's reflection texture).
@@ -1706,7 +1921,14 @@ impl Renderer {
                     occlusion_query_set: None,
                     multiview_mask: None,
                 });
-                self.draw_scene(&mut pass, &self.refl_pipes, 1, &cmds);
+                let (solid, clear): (Vec<Cmd>, Vec<Cmd>) = cmds.iter().cloned().partition(|c| {
+                    matches!(
+                        c,
+                        Cmd::Backdrop { .. } | Cmd::SkyFx | Cmd::Mesh { .. } | Cmd::Terrain { .. }
+                    )
+                });
+                self.draw_scene(&mut pass, &self.refl_pipes, 1, &solid);
+                self.draw_scene(&mut pass, &self.refl_pipes, 1, &clear);
             }
             self.post_pass(
                 &mut enc,
@@ -1770,7 +1992,7 @@ impl Renderer {
             let (back, rest): (Vec<Cmd>, Vec<Cmd>) = cmds
                 .iter()
                 .cloned()
-                .partition(|c| matches!(c, Cmd::Backdrop { .. }));
+                .partition(|c| matches!(c, Cmd::Backdrop { .. } | Cmd::SkyFx));
             self.draw_scene(&mut pass, &self.main_pipes, 0, &back);
             if let (Some((slot, _, _, _)), Some(bg)) = (&floor, &floor_bg) {
                 pass.set_pipeline(&self.floor_pipe);
@@ -1779,7 +2001,13 @@ impl Renderer {
                 pass.set_bind_group(2, *bg, &[]);
                 pass.draw(0..6, 0..1);
             }
-            self.draw_scene(&mut pass, &self.main_pipes, 0, &rest);
+            // Solid geometry before anything see-through, which doesn't
+            // write depth and would otherwise be painted over.
+            let (solid, clear): (Vec<Cmd>, Vec<Cmd>) = rest
+                .into_iter()
+                .partition(|c| matches!(c, Cmd::Mesh { .. } | Cmd::Terrain { .. }));
+            self.draw_scene(&mut pass, &self.main_pipes, 0, &solid);
+            self.draw_scene(&mut pass, &self.main_pipes, 0, &clear);
         }
 
         // --- post ---------------------------------------------------------------
@@ -1914,6 +2142,32 @@ impl Renderer {
                     pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
                     pass.draw(0..6, 0..*beams);
                 }
+                Cmd::SkyFx => {
+                    for pipe in [&pipes.sky_mul, &pipes.sky_add] {
+                        pass.set_pipeline(pipe);
+                        pass.set_bind_group(0, &self.globals_bg[globals], &[]);
+                        pass.set_bind_group(1, &self.draw_bg, &[0]);
+                        pass.draw(0..3, 0..1);
+                    }
+                }
+                Cmd::Spots { slot, beams, pools } => {
+                    pass.set_pipeline(&pipes.spots);
+                    pass.set_bind_group(0, &self.globals_bg[globals], &[]);
+                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                    pass.draw(0..SPOT_VERTICES, 0..*beams);
+                    if *pools {
+                        pass.draw(0..6, *beams..*beams * 2);
+                    }
+                }
+                Cmd::Falls { slot, puffs } => {
+                    pass.set_pipeline(&pipes.falls);
+                    pass.set_bind_group(0, &self.globals_bg[globals], &[]);
+                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                    pass.draw(0..FALL_VERTICES, 0..1);
+                    if *puffs > 0 {
+                        pass.draw(0..6, 1..1 + *puffs);
+                    }
+                }
                 Cmd::Weather { slot, instances } => {
                     pass.set_pipeline(&pipes.weather);
                     pass.set_bind_group(0, &self.globals_bg[globals], &[]);
@@ -1960,6 +2214,7 @@ impl Renderer {
         pass.draw(0..3, 0..1);
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn write_post_params(
         &self,
         project: &Project,
@@ -1968,6 +2223,7 @@ impl Renderer {
         blur: f32,
         view_proj: Mat4,
         eye: Vec3,
+        env: &EnvState,
     ) {
         let post = &project.post;
         let mut slots: Vec<PostBlock> = vec![Zeroable::zeroed(); SLOT_RAYS_ADD as usize + 1];
@@ -1997,6 +2253,19 @@ impl Renderer {
             target.width as f32 / target.height as f32,
             mirror_mode as f32,
         ];
+        let hz = &post.haze;
+        if hz.enabled {
+            slots[SLOT_WARP as usize][2] = [
+                hz.amount.eval(ctx).max(0.0),
+                hz.scale.max(0.05),
+                TAU * (ctx.phase * hz.speed as f32).rem_euclid(1.0),
+                match hz.region {
+                    HazeRegion::HotSpots => 0.0,
+                    HazeRegion::Ground => 1.0,
+                    HazeRegion::Everywhere => 2.0,
+                },
+            ];
+        }
 
         let b = &post.bloom;
         for i in 0..BLOOM_LEVELS {
@@ -2024,9 +2293,9 @@ impl Renderer {
             let (light_uv, vis) = match gr.source {
                 RaySource::Centre => ([0.5, 0.5], 1.0),
                 RaySource::Sun => {
-                    let ld = Vec3::from(project.environment.light_dir).normalize_or(Vec3::Y);
+                    let ld = Vec3::from(env.light_dir).normalize_or(Vec3::Y);
                     let clip = view_proj * (eye + ld * 1000.0).extend(1.0);
-                    if clip.w <= 1e-4 {
+                    if clip.w <= 1e-4 || env.night > 0.97 {
                         ([0.5, 0.5], 0.0)
                     } else {
                         let (x, y) = (clip.x / clip.w, clip.y / clip.w);

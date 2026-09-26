@@ -470,7 +470,9 @@ fn bg_clouds(rd: vec3<f32>, frag: vec2<f32>, speed: f32, detail: f32, ca: vec3<f
     // Below the horizon, melt into the fog so terrain edges disappear.
     sky = mix(sky, G.fog.rgb, smoothstep(0.0, -0.08, rd.y));
     sky = sky + sun_col * (pow(max(mu, 0.0), 8.0) * 0.12 + pow(max(mu, 0.0), 90.0) * 0.6) * glow;
-    sky = sky + sun_col * smoothstep(0.9994, 0.9997, mu) * 12.0;
+    // The sun disc hides behind overcast and storm skies.
+    let variant_sun = select(select(1.0, 0.3, i32(D.v[5].x + 0.5) == 1), 0.0, i32(D.v[5].x + 0.5) == 2);
+    sky = sky + sun_col * smoothstep(0.9994, 0.9997, mu) * 12.0 * variant_sun;
     if (rd.y < 0.015) {
         return sky;
     }
@@ -662,5 +664,7 @@ fn fs_main(in: FullscreenOut) -> @location(0) vec4<f32> {
         }
         default: {}
     }
-    return vec4<f32>(max(col * intensity, vec3<f32>(0.0)), 1.0);
+    // Height fog hides the horizon.
+    let haze = sky_haze(rd);
+    return vec4<f32>(mix(max(col * intensity, vec3<f32>(0.0)), G.fog.rgb, haze), 1.0);
 }

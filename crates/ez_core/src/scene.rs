@@ -14,6 +14,11 @@ fn is_default<T: Default + PartialEq>(v: &T) -> bool {
     *v == T::default()
 }
 
+/// A parameter that is 0 and not animated (e.g. a switched-off effect).
+fn is_off(p: &Param) -> bool {
+    p.base == 0.0 && !p.is_animated()
+}
+
 /// 2: asset paths may be relative to the project file.
 pub const PROJECT_VERSION: u32 = 2;
 
@@ -151,6 +156,206 @@ pub struct Environment {
     pub light_color: Rgb,
     pub light_intensity: Param,
     pub ambient: Param,
+    /// Mist that is thick near the ground and thins out higher up.
+    #[serde(skip_serializing_if = "is_default")]
+    pub height_fog: HeightFog,
+    /// Rippling underwater light patterns on surfaces.
+    #[serde(skip_serializing_if = "is_default")]
+    pub caustics: Caustics,
+    /// Rainbow opposite the sun (0 = none).
+    #[serde(skip_serializing_if = "is_off")]
+    pub rainbow: Param,
+    /// The sun travels across the sky; night falls with stars and a moon.
+    #[serde(skip_serializing_if = "is_default")]
+    pub day_cycle: DayCycle,
+}
+
+/// Fog that pools in valleys: `density` at `height`, halving every
+/// `falloff` × 0.7 units above it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HeightFog {
+    pub density: Param,
+    pub height: f32,
+    pub falloff: f32,
+}
+
+impl Default for HeightFog {
+    fn default() -> Self {
+        HeightFog {
+            density: Param::new(0.0),
+            height: 0.0,
+            falloff: 2.0,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Caustics {
+    pub amount: Param,
+    /// Size of the pattern.
+    pub scale: f32,
+    /// Ripple cycles per loop.
+    pub speed: i32,
+    pub color: Rgb,
+    /// Caustics only below this height (fading out just above it).
+    pub below: f32,
+}
+
+impl Default for Caustics {
+    fn default() -> Self {
+        Caustics {
+            amount: Param::new(0.0),
+            scale: 1.0,
+            speed: 1,
+            color: hex(0x80d0ff),
+            below: 100.0,
+        }
+    }
+}
+
+/// Day and night: the sun turns around the sky `cycles` times per loop.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DayCycle {
+    pub enabled: bool,
+    /// Whole days per loop.
+    pub cycles: i32,
+    /// Time of day at the start of the loop (0 midnight, 0.25 sunrise,
+    /// 0.5 noon, 0.75 sunset).
+    pub start: f32,
+    /// Height of the sun at noon in degrees.
+    pub noon_height: f32,
+    pub sunset_color: Rgb,
+    pub night_color: Rgb,
+    pub moon_color: Rgb,
+}
+
+impl Default for DayCycle {
+    fn default() -> Self {
+        DayCycle {
+            enabled: false,
+            cycles: 1,
+            start: 0.3,
+            noon_height: 60.0,
+            sunset_color: hex(0xff7a40),
+            night_color: hex(0x060a1c),
+            moon_color: hex(0x8098d0),
+        }
+    }
+}
+
+/// The environment's lighting at one moment (after the day cycle).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EnvState {
+    pub fog_color: Rgb,
+    pub fog_density: f32,
+    pub sky_color: Rgb,
+    pub ground_color: Rgb,
+    /// Unit vector towards the main light (the sun, or the moon at night).
+    pub light_dir: [f32; 3],
+    pub light_color: Rgb,
+    pub light_intensity: f32,
+    pub ambient: f32,
+    /// Unit vector towards the sun (also below the horizon).
+    pub sun_dir: [f32; 3],
+    /// 0 in daylight .. 1 at night.
+    pub night: f32,
+    /// 0 .. 1 around sunrise and sunset.
+    pub dusk: f32,
+}
+
+fn norm3(v: [f32; 3]) -> [f32; 3] {
+    let l = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    if l < 1e-6 {
+        [0.0, 1.0, 0.0]
+    } else {
+        [v[0] / l, v[1] / l, v[2] / l]
+    }
+}
+
+fn smooth(e0: f32, e1: f32, x: f32) -> f32 {
+    let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+impl Environment {
+    /// Lighting at `ctx`, with the day cycle applied.
+    pub fn eval(&self, ctx: &crate::EvalCtx) -> EnvState {
+        use crate::color::lerp;
+        let ld = norm3(self.light_dir);
+        let mut st = EnvState {
+            fog_color: self.fog_color,
+            fog_density: self.fog_density.eval(ctx).max(0.0),
+            sky_color: self.sky_color,
+            ground_color: self.ground_color,
+            light_dir: ld,
+            light_color: self.light_color,
+            light_intensity: self.light_intensity.eval(ctx),
+            ambient: self.ambient.eval(ctx),
+            sun_dir: ld,
+            night: 0.0,
+            dusk: 0.0,
+        };
+        let d = &self.day_cycle;
+        if !d.enabled {
+            return st;
+        }
+        // The sun rises opposite its noon side... on a tilted great circle
+        // facing the light direction's azimuth. Whole days per loop.
+        let t = (d.start + ctx.phase * d.cycles as f32).rem_euclid(1.0);
+        let a = std::f32::consts::TAU * (t - 0.25);
+        let mut south = [ld[0], 0.0, ld[2]];
+        if south[0].abs() + south[2].abs() < 1e-4 {
+            south = [0.0, 0.0, -1.0];
+        }
+        let south = norm3(south);
+        let east = [-south[2], 0.0, south[0]];
+        let noon = d.noon_height.clamp(5.0, 90.0).to_radians();
+        let up = [south[0] * noon.cos(), noon.sin(), south[2] * noon.cos()];
+        let sun = norm3([
+            east[0] * a.cos() + up[0] * a.sin(),
+            east[1] * a.cos() + up[1] * a.sin(),
+            east[2] * a.cos() + up[2] * a.sin(),
+        ]);
+        let day = smooth(-0.12, 0.12, sun[1]);
+        let dusk = (-(sun[1] / 0.18).powi(2)).exp();
+        let night = 1.0 - day;
+        let warm = smooth(0.0, 0.45, sun[1]);
+        let sun_col = lerp(d.sunset_color, self.light_color, warm);
+        st.sun_dir = sun;
+        st.night = night;
+        st.dusk = dusk;
+        if sun[1] > -0.05 {
+            st.light_dir = [sun[0], sun[1].max(0.02), sun[2]];
+            st.light_dir = norm3(st.light_dir);
+            st.light_color = sun_col;
+            st.light_intensity *= smooth(-0.05, 0.1, sun[1]).max(0.15);
+        } else {
+            // Moonlight from the other side.
+            st.light_dir = norm3([-sun[0], (-sun[1]).max(0.05), -sun[2]]);
+            st.light_color = d.moon_color;
+            st.light_intensity *= 0.5;
+        }
+        let tint = |c: Rgb| {
+            let c = lerp(
+                c,
+                crate::color::scale(lerp(c, d.sunset_color, 0.6), 0.9),
+                dusk * 0.8,
+            );
+            lerp(c, d.night_color, night * 0.92)
+        };
+        st.fog_color = tint(self.fog_color);
+        st.sky_color = tint(self.sky_color);
+        st.ground_color = lerp(
+            self.ground_color,
+            crate::color::scale(self.ground_color, 0.3),
+            night,
+        );
+        st.ambient *= 1.0 - night * 0.55;
+        st
+    }
 }
 
 impl Default for Environment {
@@ -164,6 +369,10 @@ impl Default for Environment {
             light_color: [1.0, 1.0, 1.0],
             light_intensity: Param::new(1.5),
             ambient: Param::new(0.3),
+            height_fog: HeightFog::default(),
+            caustics: Caustics::default(),
+            rainbow: Param::new(0.0),
+            day_cycle: DayCycle::default(),
         }
     }
 }
@@ -329,6 +538,7 @@ impl Layer {
             LayerKind::Lasers(_) => "Laser beams",
             LayerKind::Ribbon(_) => "Neon ribbon",
             LayerKind::Weather(_) => "Weather",
+            LayerKind::Falls(_) => "Waterfall",
         }
     }
 }
@@ -344,6 +554,7 @@ pub enum LayerKind {
     Lasers(Lasers),
     Ribbon(Ribbon),
     Weather(Weather),
+    Falls(Falls),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1033,10 +1244,12 @@ pub enum Emitter {
     Vortex,
     /// Falls slowly like snow / glitter.
     Snow,
+    /// A twisting funnel (tornado / water spout) with debris at its foot.
+    Tornado,
 }
 
 impl Emitter {
-    pub const ALL: [Emitter; 7] = [
+    pub const ALL: [Emitter; 8] = [
         Emitter::Burst,
         Emitter::Sphere,
         Emitter::Ring,
@@ -1044,6 +1257,7 @@ impl Emitter {
         Emitter::Warp,
         Emitter::Vortex,
         Emitter::Snow,
+        Emitter::Tornado,
     ];
     pub fn label(self) -> &'static str {
         match self {
@@ -1054,6 +1268,7 @@ impl Emitter {
             Emitter::Warp => "Warp stars",
             Emitter::Vortex => "Vortex",
             Emitter::Snow => "Snow / glitter",
+            Emitter::Tornado => "Tornado",
         }
     }
     pub fn index(self) -> u32 {
@@ -1104,6 +1319,10 @@ pub struct ParticleLayer {
     pub trail_spacing: Param,
     pub sprite: Sprite,
     pub seed: u32,
+    /// Smoke: particles cover what is behind them (and can be dark)
+    /// instead of adding light. Brightness becomes opacity.
+    #[serde(skip_serializing_if = "is_default")]
+    pub smoke: bool,
 }
 
 impl Default for ParticleLayer {
@@ -1122,6 +1341,7 @@ impl Default for ParticleLayer {
             trail_spacing: Param::new(0.01),
             sprite: Sprite::Glow,
             seed: 1,
+            smoke: false,
         }
     }
 }
@@ -1402,6 +1622,60 @@ pub struct PostStack {
     /// Light shafts streaming from the sun, plus lens flare.
     #[serde(skip_serializing_if = "is_default")]
     pub rays: GodRays,
+    /// Shimmering heat distortion.
+    #[serde(skip_serializing_if = "is_default")]
+    pub haze: HeatHaze,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum HazeRegion {
+    /// Above bright, hot things (lava, fire, the sun).
+    #[default]
+    HotSpots,
+    /// Strongest at the bottom of the picture (hot ground).
+    Ground,
+    /// Everywhere.
+    Everywhere,
+}
+
+impl HazeRegion {
+    pub const ALL: [HazeRegion; 3] = [
+        HazeRegion::HotSpots,
+        HazeRegion::Ground,
+        HazeRegion::Everywhere,
+    ];
+    pub fn label(self) -> &'static str {
+        match self {
+            HazeRegion::HotSpots => "Above hot spots",
+            HazeRegion::Ground => "Near the ground",
+            HazeRegion::Everywhere => "Everywhere",
+        }
+    }
+}
+
+/// Heat shimmer: the picture wobbles as if seen through rising hot air.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HeatHaze {
+    pub enabled: bool,
+    pub region: HazeRegion,
+    pub amount: Param,
+    /// Size of the ripples.
+    pub scale: f32,
+    /// Times the shimmer rises through the picture per loop.
+    pub speed: i32,
+}
+
+impl Default for HeatHaze {
+    fn default() -> Self {
+        HeatHaze {
+            enabled: false,
+            region: HazeRegion::HotSpots,
+            amount: Param::new(1.0),
+            scale: 1.0,
+            speed: 4,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -2013,6 +2287,43 @@ pub struct Lasers {
     /// Flash on every beat (0 = steady, 1 = full strobe).
     pub strobe: Param,
     pub seed: u32,
+    /// Thin laser beams or wide, hazy spotlight cones.
+    #[serde(skip_serializing_if = "is_default")]
+    pub style: BeamStyle,
+    /// Spotlights: opening of each cone in degrees.
+    #[serde(skip_serializing_if = "is_default")]
+    pub cone: ConeAngle,
+    /// Spotlights: pools of light where the cones hit the ground (y = 0).
+    #[serde(skip_serializing_if = "is_default")]
+    pub pools: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum BeamStyle {
+    #[default]
+    Laser,
+    Spotlight,
+}
+
+impl BeamStyle {
+    pub const ALL: [BeamStyle; 2] = [BeamStyle::Laser, BeamStyle::Spotlight];
+    pub fn label(self) -> &'static str {
+        match self {
+            BeamStyle::Laser => "Laser beams",
+            BeamStyle::Spotlight => "Spotlight cones",
+        }
+    }
+}
+
+/// Opening angle of spotlight cones (degrees, animatable).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ConeAngle(pub Param);
+
+impl Default for ConeAngle {
+    fn default() -> Self {
+        ConeAngle(Param::new(18.0))
+    }
 }
 
 impl Default for Lasers {
@@ -2030,6 +2341,9 @@ impl Default for Lasers {
             sweep_cycles: 1,
             strobe: Param::new(0.0),
             seed: 1,
+            style: BeamStyle::Laser,
+            cone: ConeAngle::default(),
+            pools: false,
         }
     }
 }
@@ -2193,6 +2507,9 @@ pub struct Weather {
     pub splashes: Param,
     pub seed: u32,
     pub lightning: Lightning,
+    /// Rain wets the ground (darker, glossy, puddles); snow covers
+    /// upward-facing surfaces. Animate it to build up and melt.
+    pub ground: Param,
 }
 
 impl Default for Weather {
@@ -2212,6 +2529,7 @@ impl Default for Weather {
             splashes: Param::new(0.6),
             seed: 1,
             lightning: Lightning::default(),
+            ground: Param::new(0.6),
         }
     }
 }
@@ -2328,5 +2646,98 @@ mod weather_tests {
         // Defaults are not written.
         let plain = Project::default().to_json();
         assert!(!plain.contains("rays"));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Waterfall
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum FallKind {
+    #[default]
+    Water,
+    Lava,
+    Toxic,
+}
+
+impl FallKind {
+    pub const ALL: [FallKind; 3] = [FallKind::Water, FallKind::Lava, FallKind::Toxic];
+    pub fn label(self) -> &'static str {
+        match self {
+            FallKind::Water => "Water",
+            FallKind::Lava => "Lava",
+            FallKind::Toxic => "Toxic goo",
+        }
+    }
+    pub fn index(self) -> u32 {
+        FallKind::ALL.iter().position(|t| *t == self).unwrap_or(0) as u32
+    }
+    pub fn default_color(self) -> Rgb {
+        match self {
+            FallKind::Water => hex(0xb8dcf0),
+            FallKind::Lava => hex(0xff5a10),
+            FallKind::Toxic => hex(0x40ff30),
+        }
+    }
+}
+
+/// A curtain of water (or lava) pouring over an edge, from the layer's
+/// position downwards and away along its +Z axis, with foam or smoke at
+/// the foot. Streaks scroll a whole number of times per loop.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Falls {
+    pub kind: FallKind,
+    pub width: f32,
+    pub height: f32,
+    /// How far the curtain arcs out from the edge.
+    pub push: f32,
+    pub color: Rgb,
+    /// Glow of lava / goo, brightness of water.
+    pub glow: Param,
+    /// Times the streaks run down per loop.
+    pub flow: u32,
+    /// Foam, spray and mist at the foot (0 = none).
+    pub foam: Param,
+    pub seed: u32,
+}
+
+impl Default for Falls {
+    fn default() -> Self {
+        Falls {
+            kind: FallKind::Water,
+            width: 4.0,
+            height: 8.0,
+            push: 1.0,
+            color: FallKind::Water.default_color(),
+            glow: Param::new(1.0),
+            flow: 4,
+            foam: Param::new(1.0),
+            seed: 1,
+        }
+    }
+}
+
+#[cfg(test)]
+mod env_tests {
+    use super::*;
+
+    #[test]
+    fn day_cycle_loops_and_has_night() {
+        let mut e = Environment::default();
+        e.day_cycle.enabled = true;
+        e.day_cycle.cycles = 2;
+        let a = e.eval(&crate::EvalCtx::at(0.0));
+        let b = e.eval(&crate::EvalCtx::at(1.0));
+        assert!((a.sun_dir[1] - b.sun_dir[1]).abs() < 1e-4);
+        let ys: Vec<f32> = (0..100)
+            .map(|i| e.eval(&crate::EvalCtx::at(i as f32 / 100.0)).sun_dir[1])
+            .collect();
+        assert!(ys.iter().any(|y| *y > 0.5), "no noon");
+        assert!(ys.iter().any(|y| *y < -0.5), "no midnight");
+        // Without the cycle nothing changes.
+        let plain = Environment::default().eval(&crate::EvalCtx::at(0.4));
+        assert_eq!(plain.night, 0.0);
+        assert_eq!(plain.fog_color, Environment::default().fog_color);
     }
 }

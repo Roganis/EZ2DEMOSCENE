@@ -258,7 +258,8 @@
           ],
           "distance": 30.0,
           "seed": 7
-        }
+        },
+        "ground": 0.6
       }
     }
   ],
@@ -323,6 +324,13 @@
         0.21586053
       ],
       "flare": 0.0
+    },
+    "haze": {
+      "enabled": true,
+      "region": "HotSpots",
+      "amount": 1.5,
+      "scale": 1.0,
+      "speed": 4
     }
   },
   "textures": [],

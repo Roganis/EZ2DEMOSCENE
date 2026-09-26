@@ -45,8 +45,13 @@ fn fs_main(in: FOut) -> @location(0) vec4<f32> {
     let diffuse = G.light_color.rgb * G.ground.w * max(normalize(G.light_dir.xyz).y, 0.0);
     var col = base * (ambient + diffuse);
 
+    let up = vec3<f32>(0.0, 1.0, 0.0);
+    // Snow settles on the floor and hides the reflection.
+    let snow = snow_cover(in.world, up);
+    col = mix(col, vec3<f32>(0.88, 0.91, 0.96) * (ambient + diffuse), snow);
+    col = col + (base + vec3<f32>(0.08)) * caustic_light(in.world, up);
     let fres = pow(1.0 - max(v.y, 0.0), 4.0);
-    let k = D.v[0].z * mix(0.55, 1.0, fres) * D.v[0].w;
+    let k = D.v[0].z * mix(0.55, 1.0, fres) * D.v[0].w * (1.0 - snow * 0.85);
     col = col * (1.0 - k * 0.5) + refl * D.v[2].rgb * k;
 
     // Glowing grid lines
@@ -62,7 +67,8 @@ fn fs_main(in: FOut) -> @location(0) vec4<f32> {
 
     // Fade out towards the floor edge so it blends into the backdrop.
     let edge = max(abs(in.world.x), abs(in.world.z)) / D.v[0].x;
-    let out_col = apply_fog(col, dist);
+    col = col + refl * rain_rings(in.world) * G.caus_col.w * 0.3 * (1.0 - snow);
+    let out_col = apply_fog_at(col, in.world);
     let fade = smoothstep(1.0, 0.85, edge);
     return vec4<f32>(mix(G.fog.rgb, out_col, fade), 1.0);
 }

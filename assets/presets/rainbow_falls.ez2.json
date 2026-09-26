@@ -1,55 +1,82 @@
 {
   "version": 2,
-  "name": "Dune Sea",
+  "name": "Rainbow Falls",
   "timing": {
-    "bpm": 105.0,
-    "loop_beats": 16
+    "bpm": 90.0,
+    "loop_beats": 32
   },
   "camera": {
     "mode": "Pendulum",
     "target": [
       0.0,
-      1.5,
-      -20.0
+      4.0,
+      -18.0
     ],
-    "distance": 20.0,
+    "distance": 22.0,
     "height": 3.0,
     "angle": 0.0,
     "orbit_turns": 1,
-    "swing": 10.0,
+    "swing": 12.0,
     "fov": 60.0,
     "roll": 0.0,
     "beat_shake": 0.0
   },
   "environment": {
     "fog_color": [
+      0.39157256,
       0.5271152,
-      0.31398875,
-      0.13843162
+      0.68668544
     ],
-    "fog_density": 0.02,
+    "fog_density": 0.01,
     "sky_color": [
-      0.6307572,
-      0.4341537,
-      0.27889434
+      0.21586053,
+      0.39157256,
+      0.74540436
     ],
     "ground_color": [
-      0.14412849,
-      0.06480328,
+      0.039546236,
+      0.051269468,
       0.02121901
     ],
     "light_dir": [
-      -0.2,
-      0.35,
-      -1.0
+      0.0,
+      0.5,
+      1.0
     ],
     "light_color": [
       1.0,
-      0.74540436,
-      0.4341537
+      0.90466136,
+      0.74540436
     ],
     "light_intensity": 1.5,
-    "ambient": 0.5
+    "ambient": 0.55,
+    "height_fog": {
+      "density": 0.03,
+      "height": 0.0,
+      "falloff": 1.5
+    },
+    "rainbow": 1.0,
+    "day_cycle": {
+      "enabled": true,
+      "cycles": 1,
+      "start": 0.35,
+      "noon_height": 45.0,
+      "sunset_color": [
+        1.0,
+        0.19461781,
+        0.051269468
+      ],
+      "night_color": [
+        0.001821162,
+        0.00303527,
+        0.011612245
+      ],
+      "moon_color": [
+        0.21586053,
+        0.31398875,
+        0.6307572
+      ]
+    }
   },
   "layers": [
     {
@@ -86,45 +113,45 @@
         "type": "Backdrop",
         "kind": "Clouds",
         "color_a": [
-          0.10224175,
-          0.2462014,
-          0.47932023
+          0.045186203,
+          0.18782076,
+          0.5775805
         ],
         "color_b": [
-          0.74540436,
-          0.5271152,
-          0.27889434
+          0.47932023,
+          0.6307572,
+          0.80695236
         ],
         "color_c": [
-          0.5271152,
-          0.27889434,
-          0.1620294
+          0.2462014,
+          0.31398875,
+          0.4341537
         ],
         "speed": 1,
         "intensity": 1.0,
         "detail": 1.0,
         "texture": null,
         "ray": {
-          "variant": 1,
+          "variant": 0,
           "pattern": 0,
           "size": 1.0,
           "twist": 0.0,
-          "warp": 0.75,
-          "bend": 0.6,
-          "glow": 1.5,
-          "fog": 1.5,
+          "warp": 0.85,
+          "bend": 0.8,
+          "glow": 1.0,
+          "fog": 1.0,
           "steps": 0,
           "spin": 0
         }
       }
     },
     {
-      "name": "Dunes",
+      "name": "Valley",
       "enabled": true,
       "transform": {
         "position": [
           0.0,
-          -0.5,
+          -1.0,
           -40.0
         ],
         "rotation": [
@@ -150,13 +177,13 @@
       },
       "kind": {
         "type": "Terrain",
-        "size": 110.0,
-        "cells": 128,
-        "height": 6.0,
+        "size": 120.0,
+        "cells": 112,
+        "height": 14.0,
         "hills": 3,
-        "roughness": 0.4,
-        "scroll": 1,
-        "valley": 0.0,
+        "roughness": 0.5,
+        "scroll": 0,
+        "valley": 0.5,
         "style": "Solid",
         "line_color": [
           1.0,
@@ -169,35 +196,35 @@
           0.001214108,
           0.009134057
         ],
-        "seed": 9,
+        "seed": 8,
         "texture": null,
         "tiles": 8,
         "texture_lines": false,
         "pixelated": false,
-        "shape": "Dunes",
-        "biome": "Desert",
+        "shape": "Mesas",
+        "biome": "Alpine",
         "liquid": {
-          "kind": "Toxic",
+          "kind": "Water",
           "level": 0.08,
           "color": [
-            0.029556833,
-            1.0,
-            0.051269468
+            0.003676507,
+            0.039546236,
+            0.06480328
           ],
-          "glow": 1.2,
-          "waves": 1.0,
+          "glow": 1.0,
+          "waves": 0.8,
           "flow": 1
         }
       }
     },
     {
-      "name": "Sandstorm",
+      "name": "Waterfall",
       "enabled": true,
       "transform": {
         "position": [
           0.0,
-          -0.5,
-          0.0
+          7.4,
+          -22.6
         ],
         "rotation": [
           0.0,
@@ -221,46 +248,110 @@
         "type": "None"
       },
       "kind": {
-        "type": "Weather",
-        "kind": "Dust",
-        "count": 2500,
-        "area": 18.0,
+        "type": "Falls",
+        "kind": "Water",
+        "width": 4.0,
         "height": 8.0,
-        "falls": 3,
-        "wind": 10.0,
-        "wind_dir": 180.0,
-        "size": 0.6,
-        "streak": 1.0,
+        "push": 1.2,
         "color": [
-          0.6307572,
-          0.3515327,
-          0.1620294
+          0.47932023,
+          0.71569365,
+          0.8713672
         ],
-        "intensity": 0.12,
-        "splashes": 0.6,
-        "seed": 1,
-        "lightning": {
-          "enabled": false,
-          "per_loop": 8,
-          "chance": 0.35,
-          "flash": 1.5,
-          "color": [
-            0.5775805,
-            0.68668544,
-            1.0
-          ],
-          "distance": 30.0,
-          "seed": 7
+        "glow": 1.0,
+        "flow": 8,
+        "foam": 1.0,
+        "seed": 1
+      }
+    },
+    {
+      "name": "Cliff",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          -0.2,
+          -26.8
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 3.6,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Dodecahedron"
         },
-        "ground": 0.6
+        "material": {
+          "base_color": [
+            0.06847818,
+            0.06124607,
+            0.045186203
+          ],
+          "metallic": 0.2,
+          "roughness": 0.9,
+          "emissive_color": [
+            1.0,
+            0.029556833,
+            0.014443844
+          ],
+          "emissive": 0.0,
+          "emissive_mode": "Full",
+          "texture": "noise",
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": true,
+          "rim": 0.3,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Wall",
+          "cols": 13,
+          "rows": 3,
+          "spacing": 2.6,
+          "curve": 0.0
+        },
+        "variation": {
+          "seed": 5,
+          "rotation": 60.0,
+          "scale": 0.3,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
       }
     }
   ],
   "post": {
     "bloom": {
       "enabled": true,
-      "intensity": 0.8,
-      "threshold": 0.8,
+      "intensity": 0.5,
+      "threshold": 1.2,
       "radius": 0.7
     },
     "kaleido": {
@@ -309,14 +400,14 @@
       "enabled": true,
       "source": "Sun",
       "intensity": 0.8,
-      "length": 0.6,
+      "length": 0.7,
       "threshold": 0.9,
       "tint": [
         1.0,
-        0.74540436,
-        0.4341537
+        0.95,
+        0.85
       ],
-      "flare": 0.4
+      "flare": 0.0
     }
   },
   "textures": [],

@@ -335,6 +335,7 @@ pub fn set_layer_color(l: &mut Layer, c: Rgb) {
         }
         LayerKind::Ribbon(r) => r.color = c,
         LayerKind::Weather(w) => w.color = c,
+        LayerKind::Falls(f) => f.color = c,
     }
 }
 
@@ -386,6 +387,11 @@ pub fn tint_layer(l: &mut Layer, hue: f32, glow: f32) {
             w.color = hue_rotate(w.color, hue);
             w.intensity.base *= glow;
             w.intensity.amp *= glow;
+        }
+        LayerKind::Falls(f) => {
+            f.color = hue_rotate(f.color, hue);
+            f.glow.base *= glow;
+            f.glow.amp *= glow;
         }
     }
 }

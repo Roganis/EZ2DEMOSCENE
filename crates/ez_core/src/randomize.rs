@@ -121,6 +121,12 @@ pub fn randomize(project: &mut Project, seed: u64, opt: RandomizeOptions) {
                 }
                 z.seed = rng.next_u32() % 1000;
             }
+            LayerKind::Falls(f) => {
+                if opt.motion {
+                    f.flow = rng.range_u32(2, 8);
+                }
+                f.seed = rng.next_u32() % 1000;
+            }
             LayerKind::Weather(w) => {
                 if opt.motion {
                     w.wind_dir = rng.range(0.0, 360.0);

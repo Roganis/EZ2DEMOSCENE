@@ -216,6 +216,35 @@ fn weather_liquids_and_skies_are_continuous() {
         }
         scenes.push((format!("weather {}", kind.label()), p));
     }
+    // Day cycle, rainbow, mist, caustics, heat haze, spotlights,
+    // waterfalls, tornado smoke, wet ground and snow cover.
+    // (The club's beat strobes jump on every beat by design.)
+    let mut club = presets::club_spotlights();
+    for l in &mut club.layers {
+        match &mut l.kind {
+            LayerKind::Lasers(z) => z.strobe = Param::new(0.0),
+            LayerKind::Mesh(m) => m.material.emissive.amp = 0.0,
+            _ => {}
+        }
+    }
+    for p in [
+        club,
+        presets::rainbow_falls(),
+        presets::sunken_temple(),
+        presets::twister(),
+        presets::lava_world(),
+        presets::aurora_tundra(),
+    ] {
+        scenes.push((p.name.clone(), p));
+    }
+    let mut falls = presets::rainbow_falls();
+    for l in &mut falls.layers {
+        if let LayerKind::Falls(f) = &mut l.kind {
+            f.kind = FallKind::Lava;
+            f.flow = 2;
+        }
+    }
+    scenes.push(("lava fall".into(), falls));
     let mut failures = Vec::new();
     for (name, p) in &mut scenes {
         p.post.grade.grain = Param::new(0.0);

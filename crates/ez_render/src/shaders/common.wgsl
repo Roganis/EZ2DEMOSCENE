@@ -21,8 +21,18 @@ struct Globals {
     light_color: vec4<f32>,
     // Reflection clip plane (xyz normal, w distance); inactive when zero.
     clip: vec4<f32>,
-    // x: audio level, y: bass
+    // x: audio level, y: bass, z: lightning flash
     audio: vec4<f32>,
+    // Height fog: density, base height, falloff, _
+    hfog: vec4<f32>,
+    // Caustics: amount, scale, time angle, fade-out height
+    caus: vec4<f32>,
+    // rgb: caustics colour, w: ground wetness (rain)
+    caus_col: vec4<f32>,
+    // x: snow cover, y: night (0..1), z: dusk (0..1), w: rainbow
+    extra: vec4<f32>,
+    // xyz: direction towards the sun (also below the horizon)
+    sun: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> G: Globals;
@@ -112,6 +122,111 @@ fn fog_amount(dist: f32) -> f32 {
 
 fn apply_fog(c: vec3<f32>, dist: f32) -> vec3<f32> {
     return mix(c, G.fog.rgb, fog_amount(dist));
+}
+
+// Fog between the camera and `world`: distance fog plus height fog, whose
+// density falls off exponentially above its base height (integrated
+// exactly along the ray).
+fn fog_amount_at(world: vec3<f32>) -> f32 {
+    let cam = G.cam_pos.xyz;
+    let d = length(world - cam);
+    var od = d * G.fog.w;
+    if (G.hfog.x > 0.0) {
+        let f = max(G.hfog.z, 0.05);
+        let base = G.hfog.x * exp(min(-(cam.y - G.hfog.y) / f, 20.0));
+        let dy = world.y - cam.y;
+        var k = d;
+        if (abs(dy) > 1e-3) {
+            k = d * (1.0 - exp(min(-dy / f, 40.0))) / (dy / f);
+        }
+        od = od + base * k;
+    }
+    return 1.0 - exp(-max(od, 0.0));
+}
+
+fn apply_fog_at(c: vec3<f32>, world: vec3<f32>) -> vec3<f32> {
+    return mix(c, G.fog.rgb, fog_amount_at(world));
+}
+
+// Height fog seen along a view ray that never hits anything (the sky).
+fn sky_haze(rd: vec3<f32>) -> f32 {
+    if (G.hfog.x <= 0.0) {
+        return 0.0;
+    }
+    let f = max(G.hfog.z, 0.05);
+    let base = G.hfog.x * exp(min(-(G.cam_pos.y - G.hfog.y) / f, 20.0));
+    let od = base * f / max(rd.y, 0.004);
+    return 1.0 - exp(-od);
+}
+
+// --- caustics ------------------------------------------------------------
+
+// Rippling light web (after Dave Hoskins' "Tileable Water Caustic").
+// Time only enters through whole multiples of the loop angle, so it loops.
+fn caustic_pattern(p_in: vec2<f32>) -> f32 {
+    let t = G.caus.z;
+    let p = p_in;
+    var i = p;
+    var c = 1.0;
+    let inten = 0.005;
+    for (var n = 0; n < 4; n = n + 1) {
+        let m = f32(select(n + 1, -(n + 1), n % 2 == 1));
+        let tt = t * m;
+        i = p + vec2<f32>(cos(tt - i.x) + sin(tt + i.y), sin(tt - i.y) + cos(tt + i.x));
+        c = c + 1.0 / length(vec2<f32>(p.x / (sin(i.x + tt) / inten), p.y / (cos(i.y + tt) / inten)));
+    }
+    c = c / 4.0;
+    c = 1.17 - pow(c, 1.4);
+    return pow(abs(c), 8.0);
+}
+
+// Caustic light falling on a surface at `world` with normal `n`.
+fn caustic_light(world: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
+    if (G.caus.x <= 0.0) {
+        return vec3<f32>(0.0);
+    }
+    let below = smoothstep(G.caus.w + 0.5, G.caus.w - 0.5, world.y);
+    if (below <= 0.0) {
+        return vec3<f32>(0.0);
+    }
+    let q = (world.xz + vec2<f32>(world.y * 0.3, -world.y * 0.2)) * 0.9 / max(G.caus.y, 0.05) - vec2<f32>(250.0);
+    let k = caustic_pattern(q);
+    return G.caus_col.rgb * G.caus.x * min(k * 4.0, 6.0) * below * (0.35 + 0.65 * max(n.y, 0.0));
+}
+
+// --- wet ground & snow cover ----------------------------------------------
+
+// Snow on upward-facing surfaces (0..1).
+fn snow_cover(world: vec3<f32>, n: vec3<f32>) -> f32 {
+    let s = G.extra.x;
+    if (s <= 0.0) {
+        return 0.0;
+    }
+    let nz = vnoise3(world * 1.7) * 0.6 + vnoise3(world * 5.3) * 0.4;
+    let t = 1.0 - s * 1.1;
+    return smoothstep(t, t + 0.12, n.y + (nz - 0.5) * 0.35) * smoothstep(0.0, 0.1, s);
+}
+
+// Puddles on flat ground when it rains (0..1).
+fn puddle(world: vec3<f32>, n: vec3<f32>) -> f32 {
+    let w = G.caus_col.w;
+    if (w <= 0.0) {
+        return 0.0;
+    }
+    let flat_k = smoothstep(0.85, 0.97, n.y);
+    let nz = vnoise3(vec3<f32>(world.x * 0.35, 0.0, world.z * 0.35)) * 0.7 + vnoise3(world * 1.3) * 0.3;
+    return flat_k * smoothstep(0.62, 0.66, nz + w * 0.3);
+}
+
+// Rain drops hitting puddles: expanding rings, twice per beat (loop-safe).
+fn rain_rings(world: vec3<f32>) -> f32 {
+    let p = world.xz * 2.5;
+    let cell = floor(p);
+    let h = hash3f(vec3<f32>(cell.x, 7.0, cell.y));
+    let life = fract(G.time.x * G.time.w * 2.0 + h * 17.0);
+    let centre = cell + 0.5 + (vec2<f32>(hash3f(vec3<f32>(cell.x, 3.0, cell.y)), hash3f(vec3<f32>(cell.x, 5.0, cell.y))) - 0.5) * 0.5;
+    let d = length(p - centre);
+    return smoothstep(0.06, 0.0, abs(d - life * 0.45)) * (1.0 - life) * select(0.0, 1.0, h < 0.6);
 }
 
 // Cheap studio environment for glossy reflections.

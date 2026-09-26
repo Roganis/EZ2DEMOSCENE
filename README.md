@@ -48,7 +48,15 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     ripples, sun glints, foam, a churning crust or bubbles.
   - Weather: rain with splashes, snow, rising embers, a sandstorm or
     fireflies in a box that follows the camera, and **lightning** bolts
-    whose flash lights up the scene.
+    whose flash lights up the scene. Rain wets every surface (gloss,
+    puddles with ripples); snow settles on everything facing up.
+  - Waterfalls of water, lava or goo, with foam, spray or smoke.
+  - Laser beams or hazy **spotlight cones** with pools of light.
+  - Particles can be smoke instead of glow, and there is a tornado
+    emitter.
+  - Atmosphere: **mist** pooling in valleys, underwater **caustics**, a
+    **rainbow**, and a **day & night cycle** with sunsets, stars and a
+    moon.
   - Laser beams: fans, rotating cones or scattered beams that sweep and
     strobe on the beat.
   - Neon ribbons: glowing tubes along Lissajous, knot, figure-eight, wave
@@ -68,7 +76,7 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   CRT phosphors…). Imported images can be *retro-ized*: downscaled,
   palette-reduced and dithered.
 - **Post FX.** Bloom, **god rays** (light shafts from the sun or the
-  picture centre) with lens flare, kaleidoscope, mirror split, chromatic aberration,
+  picture centre) with lens flare, **heat haze**, kaleidoscope, mirror split, chromatic aberration,
   pixelation, palette reduction with Bayer dithering (EGA, CGA, C64, Game
   Boy, PICO-8, Amiga copper, ZX Spectrum, VGA cube, phosphor), CRT
   scanlines/curvature/VHS wobble, grading, vignette, grain and beat flash.
@@ -186,6 +194,8 @@ ez2demoscene --write-textures assets/textures
   number of lives. Its position is an analytic function of `(id, age)`, so
   there is no simulation state.
 - Noise-based backgrounds move on closed circles through noise space.
+- The day cycle, caustics, heat haze, waterfall streaks and rain ripples
+  all move a whole number of times per loop.
 - Weather drops fall a whole number of times per loop, and lightning
   strikes are picked from time slots that wrap with the loop. Liquid
   currents drift a whole number of terrain lengths per loop.

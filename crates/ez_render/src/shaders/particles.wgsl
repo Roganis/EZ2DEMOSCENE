@@ -4,7 +4,7 @@
 // D.v[1]: colour a, size
 // D.v[2]: colour b, intensity
 // D.v[3]: speed, radius, trail count, trail spacing
-// D.v[4]: sprite
+// D.v[4]: sprite, smoke (1 = covers what is behind, intensity = opacity)
 // D.v[8..11]: layer model matrix
 
 struct POut {
@@ -12,6 +12,8 @@ struct POut {
     @location(0) quad: vec2<f32>,
     @location(1) color: vec3<f32>,
     @location(2) world: vec3<f32>,
+    // Coverage of smoke particles (0 for glowing ones).
+    @location(3) cover: f32,
 };
 
 fn rand_dir(a: f32, b: f32) -> vec3<f32> {
@@ -97,6 +99,24 @@ fn particle(id: u32, phase: f32) -> Particle {
             p.pos = vec3<f32>(cos(a) * r, life * radius * 1.4 - radius * 0.2, sin(a) * r);
             p.fade = sin(PI * life);
         }
+        case 7: {
+            // Tornado: particles spiral up a funnel that widens with height
+            // and sways; some debris circles its foot.
+            let hgt = radius * 3.0;
+            if (h4 > 0.82) {
+                let a = TAU * (h1 + life * 1.5 * max(speed, 0.1));
+                let r = radius * (0.5 + 0.9 * h2);
+                p.pos = vec3<f32>(cos(a) * r, radius * 0.25 * sin(PI * life) * h3, sin(a) * r);
+                p.fade = sin(PI * life) * 0.8;
+            } else {
+                let rn = life;
+                let r = radius * (0.1 + 0.9 * pow(rn, 1.6)) * (0.85 + 0.3 * h2);
+                let a = TAU * (h1 + life * 4.0 * max(speed, 0.1));
+                let sway = vec3<f32>(sin(TAU * (phase + rn * 0.4)), 0.0, cos(TAU * (phase * 2.0 + rn * 0.3))) * radius * 0.35 * rn;
+                p.pos = vec3<f32>(cos(a) * r, rn * hgt, sin(a) * r) + sway;
+                p.fade = sin(PI * life);
+            }
+        }
         default: {
             // Snow / glitter
             let sway = TAU * (life * 2.0 + h3);
@@ -143,8 +163,16 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
     out.pos = G.view_proj * vec4<f32>(wp, 1.0);
     out.quad = c;
     let tint = mix(D.v[1].rgb, D.v[2].rgb, p.life);
-    let fog = 1.0 - fog_amount(length(G.cam_pos.xyz - world));
-    out.color = tint * D.v[2].w * max(alpha, 0.0) * fog;
+    let fog = fog_amount_at(world);
+    if (D.v[4].y > 0.5) {
+        // Smoke: lit like the scene, fading into the fog.
+        let lit = mix(G.ground.rgb, G.sky.rgb, 0.7) * G.sky.w + G.light_color.rgb * G.ground.w * 0.4;
+        out.color = mix(tint * lit, G.fog.rgb, fog);
+        out.cover = clamp(D.v[2].w, 0.0, 1.0) * max(alpha, 0.0);
+    } else {
+        out.color = tint * D.v[2].w * max(alpha, 0.0) * (1.0 - fog);
+        out.cover = 0.0;
+    }
     out.world = world;
     return out;
 }
@@ -173,6 +201,10 @@ fn fs_main(in: POut) -> @location(0) vec4<f32> {
         default: {
             a = exp(-r2 * 5.0) * (1.0 - smoothstep(0.8, 1.0, r2));
         }
+    }
+    if (D.v[4].y > 0.5) {
+        let k = min(a, 1.0) * in.cover;
+        return vec4<f32>(in.color * k, k);
     }
     return vec4<f32>(in.color * a, 0.0);
 }

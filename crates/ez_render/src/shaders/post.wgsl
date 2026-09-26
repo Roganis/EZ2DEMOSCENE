@@ -88,7 +88,37 @@ fn fs_warp(in: VOut) -> @location(0) vec4<f32> {
         // mirrored repeat
         uv = 1.0 - abs(1.0 - (uv - 2.0 * floor(uv * 0.5)));
     }
+    let haze = P.v[2].x;
+    if (haze > 0.0) {
+        uv = uv + heat_haze(uv) * haze;
+    }
     return vec4<f32>(textureSampleLevel(t_a, s_lin, uv, 0.0).rgb, 1.0);
+}
+
+// Heat shimmer offset. P.v[2]: amount, scale, time angle (whole turns per
+// loop), region (0 hot spots, 1 ground, 2 everywhere); P.v[1].z: aspect.
+fn heat_haze(uv: vec2<f32>) -> vec2<f32> {
+    let s = max(P.v[2].y, 0.05);
+    let a = P.v[2].z;
+    let q = vec2<f32>(uv.x * P.v[1].z, uv.y) / s;
+    // Waves rise through the picture as the angle turns.
+    let dx = sin(q.y * 70.0 + a + sin(q.x * 23.0 + a) * 1.7) * 0.6 + sin(q.y * 150.0 + 2.0 * a + q.x * 41.0) * 0.4;
+    let dy = sin(q.y * 55.0 + 3.0 * a + q.x * 31.0) * 0.5;
+    let region = i32(P.v[2].w + 0.5);
+    var mask = 1.0;
+    if (region == 0) {
+        // Hot air rises: look for bright, warm things just below.
+        var heat = 0.0;
+        for (var i = 1; i <= 3; i = i + 1) {
+            let c = textureSampleLevel(t_a, s_lin, uv + vec2<f32>(0.0, f32(i) * 0.03), 0.0).rgb;
+            let lum = dot(c, vec3<f32>(0.3, 0.5, 0.2));
+            heat = heat + smoothstep(0.7, 2.5, lum + max(c.r - c.b, 0.0) * 0.5);
+        }
+        mask = heat / 3.0;
+    } else if (region == 1) {
+        mask = smoothstep(0.35, 1.0, uv.y);
+    }
+    return vec2<f32>(dx, dy) * 0.0025 * mask;
 }
 
 // --- bloom (dual filter) ---------------------------------------------------

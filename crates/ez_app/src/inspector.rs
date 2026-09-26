@@ -236,10 +236,94 @@ pub fn environment_ui(ui: &mut Ui, e: &mut Environment) {
     vec3(
         ui,
         "Sun direction",
-        "Direction the light comes from",
+        "Direction the light comes from (with the day cycle: where the sun is at noon)",
         &mut e.light_dir,
         0.02,
     );
+    ui.add_space(6.0);
+    let hf = &mut e.height_fog;
+    section(ui, "Mist (height fog)", false, |ui| {
+        param(
+            ui,
+            "Density",
+            "Mist thickness at its base height (0 = off)",
+            &mut hf.density,
+            0.0..=0.5,
+        );
+        slider(ui, "Base height", "", &mut hf.height, -10.0..=20.0);
+        slider(
+            ui,
+            "Thickness",
+            "How high the mist reaches before thinning out",
+            &mut hf.falloff,
+            0.1..=20.0,
+        );
+    });
+    let ca = &mut e.caustics;
+    section(ui, "Underwater caustics", false, |ui| {
+        param(
+            ui,
+            "Amount",
+            "Rippling light on every surface (0 = off)",
+            &mut ca.amount,
+            0.0..=4.0,
+        );
+        color(ui, "Colour", "", &mut ca.color);
+        slider(ui, "Size", "Size of the pattern", &mut ca.scale, 0.1..=8.0);
+        drag_i(
+            ui,
+            "Ripples / loop",
+            "How fast the pattern moves",
+            &mut ca.speed,
+            -16..=16,
+        );
+        slider(
+            ui,
+            "Only below",
+            "Caustics fade out above this height (under the water line)",
+            &mut ca.below,
+            -10.0..=100.0,
+        );
+    });
+    param(
+        ui,
+        "Rainbow",
+        "A rainbow opposite the sun (needs the sun fairly low)",
+        &mut e.rainbow,
+        0.0..=3.0,
+    );
+    let d = &mut e.day_cycle;
+    toggle_section(ui, "Day & night cycle", &mut d.enabled, |ui| {
+        drag_i(
+            ui,
+            "Days / loop",
+            "Whole days the sun travels per loop",
+            &mut d.cycles,
+            -8..=8,
+        );
+        slider(
+            ui,
+            "Start time",
+            "Time of day when the loop starts: 0 midnight, 0.25 sunrise, 0.5 noon, 0.75 sunset",
+            &mut d.start,
+            0.0..=1.0,
+        );
+        slider(
+            ui,
+            "Noon height",
+            "How high the sun climbs (degrees)",
+            &mut d.noon_height,
+            5.0..=90.0,
+        );
+        color(ui, "Sunset colour", "", &mut d.sunset_color);
+        color(
+            ui,
+            "Night colour",
+            "Sky and fog at night",
+            &mut d.night_color,
+        );
+        color(ui, "Moonlight", "", &mut d.moon_color);
+    });
 }
 
 pub fn post_ui(ui: &mut Ui, post: &mut PostStack) {
@@ -334,6 +418,31 @@ pub fn post_ui(ui: &mut Ui, post: &mut PostStack) {
             "Ghosts and a streak when looking into the light",
             &mut post.rays.flare,
             0.0..=3.0,
+        );
+    });
+    toggle_section(ui, "Heat haze", &mut post.haze.enabled, |ui| {
+        combo(
+            ui,
+            "Where",
+            "Which parts of the picture shimmer",
+            &mut post.haze.region,
+            &HazeRegion::ALL,
+            |r| r.label(),
+        );
+        param(ui, "Amount", "", &mut post.haze.amount, 0.0..=5.0);
+        slider(
+            ui,
+            "Size",
+            "Size of the ripples",
+            &mut post.haze.scale,
+            0.2..=4.0,
+        );
+        drag_i(
+            ui,
+            "Rises / loop",
+            "How fast the shimmer rises",
+            &mut post.haze.speed,
+            -32..=32,
         );
     });
     toggle_section(ui, "Chromatic aberration", &mut post.chroma.enabled, |ui| {
@@ -478,10 +587,15 @@ pub fn layer_ui(ui: &mut Ui, layer: &mut Layer, textures: &[UserTexture], lref: 
         LayerKind::Lasers(z) => lasers_ui(ui, z),
         LayerKind::Ribbon(r) => ribbon_ui(ui, r),
         LayerKind::Weather(w) => weather_ui(ui, w),
+        LayerKind::Falls(f) => falls_ui(ui, f),
     }
     let is_mesh_like = matches!(
         layer.kind,
-        LayerKind::Mesh(_) | LayerKind::Particles(_) | LayerKind::Lasers(_) | LayerKind::Ribbon(_)
+        LayerKind::Mesh(_)
+            | LayerKind::Particles(_)
+            | LayerKind::Lasers(_)
+            | LayerKind::Ribbon(_)
+            | LayerKind::Falls(_)
     );
     let is_backdrop = matches!(layer.kind, LayerKind::Backdrop(_));
     if !is_backdrop {
@@ -1131,7 +1245,17 @@ fn particles_ui(ui: &mut Ui, p: &mut ParticleLayer) {
         param(ui, "Size", "", &mut p.size, 0.0..=1.0);
         color(ui, "Colour (young)", "", &mut p.color_a);
         color(ui, "Colour (old)", "", &mut p.color_b);
-        param(ui, "Brightness", "", &mut p.intensity, 0.0..=10.0);
+        check(
+            ui,
+            "Smoke",
+            "Particles cover what is behind them (and can be dark) instead of glowing",
+            &mut p.smoke,
+        );
+        if p.smoke {
+            param(ui, "Opacity", "", &mut p.intensity, 0.0..=1.0);
+        } else {
+            param(ui, "Brightness", "", &mut p.intensity, 0.0..=10.0);
+        }
         drag_u(
             ui,
             "Trail",
@@ -1425,6 +1549,60 @@ fn liquid_ui(ui: &mut Ui, l: &mut Liquid) {
     }
 }
 
+fn falls_ui(ui: &mut Ui, f: &mut Falls) {
+    section(ui, "Waterfall", true, |ui| {
+        ui.label(
+            RichText::new("Pours from the layer's position downwards and out along its Z axis. Place it on a cliff edge.")
+                .weak(),
+        );
+        let before = f.kind;
+        combo(ui, "Kind", "", &mut f.kind, &FallKind::ALL, |k| k.label());
+        if f.kind != before && f.color == before.default_color() {
+            f.color = f.kind.default_color();
+        }
+        color(ui, "Colour", "", &mut f.color);
+        param(
+            ui,
+            if f.kind == FallKind::Water {
+                "Brightness"
+            } else {
+                "Glow"
+            },
+            "",
+            &mut f.glow,
+            0.0..=5.0,
+        );
+        slider(ui, "Width", "", &mut f.width, 0.2..=40.0);
+        slider(ui, "Height", "", &mut f.height, 0.5..=60.0);
+        slider(
+            ui,
+            "Arc",
+            "How far it arcs out from the edge",
+            &mut f.push,
+            0.0..=10.0,
+        );
+        drag_u(
+            ui,
+            "Flow / loop",
+            "Times the streaks run down per loop",
+            &mut f.flow,
+            1..=64,
+        );
+        param(
+            ui,
+            if f.kind == FallKind::Lava {
+                "Smoke"
+            } else {
+                "Foam & mist"
+            },
+            "Puffs at the foot (0 = none)",
+            &mut f.foam,
+            0.0..=3.0,
+        );
+        drag_u(ui, "Seed", "", &mut f.seed, 0..=9999);
+    });
+}
+
 fn weather_ui(ui: &mut Ui, w: &mut Weather) {
     section(ui, "Weather", true, |ui| {
         let before = w.kind;
@@ -1489,6 +1667,27 @@ fn weather_ui(ui: &mut Ui, w: &mut Weather) {
             2.0..=60.0,
         );
         slider(ui, "Height", "Height of the box", &mut w.height, 1.0..=60.0);
+        match w.kind {
+            Precipitation::Rain => {
+                param(
+                    ui,
+                    "Wet ground",
+                    "Darker, glossy surfaces and puddles with ripples (0 = dry)",
+                    &mut w.ground,
+                    0.0..=1.0,
+                );
+            }
+            Precipitation::Snow => {
+                param(
+                    ui,
+                    "Snow cover",
+                    "Snow on everything facing up. Animate it (e.g. a slow fade in) to let it build up",
+                    &mut w.ground,
+                    0.0..=1.0,
+                );
+            }
+            _ => {}
+        }
         drag_u(ui, "Seed", "", &mut w.seed, 0..=9999);
     });
     let l = &mut w.lightning;
@@ -1528,9 +1727,32 @@ fn weather_ui(ui: &mut Ui, w: &mut Weather) {
 
 fn lasers_ui(ui: &mut Ui, z: &mut Lasers) {
     section(ui, "Beams", true, |ui| {
+        combo(
+            ui,
+            "Style",
+            "Thin laser beams or wide, hazy spotlight cones",
+            &mut z.style,
+            &BeamStyle::ALL,
+            |s| s.label(),
+        );
         combo(ui, "Pattern", "", &mut z.pattern, &LaserPattern::ALL, |p| {
             p.label()
         });
+        if z.style == BeamStyle::Spotlight {
+            param(
+                ui,
+                "Cone angle",
+                "Opening of each cone (degrees)",
+                &mut z.cone.0,
+                1.0..=90.0,
+            );
+            check(
+                ui,
+                "Light pools",
+                "Pools of light where the cones hit the ground (height 0)",
+                &mut z.pools,
+            );
+        }
         drag_u(ui, "Beams", "", &mut z.count, 1..=128);
         param(
             ui,
@@ -1540,7 +1762,9 @@ fn lasers_ui(ui: &mut Ui, z: &mut Lasers) {
             0.0..=180.0,
         );
         param(ui, "Length", "", &mut z.length, 1.0..=200.0);
-        param(ui, "Width", "", &mut z.width, 0.005..=1.0);
+        if z.style == BeamStyle::Laser {
+            param(ui, "Width", "", &mut z.width, 0.005..=1.0);
+        }
         if z.pattern == LaserPattern::Scatter {
             drag_u(ui, "Seed", "Different directions", &mut z.seed, 0..=9999);
         }
@@ -1787,6 +2011,24 @@ pub fn add_layer_menu(ui: &mut Ui, templates: &[Layer]) -> Option<Layer> {
             }
         }
     });
+    ui.menu_button("🌊 Waterfall", |ui| {
+        for k in FallKind::ALL {
+            if ui.button(k.label()).clicked() {
+                out = Some(
+                    Layer::new(
+                        format!("{} fall", k.label()),
+                        LayerKind::Falls(Falls {
+                            kind: k,
+                            color: k.default_color(),
+                            glow: Param::new(if k == FallKind::Water { 1.0 } else { 1.5 }),
+                            ..Default::default()
+                        }),
+                    )
+                    .at([0.0, 8.0, 0.0]),
+                );
+            }
+        }
+    });
     if ui.button("⊞ Mirror floor").clicked() {
         out = Some(Layer::new(
             "Mirror floor",
@@ -1831,5 +2073,6 @@ pub fn layer_icon(l: &Layer) -> &'static str {
         LayerKind::Lasers(_) => "🔦",
         LayerKind::Ribbon(_) => "〰",
         LayerKind::Weather(_) => "☔",
+        LayerKind::Falls(_) => "🌊",
     }
 }
