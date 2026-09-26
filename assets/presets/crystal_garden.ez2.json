@@ -1,0 +1,608 @@
+{
+  "version": 2,
+  "name": "Crystal Garden",
+  "timing": {
+    "bpm": 80.0,
+    "loop_beats": 16
+  },
+  "camera": {
+    "mode": "Pendulum",
+    "target": [
+      0.0,
+      4.0,
+      -20.0
+    ],
+    "distance": 20.0,
+    "height": 1.0,
+    "angle": 0.0,
+    "orbit_turns": 1,
+    "swing": 20.0,
+    "fov": 65.0,
+    "roll": 0.0,
+    "beat_shake": 0.0
+  },
+  "environment": {
+    "fog_color": [
+      0.001821162,
+      0.003676507,
+      0.009134057
+    ],
+    "fog_density": 0.012,
+    "sky_color": [
+      0.029556833,
+      0.09758736,
+      0.1620294
+    ],
+    "ground_color": [
+      0.002428216,
+      0.005181517,
+      0.009134057
+    ],
+    "light_dir": [
+      -0.3,
+      0.6,
+      -1.0
+    ],
+    "light_color": [
+      0.11697067,
+      1.0,
+      0.4341537
+    ],
+    "light_intensity": 0.5,
+    "ambient": 0.6
+  },
+  "layers": [
+    {
+      "name": "Sky",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Backdrop",
+        "kind": "Aurora",
+        "color_a": [
+          0.001214108,
+          0.002428216,
+          0.00699541
+        ],
+        "color_b": [
+          0.014443844,
+          1.0,
+          0.21586053
+        ],
+        "color_c": [
+          0.21586053,
+          0.051269468,
+          1.0
+        ],
+        "speed": 1,
+        "intensity": 1.0,
+        "detail": 1.0,
+        "texture": null,
+        "ray": {
+          "variant": 0,
+          "pattern": 0,
+          "size": 1.0,
+          "twist": 1.2,
+          "warp": 1.0,
+          "bend": 1.0,
+          "glow": 1.0,
+          "fog": 1.0,
+          "steps": 0,
+          "spin": 0
+        }
+      }
+    },
+    {
+      "name": "Ice",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          -1.0,
+          -40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Terrain",
+        "size": 120.0,
+        "cells": 112,
+        "lod": true,
+        "height": 10.0,
+        "hills": 4,
+        "roughness": 0.5,
+        "scroll": 1,
+        "valley": 0.5,
+        "style": "Solid",
+        "line_color": [
+          1.0,
+          0.02415763,
+          0.6724432
+        ],
+        "glow": 1.0,
+        "fill_color": [
+          0.00303527,
+          0.001214108,
+          0.009134057
+        ],
+        "seed": 11,
+        "texture": null,
+        "tiles": 8,
+        "texture_lines": false,
+        "pixelated": false,
+        "shape": "Mountains",
+        "biome": "Arctic",
+        "liquid": {
+          "kind": "Ice",
+          "level": 0.15,
+          "color": [
+            0.19461781,
+            0.4341537,
+            0.6307572
+          ],
+          "glow": 1.0,
+          "waves": 1.0,
+          "flow": 0
+        }
+      }
+    },
+    {
+      "name": "Snow",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Weather",
+        "kind": "Snow",
+        "count": 5000,
+        "area": 16.0,
+        "height": 12.0,
+        "falls": 2,
+        "wind": 20.0,
+        "wind_dir": 30.0,
+        "size": 0.06,
+        "streak": 1.0,
+        "color": [
+          0.80695236,
+          0.8713672,
+          1.0
+        ],
+        "intensity": 0.9,
+        "splashes": 0.6,
+        "seed": 1,
+        "lightning": {
+          "enabled": false,
+          "per_loop": 8,
+          "chance": 0.35,
+          "flash": 1.5,
+          "color": [
+            0.5775805,
+            0.68668544,
+            1.0
+          ],
+          "distance": 30.0,
+          "seed": 7
+        },
+        "ground": 0.55
+      }
+    },
+    {
+      "name": "Crystals",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 2.4,
+        "stretch": [
+          0.5,
+          1.8,
+          0.5
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Cone",
+          "segments": 6
+        },
+        "material": {
+          "base_color": [
+            0.005181517,
+            0.014443844,
+            0.029556833
+          ],
+          "metallic": 0.3,
+          "roughness": 0.2,
+          "emissive_color": [
+            1.0,
+            0.029556833,
+            0.014443844
+          ],
+          "emissive": {
+            "base": 0.8,
+            "amp": 0.6,
+            "wave": "Pulse",
+            "cycles": 16,
+            "offset": 0.0,
+            "audio": 0.0
+          },
+          "emissive_mode": "Full",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": true,
+          "rim": 0.6,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "OnTerrain",
+          "terrain": "Ice",
+          "count": 90,
+          "seed": 5,
+          "align": true,
+          "lift": 1.2
+        },
+        "variation": {
+          "seed": 3,
+          "rotation": 0.0,
+          "scale": 0.5,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        },
+        "subdivide": 2,
+        "deform": {
+          "twist": {
+            "base": 0.6,
+            "amp": 0.25,
+            "wave": "Sine",
+            "cycles": 1,
+            "offset": 0.0,
+            "audio": 0.0
+          },
+          "bend": 0.0,
+          "taper": -0.3,
+          "noise": 0.0,
+          "noise_scale": 2.0,
+          "noise_speed": 1,
+          "explode": 0.0
+        },
+        "ramp": {
+          "enabled": true,
+          "colors": [
+            [
+              0.051269468,
+              1.0,
+              0.6307572
+            ],
+            [
+              0.19461781,
+              0.10702311,
+              1.0
+            ],
+            [
+              1.0,
+              0.07818743,
+              0.68668544
+            ]
+          ],
+          "mode": "Gradient",
+          "cycles": 1,
+          "glow": true
+        }
+      }
+    },
+    {
+      "name": "Halo",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          5.0,
+          -20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 7.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Ribbon",
+        "curve": "Wave",
+        "freq": [
+          4,
+          1,
+          1
+        ],
+        "thickness": 0.02,
+        "color": [
+          0.19461781,
+          0.10702311,
+          1.0
+        ],
+        "glow": 0.6,
+        "pulses": 2,
+        "pulse_speed": 1,
+        "pulse_length": 0.05,
+        "pulse_glow": 6.0
+      }
+    },
+    {
+      "name": "Beads",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          5.0,
+          -20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 0.18,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Sphere",
+          "detail": 2
+        },
+        "material": {
+          "base_color": [
+            0.4341537,
+            0.4341537,
+            0.47932023
+          ],
+          "metallic": 0.2,
+          "roughness": 0.4,
+          "emissive_color": [
+            1.0,
+            0.029556833,
+            0.014443844
+          ],
+          "emissive": 2.5,
+          "emissive_mode": "Full",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": false,
+          "rim": 0.3,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Curve",
+          "curve": "Wave",
+          "freq": [
+            4,
+            1,
+            1
+          ],
+          "size": 7.0,
+          "count": 32,
+          "laps": 1,
+          "align": true
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        },
+        "ramp": {
+          "enabled": true,
+          "colors": [
+            [
+              1.0,
+              1.0,
+              1.0
+            ],
+            [
+              0.051269468,
+              1.0,
+              0.6307572
+            ],
+            [
+              1.0,
+              0.07818743,
+              0.68668544
+            ]
+          ],
+          "mode": "Steps",
+          "cycles": -2,
+          "glow": true
+        }
+      }
+    }
+  ],
+  "post": {
+    "bloom": {
+      "enabled": true,
+      "intensity": 0.9,
+      "threshold": 0.6,
+      "radius": 0.8
+    },
+    "kaleido": {
+      "enabled": false,
+      "segments": 6,
+      "angle": 0.0,
+      "turns": 0,
+      "zoom": 1.0,
+      "center": [
+        0.5,
+        0.5
+      ]
+    },
+    "mirror": {
+      "enabled": false,
+      "mode": "LeftToRight"
+    },
+    "chroma": {
+      "enabled": false,
+      "amount": 0.004
+    },
+    "pixelate": {
+      "enabled": false,
+      "size": 4.0
+    },
+    "palette": {
+      "enabled": false,
+      "palette": "Ega",
+      "dither": 0.6
+    },
+    "crt": {
+      "enabled": false,
+      "scanlines": 0.5,
+      "curvature": 0.15,
+      "noise": 0.1
+    },
+    "grade": {
+      "exposure": 1.0,
+      "contrast": 1.05,
+      "saturation": 1.1,
+      "vignette": 0.35,
+      "grain": 0.03,
+      "beat_flash": 0.0
+    }
+  },
+  "textures": [],
+  "audio": null,
+  "graph": null,
+  "use_graph": false
+}

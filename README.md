@@ -110,6 +110,13 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   Colour/material, Merge) into Output. The
   graph compiles to the same layer list the simple mode uses, and *Bake to
   layers* brings it back into simple mode.
+  - **Shape and layout nodes:** Deform (twist, bend, taper, wobble,
+    explode, in the vertex shader), Colours across copies (gradient or
+    steps, travelling along them), and layouts that take a second
+    *reference* input: Along a curve (follow a ribbon), On a surface
+    (spread evenly over another shape) and On a terrain (stand on the
+    landscape, riding its scroll; the height field is ported to the CPU).
+    All of these are in Simple mode too.
   - **Signals:** green wires carry a number that changes over the loop.
     Wave/music, Math, Remap, Quantize, Smooth, Mix, Sequence and Hit
     counter nodes (each with a live graph of its value) feed **Drive**

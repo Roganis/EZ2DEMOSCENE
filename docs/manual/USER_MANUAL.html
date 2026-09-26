@@ -379,6 +379,13 @@ into each other, so the jump back at the end of the loop happens while it is inv
   <tr><td>Orbit swarm</td><td>Count, Radius, Spread, Orbits / loop, Seed</td><td>Debris orbiting a planet.</td></tr>
   <tr><td>Wall</td><td>Columns, Rows, Spacing, Curve</td><td>Orb walls, LED walls. Curve bends the wall into an arc.</td></tr>
   <tr><td>Spiral</td><td>Count, Radius, Height, Turns</td><td>Chandeliers, DNA helices.</td></tr>
+  <tr><td>Along a curve</td><td>Curve and Frequencies (the ribbon curves), Size, Count, Laps / loop, Face along</td><td>Beads riding a
+  neon ribbon (give both the same curve, size and position), trains, conga lines.</td></tr>
+  <tr><td>On a shape's surface</td><td>On shape, Shape size, Count, Seed, Stand up, Lift. Copies are spread evenly by area.</td><td>Spikes on a
+  crystal, moss on rocks. Set <span class="ui">Shape size</span> to the other layer's Size and put both layers in the same place.</td></tr>
+  <tr><td>On a terrain</td><td>Terrain (a Terrain layer), Count, Seed, Follow the slope, Lift</td><td>Trees, crystals, lamps and ruins
+  standing on the landscape. They ride along as it scrolls, follow its placement and shrink away at its edges where it wraps; on water
+  or lava they float.</td></tr>
 </table>
 <p><b>Variation</b> (appears when there are copies) adds life:</p>
 <ul>
@@ -389,6 +396,22 @@ into each other, so the jump back at the end of the loop happens while it is inv
   <li><span class="ui">Waves / loop</span> sets how many times those waves pass per loop, and <span class="ui">Wavelengths</span>
   sets how many waves fit across all copies.</li>
 </ul>
+<p><b>Colours across copies</b> (also when there are copies) spreads 2–4 colours over them: <span class="ui">Gradient</span> blends
+smoothly (back to the first colour at the end), <span class="ui">Steps</span> gives each copy one colour in turn.
+<span class="ui">Travel / loop</span> makes the colours run along the copies; <span class="ui">Colour the glow</span> tints the
+glow too.</p>
+
+<h3>Deform</h3>
+<p>Bends the shape itself, on every copy. All values have <span class="ui">~</span>, so they can move with the beat.</p>
+<table>
+  <tr><th style="width:24%">Setting</th><th>Meaning</th></tr>
+  <tr><td>Twist</td><td>Turns of twist from the bottom of the shape to its top.</td></tr>
+  <tr><td>Bend</td><td>Curves the shape into an arc (degrees from bottom to top).</td></tr>
+  <tr><td>Taper</td><td>Top wider (+) or narrower (−) than the bottom.</td></tr>
+  <tr><td>Wobble</td><td>Bumps flowing over the surface; <span class="ui">Bump size</span> and <span class="ui">Flow / loop</span> tune them.
+  Simple shapes need <span class="ui">Subdivide</span> (in Relief) for smooth bends and bumps.</td></tr>
+  <tr><td>Explode</td><td>Faces fly apart, clearest with flat shading. Try <span class="ui">~</span> → Exp fade out, once per beat.</td></tr>
+</table>
 
 <h3>Placement &amp; motion</h3>
 <table>
@@ -888,6 +911,12 @@ through <b>modifiers</b> into an <b>Output</b>. Everything connected to Output i
   <tr><td>Mirror</td><td>Adds a mirrored copy of every incoming layer, across the X, Y or Z plane at a chosen position.</td></tr>
   <tr><td>Strobe</td><td>Sets the Blink / strobe of every incoming layer (chapter 7).</td></tr>
   <tr><td>Colour / material</td><td>Sets the glow colour, multiplies the glow, and for shapes can set a texture, a neon wireframe look and a glitch.</td></tr>
+  <tr><td>Deform</td><td>Sets the Deform of every incoming shape.</td></tr>
+  <tr><td>Colours across copies</td><td>Sets the colours across the copies of every incoming shape.</td></tr>
+  <tr><td>Along a curve</td><td>Lays the copies along a curve. Wire a <b>ribbon</b> layer into its second input
+  (<span class="ui">ribbon</span>) and they follow that ribbon exactly, wherever it is.</td></tr>
+  <tr><td>On a surface</td><td>Scatters the copies over the shape layer wired into <span class="ui">surface</span>, following its placement.</td></tr>
+  <tr><td>On a terrain</td><td>Stands the copies on the terrain wired into <span class="ui">terrain</span>.</td></tr>
   <tr><td>Drive</td><td>Sets one setting of every incoming layer from a signal (see <i>Signals</i> below).</td></tr>
   <tr><td>Merge</td><td>Combines up to 4 streams.</td></tr>
   <tr><td>Output</td><td>Up to 8 inputs. Everything here is drawn.</td></tr>

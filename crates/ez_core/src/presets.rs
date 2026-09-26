@@ -120,6 +120,11 @@ pub fn all() -> Vec<Preset> {
             project: signal_flow(),
         },
         Preset {
+            name: "Crystal Garden",
+            description: "Twisted crystals standing on a scrolling tundra, beads riding a halo, colours travelling along.",
+            project: crystal_garden(),
+        },
+        Preset {
             name: "Empty",
             description: "A blank stage with a floor and a sky.",
             project: empty(),
@@ -206,6 +211,109 @@ pub fn signal_flow() -> Project {
     p.layers = g.compile();
     p.graph = Some(g);
     p.use_graph = true;
+    p
+}
+
+/// Aurora Tundra with the layout and shape tools: twisted crystals stand
+/// on the terrain, beads ride a glowing halo, colours travel along both.
+pub fn crystal_garden() -> Project {
+    let mut p = aurora_tundra();
+    p.name = "Crystal Garden".into();
+    p.layers.retain(|l| l.name != "Rocks");
+    p.layers.push(
+        Layer::new(
+            "Crystals",
+            LayerKind::Mesh(MeshLayer {
+                source: MeshSource::Primitive(Primitive::Cone { segments: 6 }),
+                subdivide: 2,
+                instancer: Instancer::OnTerrain {
+                    terrain: "Ice".into(),
+                    count: 90,
+                    seed: 5,
+                    align: true,
+                    lift: 1.2,
+                    ground: None,
+                },
+                variation: Variation {
+                    scale: 0.5,
+                    seed: 3,
+                    ..Default::default()
+                },
+                deform: Deform {
+                    twist: Param::new(0.6).osc(Wave::Sine, 0.25, 1),
+                    taper: Param::new(-0.3),
+                    ..Default::default()
+                },
+                ramp: ColorRamp {
+                    enabled: true,
+                    colors: vec![hex(0x40ffd0), hex(0x7a5cff), hex(0xff4fd8)],
+                    mode: RampMode::Gradient,
+                    cycles: 1,
+                    glow: true,
+                },
+                material: Material {
+                    base_color: hex(0x102030),
+                    metallic: Param::new(0.3),
+                    roughness: Param::new(0.2),
+                    flat_shading: true,
+                    emissive: Param::new(0.8).osc(Wave::Pulse, 0.6, 16),
+                    rim: Param::new(0.6),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+        )
+        .scaled(2.4)
+        .stretched([0.5, 1.8, 0.5]),
+    );
+    p.layers.push(
+        Layer::new(
+            "Halo",
+            LayerKind::Ribbon(Ribbon {
+                curve: RibbonCurve::Wave,
+                freq: [4, 1, 1],
+                thickness: 0.02,
+                color: hex(0x7a5cff),
+                glow: Param::new(0.6),
+                pulses: 2,
+                pulse_speed: 1,
+                pulse_length: Param::new(0.05),
+                pulse_glow: Param::new(6.0),
+            }),
+        )
+        .at([0.0, 5.0, -20.0])
+        .scaled(7.0),
+    );
+    p.layers.push(
+        Layer::new(
+            "Beads",
+            LayerKind::Mesh(MeshLayer {
+                source: MeshSource::Primitive(Primitive::Sphere { detail: 2 }),
+                instancer: Instancer::Curve {
+                    curve: RibbonCurve::Wave,
+                    freq: [4, 1, 1],
+                    size: 7.0,
+                    count: 32,
+                    laps: 1,
+                    align: true,
+                },
+                ramp: ColorRamp {
+                    enabled: true,
+                    colors: vec![hex(0xffffff), hex(0x40ffd0), hex(0xff4fd8)],
+                    mode: RampMode::Steps,
+                    cycles: -2,
+                    glow: true,
+                },
+                material: Material {
+                    emissive: Param::new(2.5),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+        )
+        .at([0.0, 5.0, -20.0])
+        .scaled(0.18),
+    );
     p
 }
 

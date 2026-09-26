@@ -199,7 +199,7 @@ and drunk waves cover them. A test evaluates 200 random graphs at phase 0
 and 1 (it caught a float edge in nested Smooth, fixed by wrapping phases).
 Preset: *Signal Flow*.
 
-### ☐ 3.3 Geometry and layout nodes
+### ☑ 3.3 Geometry and layout nodes
 - **Deform:** Twist, Bend, Taper, Noise displacement, Explode (per-face
   push). Applied in the mesh vertex shader through a small deform list in
   the draw block, animatable.
@@ -208,6 +208,17 @@ Preset: *Signal Flow*.
   function mirrored on the CPU), Follow curve (copies along a ribbon curve,
   moving a whole number of laps per loop).
 - **Material:** Palette cycle and Gradient ramp across copies.
+
+**Done:** everything is a layer setting (usable in Simple mode) *and* a
+node. Deform lives in the mesh vertex shader (normals corrected, shadows
+follow, culling widened). Colours across copies use a spare per-instance
+slot (position among the copies) and 4 colours in the draw block; palette
+cycling is its *Travel / loop*. Layout nodes gained a second, reference
+input (a ribbon, shape or terrain they look at but don't pass on). Surface
+points are sampled by area on the CPU from the shape's triangles and
+cached by the renderer; the terrain height field is ported to Rust and a
+render test checks copies against the GPU ground. Preset: *Crystal
+Garden*.
 
 ---
 
