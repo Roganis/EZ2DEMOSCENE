@@ -575,3 +575,71 @@ fn copies_cover_a_surface() {
     eprintln!("surface copies change {change:.2}");
     assert!(change > 1.0);
 }
+
+/// Copies stand on the terrain the GPU draws: markers sunk just below the
+/// CPU height are hidden, the same markers just above it show.
+#[test]
+fn terrain_copies_match_the_gpu_ground() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let target = r.create_target(320, 180);
+    let mut p = presets::vector_valley();
+    p.post = Default::default();
+    p.environment.fog_density = Param::new(0.0);
+    p.camera.height = Param::new(14.0);
+    p.layers.retain(|l| matches!(l.kind, LayerKind::Terrain(_)));
+    let tname = p.layers[0].name.clone();
+    if let LayerKind::Terrain(t) = &mut p.layers[0].kind {
+        t.style = TerrainStyle::Solid;
+        t.fill_color = [0.2, 0.2, 0.2];
+    }
+    let with_markers = |lift: f32| {
+        let mut q = p.clone();
+        q.layers.push(
+            Layer::new(
+                "Markers",
+                LayerKind::Mesh(MeshLayer {
+                    source: MeshSource::Primitive(Primitive::Sphere { detail: 2 }),
+                    instancer: Instancer::OnTerrain {
+                        terrain: tname.clone(),
+                        count: 400,
+                        seed: 9,
+                        align: false,
+                        lift,
+                        ground: None,
+                    },
+                    material: Material {
+                        base_color: [0.0, 0.0, 0.0],
+                        emissive: Param::new(4.0),
+                        emissive_color: [0.0, 1.0, 0.0],
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }),
+            )
+            .scaled(0.25),
+        );
+        q
+    };
+    let green = |img: &image::RgbaImage| {
+        img.pixels()
+            .filter(|px| px[1] > 150 && px[0] < 110 && px[2] < 110)
+            .count()
+    };
+    let ctx = EvalCtx::new(&p.timing, 0.3, None);
+    let above = green(&r.render_image(&with_markers(0.2), &ctx, &target));
+    let below = green(&r.render_image(&with_markers(-0.45), &ctx, &target));
+    eprintln!("marker pixels above ground {above}, sunk {below}");
+    assert!(above > 200, "markers not visible");
+    assert!(
+        (below as f32) < above as f32 * 0.25,
+        "sunk markers still show: {below} vs {above}"
+    );
+}

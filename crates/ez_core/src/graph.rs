@@ -95,6 +95,14 @@ pub enum NodeKind {
         align: bool,
         lift: f32,
     },
+    /// Stands the copies of every incoming shape on the terrain layer on
+    /// the second input; they ride along as it scrolls.
+    OnTerrain {
+        count: u32,
+        seed: u32,
+        align: bool,
+        lift: f32,
+    },
     /// Makes or shapes a signal.
     Signal { sig: SignalNode },
     /// Sets one setting of every incoming layer from a signal.
@@ -126,6 +134,7 @@ impl NodeKind {
             NodeKind::Deform { .. } => "Deform".into(),
             NodeKind::FollowCurve { .. } => "Along a curve".into(),
             NodeKind::OnSurface { .. } => "On a surface".into(),
+            NodeKind::OnTerrain { .. } => "On a terrain".into(),
             NodeKind::Colors { .. } => "Colours across copies".into(),
             NodeKind::Signal { sig } => sig.title().into(),
             NodeKind::Drive { path, .. } if path.is_empty() => "Drive".into(),
@@ -140,7 +149,7 @@ impl NodeKind {
     pub fn has_reference(&self) -> bool {
         matches!(
             self,
-            NodeKind::FollowCurve { .. } | NodeKind::OnSurface { .. }
+            NodeKind::FollowCurve { .. } | NodeKind::OnSurface { .. } | NodeKind::OnTerrain { .. }
         )
     }
 
@@ -151,6 +160,7 @@ impl NodeKind {
             NodeKind::Drive { .. } if pin == 1 => "signal",
             NodeKind::FollowCurve { .. } if pin == 1 => "ribbon",
             NodeKind::OnSurface { .. } if pin == 1 => "surface",
+            NodeKind::OnTerrain { .. } if pin == 1 => "terrain",
             _ if self.inputs() > 1
                 && !self.has_reference()
                 && !matches!(self, NodeKind::Drive { .. }) =>
@@ -267,6 +277,12 @@ impl NodeKind {
                 align: true,
                 lift: 0.0,
             },
+            NodeKind::OnTerrain {
+                count: 60,
+                seed: 1,
+                align: false,
+                lift: 0.0,
+            },
             NodeKind::Drive {
                 path: String::new(),
                 mode: DriveMode::Replace,
@@ -350,6 +366,35 @@ impl NodeKind {
                     })
                     .collect()
             }
+            NodeKind::OnTerrain {
+                count,
+                seed,
+                align,
+                lift,
+            } => {
+                let Some((tl, t)) = reference.iter().find_map(|l| match &l.kind {
+                    LayerKind::Terrain(t) => Some((l, t)),
+                    _ => None,
+                }) else {
+                    return input;
+                };
+                input
+                    .into_iter()
+                    .map(|mut l| {
+                        if let LayerKind::Mesh(m) = &mut l.kind {
+                            m.instancer = Instancer::OnTerrain {
+                                terrain: tl.name.clone(),
+                                count: *count,
+                                seed: *seed,
+                                align: *align,
+                                lift: *lift,
+                                ground: Some(Box::new((t.clone(), tl.transform.clone()))),
+                            };
+                        }
+                        l
+                    })
+                    .collect()
+            }
             _ => self.apply(input),
         }
     }
@@ -358,9 +403,9 @@ impl NodeKind {
         match self {
             NodeKind::Source { layer } => vec![layer.clone()],
             NodeKind::Signal { .. } => Vec::new(),
-            NodeKind::FollowCurve { .. } | NodeKind::OnSurface { .. } => {
-                self.apply_with(input, &[])
-            }
+            NodeKind::FollowCurve { .. }
+            | NodeKind::OnSurface { .. }
+            | NodeKind::OnTerrain { .. } => self.apply_with(input, &[]),
             NodeKind::Colors { ramp } => input
                 .into_iter()
                 .map(|mut l| {

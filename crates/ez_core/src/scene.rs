@@ -112,10 +112,12 @@ impl Project {
     /// Layers to render at `ctx`: either the plain layer list or the
     /// compiled graph (with its Drive nodes applied).
     pub fn scene_layers(&self, ctx: &crate::EvalCtx) -> Cow<'_, [Layer]> {
-        match (&self.graph, self.use_graph) {
+        let mut layers = match (&self.graph, self.use_graph) {
             (Some(g), true) => Cow::Owned(g.compile_at(ctx)),
-            _ => Cow::Borrowed(&self.layers),
-        }
+            _ => Cow::Borrowed(&self.layers[..]),
+        };
+        link_terrains(&mut layers);
+        layers
     }
 
     pub fn find_texture(&self, name: &str) -> Option<&UserTexture> {
@@ -731,6 +733,40 @@ impl Symmetry {
     }
 }
 
+/// Fill in the terrain of copies placed "on a terrain" from the terrain
+/// layer they name.
+fn link_terrains(layers: &mut Cow<'_, [Layer]>) {
+    let wants = |l: &Layer| {
+        matches!(&l.kind, LayerKind::Mesh(m) if matches!(&m.instancer,
+            Instancer::OnTerrain { ground: None, terrain, .. } if !terrain.is_empty()))
+    };
+    if !layers.iter().any(wants) {
+        return;
+    }
+    let terrains: Vec<(String, Terrain, Transform)> = layers
+        .iter()
+        .filter_map(|l| match &l.kind {
+            LayerKind::Terrain(t) => Some((l.name.clone(), t.clone(), l.transform.clone())),
+            _ => None,
+        })
+        .collect();
+    for l in layers.to_mut().iter_mut() {
+        if let LayerKind::Mesh(m) = &mut l.kind {
+            if let Instancer::OnTerrain {
+                terrain, ground, ..
+            } = &mut m.instancer
+            {
+                if ground.is_none() {
+                    *ground = terrains
+                        .iter()
+                        .find(|(n, _, _)| n == terrain)
+                        .map(|(_, t, tr)| Box::new((t.clone(), tr.clone())));
+                }
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Mesh layer
 
@@ -1142,6 +1178,21 @@ pub enum Instancer {
         /// Push copies out from the surface.
         lift: f32,
     },
+    /// Copies standing on a terrain layer (by name), riding along as it
+    /// scrolls.
+    OnTerrain {
+        /// Name of the terrain layer.
+        terrain: String,
+        count: u32,
+        seed: u32,
+        /// Tilt copies with the slope.
+        align: bool,
+        /// Lift copies off the ground.
+        lift: f32,
+        /// The terrain and its placement, filled in before rendering.
+        #[serde(skip)]
+        ground: Option<Box<(Terrain, Transform)>>,
+    },
 }
 
 impl Instancer {
@@ -1156,6 +1207,7 @@ impl Instancer {
             Instancer::Spiral { .. } => "Spiral",
             Instancer::Curve { .. } => "Along a curve",
             Instancer::Surface { .. } => "On a shape's surface",
+            Instancer::OnTerrain { .. } => "On a terrain",
         }
     }
 
@@ -1210,6 +1262,14 @@ impl Instancer {
                 seed: 1,
                 align: true,
                 lift: 0.0,
+            },
+            Instancer::OnTerrain {
+                terrain: String::new(),
+                count: 60,
+                seed: 1,
+                align: false,
+                lift: 0.0,
+                ground: None,
             },
         ]
     }

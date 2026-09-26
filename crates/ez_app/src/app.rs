@@ -1128,6 +1128,15 @@ impl EzApp {
     }
 
     fn inspector_panel(&mut self, ui: &mut Ui) {
+        // Terrain layers that copies can stand on.
+        let terrains: Vec<String> = self
+            .project
+            .layers
+            .iter()
+            .filter(|l| matches!(l.kind, LayerKind::Terrain(_)))
+            .map(|l| l.name.clone())
+            .collect();
+        ui.data_mut(|d| d.insert_temp(egui::Id::new(inspector::TERRAIN_NAMES), terrains));
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             ui.add_space(4.0);
             if self.mode == Mode::Nodes {

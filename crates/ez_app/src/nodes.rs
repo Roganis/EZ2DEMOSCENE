@@ -442,6 +442,22 @@ impl SnarlViewer<NodeKind> for Viewer<'_> {
                             .weak(),
                     );
                 }
+                NodeKind::OnTerrain {
+                    count,
+                    seed,
+                    align,
+                    lift,
+                } => {
+                    ui.add(egui::DragValue::new(count).range(1..=5000).prefix("copies "));
+                    ui.add(egui::DragValue::new(seed).range(0..=9999).prefix("seed "));
+                    ui.checkbox(align, "follow the slope");
+                    ui.add(egui::Slider::new(lift, -2.0..=10.0).text("lift"));
+                    ui.label(
+                        egui::RichText::new("Wire the terrain into “terrain”")
+                            .small()
+                            .weak(),
+                    );
+                }
                 NodeKind::Deform { deform } => {
                     ui.push_id(("deform", node.0), |ui| {
                         crate::inspector::deform_ui(ui, deform)

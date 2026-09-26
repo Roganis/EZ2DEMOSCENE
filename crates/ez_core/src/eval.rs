@@ -339,6 +339,44 @@ fn instancer_locals(
                 })
                 .collect()
         }
+        Instancer::OnTerrain {
+            count,
+            seed,
+            align,
+            lift,
+            ref ground,
+            ..
+        } => {
+            let Some(ground) = ground else {
+                return Vec::new();
+            };
+            let (terrain, placement) = &**ground;
+            let g = crate::terrain::Ground::at(terrain, ctx);
+            let full = layer_matrix(placement, ctx);
+            let frame = layer_frame(placement, ctx);
+            let (_, base_rot, _) = frame.to_scale_rotation_translation();
+            let up = base_rot * Vec3::Y;
+            let mut rng = Rng::new(seed as u64 * 15_485_863 + 5);
+            (0..count.min(20_000))
+                .map(|_| {
+                    let (u, w) = (rng.f32(), rng.f32());
+                    let (p, n, fade) = g.point(u, w);
+                    let n = full.transform_vector3(n).normalize_or(up);
+                    let rot = if align {
+                        Quat::from_rotation_arc(up, n) * base_rot
+                    } else {
+                        base_rot
+                    };
+                    // Copies shrink away at the edges, where the landscape
+                    // wraps around.
+                    Mat4::from_scale_rotation_translation(
+                        Vec3::splat(fade.max(1e-3)),
+                        rot,
+                        full.transform_point3(p) + n * lift,
+                    )
+                })
+                .collect()
+        }
         Instancer::Surface {
             size, align, lift, ..
         } => surface
@@ -405,7 +443,10 @@ pub fn instances_are_static(layer: &Layer, mesh: &MeshLayer) -> bool {
         && !t.shake.is_active()
         && !t.scale.is_animated()
         && !t.bob.is_animated()
-        && !matches!(mesh.instancer, Instancer::Orbit { .. })
+        && !matches!(
+            mesh.instancer,
+            Instancer::Orbit { .. } | Instancer::OnTerrain { .. }
+        )
         && !matches!(mesh.instancer, Instancer::Curve { laps, .. } if laps != 0)
         && v.spin == 0
         && v.ripple == 0.0
@@ -430,7 +471,12 @@ pub fn mesh_instances_with(
     surface: Option<&[SurfacePoint]>,
     out: &mut Vec<Instance>,
 ) {
-    let l = layer_frame(&layer.transform, ctx);
+    // Copies on a terrain are placed in the world already.
+    let l = if matches!(mesh.instancer, Instancer::OnTerrain { .. }) {
+        Mat4::IDENTITY
+    } else {
+        layer_frame(&layer.transform, ctx)
+    };
     let size = Mat4::from_scale(layer_scale(&layer.transform, ctx));
     let syms = symmetry_matrices(&layer.symmetry);
     let locals = instancer_locals(&mesh.instancer, ctx, surface);
@@ -502,6 +548,55 @@ pub fn mesh_instances_with(
 #[cfg(test)]
 mod surface_tests {
     use super::*;
+
+    #[test]
+    fn copies_ride_the_terrain_and_loop() {
+        let mut p = crate::presets::lava_world();
+        let tname = p
+            .layers
+            .iter()
+            .find(|l| matches!(l.kind, LayerKind::Terrain(_)))
+            .unwrap()
+            .name
+            .clone();
+        p.layers.push(Layer::new(
+            "Posts",
+            LayerKind::Mesh(MeshLayer {
+                instancer: Instancer::OnTerrain {
+                    terrain: tname,
+                    count: 50,
+                    seed: 2,
+                    align: true,
+                    lift: 0.0,
+                    ground: None,
+                },
+                ..Default::default()
+            }),
+        ));
+        let at = |phase: f32| {
+            let ctx = EvalCtx::new(&p.timing, phase, None);
+            let layers = p.scene_layers(&ctx).into_owned();
+            let l = layers.iter().find(|l| l.name == "Posts").unwrap().clone();
+            let LayerKind::Mesh(m) = &l.kind else {
+                unreachable!()
+            };
+            let mut out = Vec::new();
+            mesh_instances(&l, m, &ctx, &mut out);
+            out
+        };
+        let (a, b, mid) = (at(0.0), at(1.0), at(0.1));
+        assert_eq!(a.len(), 50);
+        for (x, y) in a.iter().zip(&b) {
+            assert!(x.model.abs_diff_eq(y.model, 1e-3));
+        }
+        // They move with the scroll.
+        let moved = a
+            .iter()
+            .zip(&mid)
+            .filter(|(x, y)| !x.model.abs_diff_eq(y.model, 1e-3))
+            .count();
+        assert!(moved > 40, "{moved}");
+    }
 
     #[test]
     fn surface_samples_follow_area() {

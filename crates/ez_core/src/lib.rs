@@ -23,6 +23,7 @@ pub mod rng;
 pub mod scene;
 pub mod signal;
 pub mod store;
+pub mod terrain;
 
 pub use audio::AudioEnvelope;
 pub use clock::{EvalCtx, Timing};

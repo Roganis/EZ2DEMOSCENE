@@ -602,6 +602,9 @@ pub fn textures_ui(ui: &mut Ui, textures: &mut Vec<UserTexture>) {
 // Layers
 
 /// `lref` identifies the layer so file imports can be applied to it later.
+/// egui temp-data key: names of the project's terrain layers.
+pub const TERRAIN_NAMES: &str = "ez2-terrain-names";
+
 pub fn layer_ui(ui: &mut Ui, layer: &mut Layer, textures: &[UserTexture], lref: LayerRef) {
     ui.horizontal(|ui| {
         ui.checkbox(&mut layer.enabled, "");
@@ -1297,6 +1300,49 @@ fn instancer_ui(ui: &mut Ui, inst: &mut Instancer) {
                 lift,
                 -2.0..=4.0,
             );
+        }
+        Instancer::OnTerrain {
+            terrain,
+            count,
+            seed,
+            align,
+            lift,
+            ground,
+        } => {
+            let names: Vec<String> = ui
+                .data(|d| d.get_temp(egui::Id::new(TERRAIN_NAMES)))
+                .unwrap_or_default();
+            row(
+                ui,
+                "Terrain",
+                "The terrain layer the copies stand on. They ride along as it scrolls.",
+                |ui| {
+                    egui::ComboBox::from_id_salt("on_terrain")
+                        .selected_text(if terrain.is_empty() {
+                            "pick a terrain"
+                        } else {
+                            terrain.as_str()
+                        })
+                        .show_ui(ui, |ui| {
+                            if names.is_empty() {
+                                ui.label("Add a Terrain layer first");
+                            }
+                            for n in &names {
+                                if ui.selectable_label(terrain == n, n).clicked() {
+                                    *terrain = n.clone();
+                                    *ground = None;
+                                }
+                            }
+                        });
+                },
+            );
+            if !terrain.is_empty() && !names.is_empty() && !names.contains(terrain) {
+                ui.colored_label(egui::Color32::LIGHT_RED, "No terrain layer has this name");
+            }
+            drag_u(ui, "Count", "", count, 1..=5000);
+            drag_u(ui, "Seed", "", seed, 0..=9999);
+            check(ui, "Follow the slope", "Tilt copies with the ground", align);
+            slider(ui, "Lift", "Raise copies off the ground", lift, -2.0..=10.0);
         }
     }
 }
