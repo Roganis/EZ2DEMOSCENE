@@ -1312,6 +1312,18 @@ impl Primitive {
 #[serde(tag = "type")]
 pub enum Instancer {
     Single,
+    /// A huge swarm (up to 250,000 copies), computed on the graphics card
+    /// where it can (desktop, WebGPU): every copy is a function of its
+    /// number, so the fallback on the CPU gives the same picture.
+    Swarm {
+        form: SwarmForm,
+        count: u32,
+        radius: f32,
+        spread: f32,
+        /// Whole turns per loop.
+        speed: i32,
+        seed: u32,
+    },
     Grid {
         counts: [u32; 3],
         spacing: [f32; 3],
@@ -1401,6 +1413,7 @@ impl Instancer {
             Instancer::Radial { .. } => "Radial",
             Instancer::Scatter { .. } => "Scatter",
             Instancer::Orbit { .. } => "Orbit swarm",
+            Instancer::Swarm { .. } => "Big swarm (GPU)",
             Instancer::Wall { .. } => "Wall",
             Instancer::Spiral { .. } => "Spiral",
             Instancer::Curve { .. } => "Along a curve",
@@ -1430,6 +1443,14 @@ impl Instancer {
                 count: 40,
                 radius: 4.0,
                 spread: 1.5,
+                speed: 1,
+                seed: 1,
+            },
+            Instancer::Swarm {
+                form: SwarmForm::Orbit,
+                count: 20_000,
+                radius: 5.0,
+                spread: 2.0,
                 speed: 1,
                 seed: 1,
             },
@@ -3197,6 +3218,50 @@ impl Default for ArcLayer {
             glow: Param::new(2.0),
             fade: 0.6,
             seed: 1,
+        }
+    }
+}
+
+/// Most copies in a swarm.
+pub const SWARM_MAX: u32 = 250_000;
+
+/// Layouts of a big swarm.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum SwarmForm {
+    /// Each copy on its own tilted circle (like Orbit).
+    #[default]
+    Orbit,
+    /// Filling a ball that turns, each copy bobbing.
+    Cloud,
+    /// On the surface of a ball that turns.
+    Shell,
+    /// A spiral galaxy: three arms, the middle turning faster.
+    Galaxy,
+}
+
+impl SwarmForm {
+    pub const ALL: [SwarmForm; 4] = [
+        SwarmForm::Orbit,
+        SwarmForm::Cloud,
+        SwarmForm::Shell,
+        SwarmForm::Galaxy,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SwarmForm::Orbit => "Orbits",
+            SwarmForm::Cloud => "Cloud",
+            SwarmForm::Shell => "Shell",
+            SwarmForm::Galaxy => "Galaxy",
+        }
+    }
+
+    pub fn index(self) -> u32 {
+        match self {
+            SwarmForm::Orbit => 0,
+            SwarmForm::Cloud => 1,
+            SwarmForm::Shell => 2,
+            SwarmForm::Galaxy => 3,
         }
     }
 }

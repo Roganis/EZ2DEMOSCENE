@@ -1555,6 +1555,38 @@ fn instancer_ui(ui: &mut Ui, inst: &mut Instancer) {
             drag_i(ui, "Orbits / loop", "", speed, -8..=8);
             drag_u(ui, "Seed", "", seed, 0..=9999);
         }
+        Instancer::Swarm {
+            form,
+            count,
+            radius,
+            spread,
+            speed,
+            seed,
+        } => {
+            combo(ui, "Form", "", form, &SwarmForm::ALL, |f| f.label());
+            row(
+                ui,
+                "Count",
+                "Up to 250,000. Placed by the graphics card on desktop and WebGPU; in WebGL2 browsers the processor does it, so keep it smaller there.",
+                |ui| {
+                    ui.add(
+                        egui::DragValue::new(count)
+                            .range(1..=SWARM_MAX)
+                            .speed(100.0),
+                    )
+                    .changed()
+                },
+            );
+            slider(ui, "Radius", "", radius, 0.0..=60.0);
+            slider(ui, "Spread", "", spread, 0.0..=20.0);
+            drag_i(ui, "Turns / loop", "", speed, -8..=8);
+            drag_u(ui, "Seed", "", seed, 0..=9999);
+            ui.label(
+                RichText::new("Use a simple shape (cube, tetrahedron, shard) for huge counts.")
+                    .weak()
+                    .small(),
+            );
+        }
         Instancer::Wall {
             cols,
             rows,

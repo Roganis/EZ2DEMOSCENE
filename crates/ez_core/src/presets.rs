@@ -150,6 +150,11 @@ pub fn all() -> Vec<Preset> {
             project: tesla_swarm(),
         },
         Preset {
+            name: "Galaxy Swarm",
+            description: "40,000 glowing shards in a turning spiral galaxy, placed by the graphics card.",
+            project: galaxy_swarm(),
+        },
+        Preset {
             name: "Empty",
             description: "A blank stage with a floor and a sky.",
             project: empty(),
@@ -685,6 +690,70 @@ pub fn tesla_swarm() -> Project {
             ..Default::default()
         }),
     ));
+    p
+}
+
+/// A big swarm: a spiral galaxy of shards (compute shader on desktop and
+/// WebGPU, CPU fallback elsewhere).
+pub fn galaxy_swarm() -> Project {
+    let mut p = orbiting_solid();
+    p.name = "Galaxy Swarm".into();
+    p.post.bloom.enabled = true;
+    p.camera.distance = Param::new(11.0).osc(Wave::Sine, 1.5, 1);
+    p.camera.height = Param::new(4.0).osc(Wave::Sine, 1.5, 1);
+    p.layers
+        .retain(|l| matches!(l.kind, LayerKind::Backdrop(_)));
+    p.layers.push(
+        Layer::new(
+            "Galaxy",
+            LayerKind::Mesh(MeshLayer {
+                instancer: Instancer::Swarm {
+                    form: SwarmForm::Galaxy,
+                    count: 40_000,
+                    radius: 7.0,
+                    spread: 1.5,
+                    speed: 1,
+                    seed: 2,
+                },
+                variation: Variation {
+                    scale: 0.6,
+                    rotation: 90.0,
+                    ..Default::default()
+                },
+                ramp: ColorRamp {
+                    enabled: true,
+                    colors: vec![hex(0x80c0ff), hex(0xff60d0), hex(0xffe0a0)],
+                    cycles: 1,
+                    ..Default::default()
+                },
+                ..mesh(
+                    Primitive::Tetrahedron,
+                    Material {
+                        base_color: hex(0x202030),
+                        emissive_color: hex(0xffffff),
+                        emissive: Param::new(0.5).osc(Wave::ExpOut, 0.4, 8),
+                        ..Default::default()
+                    },
+                )
+            }),
+        )
+        .scaled(0.03),
+    );
+    p.layers.push(
+        Layer::new(
+            "Core",
+            LayerKind::Mesh(mesh(
+                Primitive::Sphere { detail: 3 },
+                Material {
+                    base_color: hex(0xfff0d0),
+                    emissive_color: hex(0xffe0b0),
+                    emissive: Param::new(1.5),
+                    ..Default::default()
+                },
+            )),
+        )
+        .scaled(0.5),
+    );
     p
 }
 

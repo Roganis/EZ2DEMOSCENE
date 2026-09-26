@@ -1148,3 +1148,114 @@ fn electric_arcs_strike_and_loop() {
         assert!(strike > 0.05, "{name} doesn't re-strike");
     }
 }
+
+/// Big swarms: the compute shader and the CPU fallback draw the same
+/// picture, the swarm loops, and 100k copies render.
+#[test]
+fn gpu_swarms_match_the_cpu_and_loop() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    if !r.gpu_swarms() {
+        eprintln!("no compute shaders here: CPU swarms only");
+    }
+    let mut cpu = Renderer::new(&gpu.device, &gpu.queue, 1);
+    cpu.disable_gpu_swarms();
+    let target = r.create_target(240, 136);
+    let target_cpu = cpu.create_target(240, 136);
+    let mut plain = presets::empty();
+    plain.post.grade.grain = Param::new(0.0);
+    plain
+        .layers
+        .retain(|l| !matches!(l.kind, LayerKind::Mesh(_)));
+    let at = |p: &Project, phase: f32| EvalCtx::new(&p.timing, phase, None);
+    for form in SwarmForm::ALL {
+        let mut p = plain.clone();
+        let mut layer = Layer::new(
+            "Swarm",
+            LayerKind::Mesh(MeshLayer {
+                source: MeshSource::Primitive(Primitive::Cube),
+                instancer: Instancer::Swarm {
+                    form,
+                    count: 3000,
+                    radius: 3.0,
+                    spread: 1.0,
+                    speed: 1,
+                    seed: 3,
+                },
+                variation: Variation {
+                    rotation: 40.0,
+                    scale: 0.4,
+                    spin: 2,
+                    hue: 0.5,
+                    ripple: 0.3,
+                    ripple_cycles: 1,
+                    ripple_spread: 1.0,
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+        )
+        .at([0.0, 1.5, 0.0])
+        .scaled(0.08);
+        layer.symmetry = Symmetry::MirrorX;
+        p.layers.push(layer);
+        let g = r.render_image(&p, &at(&p, 0.3), &target);
+        let c = cpu.render_image(&p, &at(&p, 0.3), &target_cpu);
+        let a = r.render_image(&p, &at(&p, 0.0), &target);
+        let b = r.render_image(&p, &at(&p, 1.0), &target);
+        let reference = r.render_image(&plain, &at(&p, 0.3), &target);
+        g.save(snapshot_dir().join(format!("swarm_{}.png", form.label().to_lowercase())))
+            .unwrap();
+        let same = mean_abs_diff(g.as_raw(), c.as_raw());
+        let seam = mean_abs_diff(a.as_raw(), b.as_raw());
+        let shown = mean_abs_diff(g.as_raw(), reference.as_raw());
+        eprintln!(
+            "{}: gpu vs cpu {same:.3}, seam {seam:.3}, visible {shown:.2}",
+            form.label()
+        );
+        assert!(same < 0.3, "{} differs on the GPU", form.label());
+        assert!(seam < 0.6, "{} doesn't loop", form.label());
+        assert!(shown > 1.0, "{} barely visible", form.label());
+    }
+    // A hundred thousand copies.
+    let mut p = plain.clone();
+    p.layers.push(
+        Layer::new(
+            "Galaxy",
+            LayerKind::Mesh(MeshLayer {
+                source: MeshSource::Primitive(Primitive::Tetrahedron),
+                instancer: Instancer::Swarm {
+                    form: SwarmForm::Galaxy,
+                    count: 100_000,
+                    radius: 4.0,
+                    spread: 1.0,
+                    speed: 1,
+                    seed: 1,
+                },
+                ..Default::default()
+            }),
+        )
+        .at([0.0, 1.0, 0.0])
+        .scaled(0.03),
+    );
+    for (name, rr, t) in [("gpu", &mut r, &target), ("cpu", &mut cpu, &target_cpu)] {
+        rr.render_image(&p, &at(&p, 0.1), t);
+        let start = std::time::Instant::now();
+        for k in 0..3 {
+            rr.render_image(&p, &at(&p, 0.2 + k as f32 * 0.01), t);
+        }
+        eprintln!(
+            "100k copies ({name}): {:.1} ms/frame",
+            start.elapsed().as_secs_f64() * 1000.0 / 3.0
+        );
+    }
+    let img = r.render_image(&p, &at(&p, 0.2), &target);
+    img.save(snapshot_dir().join("swarm_100k.png")).unwrap();
+}

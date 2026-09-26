@@ -392,6 +392,16 @@ fn instancer_locals(
                 })
                 .collect()
         }
+        Instancer::Swarm {
+            form,
+            count,
+            radius,
+            spread,
+            speed,
+            seed,
+        } => (0..count.min(SWARM_MAX))
+            .map(|i| swarm_local(form, i, radius, spread, speed, seed, ctx.phase))
+            .collect(),
         Instancer::Scatter {
             count,
             radius,
@@ -573,6 +583,75 @@ fn instancer_locals(
     }
 }
 
+/// Random number `k` of copy `i` of a swarm (matches `swarm.wgsl`).
+pub fn swarm_hash(seed: u32, i: u32, k: u32) -> f32 {
+    let key = hash_u32(
+        i.wrapping_mul(0x9e37_79b9) ^ hash_u32(seed.wrapping_add(k.wrapping_mul(0x85eb_ca6b))),
+    );
+    (key >> 8) as f32 / 16_777_216.0
+}
+
+fn hash_dir(u: f32, v: f32) -> Vec3 {
+    let z = u * 2.0 - 1.0;
+    let a = v * TAU;
+    let r = (1.0 - z * z).max(0.0).sqrt();
+    Vec3::new(r * a.cos(), z, r * a.sin())
+}
+
+/// Copy `i` of a swarm at `phase`: a pure function of its number, so the
+/// compute shader (`swarm.wgsl`) can place any copy on its own.
+pub fn swarm_local(
+    form: SwarmForm,
+    i: u32,
+    radius: f32,
+    spread: f32,
+    speed: i32,
+    seed: u32,
+    phase: f32,
+) -> Mat4 {
+    let h = |k: u32| swarm_hash(seed, i, k);
+    let speed = speed as f32;
+    // Every copy tumbles one whole turn per loop.
+    let tumble_axis = hash_dir(h(7), h(8));
+    let tumble_sign = if h(9) < 0.5 { -1.0 } else { 1.0 };
+    let tumble = Quat::from_axis_angle(tumble_axis, TAU * phase * tumble_sign);
+    let pos = match form {
+        SwarmForm::Orbit => {
+            let tilt = Quat::from_axis_angle(hash_dir(h(0), h(1)), h(2) * 0.6);
+            let r = (radius + spread * (h(3) * 2.0 - 1.0)).max(0.0);
+            let y = spread * 0.5 * (h(4) * 2.0 - 1.0);
+            let fast = if h(5) < 0.3 { 2.0 } else { 1.0 };
+            let a = TAU * (h(6) + phase * speed * fast);
+            tilt * Vec3::new(a.cos() * r, y, a.sin() * r)
+        }
+        SwarmForm::Cloud | SwarmForm::Shell => {
+            let r = if form == SwarmForm::Cloud {
+                radius * h(2).cbrt()
+            } else {
+                radius + spread * 0.2 * (h(2) * 2.0 - 1.0)
+            };
+            let p = hash_dir(h(0), h(1)) * r;
+            let a = TAU * phase * speed;
+            let bob_k = 1.0 + (h(5) * 3.0).floor();
+            let bob = spread * 0.3 * (TAU * (phase * bob_k + h(4))).sin();
+            Quat::from_rotation_y(a) * p + Vec3::Y * bob
+        }
+        SwarmForm::Galaxy => {
+            let arm = (h(0) * 3.0).floor();
+            let u = h(1);
+            let r = radius * u.sqrt().max(0.05);
+            let band = 1.0 + ((1.0 - u) * 3.0).floor().min(2.0);
+            let a = arm * TAU / 3.0
+                + (r / radius.max(1e-3)) * 4.0
+                + (h(2) - 0.5) * 1.1
+                + TAU * phase * speed * band;
+            let y = spread * 0.25 * (h(3) * 2.0 - 1.0) * (1.0 - u * 0.7);
+            Vec3::new(a.cos() * r, y, a.sin() * r)
+        }
+    };
+    Mat4::from_rotation_translation(tumble, pos)
+}
+
 fn random_dir(rng: &mut Rng) -> Vec3 {
     let z = rng.signed();
     let a = rng.f32() * TAU;
@@ -591,7 +670,7 @@ pub fn instances_are_static(layer: &Layer, mesh: &MeshLayer) -> bool {
         && !t.bob.is_animated()
         && !matches!(
             mesh.instancer,
-            Instancer::Orbit { .. } | Instancer::OnTerrain { .. }
+            Instancer::Orbit { .. } | Instancer::Swarm { .. } | Instancer::OnTerrain { .. }
         )
         && !matches!(mesh.instancer, Instancer::Curve { laps, .. } if laps != 0)
         && v.spin == 0
@@ -706,6 +785,25 @@ pub fn copies_with(
 #[cfg(test)]
 mod surface_tests {
     use super::*;
+
+    #[test]
+    fn swarms_loop_and_stay_in_range() {
+        for form in SwarmForm::ALL {
+            for i in [0, 1, 17, 4999, 249_999] {
+                let a = swarm_local(form, i, 5.0, 2.0, 2, 7, 0.0);
+                let b = swarm_local(form, i, 5.0, 2.0, 2, 7, 1.0);
+                let d = (a.w_axis - b.w_axis).length();
+                assert!(d < 1e-3, "{form:?} copy {i} jumps by {d} over the loop");
+                assert!(a.w_axis.truncate().length() < 5.0 + 2.0 * 1.5 + 0.01);
+                let m = swarm_local(form, i, 5.0, 2.0, 2, 7, 0.3);
+                assert!(m.is_finite());
+            }
+        }
+        // Copies are spread out, not stacked.
+        let p0 = swarm_local(SwarmForm::Cloud, 0, 5.0, 2.0, 1, 1, 0.0).w_axis;
+        let p1 = swarm_local(SwarmForm::Cloud, 1, 5.0, 2.0, 1, 1, 0.0).w_axis;
+        assert!((p0 - p1).length() > 0.01);
+    }
 
     #[test]
     fn copies_ride_the_terrain_and_loop() {

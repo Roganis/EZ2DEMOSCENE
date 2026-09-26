@@ -75,6 +75,10 @@ fn modules() -> Vec<(&'static str, String)> {
         ),
         ("sdf", with_common(include_str!("../src/shaders/sdf.wgsl"))),
         (
+            "swarm",
+            include_str!("../src/shaders/swarm.wgsl").to_string(),
+        ),
+        (
             "arcs",
             with_common(include_str!("../src/shaders/arcs.wgsl")),
         ),
@@ -206,8 +210,12 @@ fn shaders_translate_for_every_backend() {
         )
         .unwrap_or_else(|e| panic!("{name} → MSL: {e}"));
 
-        // WebGL2 (GLSL ES 3.00), one entry point at a time.
+        // WebGL2 (GLSL ES 3.00), one entry point at a time. It has no
+        // compute shaders (the renderer falls back to the CPU there).
         for ep in &module.entry_points {
+            if ep.stage == naga::ShaderStage::Compute {
+                continue;
+            }
             let options = glsl::Options {
                 version: glsl::Version::Embedded {
                     version: 300,

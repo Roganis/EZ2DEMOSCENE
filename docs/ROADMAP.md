@@ -418,9 +418,26 @@ fade per strike and optional branches. One instance per arc, segments
 from the vertex index. Tested: all three paths show, re-strike and loop.
 Preset: Tesla Swarm.
 
-### ☐ 8.4 GPU instancing (where compute exists)
+### ☑ 8.4 GPU instancing (where compute exists)
 Instance generation (orbit swarms, scatter, spectrum) moves to a compute
 shader on WebGPU / native; WebGL2 keeps the CPU path. Allows 100k+ copies.
+
+**Done.** A new copy layout, **Big swarm** (`Instancer::Swarm`: orbits,
+cloud, shell, galaxy; up to 250,000), rather than changing Orbit and
+Scatter: those draw from a sequential RNG stream, so a GPU port couldn't
+reproduce them copy by copy and every saved project would change. Each
+swarm copy is a pure function of its index (`swarm_local`, per-index
+hashes), and `swarm.wgsl` ports it and the whole variation step (random
+turn/size/spin, ripple, chase, hue, spectrum bars) line for line. The
+renderer runs one compute dispatch per symmetry copy, writing straight
+into a VERTEX|STORAGE buffer that the mesh, shadow and depth-of-field
+passes draw from; WebGL2 (no compute) takes the CPU path. Tested: GPU and
+CPU images match (mean difference ≤ 0.008/255) for every form, with
+symmetry and variation on, and every form loops. Measured: on the CPU,
+100k copies cost ~16 ms per frame to generate plus an 8 MB upload; the
+compute path removes both. On llvmpipe (CPU-emulated GPU) the frame time
+is the same either way (~0.4 s, dominated by rasterising 400k
+triangles), so the gain shows on real GPUs only. Preset: Galaxy Swarm.
 
 ---
 

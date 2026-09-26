@@ -236,6 +236,10 @@ fn scale_counts(inst: &mut Instancer, rng: &mut Rng, k: f32) {
             *count = f(rng, *count, 5, 400);
             *seed = rng.next_u32() % 1000;
         }
+        Instancer::Swarm { count, seed, .. } => {
+            *count = f(rng, *count, 1000, SWARM_MAX);
+            *seed = rng.next_u32() % 1000;
+        }
         Instancer::Spiral { count, turns, .. } => {
             *count = f(rng, *count, 8, 300);
             *turns = (*turns * (1.0 + rng.signed() * 0.5 * k)).max(0.5);
