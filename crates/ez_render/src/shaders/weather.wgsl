@@ -28,27 +28,6 @@ fn wrapc(x: f32, a: f32) -> f32 {
     return x - 2.0 * a * floor((x + a) / (2.0 * a));
 }
 
-// Smooth 1D value noise for the bolt's zigzag.
-fn noise1(x: f32, seed: u32) -> f32 {
-    let i = floor(x);
-    let f = x - i;
-    let a = hash2u(u32(i32(i) + 1024), seed);
-    let b = hash2u(u32(i32(i) + 1025), seed);
-    return mix(a, b, f * f * (3.0 - 2.0 * f)) - 0.5;
-}
-
-// Point `t` (0 top .. 1 bottom) along a jagged bolt.
-fn bolt_point(top: vec3<f32>, bottom: vec3<f32>, t: f32, seed: u32, jag: f32) -> vec3<f32> {
-    let axis = bottom - top;
-    let len = length(axis);
-    let side = normalize(cross(axis, vec3<f32>(0.3, 0.1, 1.0)));
-    let side2 = normalize(cross(axis, side));
-    let d1 = noise1(t * 6.0, seed) * 0.5 + noise1(t * 17.0, seed + 1u) * 0.3 + noise1(t * 43.0, seed + 2u) * 0.15;
-    let d2 = noise1(t * 5.0, seed + 3u) * 0.5 + noise1(t * 19.0, seed + 4u) * 0.3;
-    let env = sqrt(clamp(t * 4.0, 0.0, 1.0));
-    return top + axis * t + (side * d1 + side2 * d2) * len * jag * env;
-}
-
 struct Seg {
     a: vec3<f32>,
     b: vec3<f32>,
@@ -86,19 +65,6 @@ fn bolt_segment(k: u32) -> Seg {
     return s;
 }
 
-// Camera-facing quad along the segment a → b, `width` wide.
-fn along(a: vec3<f32>, b: vec3<f32>, width: f32, c: vec2<f32>) -> vec3<f32> {
-    let mid = (a + b) * 0.5;
-    let ax = b - a;
-    let to_cam = normalize(G.cam_pos.xyz - mid);
-    var side = cross(ax, to_cam);
-    if (dot(side, side) < 1e-10) {
-        side = G.cam_right.xyz;
-    }
-    side = normalize(side);
-    return mid + ax * 0.5 * c.y * 1.15 + side * width * c.x;
-}
-
 @vertex
 fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> WOut {
     let c = quad_corner(vi);
@@ -108,7 +74,7 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
     if (ii >= count) {
         // Lightning bolt.
         let s = bolt_segment(ii - count);
-        let wp = along(s.a, s.b, s.width, c);
+        let wp = beam_quad(s.a, s.b, s.width, c);
         out.pos = G.view_proj * vec4<f32>(wp, 1.0);
         out.world = wp;
         out.color = D.v[6].rgb * D.v[4].w * s.bright * 6.0;
@@ -153,7 +119,7 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
                 let axis = normalize(vec3<f32>(wind.x, -1.0, wind.y));
                 let len = size * 20.0 * D.v[2].w;
                 let tail = world - axis * len;
-                wp = along(world, tail, size * 0.35, c);
+                wp = beam_quad(world, tail, size * 0.35, c);
                 alpha = 1.0 - smoothstep(0.75 * area, area, max(abs(rx), abs(rz)));
                 shape = 1u;
             } else {
@@ -207,7 +173,7 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
             let world = vec3<f32>(cam.x + rx, ground + y, cam.z + rz);
             let sz = size * (0.5 + h1);
             let ax = vec3<f32>(dir.x, 0.0, dir.y);
-            wp = along(world - ax * sz * 1.5, world + ax * sz * 1.5, sz, c);
+            wp = beam_quad(world - ax * sz * 1.5, world + ax * sz * 1.5, sz, c);
             alpha = sin(PI * life) * 0.35 * (1.0 - smoothstep(0.7 * area, area, max(abs(rx), abs(rz))));
         }
         case 4: {

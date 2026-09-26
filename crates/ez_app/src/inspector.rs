@@ -834,6 +834,8 @@ pub fn textures_ui(ui: &mut Ui, textures: &mut Vec<UserTexture>) {
 /// `lref` identifies the layer so file imports can be applied to it later.
 /// egui temp-data key: names of the project's terrain layers.
 pub const TERRAIN_NAMES: &str = "ez2-terrain-names";
+/// egui temp-data key: names of the shape and sprite layers.
+pub const COPY_LAYER_NAMES: &str = "ez2-copy-layer-names";
 
 pub fn layer_ui(ui: &mut Ui, layer: &mut Layer, textures: &[UserTexture], lref: LayerRef) {
     ui.horizontal(|ui| {
@@ -854,6 +856,7 @@ pub fn layer_ui(ui: &mut Ui, layer: &mut Layer, textures: &[UserTexture], lref: 
         LayerKind::Falls(f) => falls_ui(ui, f),
         LayerKind::Text(t) => text_ui(ui, t, lref),
         LayerKind::Sprite(sp) => sprite_ui(ui, sp, textures, lref),
+        LayerKind::Arcs(a) => arcs_ui(ui, a),
     }
     let is_mesh_like = matches!(
         layer.kind,
@@ -2612,6 +2615,16 @@ pub fn add_layer_menu(ui: &mut Ui, templates: &[Layer]) -> Option<Layer> {
             }
         }
     });
+    if ui
+        .button("⚡ Electric arcs")
+        .on_hover_text("Tesla-coil lightning between two points, or to the copies of a shape")
+        .clicked()
+    {
+        out = Some(
+            Layer::new("Electric arcs", LayerKind::Arcs(ArcLayer::default())).at([0.0, 1.5, 0.0]),
+        );
+        ui.close();
+    }
     ui.menu_button("🔤 Text", |ui| {
         for (style, text) in [
             (TextStyle::Static, "EZ2DEMOSCENE"),
@@ -2727,6 +2740,7 @@ pub fn layer_icon(l: &Layer) -> &'static str {
         LayerKind::Falls(_) => "🌊",
         LayerKind::Text(_) => "🔤",
         LayerKind::Sprite(_) => "🖼",
+        LayerKind::Arcs(_) => "⚡",
     }
 }
 
@@ -2921,6 +2935,122 @@ fn sprite_ui(ui: &mut Ui, sp: &mut SpriteLayer, textures: &[UserTexture], lref: 
         section(ui, "Variation", false, |ui| {
             variation_ui(ui, &mut sp.variation)
         });
+    }
+}
+
+fn arcs_ui(ui: &mut Ui, a: &mut ArcLayer) {
+    section(ui, "Arcs", true, |ui| {
+        let names: Vec<String> = ui
+            .data(|d| d.get_temp(egui::Id::new(COPY_LAYER_NAMES)))
+            .unwrap_or_default();
+        let first = names.first().cloned().unwrap_or_default();
+        row(ui, "Path", "", |ui| {
+            egui::ComboBox::from_id_salt("arc_path")
+                .selected_text(a.path.label())
+                .show_ui(ui, |ui| {
+                    let target = a.path.target().map(String::from).unwrap_or(first.clone());
+                    for p in [
+                        ArcPath::Points {
+                            from: [-2.0, 0.0, 0.0],
+                            to: [2.0, 0.0, 0.0],
+                        },
+                        ArcPath::Nearest {
+                            target: target.clone(),
+                            count: 3,
+                        },
+                        ArcPath::Chain { target },
+                    ] {
+                        let same = std::mem::discriminant(&p) == std::mem::discriminant(&a.path);
+                        if ui.selectable_label(same, p.label()).clicked() && !same {
+                            a.path = p;
+                        }
+                    }
+                });
+        });
+        match &mut a.path {
+            ArcPath::Points { from, to } => {
+                vec3(ui, "From", "In the layer's space", from, 0.05);
+                vec3(ui, "To", "", to, 0.05);
+            }
+            ArcPath::Nearest { target, count } => {
+                arc_target_ui(ui, target, &names);
+                drag_u(
+                    ui,
+                    "Arcs",
+                    "How many of the nearest copies are struck",
+                    count,
+                    1..=64,
+                );
+            }
+            ArcPath::Chain { target } => arc_target_ui(ui, target, &names),
+        }
+        drag_u(
+            ui,
+            "Strikes / loop",
+            "New shapes per loop",
+            &mut a.strikes,
+            1..=128,
+        );
+        param(
+            ui,
+            "Jaggedness",
+            "How far the arc zigzags",
+            &mut a.jag,
+            0.0..=0.6,
+        );
+        slider(
+            ui,
+            "Crawl",
+            "How far the zigzag slides during a strike",
+            &mut a.crawl,
+            0.0..=4.0,
+        );
+        slider(
+            ui,
+            "Fade",
+            "How much a strike fades before the next (0 = steady)",
+            &mut a.fade,
+            0.0..=1.0,
+        );
+        ui.checkbox(&mut a.branches, "Branches");
+        param(ui, "Width", "", &mut a.width, 0.0..=0.5);
+        color(ui, "Colour", "", &mut a.color);
+        param(
+            ui,
+            "Glow",
+            "Brightness (above 1 blooms)",
+            &mut a.glow,
+            0.0..=8.0,
+        );
+        drag_u(ui, "Seed", "Different zigzags", &mut a.seed, 0..=9999);
+    });
+}
+
+fn arc_target_ui(ui: &mut Ui, target: &mut String, names: &[String]) {
+    row(
+        ui,
+        "Target",
+        "The shape or sprite layer whose copies the arcs reach; the arcs start at this layer's position",
+        |ui| {
+            egui::ComboBox::from_id_salt("arc_target")
+                .selected_text(if target.is_empty() { "pick a layer" } else { target.as_str() })
+                .show_ui(ui, |ui| {
+                    if names.is_empty() {
+                        ui.label("Add a shape or sprite layer first");
+                    }
+                    for n in names {
+                        if ui.selectable_label(target == n, n).clicked() {
+                            *target = n.clone();
+                        }
+                    }
+                });
+        },
+    );
+    if !target.is_empty() && !names.contains(target) {
+        ui.colored_label(
+            egui::Color32::LIGHT_RED,
+            "No shape or sprite layer has this name",
+        );
     }
 }
 

@@ -403,10 +403,20 @@ into each other. Four built-in 4×4 sheets with alpha (explosion, flame,
 coin, sparkle). Tested: every blend and facing shows, plays and loops.
 Preset: Campfire Sprites.
 
-### ☐ 8.3 Lightning arcs
+### ☑ 8.3 Lightning arcs
 A tesla-coil arc between two points (or from a point to the nearest copy),
 reusing the lightning bolt code, re-striking a whole number of times per
 loop.
+
+**Done.** An Electric arcs layer with three paths: between two points,
+from the layer to the N nearest copies of a shape or sprite layer
+(re-picked every frame, so arcs jump as copies orbit), or copy to copy
+round a ring. The weather bolt's noise, point and quad helpers moved to
+`common.wgsl`; `arcs.wgsl` pins both ends, crawls the noise during a
+strike and reseeds per strike (`strikes` whole per loop), with a
+fade per strike and optional branches. One instance per arc, segments
+from the vertex index. Tested: all three paths show, re-strike and loop.
+Preset: Tesla Swarm.
 
 ### ☐ 8.4 GPU instancing (where compute exists)
 Instance generation (orbit swarms, scatter, spectrum) moves to a compute

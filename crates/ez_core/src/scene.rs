@@ -710,6 +710,7 @@ impl Layer {
             LayerKind::Falls(_) => "Waterfall",
             LayerKind::Text(_) => "Text",
             LayerKind::Sprite(_) => "Sprites",
+            LayerKind::Arcs(_) => "Electric arcs",
         }
     }
 }
@@ -729,6 +730,7 @@ pub enum LayerKind {
     Falls(Falls),
     Text(TextLayer),
     Sprite(SpriteLayer),
+    Arcs(ArcLayer),
 }
 
 impl LayerKind {
@@ -3123,6 +3125,78 @@ impl TextStyle {
             TextStyle::SineScroller => "Sine scroller",
             TextStyle::Typewriter => "Typewriter",
             TextStyle::Greetings => "Greetings list",
+        }
+    }
+}
+
+/// Where electric arcs run.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "mode")]
+pub enum ArcPath {
+    /// One arc between two points (layer space).
+    Points { from: [f32; 3], to: [f32; 3] },
+    /// From the layer's position to the nearest copies of another shape
+    /// or sprite layer: the arcs jump as the copies move.
+    Nearest { target: String, count: u32 },
+    /// From each copy of another layer to the next, round the ring.
+    Chain { target: String },
+}
+
+impl ArcPath {
+    pub fn label(&self) -> &'static str {
+        match self {
+            ArcPath::Points { .. } => "Between two points",
+            ArcPath::Nearest { .. } => "To the nearest copies",
+            ArcPath::Chain { .. } => "Copy to copy",
+        }
+    }
+
+    pub fn target(&self) -> Option<&str> {
+        match self {
+            ArcPath::Points { .. } => None,
+            ArcPath::Nearest { target, .. } | ArcPath::Chain { target } => Some(target),
+        }
+    }
+}
+
+/// Tesla-coil lightning: jagged arcs that crawl and re-strike a whole
+/// number of times per loop.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ArcLayer {
+    pub path: ArcPath,
+    /// New shapes per loop (whole, so the loop closes).
+    pub strikes: u32,
+    /// How far the arc zigzags, relative to its length.
+    pub jag: Param,
+    /// How fast the zigzag crawls along a strike.
+    pub crawl: f32,
+    /// Side branches.
+    pub branches: bool,
+    pub width: Param,
+    pub color: Rgb,
+    pub glow: Param,
+    /// How much each strike fades before the next (0 = steady).
+    pub fade: f32,
+    pub seed: u32,
+}
+
+impl Default for ArcLayer {
+    fn default() -> Self {
+        ArcLayer {
+            path: ArcPath::Points {
+                from: [-2.0, 0.0, 0.0],
+                to: [2.0, 0.0, 0.0],
+            },
+            strikes: 16,
+            jag: Param::new(0.15),
+            crawl: 1.0,
+            branches: true,
+            width: Param::new(0.08),
+            color: [0.55, 0.7, 1.0],
+            glow: Param::new(2.0),
+            fade: 0.6,
+            seed: 1,
         }
     }
 }

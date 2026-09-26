@@ -277,6 +277,41 @@ fn env_color(dir: vec3<f32>, rough: f32) -> vec3<f32> {
     return mix(c, G.fog.rgb + G.sky.rgb * 0.2, rough * 0.5);
 }
 
+// Lightning (weather bolts and electric arcs).
+// Smooth 1D value noise for the bolt's zigzag.
+fn bolt_noise(x: f32, seed: u32) -> f32 {
+    let i = floor(x);
+    let f = x - i;
+    let a = hash2u(u32(i32(i) + 1024), seed);
+    let b = hash2u(u32(i32(i) + 1025), seed);
+    return mix(a, b, f * f * (3.0 - 2.0 * f)) - 0.5;
+}
+
+// Point `t` (0 top .. 1 bottom) along a jagged bolt.
+fn bolt_point(top: vec3<f32>, bottom: vec3<f32>, t: f32, seed: u32, jag: f32) -> vec3<f32> {
+    let axis = bottom - top;
+    let len = length(axis);
+    let side = normalize(cross(axis, vec3<f32>(0.3, 0.1, 1.0)));
+    let side2 = normalize(cross(axis, side));
+    let d1 = bolt_noise(t * 6.0, seed) * 0.5 + bolt_noise(t * 17.0, seed + 1u) * 0.3 + bolt_noise(t * 43.0, seed + 2u) * 0.15;
+    let d2 = bolt_noise(t * 5.0, seed + 3u) * 0.5 + bolt_noise(t * 19.0, seed + 4u) * 0.3;
+    let env = sqrt(clamp(t * 4.0, 0.0, 1.0));
+    return top + axis * t + (side * d1 + side2 * d2) * len * jag * env;
+}
+
+// Camera-facing quad along the segment a → b, `width` wide.
+fn beam_quad(a: vec3<f32>, b: vec3<f32>, width: f32, c: vec2<f32>) -> vec3<f32> {
+    let mid = (a + b) * 0.5;
+    let ax = b - a;
+    let to_cam = normalize(G.cam_pos.xyz - mid);
+    var side = cross(ax, to_cam);
+    if (dot(side, side) < 1e-10) {
+        side = G.cam_right.xyz;
+    }
+    side = normalize(side);
+    return mid + ax * 0.5 * c.y * 1.15 + side * width * c.x;
+}
+
 // Sun, sky, reflections, rim light and the weather on a lit surface
 // (meshes and raymarched objects). `v` points to the camera; `ao` darkens
 // the sky light and reflections in creases.

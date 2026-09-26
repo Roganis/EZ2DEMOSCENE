@@ -591,7 +591,24 @@ styles.</p>
 </table>
 <p>The <b>Campfire Sprites</b> preset uses flames, sparkles and spinning pixel coins.</p>
 
-<div class="keep"><h2>5.13 Placing objects in the viewport</h2>
+<h2>5.13 Electric arcs</h2>
+<p>Tesla-coil lightning, from <span class="ui">+ Add → ⚡ Electric arcs</span>. Each arc zigzags between its two ends, crawls while it
+lasts and takes a new shape at every strike.</p>
+<table>
+  <tr><th style="width:24%">Setting</th><th>What it does</th></tr>
+  <tr><td>Path</td><td><b>Between two points</b> (<span class="ui">From</span> and <span class="ui">To</span>, placed with the layer),
+  <b>To the nearest copies</b> of a shape or sprite layer (<span class="ui">Target</span>; from this layer's position to its
+  <span class="ui">Arcs</span> nearest copies, so they jump as the copies move) or <b>Copy to copy</b> (from each copy of the target to the
+  next, round the ring).</td></tr>
+  <tr><td>Strikes / loop</td><td>How many new shapes per loop, a whole number so the loop closes.</td></tr>
+  <tr><td>Jaggedness, Crawl, Fade</td><td>How far the arc zigzags; how far the zigzag slides during a strike; how much each strike dims before
+  the next (0 = steady).</td></tr>
+  <tr><td>Branches, Width, Colour, Glow, Seed</td><td>Side forks, thickness, colour, brightness (<span class="ui">~</span> and 🎵: flash it on the
+  kick) and a different set of zigzags.</td></tr>
+</table>
+<p>The <b>Tesla Swarm</b> preset strikes the nearest debris from the core and runs arcs round a ring of coils.</p>
+
+<div class="keep"><h2>5.14 Placing objects in the viewport</h2>
 <figure><img src="img/gizmo.jpg"><figcaption>The Dodecahedron is selected: the Move handles appear on it, and the ground grid is on.</figcaption></figure></div>
 <ul>
   <li><b>Select</b> a shape or particle layer by clicking it in the viewport, or in the layer list.</li>

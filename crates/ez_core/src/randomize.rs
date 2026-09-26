@@ -153,6 +153,12 @@ pub fn randomize(project: &mut Project, seed: u64, opt: RandomizeOptions) {
                     t.wave_cycles = *rng.pick(&[1, 2, 3, 4]);
                 }
             }
+            LayerKind::Arcs(a) => {
+                if opt.motion {
+                    a.seed = rng.next_u32() % 1000;
+                    a.strikes = *rng.pick(&[4, 8, 16, 32]);
+                }
+            }
             LayerKind::Sprite(sp) => {
                 if opt.shapes {
                     sp.variation.seed = rng.next_u32() % 1000;

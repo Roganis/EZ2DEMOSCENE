@@ -611,6 +611,7 @@ pub fn set_layer_color(l: &mut Layer, c: Rgb) {
         LayerKind::Falls(f) => f.color = c,
         LayerKind::Text(t) => t.color_bottom = c,
         LayerKind::Sprite(sp) => sp.tint = c,
+        LayerKind::Arcs(a) => a.color = c,
     }
 }
 
@@ -678,6 +679,11 @@ pub fn tint_layer(l: &mut Layer, hue: f32, glow: f32) {
             sp.tint = hue_rotate(sp.tint, hue);
             sp.glow.base *= glow;
             sp.glow.amp *= glow;
+        }
+        LayerKind::Arcs(a) => {
+            a.color = hue_rotate(a.color, hue);
+            a.glow.base *= glow;
+            a.glow.amp *= glow;
         }
     }
 }

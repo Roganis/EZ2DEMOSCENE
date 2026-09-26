@@ -1064,3 +1064,87 @@ fn sprites_play_sheets_and_loop() {
         assert!(plays > 0.05, "{name} doesn't animate");
     }
 }
+
+/// Electric arcs between points, to the nearest copies and copy to copy:
+/// visible, re-striking and seamless.
+#[test]
+fn electric_arcs_strike_and_loop() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let target = r.create_target(240, 136);
+    let mut plain = presets::empty();
+    plain.post.grade.grain = Param::new(0.0);
+    plain
+        .layers
+        .retain(|l| !matches!(l.kind, LayerKind::Mesh(_)));
+    plain.layers.push(
+        Layer::new(
+            "Moons",
+            LayerKind::Mesh(MeshLayer {
+                source: MeshSource::Primitive(Primitive::Sphere { detail: 1 }),
+                instancer: Instancer::Orbit {
+                    count: 6,
+                    radius: 2.5,
+                    spread: 0.5,
+                    speed: 1,
+                    seed: 3,
+                },
+                ..Default::default()
+            }),
+        )
+        .scaled(0.2)
+        .at([0.0, 1.5, 0.0]),
+    );
+    let at = |p: &Project, phase: f32| EvalCtx::new(&p.timing, phase, None);
+    let paths = [
+        ArcPath::Points {
+            from: [-2.0, 0.0, 0.0],
+            to: [2.0, 0.5, 0.0],
+        },
+        ArcPath::Nearest {
+            target: "Moons".into(),
+            count: 3,
+        },
+        ArcPath::Chain {
+            target: "Moons".into(),
+        },
+    ];
+    for path in paths {
+        let name = path.label();
+        let mut p = plain.clone();
+        p.layers.push(
+            Layer::new(
+                "Arcs",
+                LayerKind::Arcs(ArcLayer {
+                    path: path.clone(),
+                    strikes: 8,
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, 1.5, 0.0]),
+        );
+        let a = r.render_image(&p, &at(&p, 0.0), &target);
+        let b = r.render_image(&p, &at(&p, 1.0), &target);
+        // Just before and after a re-strike (8 per loop).
+        let before = r.render_image(&p, &at(&p, 0.12), &target);
+        let after = r.render_image(&p, &at(&p, 0.13), &target);
+        let reference = r.render_image(&plain, &at(&p, 0.13), &target);
+        after
+            .save(snapshot_dir().join(format!("arcs_{}.png", name.replace(' ', "_"))))
+            .unwrap();
+        let seam = mean_abs_diff(a.as_raw(), b.as_raw());
+        let strike = mean_abs_diff(before.as_raw(), after.as_raw());
+        let shown = mean_abs_diff(after.as_raw(), reference.as_raw());
+        eprintln!("{name}: seam {seam:.3}, re-strike {strike:.2}, visible {shown:.2}");
+        assert!(seam < 0.6, "{name} doesn't loop");
+        assert!(shown > 0.3, "{name} barely visible");
+        assert!(strike > 0.05, "{name} doesn't re-strike");
+    }
+}

@@ -145,6 +145,11 @@ pub fn all() -> Vec<Preset> {
             project: campfire_sprites(),
         },
         Preset {
+            name: "Tesla Swarm",
+            description: "Orbiting Solid wired up: lightning arcs jump from the core to the nearest debris and around a ring of coils.",
+            project: tesla_swarm(),
+        },
+        Preset {
             name: "Empty",
             description: "A blank stage with a floor and a sky.",
             project: empty(),
@@ -614,6 +619,72 @@ pub fn campfire_sprites() -> Project {
         .at([0.0, 1.0, 0.0])
         .spin([0, 1, 0]),
     ];
+    p
+}
+
+/// Electric arcs: from the centrepiece to the nearest orbiting debris
+/// (they jump as the debris moves), and copy to copy around a ring.
+pub fn tesla_swarm() -> Project {
+    let mut p = orbiting_solid();
+    p.name = "Tesla Swarm".into();
+    p.post.bloom.enabled = true;
+    p.layers.push(Layer::new(
+        "Core arcs",
+        LayerKind::Arcs(ArcLayer {
+            path: ArcPath::Nearest {
+                target: "Debris swarm".into(),
+                count: 6,
+            },
+            strikes: 16,
+            jag: Param::new(0.18),
+            crawl: 1.5,
+            width: Param::new(0.1),
+            color: hex(0x80b0ff),
+            glow: Param::new(2.5).osc(Wave::ExpOut, 1.5, 8),
+            ..Default::default()
+        }),
+    ));
+    p.layers.push(
+        Layer::new(
+            "Coils",
+            LayerKind::Mesh(MeshLayer {
+                instancer: Instancer::Radial {
+                    count: 10,
+                    radius: 4.5,
+                },
+                ..mesh(
+                    Primitive::Sphere { detail: 2 },
+                    Material {
+                        base_color: hex(0x303848),
+                        metallic: Param::new(1.0),
+                        roughness: Param::new(0.2),
+                        emissive_color: hex(0xa060ff),
+                        emissive: Param::new(0.6),
+                        ..Default::default()
+                    },
+                )
+            }),
+        )
+        .scaled(0.18)
+        .at([0.0, -1.2, 0.0])
+        .spin([0, 1, 0]),
+    );
+    p.layers.push(Layer::new(
+        "Ring arcs",
+        LayerKind::Arcs(ArcLayer {
+            path: ArcPath::Chain {
+                target: "Coils".into(),
+            },
+            strikes: 32,
+            jag: Param::new(0.12),
+            branches: false,
+            width: Param::new(0.05),
+            color: hex(0xc080ff),
+            glow: Param::new(1.8),
+            seed: 7,
+            ..Default::default()
+        }),
+    ));
     p
 }
 

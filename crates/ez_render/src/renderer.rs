@@ -195,6 +195,13 @@ enum Cmd {
         first: u32,
         count: u32,
     },
+    /// Electric arcs: `count` arcs of `segments` quads each.
+    Arcs {
+        slot: u32,
+        segments: u32,
+        first: u32,
+        count: u32,
+    },
     Sprite {
         slot: u32,
         tex: String,
@@ -288,6 +295,7 @@ struct ScenePipes {
     sdf: wgpu::RenderPipeline,
     /// Sprites: alpha, additive, cutout.
     sprite: [wgpu::RenderPipeline; 3],
+    arcs: wgpu::RenderPipeline,
 }
 
 /// Where a target's feedback history is and what the last step was.
@@ -791,9 +799,24 @@ impl Renderer {
         let sh_text = shader(device, "text", include_str!("shaders/text.wgsl"), true);
         let sh_sdf = shader(device, "sdf", include_str!("shaders/sdf.wgsl"), true);
         let sh_sprite = shader(device, "sprite", include_str!("shaders/sprite.wgsl"), true);
+        let sh_arcs = shader(device, "arcs", include_str!("shaders/arcs.wgsl"), true);
 
         let scene_pipes = |samples: u32| ScenePipes {
             samples,
+            arcs: make_pipeline(
+                device,
+                PipeDesc {
+                    label: "arcs",
+                    layout: &particle_layout,
+                    module: &sh_arcs,
+                    fs: "fs_main",
+                    buffers: &glyph_buffers,
+                    format: HDR_FORMAT,
+                    samples,
+                    depth: Some((false, wgpu::CompareFunction::Less)),
+                    blend: Some(ADDITIVE),
+                },
+            ),
             sprite: [
                 (Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING), false),
                 (Some(ADDITIVE), false),
@@ -2513,6 +2536,110 @@ impl Renderer {
                     }
                     blocks.push(blk);
                 }
+                LayerKind::Arcs(arc) => {
+                    let lm = layer_matrix(&layer.transform, ctx);
+                    let syms = symmetry_matrices(&layer.symmetry);
+                    // Copies of the layer the arcs connect to.
+                    let copies = |name: &str, out: &mut Vec<Instance>| {
+                        let Some(t) = layers.iter().find(|l| l.enabled && l.name == name) else {
+                            return;
+                        };
+                        match &t.kind {
+                            LayerKind::Mesh(m) => mesh_instances_with(t, m, ctx, None, out),
+                            LayerKind::Sprite(sp) => {
+                                copies_with(t, &sp.instancer, &sp.variation, ctx, None, out)
+                            }
+                            _ => out.push(Instance {
+                                model: layer_matrix(&t.transform, ctx),
+                                hue: 0.0,
+                                glow: 1.0,
+                                rand: 0.0,
+                                along: 0.0,
+                            }),
+                        }
+                    };
+                    let mut ends: Vec<(Vec3, Vec3)> = Vec::new();
+                    scratch.clear();
+                    match &arc.path {
+                        ArcPath::Points { from, to } => {
+                            for sym in &syms {
+                                let m = *sym * lm;
+                                ends.push((
+                                    m.transform_point3(Vec3::from(*from)),
+                                    m.transform_point3(Vec3::from(*to)),
+                                ));
+                            }
+                        }
+                        ArcPath::Nearest { target, count } => {
+                            copies(target, &mut scratch);
+                            for sym in &syms {
+                                let src = (*sym * lm).transform_point3(Vec3::ZERO);
+                                let mut pts: Vec<Vec3> =
+                                    scratch.iter().map(|i| i.model.w_axis.truncate()).collect();
+                                pts.sort_by(|a, b| {
+                                    (*a - src)
+                                        .length_squared()
+                                        .total_cmp(&(*b - src).length_squared())
+                                });
+                                ends.extend(
+                                    pts.into_iter()
+                                        .take((*count).max(1) as usize)
+                                        .map(|p| (src, p)),
+                                );
+                            }
+                        }
+                        ArcPath::Chain { target } => {
+                            copies(target, &mut scratch);
+                            let pts: Vec<Vec3> =
+                                scratch.iter().map(|i| i.model.w_axis.truncate()).collect();
+                            let n = pts.len();
+                            // Round the ring when there are enough copies.
+                            let links = if n > 2 { n } else { n.saturating_sub(1) };
+                            ends.extend((0..links).map(|i| (pts[i], pts[(i + 1) % n])));
+                        }
+                    }
+                    ends.truncate(512);
+                    let first = instances.len() as u32;
+                    for (i, (a, b)) in ends.iter().enumerate() {
+                        let seed = (arc.seed % 10_000) * 1000 + i as u32;
+                        instances.push(InstanceRaw {
+                            model: [
+                                [a.x, a.y, a.z, seed as f32],
+                                [b.x, b.y, b.z, 1.0],
+                                [0.0; 4],
+                                [0.0; 4],
+                            ],
+                            inst: [0.0; 4],
+                        });
+                    }
+                    let count = ends.len() as u32;
+                    let segments = if arc.branches { 32 + 12 } else { 32 };
+                    ls.triangles = count as u64 * segments as u64 * 2;
+                    ls.load = 0.01 + ls.triangles as f32 / 150_000.0;
+                    let mut blk: Block = Zeroable::zeroed();
+                    blk[0] = c4(arc.color, arc.glow.eval(ctx).max(0.0) * flash);
+                    blk[1] = [
+                        arc.strikes.max(1) as f32,
+                        arc.crawl,
+                        arc.fade.clamp(0.0, 1.0),
+                        if arc.branches { 1.0 } else { 0.0 },
+                    ];
+                    blk[2] = [
+                        ctx.phase,
+                        arc.width.eval(ctx).max(0.0),
+                        arc.jag.eval(ctx).max(0.0),
+                        0.0,
+                    ];
+                    if count > 0 {
+                        cmds.push(Cmd::Arcs {
+                            slot: blocks.len() as u32,
+                            segments,
+                            first,
+                            count,
+                        });
+                    }
+                    blocks.push(blk);
+                }
                 LayerKind::Sprite(sp) => {
                     let tex = self.texture_key(project, sp.image.as_deref());
                     self.tex_bind_group(&tex, sp.pixelated);
@@ -3605,6 +3732,18 @@ impl Renderer {
                     pass.set_bind_group(2, &self.tex_bgs[&(font.clone(), false)], &[]);
                     pass.set_vertex_buffer(0, self.inst_buf.slice(..));
                     pass.draw(0..6, *first..*first + *count);
+                }
+                Cmd::Arcs {
+                    slot,
+                    segments,
+                    first,
+                    count,
+                } => {
+                    pass.set_pipeline(&pipes.arcs);
+                    pass.set_bind_group(0, &self.globals_bg[globals], &[]);
+                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                    pass.set_vertex_buffer(0, self.inst_buf.slice(..));
+                    pass.draw(0..6 * segments, *first..*first + *count);
                 }
                 Cmd::Sprite {
                     slot,

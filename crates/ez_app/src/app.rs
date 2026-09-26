@@ -1154,6 +1154,15 @@ impl EzApp {
             .map(|l| l.name.clone())
             .collect();
         ui.data_mut(|d| d.insert_temp(egui::Id::new(inspector::TERRAIN_NAMES), terrains));
+        // Shape and sprite layers that arcs can reach for.
+        let copy_layers: Vec<String> = self
+            .project
+            .layers
+            .iter()
+            .filter(|l| matches!(l.kind, LayerKind::Mesh(_) | LayerKind::Sprite(_)))
+            .map(|l| l.name.clone())
+            .collect();
+        ui.data_mut(|d| d.insert_temp(egui::Id::new(inspector::COPY_LAYER_NAMES), copy_layers));
         let ctx = self.project.ctx_at(self.time, self.audio_env.as_deref());
         let view = self.project.camera.view_point(&ctx);
         ui.data_mut(|d| d.insert_temp(egui::Id::new(inspector::CAMERA_VIEW), view));

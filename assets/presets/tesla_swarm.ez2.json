@@ -1,0 +1,757 @@
+{
+  "version": 2,
+  "name": "Tesla Swarm",
+  "timing": {
+    "bpm": 120.0,
+    "loop_beats": 8
+  },
+  "camera": {
+    "mode": "Pendulum",
+    "target": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "distance": {
+      "base": 7.0,
+      "amp": 0.8,
+      "wave": "Sine",
+      "cycles": 1,
+      "offset": 0.0,
+      "audio": 0.0
+    },
+    "height": {
+      "base": 1.5,
+      "amp": 1.0,
+      "wave": "Sine",
+      "cycles": 1,
+      "offset": 0.0,
+      "audio": 0.0
+    },
+    "angle": 0.0,
+    "orbit_turns": 1,
+    "swing": 25.0,
+    "fov": 50.0,
+    "roll": 0.0,
+    "beat_shake": 0.0
+  },
+  "environment": {
+    "fog_color": [
+      0.0,
+      0.000607054,
+      0.002428216
+    ],
+    "fog_density": 0.01,
+    "sky_color": [
+      0.21586053,
+      0.5271152,
+      1.0
+    ],
+    "ground_color": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "light_dir": [
+      -0.5,
+      0.8,
+      0.6
+    ],
+    "light_color": [
+      0.74540436,
+      0.8713672,
+      1.0
+    ],
+    "light_intensity": 2.2,
+    "ambient": 0.15
+  },
+  "layers": [
+    {
+      "name": "Deep space",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Backdrop",
+        "kind": "Starfield",
+        "color_a": [
+          0.0,
+          0.0,
+          0.000910581
+        ],
+        "color_b": [
+          0.001821162,
+          0.0074990317,
+          0.029556833
+        ],
+        "color_c": [
+          0.21586053,
+          0.4341537,
+          1.0
+        ],
+        "speed": 1,
+        "intensity": 0.6,
+        "detail": 1.0,
+        "texture": null
+      }
+    },
+    {
+      "name": "Dodecahedron",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.6,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          1,
+          1,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Dodecahedron"
+        },
+        "material": {
+          "base_color": [
+            0.010329823,
+            0.1620294,
+            0.68668544
+          ],
+          "metallic": 0.5,
+          "roughness": 0.18,
+          "emissive_color": [
+            0.051269468,
+            0.3515327,
+            1.0
+          ],
+          "emissive": {
+            "base": 0.15,
+            "amp": 0.5,
+            "wave": "Pulse",
+            "cycles": 8,
+            "offset": 0.0,
+            "audio": 0.0
+          },
+          "emissive_mode": "Full",
+          "texture": "noise",
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": true,
+          "rim": 0.9,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Single"
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    },
+    {
+      "name": "Debris swarm",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          0.12,
+          0.12,
+          0.5
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Cube"
+        },
+        "material": {
+          "base_color": [
+            0.80695236,
+            0.8713672,
+            1.0
+          ],
+          "metallic": 0.2,
+          "roughness": 0.3,
+          "emissive_color": [
+            1.0,
+            0.029556833,
+            0.014443844
+          ],
+          "emissive": 0.0,
+          "emissive_mode": "Full",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": true,
+          "rim": 0.3,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Orbit",
+          "count": 70,
+          "radius": 3.2,
+          "spread": 0.9,
+          "speed": 1,
+          "seed": 2
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 90.0,
+          "scale": 0.6,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    },
+    {
+      "name": "Blue orbit rings",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          20.0,
+          0.0,
+          10.0
+        ],
+        "scale": 2.9,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          2,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "Kaleido",
+        "count": 2
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Ring",
+          "arc": 250.0,
+          "width": 0.06,
+          "height": 0.03,
+          "segments": 96
+        },
+        "material": {
+          "base_color": [
+            0.4341537,
+            0.4341537,
+            0.47932023
+          ],
+          "metallic": 0.2,
+          "roughness": 0.4,
+          "emissive_color": [
+            0.014443844,
+            0.21586053,
+            1.0
+          ],
+          "emissive": 5.0,
+          "emissive_mode": "Full",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": false,
+          "rim": 0.3,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Single"
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    },
+    {
+      "name": "White arc",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          -15.0,
+          0.0,
+          -20.0
+        ],
+        "scale": 4.2,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          -1,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Ring",
+          "arc": 120.0,
+          "width": 0.2,
+          "height": 0.05,
+          "segments": 48
+        },
+        "material": {
+          "base_color": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "metallic": 0.2,
+          "roughness": 0.4,
+          "emissive_color": [
+            0.6307572,
+            0.80695236,
+            1.0
+          ],
+          "emissive": 1.5,
+          "emissive_mode": "Full",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": false,
+          "rim": 0.3,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Single"
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    },
+    {
+      "name": "Sparks",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          15.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Particles",
+        "emitter": "Ring",
+        "count": 600,
+        "lifetimes": 1,
+        "size": 0.04,
+        "speed": 1.0,
+        "radius": 3.6,
+        "color_a": [
+          0.4341537,
+          0.68668544,
+          1.0
+        ],
+        "color_b": [
+          0.014443844,
+          0.11697067,
+          1.0
+        ],
+        "intensity": 2.5,
+        "trail": 3,
+        "trail_spacing": 0.004,
+        "sprite": "Glow",
+        "seed": 3
+      }
+    },
+    {
+      "name": "Core arcs",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Arcs",
+        "path": {
+          "mode": "Nearest",
+          "target": "Debris swarm",
+          "count": 6
+        },
+        "strikes": 16,
+        "jag": 0.18,
+        "crawl": 1.5,
+        "branches": true,
+        "width": 0.1,
+        "color": [
+          0.21586053,
+          0.4341537,
+          1.0
+        ],
+        "glow": {
+          "base": 2.5,
+          "amp": 1.5,
+          "wave": "ExpOut",
+          "cycles": 8,
+          "offset": 0.0,
+          "audio": 0.0
+        },
+        "fade": 0.6,
+        "seed": 1
+      }
+    },
+    {
+      "name": "Coils",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          -1.2,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 0.18,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          1,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Sphere",
+          "detail": 2
+        },
+        "material": {
+          "base_color": [
+            0.029556833,
+            0.039546236,
+            0.06480328
+          ],
+          "metallic": 1.0,
+          "roughness": 0.2,
+          "emissive_color": [
+            0.3515327,
+            0.11697067,
+            1.0
+          ],
+          "emissive": 0.6,
+          "emissive_mode": "Full",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": false,
+          "rim": 0.3,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Radial",
+          "count": 10,
+          "radius": 4.5
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    },
+    {
+      "name": "Ring arcs",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Arcs",
+        "path": {
+          "mode": "Chain",
+          "target": "Coils"
+        },
+        "strikes": 32,
+        "jag": 0.12,
+        "crawl": 1.0,
+        "branches": false,
+        "width": 0.05,
+        "color": [
+          0.5271152,
+          0.21586053,
+          1.0
+        ],
+        "glow": 1.8,
+        "fade": 0.6,
+        "seed": 7
+      }
+    }
+  ],
+  "post": {
+    "bloom": {
+      "enabled": true,
+      "intensity": 0.9,
+      "threshold": 0.9,
+      "radius": 0.7
+    },
+    "kaleido": {
+      "enabled": false,
+      "segments": 6,
+      "angle": 0.0,
+      "turns": 0,
+      "zoom": 1.0,
+      "center": [
+        0.5,
+        0.5
+      ]
+    },
+    "mirror": {
+      "enabled": false,
+      "mode": "LeftToRight"
+    },
+    "chroma": {
+      "enabled": true,
+      "amount": 0.003
+    },
+    "pixelate": {
+      "enabled": false,
+      "size": 4.0
+    },
+    "palette": {
+      "enabled": false,
+      "palette": "Ega",
+      "dither": 0.6
+    },
+    "crt": {
+      "enabled": false,
+      "scanlines": 0.5,
+      "curvature": 0.15,
+      "noise": 0.1
+    },
+    "grade": {
+      "exposure": 1.0,
+      "contrast": 1.1,
+      "saturation": 1.1,
+      "vignette": 0.5,
+      "grain": 0.03,
+      "beat_flash": 0.0
+    }
+  },
+  "textures": [],
+  "audio": null,
+  "graph": null,
+  "use_graph": false
+}

@@ -60,6 +60,9 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     additive or cutout blending and any copy layout; sprite sheets play a
     whole number of times per loop (built-in explosion, flame, coin and
     sparkle sheets).
+  - **Electric arcs**: tesla lightning between two points, to the nearest
+    copies of a shape (jumping as they move) or copy to copy, crawling and
+    re-striking a whole number of times per loop.
   - Weather: rain with splashes, snow, rising embers, a sandstorm or
     fireflies in a box that follows the camera, and **lightning** bolts
     whose flash lights up the scene. Rain wets every surface (gloss,
