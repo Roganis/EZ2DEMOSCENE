@@ -164,7 +164,11 @@
           0.001214108,
           0.009134057
         ],
-        "seed": 7
+        "seed": 7,
+        "texture": null,
+        "tiles": 8,
+        "texture_lines": false,
+        "pixelated": false
       }
     },
     {

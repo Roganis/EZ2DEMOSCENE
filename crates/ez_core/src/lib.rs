@@ -22,7 +22,7 @@ pub mod store;
 
 pub use audio::AudioEnvelope;
 pub use clock::{EvalCtx, Timing};
-pub use param::{Param, Wave};
+pub use param::{Param, Wave, WAVE_GROUPS};
 pub use scene::*;
 
 /// File extension used for project files.

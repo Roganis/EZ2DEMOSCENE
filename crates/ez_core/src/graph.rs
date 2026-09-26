@@ -31,11 +31,15 @@ pub enum NodeKind {
         step: [f32; 3],
         rotate_y: f32,
     },
-    /// Randomly moves and turns every incoming layer.
+    /// Randomly moves and turns every incoming layer: once (re-roll 0) or
+    /// as a beat-synced shake that picks a new direction `per_loop` times.
     Jitter {
-        position: f32,
+        position: crate::Param,
         /// Degrees.
-        rotation: f32,
+        rotation: crate::Param,
+        /// New random direction this many times per loop (0 = scatter once).
+        #[serde(default)]
+        per_loop: u32,
         seed: u32,
     },
     /// Adds a mirrored copy of every incoming layer.
@@ -120,8 +124,9 @@ impl NodeKind {
                 rotate_y: 30.0,
             },
             NodeKind::Jitter {
-                position: 1.0,
-                rotation: 30.0,
+                position: crate::Param::new(1.0),
+                rotation: crate::Param::new(30.0),
+                per_loop: 0,
                 seed: 1,
             },
             NodeKind::Mirror { axis: 0, at: 0.0 },
@@ -209,17 +214,28 @@ impl NodeKind {
             NodeKind::Jitter {
                 position,
                 rotation,
+                per_loop,
                 seed,
             } => input
                 .into_iter()
                 .enumerate()
                 .map(|(i, mut l)| {
+                    if *per_loop > 0 {
+                        // Beat-synced: every layer shakes in its own directions.
+                        l.transform.shake = Shake {
+                            amount: *position,
+                            turn: *rotation,
+                            per_loop: *per_loop,
+                            seed: seed.wrapping_mul(31).wrapping_add(i as u32 * 7919 + 1),
+                        };
+                        return l;
+                    }
                     let mut rng = Rng::new(((*seed as u64) << 20) ^ (i as u64 * 7919 + 17));
                     for p in &mut l.transform.position {
-                        *p += rng.signed() * position;
+                        *p += rng.signed() * position.base;
                     }
                     for r in &mut l.transform.rotation {
-                        *r += rng.signed() * rotation;
+                        *r += rng.signed() * rotation.base;
                     }
                     l
                 })
@@ -254,6 +270,9 @@ impl NodeKind {
                         set_layer_color(&mut l, *c);
                     }
                     tint_layer(&mut l, 0.0, *glow);
+                    if let (LayerKind::Terrain(t), Some(_)) = (&mut l.kind, texture) {
+                        t.texture = texture.clone();
+                    }
                     if let LayerKind::Mesh(m) = &mut l.kind {
                         if texture.is_some() {
                             m.material.texture = texture.clone();

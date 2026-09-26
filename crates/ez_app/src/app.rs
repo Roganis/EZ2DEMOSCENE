@@ -9,7 +9,7 @@ use crate::nodes::NodeEditor;
 use crate::platform::slug;
 use crate::platform::{self, LayerRef, Purpose};
 use crate::viewport::Viewport;
-use crate::widgets::ACCENT;
+use crate::widgets::{self, ACCENT};
 use egui::{Color32, RichText, Ui};
 use ez_core::graph::Graph;
 use ez_core::randomize::{randomize, RandomizeOptions};
@@ -547,9 +547,13 @@ impl EzApp {
                         inspector::add_user_texture(&mut self.project.textures, &p.path, &p.name);
                     if let Some(layer) = self.layer_for(lref) {
                         match (&mut layer.kind, slot) {
+                            (LayerKind::Mesh(m), platform::TexSlot::Relief) => {
+                                m.material.relief.texture = Some(name.clone())
+                            }
                             (LayerKind::Mesh(m), _) => m.material.texture = Some(name.clone()),
                             (LayerKind::Backdrop(b), _) => b.texture = Some(name.clone()),
                             (LayerKind::Mirror(f), _) => f.texture = Some(name.clone()),
+                            (LayerKind::Terrain(t), _) => t.texture = Some(name.clone()),
                             _ => {}
                         }
                     }
@@ -1371,7 +1375,7 @@ impl EzApp {
         if resp.dragged() && !on_gizmo && !self.gizmo.is_dragging() && !multi {
             let d = resp.drag_delta();
             let cam = &mut self.project.camera;
-            cam.angle = (cam.angle - d.x * 0.4 + 540.0).rem_euclid(360.0) - 180.0;
+            cam.angle.base = (cam.angle.base - d.x * 0.4 + 540.0).rem_euclid(360.0) - 180.0;
             cam.height.base += d.y * 0.03;
         }
         // Two fingers: pinch to zoom, twist to turn, drag up/down for height.
@@ -1381,8 +1385,9 @@ impl EzApp {
                 if mt.zoom_delta > 0.0 {
                     cam.distance.base = (cam.distance.base / mt.zoom_delta).clamp(0.3, 200.0);
                 }
-                cam.angle =
-                    (cam.angle - mt.rotation_delta.to_degrees() + 540.0).rem_euclid(360.0) - 180.0;
+                cam.angle.base = (cam.angle.base - mt.rotation_delta.to_degrees() + 540.0)
+                    .rem_euclid(360.0)
+                    - 180.0;
                 cam.height.base += mt.translation_delta.y * 0.03;
             }
         }
@@ -1818,6 +1823,7 @@ impl eframe::App for EzApp {
         }
         let loop_s = self.loop_seconds() as f32;
         let t = (self.phase() * loop_s).max(0.0);
+        widgets::set_clock(&ctx, self.phase(), self.project.timing.loop_beats);
         if let Some(a) = &mut self.audio {
             a.sync(self.playing, t);
         }

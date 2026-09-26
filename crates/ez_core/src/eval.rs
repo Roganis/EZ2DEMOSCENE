@@ -29,19 +29,20 @@ impl CameraState {
 
 impl Camera {
     pub fn eval(&self, ctx: &EvalCtx) -> CameraState {
-        let base = self.angle.to_radians();
+        let base = self.angle.eval(ctx).to_radians();
         let az = match self.mode {
             CameraMode::Orbit => base + ctx.turns(self.orbit_turns as f32),
-            CameraMode::Pendulum => base + self.swing.to_radians() * ctx.turns(1.0).sin(),
+            CameraMode::Pendulum => base + self.swing.eval(ctx).to_radians() * ctx.turns(1.0).sin(),
             CameraMode::Static => base,
         };
         let d = self.distance.eval(ctx).max(0.1);
         let h = self.height.eval(ctx);
         let target = Vec3::from(self.target);
         let mut eye = target + Vec3::new(az.sin() * d, h, az.cos() * d);
-        if self.beat_shake > 0.0 {
+        let shake = self.beat_shake.eval(ctx);
+        if shake > 0.0 {
             let beat = (ctx.beat().floor() as u32) % ctx.loop_beats.max(1);
-            let k = self.beat_shake * ctx.beat_pulse(6.0) * 0.1;
+            let k = shake * ctx.beat_pulse(6.0) * 0.1;
             let dir = Vec3::new(
                 hash2(beat, 1) - 0.5,
                 hash2(beat, 2) - 0.5,
@@ -71,8 +72,32 @@ pub fn layer_frame(t: &Transform, ctx: &EvalCtx) -> Mat4 {
         ctx.turns(t.spin[0] as f32),
         ctx.turns(t.spin[2] as f32),
     );
-    let pos = Vec3::from(t.position) + Vec3::Y * t.bob.eval(ctx);
-    Mat4::from_rotation_translation(base * spin, pos)
+    let mut pos = Vec3::from(t.position) + Vec3::Y * t.bob.eval(ctx);
+    let mut rot = base * spin;
+    if t.shake.is_active() {
+        let (offset, turn) = shake_offset(&t.shake, ctx);
+        pos += offset;
+        rot = turn * rot;
+    }
+    Mat4::from_rotation_translation(rot, pos)
+}
+
+/// Offset and extra rotation of a shake at this moment.
+pub fn shake_offset(s: &Shake, ctx: &EvalCtx) -> (Vec3, Quat) {
+    let n = s.per_loop.max(1);
+    let step = ((ctx.phase.rem_euclid(1.0) * n as f32).floor() as u32).min(n - 1);
+    let key = step.wrapping_mul(0x9e37_79b9) ^ s.seed.wrapping_mul(0x85eb_ca6b);
+    let r = |k: u32| hash2(key, k) * 2.0 - 1.0;
+    let dir = Vec3::new(r(11), r(12), r(13));
+    let offset = dir * s.amount.eval(ctx);
+    let deg = s.turn.eval(ctx);
+    let turn = if deg != 0.0 {
+        let axis = Vec3::new(r(21), r(22), r(23)).normalize_or(Vec3::Y);
+        Quat::from_axis_angle(axis, (deg * r(24)).to_radians())
+    } else {
+        Quat::IDENTITY
+    };
+    (offset, turn)
 }
 
 /// Per-axis scale of a layer.
@@ -267,6 +292,7 @@ pub fn instances_are_static(layer: &Layer, mesh: &MeshLayer) -> bool {
     let t = &layer.transform;
     let v = &mesh.variation;
     t.spin == [0; 3]
+        && !t.shake.is_active()
         && !t.scale.is_animated()
         && !t.bob.is_animated()
         && !matches!(mesh.instancer, Instancer::Orbit { .. })
@@ -337,6 +363,24 @@ pub fn mesh_instances(layer: &Layer, mesh: &MeshLayer, ctx: &EvalCtx, out: &mut 
 }
 
 #[cfg(test)]
+mod shake_tests {
+    use super::*;
+    use crate::Param;
+
+    #[test]
+    fn shake_loops_and_moves() {
+        let mut t = Transform::default();
+        t.shake.amount = Param::new(0.0).osc(crate::Wave::ExpOut, 1.0, 16);
+        t.shake.turn = Param::new(10.0);
+        let a = layer_frame(&t, &EvalCtx::at(0.0));
+        let b = layer_frame(&t, &EvalCtx::at(1.0));
+        assert!(a.abs_diff_eq(b, 1e-4), "shake must loop");
+        let still = layer_frame(&Transform::default(), &EvalCtx::at(0.0));
+        assert!(!a.abs_diff_eq(still, 1e-3), "shake should move the layer");
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -351,7 +395,7 @@ mod tests {
     fn camera_loops() {
         let mut cam = Camera {
             orbit_turns: 2,
-            beat_shake: 1.0,
+            beat_shake: crate::Param::new(1.0),
             ..Default::default()
         };
         for mode in CameraMode::ALL {

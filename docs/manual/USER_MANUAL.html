@@ -111,7 +111,7 @@
   <img src="img/cover.jpg" alt="">
   <div class="fade"></div>
   <div class="title">
-    <div class="kicker">USER MANUAL · VERSION 0.4</div>
+    <div class="kicker">USER MANUAL · VERSION 0.6</div>
     <h1>EZ2DEMOSCENE</h1>
     <p>Build seamless, stylised 3D loops the demoscene way: neon, mirrors, particles and retro pixels. No code needed.</p>
   </div>
@@ -160,6 +160,7 @@ pickers and menus. When you like it, you export an MP4, WebM, GIF or a folder of
   <div class="card"><img src="img/p_synth_sunset.jpg"><div class="t">Synth Sunset</div><div class="d">Striped sun, neon grid, pyramids.</div></div>
   <div class="card"><img src="img/p_vector_valley.jpg"><div class="t">Vector Valley</div><div class="d">Wireframe landscape, laser fans, neon ribbon.</div></div>
   <div class="card"><img src="img/p_glitch_shrine.jpg"><div class="t">Glitch Shrine</div><div class="d">Glitching sponge, flashing gems, pulsing rose.</div></div>
+  <div class="card"><img src="img/p_sponge_dive.jpg"><div class="t">Sponge Dive</div><div class="d">Menger sponge flight, breathing displaced orb.</div></div>
 </div>
 
 <h2>The one big idea: everything loops</h2>
@@ -274,8 +275,28 @@ selected layer, and <b>right-clicking</b> a layer shows the same options.</p>
   <tr><td>Raymarched fractal</td><td>A volumetric "Kaliset" fractal space. It looks psychedelic and cosmic, and is heavy on slow GPUs.</td></tr>
   <tr><td>Oldschool plasma</td><td>The 90s sine plasma.</td></tr>
   <tr><td>Synthwave sun &amp; grid</td><td>A striped sun sinking into a scrolling neon grid, with stars.</td></tr>
+  <tr><td>Raymarched sponge flight</td><td>Flying through an endless Menger sponge, a lattice of beams or a field of cubes. Heavy on phones: lower
+  <span class="ui">Quality</span> if it stutters.</td></tr>
+  <tr><td>Raymarched ring corridor</td><td>Flying through glowing rings, squares or triangles that alternate between colours B and C.</td></tr>
 </table>
 <div class="tip"><b>Tip</b>You can stack two backgrounds, but the later one covers the earlier one. Usually one is enough.</div>
+<h3>Raymarching settings</h3>
+<p>The four raymarched backgrounds (tunnel, fractal, sponge, rings) get an extra <span class="ui">Raymarching</span> section. Only the settings
+that matter for the chosen style are shown, and all of them except Variant, Wall pattern, Roll and Quality can be animated with
+<span class="ui">~</span>.</p>
+<table>
+  <tr><th style="width:22%">Setting</th><th>Tunnel</th><th>Fractal</th><th>Sponge</th><th>Rings</th></tr>
+  <tr><td>Variant</td><td>Round, Square, Hexagon, Triangle, Flower</td><td>Kaliset, Crystal, Nebula</td><td>Menger sponge, Beam lattice, Cube field</td><td>Rings, Squares, Triangles</td></tr>
+  <tr><td>Size</td><td>Radius</td><td>Zoom</td><td>Cell size</td><td>Ring size</td></tr>
+  <tr><td>Twist</td><td>Twists the walls along the flight</td><td>n/a</td><td>Twists the space</td><td>Turns each ring a little more</td></tr>
+  <tr><td>Warp</td><td>Wall wobble</td><td>Fold (changes the whole look)</td><td>n/a</td><td>Thickness</td></tr>
+  <tr><td>Bend</td><td>How much the path winds</td><td>Drift</td><td>Path sway</td><td>Path sway</td></tr>
+  <tr><td>Glow</td><td>Light rings sliding past</td><td>Brightness</td><td>Edge glow</td><td>Glow</td></tr>
+  <tr><td>Fog ×</td><td colspan="4">Depth fog (0 = none).</td></tr>
+  <tr><td>Roll / loop</td><td colspan="4">Whole turns of the view per loop.</td></tr>
+  <tr><td>Quality</td><td colspan="4">Raymarch steps (fractal: iterations). 0 uses the default; lower it for phones.</td></tr>
+</table>
+<p>The tunnel also has a <span class="ui">Wall pattern</span> (XOR, Checker, Rings, Stripes) used when there is no wall texture.</p>
 
 <h2>5.2 Mirror floor</h2>
 <figure><img src="img/mirror.jpg" ><figcaption>Mirror floor settings.</figcaption></figure>
@@ -384,6 +405,8 @@ The look is controlled by <span class="ui">Sprite</span> (soft glow, pixel squar
   <tr><td>Valley</td><td>Flattens a road down the middle (0 = none), the classic synthwave look.</td></tr>
   <tr><td>Scroll / loop</td><td>How many times the landscape scrolls past per loop. It repeats exactly, so the loop stays seamless. 0 stands still.</td></tr>
   <tr><td>Line colour, Line glow, Ground colour</td><td>The look. Animate Line glow with a Pulse for beat flashes.</td></tr>
+  <tr><td>Texture, Tiles, Texture on lines, Chunky pixels</td><td>Maps a texture onto the ground (and optionally the grid lines). It moves with the
+  landscape; <span class="ui">Tiles</span> is how many times it repeats across the terrain, a whole number so the loop stays seamless.</td></tr>
   <tr><td>Size, Grid cells</td><td>Its extent and resolution. More cells is smoother but slower.</td></tr>
 </table>
 <h2>5.7 Laser beams</h2>
@@ -441,6 +464,24 @@ step for <kbd>Ctrl</kbd>+<kbd>Z</kbd>.</div>
   <tr><td>Texture</td><td>Bright parts of the texture glow (LED grids, circuits, tech-panel slits).</td></tr>
 </table>
 <p><span class="ui">Hue shift</span> rotates all the colours of the layer. Animate it with a Saw wave for rainbow cycling.</p>
+
+<h2>Relief: bump, normal and displacement maps</h2>
+<p>The <span class="ui">Relief</span> section of a shape layer makes its surface uneven. It uses the material's
+<span class="ui">Tiling</span> and <span class="ui">Scroll</span>, and the colour texture unless you pick a separate
+<span class="ui">Relief texture</span>.</p>
+<table>
+  <tr><th style="width:24%">Setting</th><th>Result</th></tr>
+  <tr><td>Mode: Bump</td><td>The texture's brightness is height: bright parts look raised, dark parts sunken (mortar between bricks, rivets,
+  grid lines). Only the lighting changes, so it's cheap.</td></tr>
+  <tr><td>Mode: Normal map</td><td>The texture is a normal map (the purple-blue images from 3D tools and texture sites). Import one as an image and
+  pick it as the relief texture.</td></tr>
+  <tr><td>Relief</td><td>Strength of the bump or normal map (animatable).</td></tr>
+  <tr><td>Displacement</td><td>Really moves the surface outwards by the texture brightness (negative pushes inwards). Animate it for pulsing,
+  breathing shapes.</td></tr>
+  <tr><td>Subdivide</td><td>Adds geometry detail (each level splits every triangle in four), so displacement can show fine patterns.</td></tr>
+</table>
+<div class="tip"><b>Tip</b>Displacement looks best on smooth shapes (sphere, torus, capsule, rounded cube). Faceted shapes such as the cube or
+the gem open up at their edges, because each face moves along its own direction.</div>
 
 <h2>Glitch</h2>
 <p>The <span class="ui">Glitch</span> section of a shape layer corrupts its geometry, like a broken signal. Set an <span class="ui">Amount</span>
@@ -508,14 +549,29 @@ Click it to open the animation panel:</p>
 <figure><img src="img/overview.jpg" ><figcaption>In the Camera section, Distance and Height are animated: their panels show wave, amount, ×/loop, offset and ♪.</figcaption></figure>
 <table>
   <tr><th style="width:22%">Control</th><th>Meaning</th></tr>
-  <tr><td>Wave</td><td><b>Sine</b> (smooth), <b>Triangle</b> (linear back and forth), <b>Saw</b> (ramp then jump), <b>Square</b> (on/off),
-  <b>Pulse</b> (sharp hit that fades, the beat flash), <b>Random</b> (a new random value each cycle).</td></tr>
-  <tr><td>amount</td><td>How far the value swings around the slider value. 0 means not animated.</td></tr>
-  <tr><td>×/loop</td><td>Whole cycles per loop. Use the number of beats in the loop to hit <b>every beat</b>, half of it for every
-  other beat, and so on. Negative numbers run backwards.</td></tr>
-  <tr><td>offset</td><td>Shifts the wave in time (0–1), to stagger several animations.</td></tr>
+  <tr><td>Wave</td><td>The shape of the movement, in three groups (see below). Hover a shape in the menu for a description.</td></tr>
+  <tr><td>amount</td><td>How far the value moves from the slider value. 0 means not animated. Picking a shape or a rhythm on a still
+  value gives it a starting amount so you see something straight away.</td></tr>
+  <tr><td>♩</td><td>Rhythm menu: <b>twice per beat</b>, <b>every beat</b>, <b>every 2 beats</b>, <b>every bar</b>, <b>every 2 or 4 bars</b>
+  or <b>once per loop</b>. It sets ×/loop for you from the loop length.</td></tr>
+  <tr><td>×/loop</td><td>Whole cycles per loop. The number of beats in the loop hits <b>every beat</b>. Negative numbers run backwards.</td></tr>
+  <tr><td>offset</td><td>Shifts the timing (0–1 of a cycle), to stagger several animations.</td></tr>
   <tr><td>♪</td><td>Adds the music's loudness (see chapter 10).</td></tr>
 </table>
+<p>Below the controls, a small <b>graph</b> shows the value over the whole loop, with beat ticks and a dot at the current moment.</p>
+<table>
+  <tr><th style="width:18%">Group</th><th style="width:26%">Shapes</th><th>Use them for</th></tr>
+  <tr><td>LFO</td><td>Sine, Triangle, Saw up, Saw down, Square</td><td>Smooth or hard back-and-forth movement around the slider value.</td></tr>
+  <tr><td>Beat fades</td><td>Pulse (hit), Exp fade in, Exp fade out, Linear fade in, Linear fade out, Swell in &amp; out</td><td>Envelopes that run
+  from 0 to the full amount (or back) once per cycle. Set ♩ → <b>every beat</b> for hits that decay (Exp fade out), build-ups that
+  drop on the beat (Exp fade in), or breathing swells.</td></tr>
+  <tr><td>Random</td><td>Sample &amp; hold, Smooth random, Drunken walk</td><td>A new random value each cycle (held, or gliding smoothly), or a
+  random walk that wanders and always finds its way back by the end of the loop.</td></tr>
+</table>
+<p>Almost every number can be animated this way, including <b>post effects</b> (bloom threshold, pixel size, dither, CRT scanlines and
+curvature, contrast, saturation, vignette, grain, beat flash, kaleidoscope angle), materials (metallic, roughness, rim light, tiling),
+light, camera swing and shake, particle speed and area, mirror reflectivity and blur, laser spread, length, width and sweep, terrain
+roughness and valley, and ribbon pulses.</p>
 <h2>Recipes</h2>
 <ul>
   <li><b>Pulse on every beat:</b> Glow → Pulse, amount 3, ×/loop = loop beats (e.g. 16).</li>
@@ -524,7 +580,15 @@ Click it to open the animation panel:</p>
   <li><b>Rainbow:</b> Hue shift → Saw, amount 0.5, ×/loop 1.</li>
   <li><b>Floating object:</b> Bob → Sine, amount 0.5, ×/loop 2.</li>
   <li><b>Strobe:</b> Glow → Square, ×/loop 32.</li>
+  <li><b>Beat hit:</b> Glow → Exp fade out, ♩ every beat.</li>
+  <li><b>Build-up:</b> Bloom threshold → Exp fade in, ♩ every 4 bars (negative amount lowers it towards the drop).</li>
+  <li><b>Nervous camera:</b> Camera Height → Drunken walk, ♩ every beat, amount 1.</li>
 </ul>
+<h2>Shake</h2>
+<p><span class="ui">Placement &amp; motion → Shake</span> jolts a layer in a random direction. <span class="ui">Shake distance</span> and
+<span class="ui">Shake turn</span> set how far, and <span class="ui">New direction</span> how many times per loop a new random direction is
+picked. Give the distance a fade for a hit that settles: the <span class="ui">⚡ Beat jolt</span> button does exactly that (Exp fade out,
+every beat). The <b>Jitter</b> node can drive the same shake for everything connected to it (chapter 12).</p>
 <h2>Blink / strobe</h2>
 <p>Every layer has a <span class="ui">Blink / strobe</span> section that makes the <b>whole layer</b> appear and disappear, or flash:</p>
 <table>
@@ -661,7 +725,9 @@ through <b>modifiers</b> into an <b>Output</b>. Everything connected to Output i
   <tr><td>Scale</td><td>Multiplies the size.</td></tr>
   <tr><td>Tint</td><td>Rotates hues and scales the glow.</td></tr>
   <tr><td>Array</td><td>Repeats the incoming layers N times, stepping the position and rotation for each copy.</td></tr>
-  <tr><td>Jitter</td><td>Moves and turns every incoming layer by a random amount (<span class="ui">seed</span> reshuffles).</td></tr>
+  <tr><td>Jitter</td><td>Moves and turns every incoming layer by a random amount (<span class="ui">seed</span> reshuffles). With
+  <span class="ui">re-roll</span> at 0 it scatters the layers once; above 0 it becomes a beat-synced <b>shake</b> that picks a new direction
+  that many times per loop. <span class="ui">Move</span> and <span class="ui">Turn</span> have <span class="ui">~</span>, so fades work here too.</td></tr>
   <tr><td>Mirror</td><td>Adds a mirrored copy of every incoming layer, across the X, Y or Z plane at a chosen position.</td></tr>
   <tr><td>Strobe</td><td>Sets the Blink / strobe of every incoming layer (chapter 7).</td></tr>
   <tr><td>Colour / material</td><td>Sets the glow colour, multiplies the glow, and for shapes can set a texture, a neon wireframe look and a glitch.</td></tr>

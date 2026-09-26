@@ -263,10 +263,23 @@ impl SnarlViewer<NodeKind> for Viewer<'_> {
                 NodeKind::Jitter {
                     position,
                     rotation,
+                    per_loop,
                     seed,
                 } => {
-                    ui.add(egui::Slider::new(position, 0.0..=10.0).text("move"));
-                    ui.add(egui::Slider::new(rotation, 0.0..=180.0).text("turn °"));
+                    ui.push_id(("jitter", node.0), |ui| {
+                        crate::widgets::param(ui, "Move", "", position, 0.0..=10.0);
+                        crate::widgets::param(ui, "Turn °", "", rotation, 0.0..=180.0);
+                    });
+                    ui.add(
+                        egui::DragValue::new(per_loop)
+                            .range(0..=256)
+                            .prefix("re-roll ")
+                            .suffix(" ×/loop"),
+                    )
+                    .on_hover_text(
+                        "0 = scatter once. Above 0 = shake: a new random direction this many \
+                         times per loop (use ~ on Move/Turn for fades, e.g. Exp fade out every beat)",
+                    );
                     ui.add(egui::DragValue::new(seed).range(0..=9999).prefix("seed "));
                 }
                 NodeKind::Mirror { axis, at } => {

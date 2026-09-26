@@ -9,48 +9,150 @@ use crate::rng::hash2;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Oscillator shape.
+///
+/// LFO and random shapes swing both ways (-1..1). The fades run 0..1 once
+/// per cycle, so with "×/loop" = beats per loop they fire on every beat.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum Wave {
     #[default]
     Sine,
     Triangle,
+    /// Ramp up, then jump down.
     Saw,
+    /// Ramp down, then jump up.
+    RampDown,
     Square,
     /// Sharp attack, exponential decay: good for beat hits.
     Pulse,
+    /// Slow start, fast finish (0 → 1).
+    ExpIn,
+    /// Fast drop, slow tail (1 → 0).
+    ExpOut,
+    /// Straight fade 0 → 1.
+    LinearIn,
+    /// Straight fade 1 → 0.
+    LinearOut,
+    /// Smooth swell 0 → 1 → 0.
+    Swell,
     /// A new random value every cycle (sample & hold).
     Random,
+    /// Random values joined by smooth glides.
+    SmoothRandom,
+    /// Random walk that wanders and comes back by the end of the loop.
+    Drunk,
+}
+
+/// Menu groups for [`Wave`].
+pub const WAVE_GROUPS: [(&str, &[Wave]); 3] = [
+    (
+        "LFO",
+        &[
+            Wave::Sine,
+            Wave::Triangle,
+            Wave::Saw,
+            Wave::RampDown,
+            Wave::Square,
+        ],
+    ),
+    (
+        "Beat fades",
+        &[
+            Wave::Pulse,
+            Wave::ExpIn,
+            Wave::ExpOut,
+            Wave::LinearIn,
+            Wave::LinearOut,
+            Wave::Swell,
+        ],
+    ),
+    ("Random", &[Wave::Random, Wave::SmoothRandom, Wave::Drunk]),
+];
+
+fn step_rand(idx: i64, n: i64, salt: u32) -> f32 {
+    hash2(idx.rem_euclid(n) as u32, salt) * 2.0 - 1.0
 }
 
 impl Wave {
-    pub const ALL: [Wave; 6] = [
+    pub const ALL: [Wave; 14] = [
         Wave::Sine,
         Wave::Triangle,
         Wave::Saw,
+        Wave::RampDown,
         Wave::Square,
         Wave::Pulse,
+        Wave::ExpIn,
+        Wave::ExpOut,
+        Wave::LinearIn,
+        Wave::LinearOut,
+        Wave::Swell,
         Wave::Random,
+        Wave::SmoothRandom,
+        Wave::Drunk,
     ];
 
     pub fn label(self) -> &'static str {
         match self {
             Wave::Sine => "Sine",
             Wave::Triangle => "Triangle",
-            Wave::Saw => "Saw",
+            Wave::Saw => "Saw up",
+            Wave::RampDown => "Saw down",
             Wave::Square => "Square",
-            Wave::Pulse => "Pulse",
-            Wave::Random => "Random",
+            Wave::Pulse => "Pulse (hit)",
+            Wave::ExpIn => "Exp fade in",
+            Wave::ExpOut => "Exp fade out",
+            Wave::LinearIn => "Linear fade in",
+            Wave::LinearOut => "Linear fade out",
+            Wave::Swell => "Swell in & out",
+            Wave::Random => "Sample & hold",
+            Wave::SmoothRandom => "Smooth random",
+            Wave::Drunk => "Drunken walk",
         }
     }
 
+    pub fn description(self) -> &'static str {
+        match self {
+            Wave::Sine => "Smooth up and down",
+            Wave::Triangle => "Straight up and down",
+            Wave::Saw => "Ramps up, then jumps back",
+            Wave::RampDown => "Ramps down, then jumps back",
+            Wave::Square => "Jumps between two values",
+            Wave::Pulse => "Sharp hit that dies away quickly",
+            Wave::ExpIn => "Builds up slowly, then rushes to the top",
+            Wave::ExpOut => "Drops fast, then settles slowly",
+            Wave::LinearIn => "Even fade from 0 to the full amount",
+            Wave::LinearOut => "Even fade from the full amount to 0",
+            Wave::Swell => "Smoothly rises and falls back",
+            Wave::Random => "A new random value each cycle, held until the next",
+            Wave::SmoothRandom => "Random values with smooth glides in between",
+            Wave::Drunk => "Wanders randomly and finds its way back by the loop's end",
+        }
+    }
+
+    /// True for shapes that run 0..1 (the fades); the others swing -1..1.
+    pub fn is_unipolar(self) -> bool {
+        matches!(
+            self,
+            Wave::Pulse
+                | Wave::ExpIn
+                | Wave::ExpOut
+                | Wave::LinearIn
+                | Wave::LinearOut
+                | Wave::Swell
+        )
+    }
+
     /// Evaluate the wave. `x` is the continuous cycle position (cycles * phase
-    /// + offset); returns -1..1 (Pulse returns 0..1).
+    /// + offset); returns -1..1 (the fades return 0..1).
     pub fn eval(self, x: f32, cycles: i32) -> f32 {
+        const K: f32 = 5.0;
         let f = x.rem_euclid(1.0);
+        let n = cycles.unsigned_abs().max(1) as i64;
+        let idx = x.floor() as i64;
         match self {
             Wave::Sine => (f * std::f32::consts::TAU).sin(),
             Wave::Triangle => 1.0 - 4.0 * (f - 0.5).abs(),
             Wave::Saw => f * 2.0 - 1.0,
+            Wave::RampDown => 1.0 - f * 2.0,
             Wave::Square => {
                 if f < 0.5 {
                     1.0
@@ -59,10 +161,30 @@ impl Wave {
                 }
             }
             Wave::Pulse => (-f * 7.0).exp(),
-            Wave::Random => {
-                let n = cycles.unsigned_abs().max(1) as i64;
-                let idx = (x.floor() as i64).rem_euclid(n) as u32;
-                hash2(idx, 0x5eed) * 2.0 - 1.0
+            Wave::ExpIn => ((K * f).exp() - 1.0) / (K.exp() - 1.0),
+            Wave::ExpOut => ((-K * f).exp() - (-K).exp()) / (1.0 - (-K).exp()),
+            Wave::LinearIn => f,
+            Wave::LinearOut => 1.0 - f,
+            Wave::Swell => (f * std::f32::consts::PI).sin().powi(2),
+            Wave::Random => step_rand(idx, n, 0x5eed),
+            Wave::SmoothRandom => {
+                let a = step_rand(idx, n, 0x5e1d);
+                let b = step_rand(idx + 1, n, 0x5e1d);
+                let t = f * f * (3.0 - 2.0 * f);
+                a + (b - a) * t
+            }
+            Wave::Drunk => {
+                // Random steps with the mean removed: the walk returns to
+                // its start after `n` steps, so the loop stays seamless.
+                let mean = (0..n).map(|i| step_rand(i, n, 0xd2c)).sum::<f32>() / n as f32;
+                let mut pos = vec![0.0f32; n as usize + 1];
+                for i in 0..n as usize {
+                    pos[i + 1] = pos[i] + step_rand(i as i64, n, 0xd2c) - mean;
+                }
+                let peak = pos.iter().fold(1e-6f32, |m, v| m.max(v.abs()));
+                let k = idx.rem_euclid(n) as usize;
+                let t = f * f * (3.0 - 2.0 * f);
+                (pos[k] + (pos[k + 1] - pos[k]) * t) / peak
             }
         }
     }
@@ -225,6 +347,28 @@ mod tests {
                 assert!((a - b).abs() < 1e-3, "{wave:?} x{cycles}: {a} vs {b}");
             }
         }
+    }
+
+    #[test]
+    fn wave_ranges() {
+        for wave in Wave::ALL {
+            let (lo, hi) = if wave.is_unipolar() {
+                (0.0, 1.0)
+            } else {
+                (-1.0, 1.0)
+            };
+            for cycles in [1, 4, 16] {
+                for i in 0..=400 {
+                    let x = i as f32 / 400.0 * cycles as f32;
+                    let v = wave.eval(x, cycles);
+                    assert!(v >= lo - 1e-4 && v <= hi + 1e-4, "{wave:?} {x}: {v}");
+                }
+            }
+        }
+        // Fades start and end where their names say.
+        assert!(Wave::ExpIn.eval(0.0, 1) < 0.01 && Wave::ExpIn.eval(0.999, 1) > 0.97);
+        assert!(Wave::LinearOut.eval(0.0, 1) > 0.99);
+        assert!(Wave::Swell.eval(0.5, 1) > 0.99);
     }
 
     #[test]

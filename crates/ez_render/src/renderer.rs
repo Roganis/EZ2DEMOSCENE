@@ -87,6 +87,7 @@ enum Cmd {
         slot: u32,
         mesh: String,
         tex: String,
+        relief: String,
         pixelated: bool,
         first: u32,
         count: u32,
@@ -98,6 +99,8 @@ enum Cmd {
     Terrain {
         slot: u32,
         vertices: u32,
+        tex: String,
+        pixelated: bool,
     },
     Lasers {
         slot: u32,
@@ -142,6 +145,8 @@ fn backdrop_load(kind: BackdropKind) -> f32 {
         BackdropKind::SynthGrid => 0.2,
         BackdropKind::Plasma => 0.15,
         BackdropKind::Gradient => 0.05,
+        BackdropKind::Sponge => 1.2,
+        BackdropKind::Rings => 0.5,
     }
 }
 
@@ -167,6 +172,9 @@ pub struct Renderer {
     msaa: u32,
 
     bgl_tex: wgpu::BindGroupLayout,
+    /// Meshes: colour texture, sampler and relief texture, also read by the
+    /// vertex shader (displacement).
+    bgl_mesh_tex: wgpu::BindGroupLayout,
     bgl_floor: wgpu::BindGroupLayout,
     bgl_post: wgpu::BindGroupLayout,
 
@@ -196,6 +204,7 @@ pub struct Renderer {
     meshes: HashMap<String, GpuMesh>,
     textures: HashMap<String, GpuTexture>,
     tex_bgs: HashMap<(String, bool), wgpu::BindGroup>,
+    mesh_tex_bgs: HashMap<(String, String, bool), wgpu::BindGroup>,
     /// Asset loading problems (shown in the UI), keyed by asset.
     pub errors: HashMap<String, String>,
 
@@ -378,6 +387,24 @@ impl Renderer {
             label: Some("tex"),
             entries: &[tex_entry(0), sampler_entry(1)],
         });
+        let vf = wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT;
+        let bgl_mesh_tex = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("mesh tex"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    visibility: vf,
+                    ..tex_entry(0)
+                },
+                wgpu::BindGroupLayoutEntry {
+                    visibility: vf,
+                    ..sampler_entry(1)
+                },
+                wgpu::BindGroupLayoutEntry {
+                    visibility: vf,
+                    ..tex_entry(2)
+                },
+            ],
+        });
         let bgl_floor = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("floor"),
             entries: &[
@@ -434,6 +461,11 @@ impl Renderer {
         let scene_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("scene"),
             bind_group_layouts: &[Some(&bgl_globals), Some(&bgl_draw), Some(&bgl_tex)],
+            immediate_size: 0,
+        });
+        let mesh_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("mesh"),
+            bind_group_layouts: &[Some(&bgl_globals), Some(&bgl_draw), Some(&bgl_mesh_tex)],
             immediate_size: 0,
         });
         let particle_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -506,7 +538,7 @@ impl Renderer {
                 device,
                 PipeDesc {
                     label: "mesh",
-                    layout: &scene_layout,
+                    layout: &mesh_layout,
                     module: &sh_mesh,
                     fs: "fs_main",
                     buffers: &mesh_buffers,
@@ -534,7 +566,7 @@ impl Renderer {
                 device,
                 PipeDesc {
                     label: "terrain",
-                    layout: &particle_layout,
+                    layout: &scene_layout,
                     module: &sh_terrain,
                     fs: "fs_main",
                     buffers: &[],
@@ -628,6 +660,7 @@ impl Renderer {
             queue: queue.clone(),
             msaa,
             bgl_tex,
+            bgl_mesh_tex,
             bgl_floor,
             bgl_post,
             globals_buf,
@@ -653,6 +686,7 @@ impl Renderer {
             meshes: HashMap::new(),
             textures: HashMap::new(),
             tex_bgs: HashMap::new(),
+            mesh_tex_bgs: HashMap::new(),
             errors: HashMap::new(),
             instance_cache: HashMap::new(),
             frame_no: 0,
@@ -759,6 +793,8 @@ impl Renderer {
         }
         let view = texture.create_view(&Default::default());
         self.tex_bgs.retain(|(k, _), _| *k != key);
+        self.mesh_tex_bgs
+            .retain(|(k, r, _), _| *k != key && *r != key);
         self.textures.insert(
             key,
             GpuTexture {
@@ -840,6 +876,68 @@ impl Renderer {
             ],
         });
         self.tex_bgs.insert(k, bg);
+    }
+
+    fn mesh_tex_bind_group(&mut self, tex: &str, relief: &str, nearest: bool) {
+        let k = (tex.to_string(), relief.to_string(), nearest);
+        if self.mesh_tex_bgs.contains_key(&k) {
+            return;
+        }
+        let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("mesh tex"),
+            layout: &self.bgl_mesh_tex,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&self.textures[tex].view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(if nearest {
+                        &self.sampler_nearest
+                    } else {
+                        &self.sampler_repeat
+                    }),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&self.textures[relief].view),
+                },
+            ],
+        });
+        self.mesh_tex_bgs.insert(k, bg);
+    }
+
+    /// Geometry of a mesh source, subdivided `levels` times (cached).
+    fn mesh_key_subdivided(&mut self, source: &MeshSource, levels: u32) -> String {
+        let base = self.mesh_key(source);
+        if levels == 0 {
+            return base;
+        }
+        // Keep the result under ~2M triangles.
+        let tris = self
+            .meshes
+            .get(&base)
+            .map(|g| g.count as u64 / 3)
+            .unwrap_or(1)
+            .max(1);
+        let mut levels = levels.min(4);
+        while levels > 0 && tris * 4u64.pow(levels) > 2_000_000 {
+            levels -= 1;
+        }
+        let key = format!("{base}#s{levels}");
+        if levels == 0 || self.meshes.contains_key(&key) {
+            return if levels == 0 { base } else { key };
+        }
+        let mut data = match source {
+            MeshSource::Primitive(p) => primitive(p),
+            MeshSource::File { path } => {
+                load_mesh_asset(path).unwrap_or_else(|_| primitive(&Primitive::Cube))
+            }
+        };
+        data.subdivide(levels);
+        self.upload_mesh(key.clone(), &data);
+        key
     }
 
     fn mesh_key(&mut self, source: &MeshSource) -> String {
@@ -958,8 +1056,8 @@ impl Renderer {
                 1.0 / res.1 as f32,
             ],
             fog: c4(env.fog_color, env.fog_density.eval(ctx).max(0.0)),
-            sky: c4(env.sky_color, env.ambient),
-            ground: c4(env.ground_color, env.light_intensity),
+            sky: c4(env.sky_color, env.ambient.eval(ctx)),
+            ground: c4(env.ground_color, env.light_intensity.eval(ctx)),
             light_dir: v4(ld, 0.0),
             light_color: c4(env.light_color, 1.0),
             clip: clip.into(),
@@ -1002,12 +1100,31 @@ impl Renderer {
                         b.kind.index() as f32,
                         b.speed as f32,
                         b.intensity.eval(ctx) * flash,
-                        b.detail,
+                        b.detail.eval(ctx),
                     ];
                     blk[1] = c4(b.color_a, 0.0);
                     blk[2] = c4(b.color_b, 0.0);
                     blk[3] = c4(b.color_c, 0.0);
                     blk[4] = [if b.texture.is_some() { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0];
+                    let r = &b.ray;
+                    blk[5] = [
+                        r.variant as f32,
+                        r.pattern as f32,
+                        r.size.eval(ctx),
+                        r.twist.eval(ctx),
+                    ];
+                    blk[6] = [
+                        r.warp.eval(ctx),
+                        r.bend.eval(ctx),
+                        r.glow.eval(ctx),
+                        r.fog.eval(ctx),
+                    ];
+                    blk[7] = [
+                        r.steps.min(256) as f32,
+                        TAU * r.spin as f32 * ctx.phase,
+                        0.0,
+                        0.0,
+                    ];
                     ls.draws = 1;
                     ls.load = backdrop_load(b.kind);
                     cmds.push(Cmd::Backdrop {
@@ -1017,10 +1134,21 @@ impl Renderer {
                     blocks.push(blk);
                 }
                 LayerKind::Mesh(m) => {
-                    let mesh = self.mesh_key(&m.source);
+                    let mesh = self.mesh_key_subdivided(&m.source, m.subdivide);
                     let mat = &m.material;
                     let tex = self.texture_key(project, mat.texture.as_deref());
-                    self.tex_bind_group(&tex, mat.pixelated);
+                    let rel = &mat.relief;
+                    let relief_on = rel.bump.is_animated()
+                        || rel.bump.base != 0.0
+                        || rel.displace.is_animated()
+                        || rel.displace.base != 0.0;
+                    let relief_name = rel.texture.as_deref().or(mat.texture.as_deref());
+                    let relief = if relief_on {
+                        self.texture_key(project, relief_name)
+                    } else {
+                        "__white".to_string()
+                    };
+                    self.mesh_tex_bind_group(&tex, &relief, mat.pixelated);
                     let first = instances.len() as u32;
                     let to_raw = |i: &Instance| InstanceRaw {
                         model: m4(i.model),
@@ -1053,9 +1181,9 @@ impl Renderer {
                     ls.draws = 1;
                     ls.load = ls.triangles as f32 / 150_000.0 + count as f32 / 20_000.0;
                     let mut blk: Block = Zeroable::zeroed();
-                    blk[0] = c4(mat.base_color, mat.metallic);
+                    blk[0] = c4(mat.base_color, mat.metallic.eval(ctx));
                     let e = mat.emissive.eval(ctx).max(0.0) * flash;
-                    blk[1] = c4(color::scale(mat.emissive_color, e), mat.roughness);
+                    blk[1] = c4(color::scale(mat.emissive_color, e), mat.roughness.eval(ctx));
                     let mode = EmissiveMode::ALL
                         .iter()
                         .position(|x| *x == mat.emissive_mode)
@@ -1063,13 +1191,13 @@ impl Renderer {
                     blk[2] = [
                         mode as f32,
                         if mat.texture.is_some() { 1.0 } else { 0.0 },
-                        mat.texture_scale,
+                        mat.texture_scale.eval(ctx),
                         if mat.flat_shading { 1.0 } else { 0.0 },
                     ];
                     blk[3] = [
                         ctx.phase * mat.scroll[0] as f32,
                         ctx.phase * mat.scroll[1] as f32,
-                        mat.rim,
+                        mat.rim.eval(ctx),
                         mat.hue_shift.eval(ctx),
                     ];
                     let g = &mat.glitch;
@@ -1077,13 +1205,27 @@ impl Renderer {
                         g.amount.eval(ctx).max(0.0),
                         g.style.index() as f32,
                         g.rate.max(1) as f32,
-                        g.chance.clamp(0.0, 1.0),
+                        g.chance.eval(ctx).clamp(0.0, 1.0),
                     ];
                     blk[5] = [g.seed as f32, 0.0, 0.0, 0.0];
+                    blk[8] = [
+                        rel.bump.eval(ctx),
+                        rel.displace.eval(ctx),
+                        match rel.mode {
+                            ReliefMode::Bump => 0.0,
+                            ReliefMode::NormalMap => 1.0,
+                        },
+                        if relief_on && relief_name.is_some() {
+                            1.0
+                        } else {
+                            0.0
+                        },
+                    ];
                     cmds.push(Cmd::Mesh {
                         slot: blocks.len() as u32,
                         mesh,
                         tex,
+                        relief,
                         pixelated: mat.pixelated,
                         first,
                         count: count as u32,
@@ -1107,7 +1249,12 @@ impl Renderer {
                         ];
                         blk[1] = c4(p.color_a, p.size.eval(ctx).max(0.0));
                         blk[2] = c4(p.color_b, p.intensity.eval(ctx).max(0.0) * flash);
-                        blk[3] = [p.speed, p.radius, p.trail.min(16) as f32, p.trail_spacing];
+                        blk[3] = [
+                            p.speed.eval(ctx),
+                            p.radius.eval(ctx),
+                            p.trail.min(16) as f32,
+                            p.trail_spacing.eval(ctx),
+                        ];
                         blk[4] = [p.sprite.index() as f32, 0.0, 0.0, 0.0];
                         let model = m4(sym * lm);
                         blk[8..12].copy_from_slice(&model);
@@ -1119,6 +1266,8 @@ impl Renderer {
                     }
                 }
                 LayerKind::Terrain(t) => {
+                    let tex = self.texture_key(project, t.texture.as_deref());
+                    self.tex_bind_group(&tex, t.pixelated);
                     let lm = layer_matrix(&layer.transform, ctx);
                     let cells = t.cells.clamp(4, 256);
                     let syms = symmetry_matrices(&layer.symmetry);
@@ -1134,20 +1283,28 @@ impl Renderer {
                             t.hills.clamp(1, 64) as f32,
                         ];
                         blk[1] = [
-                            t.roughness,
+                            t.roughness.eval(ctx),
                             (ctx.phase * t.scroll as f32).rem_euclid(1.0),
-                            t.valley.clamp(0.0, 1.0),
+                            t.valley.eval(ctx).clamp(0.0, 1.0),
                             t.style.index() as f32,
                         ];
                         blk[2] = c4(
                             color::scale(t.line_color, t.glow.eval(ctx).max(0.0) * flash),
                             (t.seed % 65536) as f32,
                         );
-                        blk[3] = c4(t.fill_color, 0.0);
+                        blk[3] = c4(t.fill_color, if t.texture.is_some() { 1.0 } else { 0.0 });
+                        blk[4] = [
+                            t.tiles.clamp(1, 256) as f32,
+                            if t.texture_lines { 1.0 } else { 0.0 },
+                            0.0,
+                            0.0,
+                        ];
                         blk[8..12].copy_from_slice(&m4(sym * lm));
                         cmds.push(Cmd::Terrain {
                             slot: blocks.len() as u32,
                             vertices: cells * cells * 6,
+                            tex: tex.clone(),
+                            pixelated: t.pixelated,
                         });
                         blocks.push(blk);
                     }
@@ -1161,7 +1318,7 @@ impl Renderer {
                     ls.load = 0.05 * syms.len() as f32;
                     // Beat strobe: full on each beat, decaying until the next.
                     let beat_flash = (1.0 - ctx.beat_frac()).powi(3);
-                    let strobe = z.strobe.clamp(0.0, 1.0);
+                    let strobe = z.strobe.eval(ctx).clamp(0.0, 1.0);
                     let bright = z.intensity.eval(ctx).max(0.0)
                         * (1.0 - strobe + strobe * beat_flash)
                         * flash;
@@ -1170,14 +1327,14 @@ impl Renderer {
                         blk[0] = [
                             beams as f32,
                             z.pattern.index() as f32,
-                            z.spread.to_radians(),
-                            z.length.max(0.0),
+                            z.spread.eval(ctx).to_radians(),
+                            z.length.eval(ctx).max(0.0),
                         ];
-                        blk[1] = c4(z.color_a, z.width.max(0.001));
+                        blk[1] = c4(z.color_a, z.width.eval(ctx).max(0.001));
                         blk[2] = c4(z.color_b, bright);
                         let cycles = z.sweep_cycles as f32;
                         blk[3] = [
-                            z.sweep.to_radians(),
+                            z.sweep.eval(ctx).to_radians(),
                             (ctx.phase * cycles).rem_euclid(1.0),
                             (z.seed % 65536) as f32,
                             (ctx.phase * cycles.max(1.0)).rem_euclid(1.0),
@@ -1193,7 +1350,7 @@ impl Renderer {
                 LayerKind::Ribbon(r) => {
                     let mesh = self.ribbon_key(r);
                     let tex = self.texture_key(project, None);
-                    self.tex_bind_group(&tex, false);
+                    self.mesh_tex_bind_group(&tex, &tex, false);
                     let lm = layer_matrix(&layer.transform, ctx);
                     let first = instances.len() as u32;
                     let syms = symmetry_matrices(&layer.symmetry);
@@ -1219,14 +1376,15 @@ impl Renderer {
                     blk[6] = [
                         r.pulses as f32,
                         (ctx.phase * r.pulse_speed as f32).rem_euclid(1.0),
-                        r.pulse_length.clamp(0.001, 1.0),
-                        r.pulse_glow.max(0.0) * flash,
+                        r.pulse_length.eval(ctx).clamp(0.001, 1.0),
+                        r.pulse_glow.eval(ctx).max(0.0) * flash,
                     ];
                     blk[7] = [r.glow.eval(ctx).max(0.0) * flash, 0.0, 0.0, 0.0];
                     cmds.push(Cmd::Mesh {
                         slot: blocks.len() as u32,
                         mesh,
-                        tex,
+                        tex: tex.clone(),
+                        relief: tex,
                         pixelated: false,
                         first,
                         count: syms.len() as u32,
@@ -1240,15 +1398,20 @@ impl Renderer {
                     let tex = self.texture_key(project, f.texture.as_deref());
                     let mut blk: Block = Zeroable::zeroed();
                     let height = layer.transform.position[1];
-                    blk[0] = [f.size.max(0.1), height, f.reflectivity.clamp(0.0, 1.0), 1.0];
+                    blk[0] = [
+                        f.size.max(0.1),
+                        height,
+                        f.reflectivity.eval(ctx).clamp(0.0, 1.0),
+                        1.0,
+                    ];
                     blk[1] = c4(f.base_color, if f.texture.is_some() { 1.0 } else { 0.0 });
                     blk[2] = c4(f.tint, f.texture_scale);
                     blk[3] = c4(
                         color::scale(f.grid_color, f.grid.eval(ctx).max(0.0) * flash),
-                        f.grid_scale,
+                        f.grid_scale.eval(ctx),
                     );
                     blk[4] = [-ctx.phase * f.grid_scroll as f32, 0.0, 0.0, 0.0];
-                    floor = Some((blocks.len() as u32, tex, height, f.blur));
+                    floor = Some((blocks.len() as u32, tex, height, f.blur.eval(ctx)));
                     ls.draws = 1;
                     ls.triangles = 2;
                     ls.load = 0.1;
@@ -1531,6 +1694,7 @@ impl Renderer {
                     slot,
                     mesh,
                     tex,
+                    relief,
                     pixelated,
                     first,
                     count,
@@ -1542,7 +1706,11 @@ impl Renderer {
                     pass.set_pipeline(&pipes.mesh);
                     pass.set_bind_group(0, &self.globals_bg[globals], &[]);
                     pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
-                    pass.set_bind_group(2, &self.tex_bgs[&(tex.clone(), *pixelated)], &[]);
+                    pass.set_bind_group(
+                        2,
+                        &self.mesh_tex_bgs[&(tex.clone(), relief.clone(), *pixelated)],
+                        &[],
+                    );
                     pass.set_vertex_buffer(0, m.vbuf.slice(..));
                     pass.set_vertex_buffer(1, self.inst_buf.slice(..));
                     pass.set_index_buffer(m.ibuf.slice(..), wgpu::IndexFormat::Uint32);
@@ -1554,10 +1722,16 @@ impl Renderer {
                     pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
                     pass.draw(0..6, 0..*count);
                 }
-                Cmd::Terrain { slot, vertices } => {
+                Cmd::Terrain {
+                    slot,
+                    vertices,
+                    tex,
+                    pixelated,
+                } => {
                     pass.set_pipeline(&pipes.terrain);
                     pass.set_bind_group(0, &self.globals_bg[globals], &[]);
                     pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                    pass.set_bind_group(2, &self.tex_bgs[&(tex.clone(), *pixelated)], &[]);
                     pass.draw(0..*vertices, 0..1);
                 }
                 Cmd::Lasers { slot, beams } => {
@@ -1632,7 +1806,7 @@ impl Renderer {
         slots[SLOT_WARP as usize][0] = [
             if k.enabled { 1.0 } else { 0.0 },
             k.segments.max(1) as f32,
-            k.angle.to_radians() + TAU * k.turns as f32 * ctx.phase,
+            k.angle.eval(ctx).to_radians() + TAU * k.turns as f32 * ctx.phase,
             k.zoom.eval(ctx),
         ];
         slots[SLOT_WARP as usize][1] = [
@@ -1652,11 +1826,11 @@ impl Renderer {
             slots[(SLOT_BLOOM_DOWN as usize) + i][0] = [
                 1.0 / sw as f32,
                 1.0 / sh as f32,
-                b.threshold.max(0.0),
+                b.threshold.eval(ctx).max(0.0),
                 if i == 0 { 1.0 } else { 0.0 },
             ];
         }
-        let up_w = 0.35 + 0.65 * b.radius.clamp(0.0, 1.0);
+        let up_w = 0.35 + 0.65 * b.radius.eval(ctx).clamp(0.0, 1.0);
         for i in 0..BLOOM_LEVELS - 1 {
             let (_, sw, sh) = target.bloom[i + 1];
             slots[(SLOT_BLOOM_UP as usize) + i][0] = [1.0 / sw as f32, 1.0 / sh as f32, 0.0, 0.0];
@@ -1673,9 +1847,9 @@ impl Renderer {
         ];
         f[1] = [
             g.exposure.eval(ctx).max(0.0),
-            g.contrast,
-            g.saturation,
-            g.vignette,
+            g.contrast.eval(ctx),
+            g.saturation.eval(ctx),
+            g.vignette.eval(ctx),
         ];
         let bloom_k = if b.enabled {
             b.intensity.eval(ctx).max(0.0) * 0.5
@@ -1683,8 +1857,8 @@ impl Renderer {
             0.0
         };
         f[2] = [
-            g.grain,
-            g.beat_flash,
+            g.grain.eval(ctx),
+            g.beat_flash.eval(ctx),
             if post.chroma.enabled {
                 post.chroma.amount.eval(ctx).max(0.0)
             } else {
@@ -1694,7 +1868,7 @@ impl Renderer {
         ];
         // Scale fat pixels relative to 1080p so previews match exports.
         let pix = if post.pixelate.enabled {
-            (post.pixelate.size * target.height as f32 / 1080.0 * 2.0).max(1.0)
+            (post.pixelate.size.eval(ctx) * target.height as f32 / 1080.0 * 2.0).max(1.0)
         } else {
             0.0
         };
@@ -1708,12 +1882,12 @@ impl Renderer {
         } else {
             (0.0, vec![])
         };
-        f[3] = [pix, count, post.palette.dither, ctx.phase];
+        f[3] = [pix, count, post.palette.dither.eval(ctx), ctx.phase];
         f[4] = [
             if post.crt.enabled { 1.0 } else { 0.0 },
-            post.crt.scanlines,
-            post.crt.curvature,
-            post.crt.noise,
+            post.crt.scanlines.eval(ctx),
+            post.crt.curvature.eval(ctx),
+            post.crt.noise.eval(ctx),
         ];
         let frames = ctx.loop_beats as f32 * 6.0;
         let frame_id = (ctx.phase * frames).floor().rem_euclid(frames);

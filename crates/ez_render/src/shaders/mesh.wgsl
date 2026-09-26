@@ -7,9 +7,15 @@
 // D.v[5]: glitch seed
 // D.v[6]: pulse mode (4): pulses, head position (0..1), pulse length, pulse glow
 // D.v[7]: pulse mode (4): base glow
+// D.v[8]: relief strength, displacement, relief mode (0 bump, 1 normal map), has relief
 
 @group(2) @binding(0) var t_tex: texture_2d<f32>;
 @group(2) @binding(1) var s_tex: sampler;
+@group(2) @binding(2) var t_relief: texture_2d<f32>;
+
+fn lum(c: vec3<f32>) -> f32 {
+    return dot(c, vec3<f32>(0.299, 0.587, 0.114));
+}
 
 struct VIn {
     @location(0) pos: vec3<f32>,
@@ -81,7 +87,14 @@ fn glitch(pos: vec3<f32>, normal: vec3<f32>, inst_rand: f32) -> vec3<f32> {
 @vertex
 fn vs_main(in: VIn) -> VOut {
     let model = mat4x4<f32>(in.m0, in.m1, in.m2, in.m3);
-    let world = model * vec4<f32>(glitch(in.pos, in.normal, in.inst.z), 1.0);
+    var pos = in.pos;
+    // Displacement: push the surface out by the relief brightness.
+    if (D.v[8].y != 0.0 && D.v[8].w > 0.5) {
+        let duv = in.uv * D.v[2].z + D.v[3].xy;
+        let h = lum(textureSampleLevel(t_relief, s_tex, duv, 0.0).rgb);
+        pos = pos + normalize(in.normal) * h * D.v[8].y;
+    }
+    let world = model * vec4<f32>(glitch(pos, in.normal, in.inst.z), 1.0);
     var out: VOut;
     out.world = world.xyz;
     out.normal = normalize((model * vec4<f32>(in.normal, 0.0)).xyz);
@@ -111,6 +124,14 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let edge_w = fwidth(in.edge) * 1.5 + 0.035;
     let uv = in.uv * tex_scale + scroll;
     let texel = textureSample(t_tex, s_tex, uv).rgb;
+    let relief = textureSample(t_relief, s_tex, uv).rgb;
+    let height = lum(relief);
+    let dhx = dpdx(height);
+    let dhy = dpdy(height);
+    let dpx = dpdx(in.world);
+    let dpy = dpdy(in.world);
+    let duvx = dpdx(uv);
+    let duvy = dpdy(uv);
 
     if (!clip_visible(in.world)) {
         discard;
@@ -123,6 +144,28 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     }
     if (dot(n, v) < 0.0) {
         n = -n;
+    }
+    let bump = D.v[8].x;
+    if (bump != 0.0 && D.v[8].w > 0.5) {
+        if (D.v[8].z > 0.5) {
+            // Normal map, in a tangent frame built from screen derivatives
+            // (no precomputed tangents needed). Image rows run downwards,
+            // so green points along -v.
+            let dp2perp = cross(dpy, n);
+            let dp1perp = cross(n, dpx);
+            let t = dp2perp * duvx.x + dp1perp * duvy.x;
+            let b = dp2perp * duvx.y + dp1perp * duvy.y;
+            let inv = inverseSqrt(max(max(dot(t, t), dot(b, b)), 1e-20));
+            let tn = relief * 2.0 - 1.0;
+            n = normalize((t * tn.x - b * tn.y) * inv * bump + n * max(tn.z, 0.05));
+        } else {
+            // Bump: brightness is height (surface gradient method).
+            let r1 = cross(dpy, n);
+            let r2 = cross(n, dpx);
+            let det = dot(dpx, r1);
+            let grad = sign(det) * (dhx * r1 + dhy * r2);
+            n = normalize(abs(det) * n - grad * bump * 0.1);
+        }
     }
 
     var tex = vec3<f32>(1.0);

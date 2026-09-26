@@ -117,6 +117,44 @@ impl MeshData {
         }
     }
 
+    /// Split every triangle into four, `levels` times. Midpoints on shared
+    /// edges are shared too, so displaced surfaces don't crack there.
+    pub fn subdivide(&mut self, levels: u32) {
+        for _ in 0..levels {
+            let mut mids: std::collections::HashMap<(u32, u32), u32> =
+                std::collections::HashMap::new();
+            let mut out = Vec::with_capacity(self.indices.len() * 4);
+            let tris: Vec<[u32; 3]> = self.indices.as_chunks::<3>().0.to_vec();
+            for [a, b, c] in tris {
+                let mut mid = |x: u32, y: u32, verts: &mut Vec<Vertex>| -> u32 {
+                    *mids.entry((x.min(y), x.max(y))).or_insert_with(|| {
+                        let (p, q) = (verts[x as usize], verts[y as usize]);
+                        let avg = |u: [f32; 3], v: [f32; 3]| {
+                            [
+                                (u[0] + v[0]) * 0.5,
+                                (u[1] + v[1]) * 0.5,
+                                (u[2] + v[2]) * 0.5,
+                            ]
+                        };
+                        let n = Vec3::from(avg(p.normal, q.normal)).normalize_or(Vec3::Y);
+                        verts.push(Vertex {
+                            pos: avg(p.pos, q.pos),
+                            normal: n.into(),
+                            uv: [(p.uv[0] + q.uv[0]) * 0.5, (p.uv[1] + q.uv[1]) * 0.5],
+                            edge: (p.edge + q.edge) * 0.5,
+                        });
+                        (verts.len() - 1) as u32
+                    })
+                };
+                let ab = mid(a, b, &mut self.vertices);
+                let bc = mid(b, c, &mut self.vertices);
+                let ca = mid(c, a, &mut self.vertices);
+                out.extend_from_slice(&[a, ab, ca, ab, b, bc, ca, bc, c, ab, bc, ca]);
+            }
+            self.indices = out;
+        }
+    }
+
     /// Axis-aligned bounds.
     pub fn bounds(&self) -> (Vec3, Vec3) {
         let mut lo = Vec3::splat(f32::MAX);
@@ -957,6 +995,18 @@ mod tests {
                 p.label()
             );
         }
+    }
+
+    #[test]
+    fn subdivide_quadruples_triangles_and_shares_midpoints() {
+        let mut m = primitive(&Primitive::Icosahedron);
+        let tris = m.indices.len() / 3;
+        let verts = m.vertices.len();
+        m.subdivide(1);
+        assert_eq!(m.indices.len() / 3, tris * 4);
+        // Each fanned face shares its inner edges: fewer new vertices than 3 per triangle.
+        assert!(m.vertices.len() < verts + tris * 3);
+        assert!(m.indices.iter().all(|&i| (i as usize) < m.vertices.len()));
     }
 
     #[test]
