@@ -108,6 +108,9 @@ pub fn randomize(project: &mut Project, seed: u64, opt: RandomizeOptions) {
                 if opt.motion && rng.chance(0.3 * k) {
                     t.scroll = rng.range_u32(1, 3) as i32;
                 }
+                if opt.shapes && rng.chance(0.2 * k) {
+                    t.shape = *rng.pick(&TerrainShape::ALL);
+                }
             }
             LayerKind::Lasers(z) => {
                 if opt.shapes && rng.chance(0.3 * k) {
@@ -117,6 +120,13 @@ pub fn randomize(project: &mut Project, seed: u64, opt: RandomizeOptions) {
                     z.sweep_cycles = rng.range_u32(1, 4) as i32;
                 }
                 z.seed = rng.next_u32() % 1000;
+            }
+            LayerKind::Weather(w) => {
+                if opt.motion {
+                    w.wind_dir = rng.range(0.0, 360.0);
+                }
+                w.seed = rng.next_u32() % 1000;
+                w.lightning.seed = rng.next_u32() % 1000;
             }
             LayerKind::Ribbon(r) => {
                 if opt.shapes && rng.chance(0.4 * k) {
@@ -135,7 +145,10 @@ pub fn randomize(project: &mut Project, seed: u64, opt: RandomizeOptions) {
         if opt.shapes
             && !matches!(
                 l.kind,
-                LayerKind::Backdrop(_) | LayerKind::Mirror(_) | LayerKind::Terrain(_)
+                LayerKind::Backdrop(_)
+                    | LayerKind::Mirror(_)
+                    | LayerKind::Terrain(_)
+                    | LayerKind::Weather(_)
             )
         {
             l.symmetry = match l.symmetry {

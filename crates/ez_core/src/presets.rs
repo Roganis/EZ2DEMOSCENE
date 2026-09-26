@@ -61,6 +61,31 @@ pub fn all() -> Vec<Preset> {
             project: sponge_dive(),
         },
         Preset {
+            name: "Stormy Lake",
+            description: "Rain, lightning and storm clouds over a mountain lake.",
+            project: stormy_lake(),
+        },
+        Preset {
+            name: "Lava World",
+            description: "Glowing lava rivers in volcanic canyons, embers and god rays.",
+            project: lava_world(),
+        },
+        Preset {
+            name: "Sunbeam Peaks",
+            description: "Volumetric clouds, sunbeams and lens flare over alpine peaks.",
+            project: sunbeam_peaks(),
+        },
+        Preset {
+            name: "Aurora Tundra",
+            description: "Northern lights over a frozen lake, gently falling snow.",
+            project: aurora_tundra(),
+        },
+        Preset {
+            name: "Dune Sea",
+            description: "Sand dunes under a hazy sun, a sandstorm and a toxic oasis.",
+            project: dune_sea(),
+        },
+        Preset {
             name: "Empty",
             description: "A blank stage with a floor and a sky.",
             project: empty(),
@@ -1493,6 +1518,545 @@ impl Layer {
     pub fn bobbing(mut self, bob: Param) -> Self {
         self.transform.bob = bob;
         self
+    }
+}
+
+fn sky(kind: BackdropKind, a: u32, b: u32, c: u32, ray: RaySettings) -> Layer {
+    Layer::new(
+        "Sky",
+        LayerKind::Backdrop(Backdrop {
+            kind,
+            color_a: hex(a),
+            color_b: hex(b),
+            color_c: hex(c),
+            speed: 1,
+            intensity: Param::new(1.0),
+            detail: Param::new(1.0),
+            texture: None,
+            ray,
+        }),
+    )
+}
+
+pub fn stormy_lake() -> Project {
+    Project {
+        name: "Stormy Lake".into(),
+        timing: crate::Timing {
+            bpm: 90.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Pendulum,
+            swing: Param::new(12.0),
+            target: [0.0, 2.0, -20.0],
+            distance: Param::new(22.0),
+            height: Param::new(3.0),
+            fov: Param::new(60.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0x1a2028),
+            fog_density: Param::new(0.018),
+            sky_color: hex(0x4a5868),
+            ground_color: hex(0x101418),
+            light_dir: [0.3, 0.5, -1.0],
+            light_color: hex(0xb0c0d0),
+            light_intensity: Param::new(0.7),
+            ambient: Param::new(0.6),
+        },
+        layers: vec![
+            sky(
+                BackdropKind::Clouds,
+                0x2a3440,
+                0x3c4855,
+                0x303a48,
+                RaySettings {
+                    variant: 2,
+                    size: Param::new(1.2),
+                    warp: Param::new(1.1),
+                    bend: Param::new(1.4),
+                    glow: Param::new(0.3),
+                    fog: Param::new(1.0),
+                    ..Default::default()
+                },
+            ),
+            Layer::new(
+                "Mountains",
+                LayerKind::Terrain(Terrain {
+                    size: 120.0,
+                    cells: 128,
+                    height: Param::new(12.0),
+                    hills: 4,
+                    roughness: Param::new(0.5),
+                    scroll: 1,
+                    valley: Param::new(0.45),
+                    style: TerrainStyle::Solid,
+                    seed: 21,
+                    shape: TerrainShape::Mountains,
+                    biome: Biome::Alpine,
+                    liquid: Liquid {
+                        kind: LiquidKind::Water,
+                        level: Param::new(0.12),
+                        color: hex(0x0a2028),
+                        glow: Param::new(0.5),
+                        waves: Param::new(1.5),
+                        flow: 1,
+                    },
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, 0.0, -40.0]),
+            Layer::new(
+                "Rain",
+                LayerKind::Weather(Weather {
+                    count: 9000,
+                    area: 20.0,
+                    height: 16.0,
+                    falls: 14,
+                    wind: Param::new(12.0).osc(Wave::Sine, 6.0, 2),
+                    intensity: Param::new(0.5),
+                    lightning: Lightning {
+                        enabled: true,
+                        per_loop: 4,
+                        chance: 0.6,
+                        seed: 11,
+                        distance: 45.0,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, 1.5, 0.0]),
+        ],
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                intensity: Param::new(0.7),
+                threshold: Param::new(1.0),
+                radius: Param::new(0.7),
+            },
+            grade: Grade {
+                saturation: Param::new(0.8),
+                vignette: Param::new(0.5),
+                grain: Param::new(0.04),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+pub fn lava_world() -> Project {
+    Project {
+        name: "Lava World".into(),
+        timing: crate::Timing {
+            bpm: 100.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Pendulum,
+            swing: Param::new(10.0),
+            target: [0.0, 2.0, -18.0],
+            distance: Param::new(20.0),
+            height: Param::new(9.0),
+            fov: Param::new(60.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0x2a0c06),
+            fog_density: Param::new(0.02),
+            sky_color: hex(0x803020),
+            ground_color: hex(0x401008),
+            light_dir: [0.0, 0.25, -1.0],
+            light_color: hex(0xffa060),
+            light_intensity: Param::new(1.1),
+            ambient: Param::new(0.35),
+        },
+        layers: vec![
+            sky(
+                BackdropKind::Clouds,
+                0x301010,
+                0x803818,
+                0x401410,
+                RaySettings {
+                    variant: 1,
+                    size: Param::new(1.0),
+                    warp: Param::new(0.95),
+                    bend: Param::new(1.0),
+                    glow: Param::new(1.5),
+                    fog: Param::new(1.2),
+                    ..Default::default()
+                },
+            ),
+            Layer::new(
+                "Canyons",
+                LayerKind::Terrain(Terrain {
+                    size: 110.0,
+                    cells: 128,
+                    height: Param::new(7.0),
+                    hills: 3,
+                    roughness: Param::new(0.6),
+                    scroll: 1,
+                    valley: Param::new(0.0),
+                    style: TerrainStyle::Solid,
+                    seed: 5,
+                    shape: TerrainShape::Canyons,
+                    biome: Biome::Volcanic,
+                    liquid: Liquid {
+                        kind: LiquidKind::Lava,
+                        level: Param::new(0.3),
+                        color: hex(0xff4a08),
+                        glow: Param::new(1.4).osc(Wave::Sine, 0.3, 4),
+                        waves: Param::new(1.0),
+                        flow: 2,
+                    },
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, -2.0, -40.0]),
+            Layer::new(
+                "Embers",
+                LayerKind::Weather(Weather {
+                    kind: Precipitation::Embers,
+                    count: 1500,
+                    area: 16.0,
+                    height: 10.0,
+                    falls: 3,
+                    wind: Param::new(15.0),
+                    wind_dir: 90.0,
+                    size: Param::new(0.07),
+                    color: hex(0xff8030),
+                    intensity: Param::new(3.0),
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, -1.0, 0.0]),
+        ],
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                intensity: Param::new(1.0),
+                threshold: Param::new(1.0),
+                radius: Param::new(0.8),
+            },
+            rays: GodRays {
+                enabled: true,
+                intensity: Param::new(1.2),
+                length: Param::new(0.8),
+                threshold: Param::new(0.6),
+                tint: hex(0xffc080),
+                ..Default::default()
+            },
+            grade: Grade {
+                vignette: Param::new(0.6),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+pub fn sunbeam_peaks() -> Project {
+    Project {
+        name: "Sunbeam Peaks".into(),
+        timing: crate::Timing {
+            bpm: 110.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Pendulum,
+            swing: Param::new(15.0),
+            target: [0.0, 5.0, -20.0],
+            distance: Param::new(24.0),
+            height: Param::new(4.0),
+            fov: Param::new(60.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0x9fb6d0),
+            fog_density: Param::new(0.012),
+            sky_color: hex(0x7fa6d8),
+            ground_color: hex(0x3a3020),
+            light_dir: [0.35, 0.3, -1.0],
+            light_color: hex(0xfff0d0),
+            light_intensity: Param::new(1.6),
+            ambient: Param::new(0.5),
+        },
+        layers: vec![
+            sky(
+                BackdropKind::Clouds,
+                0x3a70c0,
+                0xb8cce0,
+                0x8090a8,
+                RaySettings {
+                    variant: 0,
+                    size: Param::new(1.0),
+                    warp: Param::new(1.0),
+                    bend: Param::new(1.0),
+                    glow: Param::new(1.2),
+                    fog: Param::new(1.0),
+                    ..Default::default()
+                },
+            ),
+            Layer::new(
+                "Peaks",
+                LayerKind::Terrain(Terrain {
+                    size: 140.0,
+                    cells: 128,
+                    height: Param::new(16.0),
+                    hills: 4,
+                    roughness: Param::new(0.55),
+                    scroll: 1,
+                    valley: Param::new(0.4),
+                    style: TerrainStyle::Solid,
+                    seed: 42,
+                    shape: TerrainShape::Mountains,
+                    biome: Biome::Alpine,
+                    liquid: Liquid {
+                        kind: LiquidKind::Water,
+                        level: Param::new(0.1),
+                        color: hex(0x0c3848),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, 0.0, -45.0]),
+            Layer::new(
+                "Crystal",
+                LayerKind::Mesh(mesh(
+                    Primitive::Octahedron,
+                    Material {
+                        base_color: hex(0x101820),
+                        metallic: Param::new(0.9),
+                        roughness: Param::new(0.1),
+                        emissive: Param::new(0.6),
+                        emissive_color: hex(0x80d0ff),
+                        emissive_mode: EmissiveMode::Edges,
+                        ..Default::default()
+                    },
+                )),
+            )
+            .scaled(1.6)
+            .at([0.0, 5.0, -12.0])
+            .spin([0, 1, 0]),
+        ],
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                intensity: Param::new(0.6),
+                threshold: Param::new(1.2),
+                radius: Param::new(0.7),
+            },
+            rays: GodRays {
+                enabled: true,
+                intensity: Param::new(1.0),
+                length: Param::new(0.7),
+                threshold: Param::new(0.8),
+                flare: Param::new(0.8),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+pub fn aurora_tundra() -> Project {
+    Project {
+        name: "Aurora Tundra".into(),
+        timing: crate::Timing {
+            bpm: 80.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Pendulum,
+            swing: Param::new(20.0),
+            target: [0.0, 4.0, -20.0],
+            distance: Param::new(20.0),
+            height: Param::new(1.0),
+            fov: Param::new(65.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0x060c18),
+            fog_density: Param::new(0.012),
+            sky_color: hex(0x305870),
+            ground_color: hex(0x081018),
+            light_dir: [-0.3, 0.6, -1.0],
+            light_color: hex(0x60ffb0),
+            light_intensity: Param::new(0.5),
+            ambient: Param::new(0.6),
+        },
+        layers: vec![
+            sky(
+                BackdropKind::Aurora,
+                0x040814,
+                0x20ff80,
+                0x8040ff,
+                RaySettings {
+                    size: Param::new(1.0),
+                    twist: Param::new(1.2),
+                    warp: Param::new(1.0),
+                    glow: Param::new(1.0),
+                    ..Default::default()
+                },
+            ),
+            Layer::new(
+                "Ice",
+                LayerKind::Terrain(Terrain {
+                    size: 120.0,
+                    cells: 112,
+                    height: Param::new(10.0),
+                    hills: 4,
+                    roughness: Param::new(0.5),
+                    scroll: 1,
+                    valley: Param::new(0.5),
+                    style: TerrainStyle::Solid,
+                    seed: 11,
+                    shape: TerrainShape::Mountains,
+                    biome: Biome::Arctic,
+                    liquid: Liquid {
+                        kind: LiquidKind::Ice,
+                        level: Param::new(0.15),
+                        color: hex(0x7ab0d0),
+                        glow: Param::new(1.0),
+                        waves: Param::new(1.0),
+                        flow: 0,
+                    },
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, -1.0, -40.0]),
+            Layer::new(
+                "Snow",
+                LayerKind::Weather(Weather {
+                    kind: Precipitation::Snow,
+                    count: 5000,
+                    area: 16.0,
+                    height: 12.0,
+                    falls: 2,
+                    wind: Param::new(20.0),
+                    size: Param::new(0.06),
+                    color: hex(0xe8f0ff),
+                    intensity: Param::new(0.9),
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, -1.0, 0.0]),
+        ],
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                intensity: Param::new(0.9),
+                threshold: Param::new(0.6),
+                radius: Param::new(0.8),
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+pub fn dune_sea() -> Project {
+    Project {
+        name: "Dune Sea".into(),
+        timing: crate::Timing {
+            bpm: 105.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Pendulum,
+            swing: Param::new(10.0),
+            target: [0.0, 1.5, -20.0],
+            distance: Param::new(20.0),
+            height: Param::new(3.0),
+            fov: Param::new(60.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0xc09868),
+            fog_density: Param::new(0.02),
+            sky_color: hex(0xd0b090),
+            ground_color: hex(0x6a4828),
+            light_dir: [-0.2, 0.35, -1.0],
+            light_color: hex(0xffe0b0),
+            light_intensity: Param::new(1.5),
+            ambient: Param::new(0.5),
+        },
+        layers: vec![
+            sky(
+                BackdropKind::Clouds,
+                0x5a88b8,
+                0xe0c090,
+                0xc09070,
+                RaySettings {
+                    variant: 1,
+                    warp: Param::new(0.75),
+                    bend: Param::new(0.6),
+                    glow: Param::new(1.5),
+                    fog: Param::new(1.5),
+                    ..Default::default()
+                },
+            ),
+            Layer::new(
+                "Dunes",
+                LayerKind::Terrain(Terrain {
+                    size: 110.0,
+                    cells: 128,
+                    height: Param::new(6.0),
+                    hills: 3,
+                    roughness: Param::new(0.4),
+                    scroll: 1,
+                    valley: Param::new(0.0),
+                    style: TerrainStyle::Solid,
+                    seed: 9,
+                    shape: TerrainShape::Dunes,
+                    biome: Biome::Desert,
+                    liquid: Liquid {
+                        kind: LiquidKind::Toxic,
+                        level: Param::new(0.08),
+                        color: hex(0x30ff40),
+                        glow: Param::new(1.2),
+                        waves: Param::new(1.0),
+                        flow: 1,
+                    },
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, -0.5, -40.0]),
+            Layer::new(
+                "Sandstorm",
+                LayerKind::Weather(Weather {
+                    kind: Precipitation::Dust,
+                    count: 2500,
+                    area: 18.0,
+                    height: 8.0,
+                    falls: 3,
+                    wind_dir: 180.0,
+                    size: Param::new(0.6),
+                    color: hex(0xd0a070),
+                    intensity: Param::new(0.12),
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, -0.5, 0.0]),
+        ],
+        post: PostStack {
+            rays: GodRays {
+                enabled: true,
+                intensity: Param::new(0.8),
+                length: Param::new(0.6),
+                threshold: Param::new(0.9),
+                tint: hex(0xffe0b0),
+                flare: Param::new(0.4),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
     }
 }
 

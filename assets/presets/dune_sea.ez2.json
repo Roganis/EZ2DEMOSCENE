@@ -1,0 +1,325 @@
+{
+  "version": 2,
+  "name": "Dune Sea",
+  "timing": {
+    "bpm": 105.0,
+    "loop_beats": 16
+  },
+  "camera": {
+    "mode": "Pendulum",
+    "target": [
+      0.0,
+      1.5,
+      -20.0
+    ],
+    "distance": 20.0,
+    "height": 3.0,
+    "angle": 0.0,
+    "orbit_turns": 1,
+    "swing": 10.0,
+    "fov": 60.0,
+    "roll": 0.0,
+    "beat_shake": 0.0
+  },
+  "environment": {
+    "fog_color": [
+      0.5271152,
+      0.31398875,
+      0.13843162
+    ],
+    "fog_density": 0.02,
+    "sky_color": [
+      0.6307572,
+      0.4341537,
+      0.27889434
+    ],
+    "ground_color": [
+      0.14412849,
+      0.06480328,
+      0.02121901
+    ],
+    "light_dir": [
+      -0.2,
+      0.35,
+      -1.0
+    ],
+    "light_color": [
+      1.0,
+      0.74540436,
+      0.4341537
+    ],
+    "light_intensity": 1.5,
+    "ambient": 0.5
+  },
+  "layers": [
+    {
+      "name": "Sky",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Backdrop",
+        "kind": "Clouds",
+        "color_a": [
+          0.10224175,
+          0.2462014,
+          0.47932023
+        ],
+        "color_b": [
+          0.74540436,
+          0.5271152,
+          0.27889434
+        ],
+        "color_c": [
+          0.5271152,
+          0.27889434,
+          0.1620294
+        ],
+        "speed": 1,
+        "intensity": 1.0,
+        "detail": 1.0,
+        "texture": null,
+        "ray": {
+          "variant": 1,
+          "pattern": 0,
+          "size": 1.0,
+          "twist": 0.0,
+          "warp": 0.75,
+          "bend": 0.6,
+          "glow": 1.5,
+          "fog": 1.5,
+          "steps": 0,
+          "spin": 0
+        }
+      }
+    },
+    {
+      "name": "Dunes",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          -0.5,
+          -40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Terrain",
+        "size": 110.0,
+        "cells": 128,
+        "height": 6.0,
+        "hills": 3,
+        "roughness": 0.4,
+        "scroll": 1,
+        "valley": 0.0,
+        "style": "Solid",
+        "line_color": [
+          1.0,
+          0.02415763,
+          0.6724432
+        ],
+        "glow": 1.0,
+        "fill_color": [
+          0.00303527,
+          0.001214108,
+          0.009134057
+        ],
+        "seed": 9,
+        "texture": null,
+        "tiles": 8,
+        "texture_lines": false,
+        "pixelated": false,
+        "shape": "Dunes",
+        "biome": "Desert",
+        "liquid": {
+          "kind": "Toxic",
+          "level": 0.08,
+          "color": [
+            0.029556833,
+            1.0,
+            0.051269468
+          ],
+          "glow": 1.2,
+          "waves": 1.0,
+          "flow": 1
+        }
+      }
+    },
+    {
+      "name": "Sandstorm",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          -0.5,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Weather",
+        "kind": "Dust",
+        "count": 2500,
+        "area": 18.0,
+        "height": 8.0,
+        "falls": 3,
+        "wind": 10.0,
+        "wind_dir": 180.0,
+        "size": 0.6,
+        "streak": 1.0,
+        "color": [
+          0.6307572,
+          0.3515327,
+          0.1620294
+        ],
+        "intensity": 0.12,
+        "splashes": 0.6,
+        "seed": 1,
+        "lightning": {
+          "enabled": false,
+          "per_loop": 8,
+          "chance": 0.35,
+          "flash": 1.5,
+          "color": [
+            0.5775805,
+            0.68668544,
+            1.0
+          ],
+          "distance": 30.0,
+          "seed": 7
+        }
+      }
+    }
+  ],
+  "post": {
+    "bloom": {
+      "enabled": true,
+      "intensity": 0.8,
+      "threshold": 0.8,
+      "radius": 0.7
+    },
+    "kaleido": {
+      "enabled": false,
+      "segments": 6,
+      "angle": 0.0,
+      "turns": 0,
+      "zoom": 1.0,
+      "center": [
+        0.5,
+        0.5
+      ]
+    },
+    "mirror": {
+      "enabled": false,
+      "mode": "LeftToRight"
+    },
+    "chroma": {
+      "enabled": false,
+      "amount": 0.004
+    },
+    "pixelate": {
+      "enabled": false,
+      "size": 4.0
+    },
+    "palette": {
+      "enabled": false,
+      "palette": "Ega",
+      "dither": 0.6
+    },
+    "crt": {
+      "enabled": false,
+      "scanlines": 0.5,
+      "curvature": 0.15,
+      "noise": 0.1
+    },
+    "grade": {
+      "exposure": 1.0,
+      "contrast": 1.05,
+      "saturation": 1.1,
+      "vignette": 0.35,
+      "grain": 0.03,
+      "beat_flash": 0.0
+    },
+    "rays": {
+      "enabled": true,
+      "source": "Sun",
+      "intensity": 0.8,
+      "length": 0.6,
+      "threshold": 0.9,
+      "tint": [
+        1.0,
+        0.74540436,
+        0.4341537
+      ],
+      "flare": 0.4
+    }
+  },
+  "textures": [],
+  "audio": null,
+  "graph": null,
+  "use_graph": false
+}

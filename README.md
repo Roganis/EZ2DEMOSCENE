@@ -24,7 +24,9 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     synthwave sun & grid, and four raymarched ones with their own
     settings: tunnel (5 shapes, wall patterns, twist, light rings),
     fractal (3 formulas, fold, zoom), Menger sponge flight (sponge, beam
-    lattice, cube field) and a ring corridor.
+    lattice, cube field) and a ring corridor. Plus two skies:
+    **volumetric clouds** (raymarched, sun-lit, fluffy / overcast / storm)
+    and an **aurora** night sky.
   - Mirror floor: real planar reflections, blur, a glowing neon grid and
     LED textures.
   - Shapes: 25 built-ins (platonic solids, crystals, shards, beveled tech
@@ -39,7 +41,14 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     glitter, with trails. They are fully deterministic on the GPU, so
     scrubbing and exports are exact.
   - Terrain: an endless wireframe or solid (optionally textured) landscape
-    that scrolls past and repeats exactly every loop.
+    that scrolls past and repeats exactly every loop. Six shapes (hills,
+    ridged mountains, mesas, dunes, canyons, craters), biomes that colour
+    it by height and slope (alpine, desert, volcanic, arctic, alien), and
+    **water, lava, toxic goo or ice** filling the low ground, with
+    ripples, sun glints, foam, a churning crust or bubbles.
+  - Weather: rain with splashes, snow, rising embers, a sandstorm or
+    fireflies in a box that follows the camera, and **lightning** bolts
+    whose flash lights up the scene.
   - Laser beams: fans, rotating cones or scattered beams that sweep and
     strobe on the beat.
   - Neon ribbons: glowing tubes along Lissajous, knot, figure-eight, wave
@@ -58,7 +67,8 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   bars, Sierpinski, Tron grid, Truchet, the C64 10 PRINT maze, Matrix rain,
   CRT phosphors…). Imported images can be *retro-ized*: downscaled,
   palette-reduced and dithered.
-- **Post FX.** Bloom, kaleidoscope, mirror split, chromatic aberration,
+- **Post FX.** Bloom, **god rays** (light shafts from the sun or the
+  picture centre) with lens flare, kaleidoscope, mirror split, chromatic aberration,
   pixelation, palette reduction with Bayer dithering (EGA, CGA, C64, Game
   Boy, PICO-8, Amiga copper, ZX Spectrum, VGA cube, phosphor), CRT
   scanlines/curvature/VHS wobble, grading, vignette, grain and beat flash.
@@ -176,6 +186,11 @@ ez2demoscene --write-textures assets/textures
   number of lives. Its position is an analytic function of `(id, age)`, so
   there is no simulation state.
 - Noise-based backgrounds move on closed circles through noise space.
+- Weather drops fall a whole number of times per loop, and lightning
+  strikes are picked from time slots that wrap with the loop. Liquid
+  currents drift a whole number of terrain lengths per loop.
+- Volumetric clouds can drift any distance: two copies of the cloud field,
+  half a loop apart, cross-fade, so each one jumps back while invisible.
 - Film grain and VHS noise are hashed from a frame id that wraps with the loop.
 - The exporter renders frames at `i / N` for `i` in `0..N`, so the first
   frame is never duplicated at the end.

@@ -334,6 +334,7 @@ pub fn set_layer_color(l: &mut Layer, c: Rgb) {
             z.color_b = c;
         }
         LayerKind::Ribbon(r) => r.color = c,
+        LayerKind::Weather(w) => w.color = c,
     }
 }
 
@@ -366,6 +367,7 @@ pub fn tint_layer(l: &mut Layer, hue: f32, glow: f32) {
         LayerKind::Terrain(t) => {
             t.line_color = hue_rotate(t.line_color, hue);
             t.fill_color = hue_rotate(t.fill_color, hue);
+            t.liquid.color = hue_rotate(t.liquid.color, hue);
             t.glow.base *= glow;
             t.glow.amp *= glow;
         }
@@ -379,6 +381,11 @@ pub fn tint_layer(l: &mut Layer, hue: f32, glow: f32) {
             r.color = hue_rotate(r.color, hue);
             r.glow.base *= glow;
             r.glow.amp *= glow;
+        }
+        LayerKind::Weather(w) => {
+            w.color = hue_rotate(w.color, hue);
+            w.intensity.base *= glow;
+            w.intensity.amp *= glow;
         }
     }
 }

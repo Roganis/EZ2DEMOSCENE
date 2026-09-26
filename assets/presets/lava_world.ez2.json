@@ -1,0 +1,332 @@
+{
+  "version": 2,
+  "name": "Lava World",
+  "timing": {
+    "bpm": 100.0,
+    "loop_beats": 16
+  },
+  "camera": {
+    "mode": "Pendulum",
+    "target": [
+      0.0,
+      2.0,
+      -18.0
+    ],
+    "distance": 20.0,
+    "height": 9.0,
+    "angle": 0.0,
+    "orbit_turns": 1,
+    "swing": 10.0,
+    "fov": 60.0,
+    "roll": 0.0,
+    "beat_shake": 0.0
+  },
+  "environment": {
+    "fog_color": [
+      0.023153365,
+      0.003676507,
+      0.001821162
+    ],
+    "fog_density": 0.02,
+    "sky_color": [
+      0.21586053,
+      0.029556833,
+      0.014443844
+    ],
+    "ground_color": [
+      0.051269468,
+      0.005181517,
+      0.002428216
+    ],
+    "light_dir": [
+      0.0,
+      0.25,
+      -1.0
+    ],
+    "light_color": [
+      1.0,
+      0.3515327,
+      0.11697067
+    ],
+    "light_intensity": 1.1,
+    "ambient": 0.35
+  },
+  "layers": [
+    {
+      "name": "Sky",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Backdrop",
+        "kind": "Clouds",
+        "color_a": [
+          0.029556833,
+          0.005181517,
+          0.005181517
+        ],
+        "color_b": [
+          0.21586053,
+          0.039546236,
+          0.009134057
+        ],
+        "color_c": [
+          0.051269468,
+          0.00699541,
+          0.005181517
+        ],
+        "speed": 1,
+        "intensity": 1.0,
+        "detail": 1.0,
+        "texture": null,
+        "ray": {
+          "variant": 1,
+          "pattern": 0,
+          "size": 1.0,
+          "twist": 0.0,
+          "warp": 0.95,
+          "bend": 1.0,
+          "glow": 1.5,
+          "fog": 1.2,
+          "steps": 0,
+          "spin": 0
+        }
+      }
+    },
+    {
+      "name": "Canyons",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          -2.0,
+          -40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Terrain",
+        "size": 110.0,
+        "cells": 128,
+        "height": 7.0,
+        "hills": 3,
+        "roughness": 0.6,
+        "scroll": 1,
+        "valley": 0.0,
+        "style": "Solid",
+        "line_color": [
+          1.0,
+          0.02415763,
+          0.6724432
+        ],
+        "glow": 1.0,
+        "fill_color": [
+          0.00303527,
+          0.001214108,
+          0.009134057
+        ],
+        "seed": 5,
+        "texture": null,
+        "tiles": 8,
+        "texture_lines": false,
+        "pixelated": false,
+        "shape": "Canyons",
+        "biome": "Volcanic",
+        "liquid": {
+          "kind": "Lava",
+          "level": 0.3,
+          "color": [
+            1.0,
+            0.06847818,
+            0.002428216
+          ],
+          "glow": {
+            "base": 1.4,
+            "amp": 0.3,
+            "wave": "Sine",
+            "cycles": 4,
+            "offset": 0.0,
+            "audio": 0.0
+          },
+          "waves": 1.0,
+          "flow": 2
+        }
+      }
+    },
+    {
+      "name": "Embers",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Weather",
+        "kind": "Embers",
+        "count": 1500,
+        "area": 16.0,
+        "height": 10.0,
+        "falls": 3,
+        "wind": 15.0,
+        "wind_dir": 90.0,
+        "size": 0.07,
+        "streak": 1.0,
+        "color": [
+          1.0,
+          0.21586053,
+          0.029556833
+        ],
+        "intensity": 3.0,
+        "splashes": 0.6,
+        "seed": 1,
+        "lightning": {
+          "enabled": false,
+          "per_loop": 8,
+          "chance": 0.35,
+          "flash": 1.5,
+          "color": [
+            0.5775805,
+            0.68668544,
+            1.0
+          ],
+          "distance": 30.0,
+          "seed": 7
+        }
+      }
+    }
+  ],
+  "post": {
+    "bloom": {
+      "enabled": true,
+      "intensity": 1.0,
+      "threshold": 1.0,
+      "radius": 0.8
+    },
+    "kaleido": {
+      "enabled": false,
+      "segments": 6,
+      "angle": 0.0,
+      "turns": 0,
+      "zoom": 1.0,
+      "center": [
+        0.5,
+        0.5
+      ]
+    },
+    "mirror": {
+      "enabled": false,
+      "mode": "LeftToRight"
+    },
+    "chroma": {
+      "enabled": false,
+      "amount": 0.004
+    },
+    "pixelate": {
+      "enabled": false,
+      "size": 4.0
+    },
+    "palette": {
+      "enabled": false,
+      "palette": "Ega",
+      "dither": 0.6
+    },
+    "crt": {
+      "enabled": false,
+      "scanlines": 0.5,
+      "curvature": 0.15,
+      "noise": 0.1
+    },
+    "grade": {
+      "exposure": 1.0,
+      "contrast": 1.05,
+      "saturation": 1.1,
+      "vignette": 0.6,
+      "grain": 0.03,
+      "beat_flash": 0.0
+    },
+    "rays": {
+      "enabled": true,
+      "source": "Sun",
+      "intensity": 1.2,
+      "length": 0.8,
+      "threshold": 0.6,
+      "tint": [
+        1.0,
+        0.5271152,
+        0.21586053
+      ],
+      "flare": 0.0
+    }
+  },
+  "textures": [],
+  "audio": null,
+  "graph": null,
+  "use_graph": false
+}

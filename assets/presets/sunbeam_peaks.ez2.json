@@ -1,0 +1,339 @@
+{
+  "version": 2,
+  "name": "Sunbeam Peaks",
+  "timing": {
+    "bpm": 110.0,
+    "loop_beats": 16
+  },
+  "camera": {
+    "mode": "Pendulum",
+    "target": [
+      0.0,
+      5.0,
+      -20.0
+    ],
+    "distance": 24.0,
+    "height": 4.0,
+    "angle": 0.0,
+    "orbit_turns": 1,
+    "swing": 15.0,
+    "fov": 60.0,
+    "roll": 0.0,
+    "beat_shake": 0.0
+  },
+  "environment": {
+    "fog_color": [
+      0.3467041,
+      0.46778384,
+      0.6307572
+    ],
+    "fog_density": 0.012,
+    "sky_color": [
+      0.21223073,
+      0.3813261,
+      0.68668544
+    ],
+    "ground_color": [
+      0.04231141,
+      0.029556833,
+      0.014443844
+    ],
+    "light_dir": [
+      0.35,
+      0.3,
+      -1.0
+    ],
+    "light_color": [
+      1.0,
+      0.8713672,
+      0.6307572
+    ],
+    "light_intensity": 1.6,
+    "ambient": 0.5
+  },
+  "layers": [
+    {
+      "name": "Sky",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Backdrop",
+        "kind": "Clouds",
+        "color_a": [
+          0.04231141,
+          0.1620294,
+          0.5271152
+        ],
+        "color_b": [
+          0.47932023,
+          0.6038274,
+          0.74540436
+        ],
+        "color_c": [
+          0.21586053,
+          0.27889434,
+          0.39157256
+        ],
+        "speed": 1,
+        "intensity": 1.0,
+        "detail": 1.0,
+        "texture": null,
+        "ray": {
+          "variant": 0,
+          "pattern": 0,
+          "size": 1.0,
+          "twist": 0.0,
+          "warp": 1.0,
+          "bend": 1.0,
+          "glow": 1.2,
+          "fog": 1.0,
+          "steps": 0,
+          "spin": 0
+        }
+      }
+    },
+    {
+      "name": "Peaks",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          -45.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Terrain",
+        "size": 140.0,
+        "cells": 128,
+        "height": 16.0,
+        "hills": 4,
+        "roughness": 0.55,
+        "scroll": 1,
+        "valley": 0.4,
+        "style": "Solid",
+        "line_color": [
+          1.0,
+          0.02415763,
+          0.6724432
+        ],
+        "glow": 1.0,
+        "fill_color": [
+          0.00303527,
+          0.001214108,
+          0.009134057
+        ],
+        "seed": 42,
+        "texture": null,
+        "tiles": 8,
+        "texture_lines": false,
+        "pixelated": false,
+        "shape": "Mountains",
+        "biome": "Alpine",
+        "liquid": {
+          "kind": "Water",
+          "level": 0.1,
+          "color": [
+            0.003676507,
+            0.039546236,
+            0.06480328
+          ],
+          "glow": 1.0,
+          "waves": 1.0,
+          "flow": 1
+        }
+      }
+    },
+    {
+      "name": "Crystal",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          5.0,
+          -12.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.6,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          1,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Octahedron"
+        },
+        "material": {
+          "base_color": [
+            0.005181517,
+            0.009134057,
+            0.014443844
+          ],
+          "metallic": 0.9,
+          "roughness": 0.1,
+          "emissive_color": [
+            0.21586053,
+            0.6307572,
+            1.0
+          ],
+          "emissive": 0.6,
+          "emissive_mode": "Edges",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": false,
+          "rim": 0.3,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Single"
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    }
+  ],
+  "post": {
+    "bloom": {
+      "enabled": true,
+      "intensity": 0.6,
+      "threshold": 1.2,
+      "radius": 0.7
+    },
+    "kaleido": {
+      "enabled": false,
+      "segments": 6,
+      "angle": 0.0,
+      "turns": 0,
+      "zoom": 1.0,
+      "center": [
+        0.5,
+        0.5
+      ]
+    },
+    "mirror": {
+      "enabled": false,
+      "mode": "LeftToRight"
+    },
+    "chroma": {
+      "enabled": false,
+      "amount": 0.004
+    },
+    "pixelate": {
+      "enabled": false,
+      "size": 4.0
+    },
+    "palette": {
+      "enabled": false,
+      "palette": "Ega",
+      "dither": 0.6
+    },
+    "crt": {
+      "enabled": false,
+      "scanlines": 0.5,
+      "curvature": 0.15,
+      "noise": 0.1
+    },
+    "grade": {
+      "exposure": 1.0,
+      "contrast": 1.05,
+      "saturation": 1.1,
+      "vignette": 0.35,
+      "grain": 0.03,
+      "beat_flash": 0.0
+    },
+    "rays": {
+      "enabled": true,
+      "source": "Sun",
+      "intensity": 1.0,
+      "length": 0.7,
+      "threshold": 0.8,
+      "tint": [
+        1.0,
+        0.95,
+        0.85
+      ],
+      "flare": 0.8
+    }
+  },
+  "textures": [],
+  "audio": null,
+  "graph": null,
+  "use_graph": false
+}

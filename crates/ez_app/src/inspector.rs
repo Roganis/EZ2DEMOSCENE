@@ -303,6 +303,39 @@ pub fn post_ui(ui: &mut Ui, post: &mut PostStack) {
         );
         param(ui, "Spread", "", &mut post.bloom.radius, 0.0..=1.0);
     });
+    toggle_section(ui, "God rays & lens flare", &mut post.rays.enabled, |ui| {
+        combo(
+            ui,
+            "Light",
+            "Where the rays stream from",
+            &mut post.rays.source,
+            &RaySource::ALL,
+            |s| s.label(),
+        );
+        param(ui, "Intensity", "", &mut post.rays.intensity, 0.0..=4.0);
+        param(
+            ui,
+            "Length",
+            "How far the rays reach",
+            &mut post.rays.length,
+            0.0..=1.0,
+        );
+        param(
+            ui,
+            "Threshold",
+            "Brightness above which the picture casts rays",
+            &mut post.rays.threshold,
+            0.0..=4.0,
+        );
+        color(ui, "Tint", "", &mut post.rays.tint);
+        param(
+            ui,
+            "Lens flare",
+            "Ghosts and a streak when looking into the light",
+            &mut post.rays.flare,
+            0.0..=3.0,
+        );
+    });
     toggle_section(ui, "Chromatic aberration", &mut post.chroma.enabled, |ui| {
         param(
             ui,
@@ -444,6 +477,7 @@ pub fn layer_ui(ui: &mut Ui, layer: &mut Layer, textures: &[UserTexture], lref: 
         LayerKind::Terrain(t) => terrain_ui(ui, t, textures, lref),
         LayerKind::Lasers(z) => lasers_ui(ui, z),
         LayerKind::Ribbon(r) => ribbon_ui(ui, r),
+        LayerKind::Weather(w) => weather_ui(ui, w),
     }
     let is_mesh_like = matches!(
         layer.kind,
@@ -455,6 +489,16 @@ pub fn layer_ui(ui: &mut Ui, layer: &mut Layer, textures: &[UserTexture], lref: 
             let t = &mut layer.transform;
             if matches!(layer.kind, LayerKind::Mirror(_)) {
                 slider(ui, "Floor height", "", &mut t.position[1], -10.0..=10.0);
+                return;
+            }
+            if matches!(layer.kind, LayerKind::Weather(_)) {
+                slider(
+                    ui,
+                    "Ground height",
+                    "Where rain splashes and embers start (the weather follows the camera)",
+                    &mut t.position[1],
+                    -10.0..=10.0,
+                );
                 return;
             }
             vec3(ui, "Position", "", &mut t.position, 0.05);
@@ -1195,21 +1239,36 @@ fn ray_ui(ui: &mut Ui, kind: BackdropKind, r: &mut RaySettings, has_texture: boo
     if let Some(l) = glow {
         param(ui, l, "", &mut r.glow, 0.0..=4.0);
     }
-    param(ui, "Fog ×", "Depth fog (0 = none)", &mut r.fog, 0.0..=4.0);
-    drag_i(
-        ui,
-        "Roll / loop",
-        "Whole turns of the view per loop",
-        &mut r.spin,
-        -8..=8,
-    );
-    let (default_steps, what) = if kind == BackdropKind::Fractal {
-        (13, "Fractal iterations")
-    } else {
-        (
-            if kind == BackdropKind::Sponge { 80 } else { 64 },
-            "Raymarch steps",
-        )
+    match kind {
+        BackdropKind::Aurora => {}
+        BackdropKind::Clouds => {
+            param(
+                ui,
+                "Haze ×",
+                "How much distant clouds melt into the horizon",
+                &mut r.fog,
+                0.0..=4.0,
+            );
+        }
+        _ => {
+            param(ui, "Fog ×", "Depth fog (0 = none)", &mut r.fog, 0.0..=4.0);
+        }
+    }
+    if kind.is_flight() {
+        drag_i(
+            ui,
+            "Roll / loop",
+            "Whole turns of the view per loop",
+            &mut r.spin,
+            -8..=8,
+        );
+    }
+    let (default_steps, what) = match kind {
+        BackdropKind::Aurora => return,
+        BackdropKind::Fractal => (13, "Fractal iterations"),
+        BackdropKind::Sponge => (80, "Raymarch steps"),
+        BackdropKind::Clouds => (28, "Raymarch steps"),
+        _ => (64, "Raymarch steps"),
     };
     row(
         ui,
@@ -1226,6 +1285,14 @@ fn terrain_ui(ui: &mut Ui, t: &mut Terrain, textures: &[UserTexture], lref: Laye
         combo(ui, "Style", "", &mut t.style, &TerrainStyle::ALL, |s| {
             s.label()
         });
+        combo(
+            ui,
+            "Shape",
+            "Kind of landscape",
+            &mut t.shape,
+            &TerrainShape::ALL,
+            |s| s.label(),
+        );
         param(ui, "Height", "Mountain height", &mut t.height, 0.0..=20.0);
         drag_u(
             ui,
@@ -1263,7 +1330,17 @@ fn terrain_ui(ui: &mut Ui, t: &mut Terrain, textures: &[UserTexture], lref: Laye
             param(ui, "Line glow", "", &mut t.glow, 0.0..=10.0);
         }
         if t.style != TerrainStyle::Wireframe {
-            color(ui, "Ground colour", "", &mut t.fill_color);
+            combo(
+                ui,
+                "Biome",
+                "Colours the ground by height and steepness",
+                &mut t.biome,
+                &Biome::ALL,
+                |b| b.label(),
+            );
+            if t.biome == Biome::Plain {
+                color(ui, "Ground colour", "", &mut t.fill_color);
+            }
         }
         texture_picker(
             ui,
@@ -1301,6 +1378,151 @@ fn terrain_ui(ui: &mut Ui, t: &mut Terrain, textures: &[UserTexture], lref: Laye
             &mut t.cells,
             4..=256,
         );
+    });
+    section(ui, "Water & lava", true, |ui| liquid_ui(ui, &mut t.liquid));
+}
+
+fn liquid_ui(ui: &mut Ui, l: &mut Liquid) {
+    let before = l.kind;
+    combo(
+        ui,
+        "Liquid",
+        "Fills the low ground with a flat surface",
+        &mut l.kind,
+        &LiquidKind::ALL,
+        |k| k.label(),
+    );
+    if l.kind != before && l.color == before.default_color() {
+        l.color = l.kind.default_color();
+    }
+    if l.kind == LiquidKind::None {
+        return;
+    }
+    param(
+        ui,
+        "Level",
+        "Surface height (fraction of the mountain height). Animate it for tides or rising lava",
+        &mut l.level,
+        0.0..=1.0,
+    );
+    color(ui, "Colour", "", &mut l.color);
+    let (glow, waves) = match l.kind {
+        LiquidKind::Water => ("Shine", "Ripples"),
+        LiquidKind::Lava => ("Glow", "Crust"),
+        LiquidKind::Toxic => ("Glow", "Bubbles"),
+        _ => ("Shine", "Cracks"),
+    };
+    param(ui, glow, "", &mut l.glow, 0.0..=5.0);
+    param(ui, waves, "", &mut l.waves, 0.0..=3.0);
+    if l.kind != LiquidKind::Ice {
+        drag_i(
+            ui,
+            "Current / loop",
+            "Whole drifts of the surface along the terrain per loop",
+            &mut l.flow,
+            -8..=8,
+        );
+    }
+}
+
+fn weather_ui(ui: &mut Ui, w: &mut Weather) {
+    section(ui, "Weather", true, |ui| {
+        let before = w.kind;
+        combo(ui, "Kind", "", &mut w.kind, &Precipitation::ALL, |k| {
+            k.label()
+        });
+        if w.kind != before {
+            // Start from settings that suit the new kind.
+            let (c, falls, size) = w.kind.defaults();
+            w.color = c;
+            w.falls = falls;
+            w.size = Param::new(size);
+        }
+        if w.kind == Precipitation::None {
+            return;
+        }
+        drag_u(ui, "Amount", "Number of drops", &mut w.count, 0..=100_000);
+        color(ui, "Colour", "", &mut w.color);
+        param(ui, "Brightness", "", &mut w.intensity, 0.0..=5.0);
+        param(ui, "Size", "", &mut w.size, 0.005..=2.0);
+        if w.kind == Precipitation::Rain {
+            slider(ui, "Streak length", "", &mut w.streak, 0.0..=4.0);
+            param(
+                ui,
+                "Splashes",
+                "Share of drops that splash on the ground",
+                &mut w.splashes,
+                0.0..=1.0,
+            );
+        }
+        let what = match w.kind {
+            Precipitation::Fireflies => ("Blinks / loop", "Blinks per loop (×4)"),
+            Precipitation::Embers => ("Rises / loop", "Times each ember rises per loop"),
+            Precipitation::Dust => ("Gusts / loop", "Times each puff crosses the area per loop"),
+            _ => (
+                "Falls / loop",
+                "Times each drop falls per loop (higher = faster)",
+            ),
+        };
+        drag_u(ui, what.0, what.1, &mut w.falls, 1..=64);
+        if w.kind != Precipitation::Dust {
+            param(
+                ui,
+                "Wind",
+                "Sideways push in degrees (animate it for gusts)",
+                &mut w.wind,
+                -60.0..=60.0,
+            );
+        }
+        slider(
+            ui,
+            "Wind direction",
+            "Degrees around the vertical",
+            &mut w.wind_dir,
+            0.0..=360.0,
+        );
+        slider(
+            ui,
+            "Area",
+            "Half width of the box around the camera",
+            &mut w.area,
+            2.0..=60.0,
+        );
+        slider(ui, "Height", "Height of the box", &mut w.height, 1.0..=60.0);
+        drag_u(ui, "Seed", "", &mut w.seed, 0..=9999);
+    });
+    let l = &mut w.lightning;
+    toggle_section(ui, "Lightning", &mut l.enabled, |ui| {
+        drag_u(
+            ui,
+            "Chances / loop",
+            "Moments per loop when a strike may happen",
+            &mut l.per_loop,
+            1..=64,
+        );
+        slider(
+            ui,
+            "Chance",
+            "Chance of a strike at each moment",
+            &mut l.chance,
+            0.0..=1.0,
+        );
+        param(
+            ui,
+            "Flash",
+            "How much the flash lights up the scene",
+            &mut l.flash,
+            0.0..=5.0,
+        );
+        color(ui, "Colour", "", &mut l.color);
+        slider(
+            ui,
+            "Distance",
+            "How far away the bolts strike",
+            &mut l.distance,
+            5.0..=150.0,
+        );
+        drag_u(ui, "Seed", "Different strikes", &mut l.seed, 0..=9999);
     });
 }
 
@@ -1544,6 +1766,27 @@ pub fn add_layer_menu(ui: &mut Ui, templates: &[Layer]) -> Option<Layer> {
             }
         }
     });
+    ui.menu_button("☔ Weather", |ui| {
+        for k in Precipitation::ALL {
+            if ui.button(k.label()).clicked() {
+                let (color, falls, size) = k.defaults();
+                out = Some(Layer::new(
+                    k.label(),
+                    LayerKind::Weather(Weather {
+                        kind: k,
+                        color,
+                        falls,
+                        size: Param::new(size),
+                        lightning: Lightning {
+                            enabled: k == Precipitation::None,
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    }),
+                ));
+            }
+        }
+    });
     if ui.button("⊞ Mirror floor").clicked() {
         out = Some(Layer::new(
             "Mirror floor",
@@ -1587,5 +1830,6 @@ pub fn layer_icon(l: &Layer) -> &'static str {
         LayerKind::Terrain(_) => "🗻",
         LayerKind::Lasers(_) => "🔦",
         LayerKind::Ribbon(_) => "〰",
+        LayerKind::Weather(_) => "☔",
     }
 }

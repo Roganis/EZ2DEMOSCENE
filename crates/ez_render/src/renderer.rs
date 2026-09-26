@@ -35,6 +35,8 @@ const SLOT_WARP: u32 = 2;
 const SLOT_BLOOM_DOWN: u32 = 3; // .. +BLOOM_LEVELS
 const SLOT_BLOOM_UP: u32 = 8; // .. +BLOOM_LEVELS
 const SLOT_FINAL: u32 = 14;
+const SLOT_RAYS: u32 = 15;
+const SLOT_RAYS_ADD: u32 = 16;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -106,7 +108,14 @@ enum Cmd {
         slot: u32,
         beams: u32,
     },
+    Weather {
+        slot: u32,
+        instances: u32,
+    },
 }
+
+/// Instances of one lightning bolt (main channel + branch), see weather.wgsl.
+const BOLT_SEGMENTS: u32 = 28 + 14;
 
 /// Rendering cost of one layer in the last frame.
 #[derive(Clone, Debug, Default)]
@@ -147,6 +156,8 @@ fn backdrop_load(kind: BackdropKind) -> f32 {
         BackdropKind::Gradient => 0.05,
         BackdropKind::Sponge => 1.2,
         BackdropKind::Rings => 0.5,
+        BackdropKind::Clouds => 1.2,
+        BackdropKind::Aurora => 0.4,
     }
 }
 
@@ -164,6 +175,7 @@ struct ScenePipes {
     particles: wgpu::RenderPipeline,
     terrain: wgpu::RenderPipeline,
     lasers: wgpu::RenderPipeline,
+    weather: wgpu::RenderPipeline,
 }
 
 pub struct Renderer {
@@ -196,6 +208,8 @@ pub struct Renderer {
     bloom_down_pipe: wgpu::RenderPipeline,
     bloom_up_pipe: wgpu::RenderPipeline,
     final_pipe: wgpu::RenderPipeline,
+    rays_pipe: wgpu::RenderPipeline,
+    rays_add_pipe: wgpu::RenderPipeline,
 
     sampler_repeat: wgpu::Sampler,
     sampler_nearest: wgpu::Sampler,
@@ -243,6 +257,9 @@ pub struct RenderTarget {
     bg_bloom_down: Vec<wgpu::BindGroup>,
     bg_bloom_up: Vec<wgpu::BindGroup>,
     bg_final: wgpu::BindGroup,
+    bg_rays: wgpu::BindGroup,
+    bg_rays_add: wgpu::BindGroup,
+    rays: wgpu::TextureView,
 }
 
 fn m4(m: Mat4) -> [[f32; 4]; 4] {
@@ -505,6 +522,12 @@ impl Renderer {
             true,
         );
         let sh_lasers = shader(device, "lasers", include_str!("shaders/lasers.wgsl"), true);
+        let sh_weather = shader(
+            device,
+            "weather",
+            include_str!("shaders/weather.wgsl"),
+            true,
+        );
         let sh_post = shader(device, "post", include_str!("shaders/post.wgsl"), false);
 
         let vertex_layout = wgpu::VertexBufferLayout {
@@ -590,6 +613,20 @@ impl Renderer {
                     blend: Some(ADDITIVE),
                 },
             ),
+            weather: make_pipeline(
+                device,
+                PipeDesc {
+                    label: "weather",
+                    layout: &particle_layout,
+                    module: &sh_weather,
+                    fs: "fs_main",
+                    buffers: &[],
+                    format: HDR_FORMAT,
+                    samples,
+                    depth: Some((false, wgpu::CompareFunction::Less)),
+                    blend: Some(ADDITIVE),
+                },
+            ),
         };
         let main_pipes = scene_pipes(msaa);
         let refl_pipes = scene_pipes(1);
@@ -628,6 +665,8 @@ impl Renderer {
         let bloom_down_pipe = post_pipe("bloom down", "fs_bloom_down", HDR_FORMAT, None);
         let bloom_up_pipe = post_pipe("bloom up", "fs_bloom_up", HDR_FORMAT, Some(ADDITIVE));
         let final_pipe = post_pipe("final", "fs_final", OUTPUT_FORMAT, None);
+        let rays_pipe = post_pipe("god rays", "fs_rays", HDR_FORMAT, None);
+        let rays_add_pipe = post_pipe("god rays add", "fs_rays_add", HDR_FORMAT, Some(ADDITIVE));
 
         let sampler = |addr, filter| {
             device.create_sampler(&wgpu::SamplerDescriptor {
@@ -680,6 +719,8 @@ impl Renderer {
             bloom_down_pipe,
             bloom_up_pipe,
             final_pipe,
+            rays_pipe,
+            rays_add_pipe,
             sampler_repeat,
             sampler_nearest,
             sampler_clamp,
@@ -1021,6 +1062,7 @@ impl Renderer {
     // ------------------------------------------------------------------
     // Frame
 
+    #[allow(clippy::too_many_arguments)]
     fn globals(
         project: &Project,
         ctx: &EvalCtx,
@@ -1029,8 +1071,11 @@ impl Renderer {
         eye: Vec3,
         res: (u32, u32),
         clip: Vec4,
+        flash: (f32, [f32; 3]),
     ) -> GlobalsRaw {
         let env = &project.environment;
+        // Lightning brightens the ambient light and the fog.
+        let fog_color = color::add(env.fog_color, color::scale(flash.1, flash.0 * 0.12));
         let vp = proj * view;
         let inv_view = view.inverse();
         let right = inv_view.x_axis.truncate().normalize_or(Vec3::X);
@@ -1055,13 +1100,13 @@ impl Renderer {
                 1.0 / res.0 as f32,
                 1.0 / res.1 as f32,
             ],
-            fog: c4(env.fog_color, env.fog_density.eval(ctx).max(0.0)),
-            sky: c4(env.sky_color, env.ambient.eval(ctx)),
+            fog: c4(fog_color, env.fog_density.eval(ctx).max(0.0)),
+            sky: c4(env.sky_color, env.ambient.eval(ctx) + flash.0 * 0.8),
             ground: c4(env.ground_color, env.light_intensity.eval(ctx)),
             light_dir: v4(ld, 0.0),
             light_color: c4(env.light_color, 1.0),
             clip: clip.into(),
-            audio: [ctx.audio, ctx.bass, 0.0, 0.0],
+            audio: [ctx.audio, ctx.bass, flash.0, 0.0],
         }
     }
 
@@ -1080,6 +1125,8 @@ impl Renderer {
         let mut scratch: Vec<Instance> = Vec::new();
         self.frame_no += 1;
         let mut stats = FrameStats::default();
+        // Lightning flash lighting up the whole scene: brightness, colour.
+        let mut lightning = (0.0f32, [1.0f32; 3]);
 
         for (li, layer) in layers.iter().enumerate().filter(|(_, l)| l.enabled) {
             // Blinking layers can be hidden right now; flashing ones glow more.
@@ -1123,7 +1170,7 @@ impl Renderer {
                         r.steps.min(256) as f32,
                         // Wrapped so the last frame's roll is exactly the first's.
                         TAU * (r.spin as f32 * ctx.phase).rem_euclid(1.0),
-                        0.0,
+                        ctx.phase.rem_euclid(1.0),
                         0.0,
                     ];
                     ls.draws = 1;
@@ -1300,6 +1347,23 @@ impl Renderer {
                             0.0,
                             0.0,
                         ];
+                        let lq = &t.liquid;
+                        blk[5] = [
+                            t.shape.index() as f32,
+                            t.biome.index() as f32,
+                            lq.kind.index() as f32,
+                            lq.level.eval(ctx) * t.height.eval(ctx),
+                        ];
+                        blk[6] = c4(lq.color, lq.glow.eval(ctx) * flash);
+                        // Liquid motion: one small circle per bar, plus the
+                        // current (whole drifts per loop).
+                        let bars = (ctx.loop_beats / 4).max(1) as f32;
+                        blk[7] = [
+                            lq.waves.eval(ctx).max(0.0),
+                            (ctx.phase * lq.flow as f32).rem_euclid(1.0),
+                            TAU * (ctx.phase * bars).rem_euclid(1.0),
+                            0.0,
+                        ];
                         blk[8..12].copy_from_slice(&m4(sym * lm));
                         cmds.push(Cmd::Terrain {
                             slot: blocks.len() as u32,
@@ -1392,6 +1456,83 @@ impl Renderer {
                     });
                     blocks.push(blk);
                 }
+                LayerKind::Weather(wx) => {
+                    let count = if wx.kind == Precipitation::None {
+                        0
+                    } else {
+                        wx.count.min(100_000)
+                    };
+                    let mut blk: Block = Zeroable::zeroed();
+                    blk[0] = [
+                        wx.kind.index() as f32,
+                        count as f32,
+                        wx.falls.clamp(1, 256) as f32,
+                        (wx.seed % 65536) as f32,
+                    ];
+                    blk[1] = c4(wx.color, wx.size.eval(ctx).max(0.001));
+                    let dir_a = wx.wind_dir.to_radians();
+                    let dir = [dir_a.cos(), dir_a.sin()];
+                    let push = wx.wind.eval(ctx).clamp(-80.0, 80.0).to_radians().tan();
+                    blk[2] = [
+                        dir[0] * push,
+                        dir[1] * push,
+                        wx.intensity.eval(ctx).max(0.0) * flash,
+                        wx.streak.max(0.0),
+                    ];
+                    let ground = layer.transform.position[1];
+                    blk[3] = [
+                        wx.area.max(0.5),
+                        wx.height.max(0.1),
+                        ground,
+                        wx.splashes.eval(ctx).clamp(0.0, 1.0),
+                    ];
+                    blk[7] = [dir[0], dir[1], 0.0, 0.0];
+                    let mut instances = count;
+                    let lt = &wx.lightning;
+                    if let Some((b, slot, _)) = lt.strike(ctx.phase) {
+                        let flash_k = lt.flash.eval(ctx).max(0.0);
+                        lightning.0 += b * flash_k;
+                        lightning.1 = lt.color;
+                        // The bolt: in front of the camera, at a random
+                        // bearing and distance for each strike.
+                        let hs = |k: u32| {
+                            (ez_core::rng::hash_u32(
+                                slot.wrapping_mul(0x2c1b_3c6d)
+                                    ^ lt.seed.wrapping_mul(0x297a_2d39)
+                                    ^ k.wrapping_mul(0x68e3_1da4),
+                            ) >> 8) as f32
+                                / (1u32 << 24) as f32
+                        };
+                        let fwd = (cam.target - cam.eye) * Vec3::new(1.0, 0.0, 1.0);
+                        let yaw = fwd.z.atan2(fwd.x) + (hs(1) - 0.5) * 1.6;
+                        let dist = lt.distance.max(2.0) * (0.7 + 0.6 * hs(2));
+                        let foot = Vec3::new(
+                            cam.eye.x + yaw.cos() * dist,
+                            ground,
+                            cam.eye.z + yaw.sin() * dist,
+                        );
+                        let top = foot
+                            + Vec3::new(
+                                (hs(3) - 0.5) * dist * 0.3,
+                                wx.height.max(4.0) * 2.5,
+                                (hs(4) - 0.5) * dist * 0.3,
+                            );
+                        blk[4] = v4(top, b * flash_k.max(0.3));
+                        blk[5] = v4(foot, (slot * 7919 + lt.seed) as f32 % 65536.0);
+                        blk[6] = c4(lt.color, 0.0);
+                        instances += BOLT_SEGMENTS;
+                    }
+                    ls.particles = count as u64;
+                    ls.draws = 1;
+                    ls.load = count as f32 / 60_000.0 + 0.02;
+                    if instances > 0 {
+                        cmds.push(Cmd::Weather {
+                            slot: blocks.len() as u32,
+                            instances,
+                        });
+                        blocks.push(blk);
+                    }
+                }
                 LayerKind::Mirror(f) => {
                     if floor.is_some() {
                         continue; // one mirror floor per scene
@@ -1461,7 +1602,16 @@ impl Renderer {
                 .write_buffer(&self.inst_buf, 0, bytemuck::cast_slice(&instances));
             self.uploaded = instances;
         }
-        let main_globals = Self::globals(project, ctx, view, proj, cam.eye, (w, h), Vec4::ZERO);
+        let main_globals = Self::globals(
+            project,
+            ctx,
+            view,
+            proj,
+            cam.eye,
+            (w, h),
+            Vec4::ZERO,
+            lightning,
+        );
         self.queue
             .write_buffer(&self.globals_buf[0], 0, bytemuck::bytes_of(&main_globals));
         if let Some((_, _, fh, _)) = &floor {
@@ -1477,6 +1627,7 @@ impl Renderer {
                 reye,
                 target.refl_size,
                 Vec4::new(0.0, 1.0, 0.0, -fh + 0.001),
+                lightning,
             );
             self.queue
                 .write_buffer(&self.globals_buf[1], 0, bytemuck::bytes_of(&g));
@@ -1486,6 +1637,8 @@ impl Renderer {
             ctx,
             target,
             floor.as_ref().map(|f| f.3).unwrap_or(0.0),
+            proj * view,
+            cam.eye,
         );
 
         // Floor bind group (references the target's reflection texture).
@@ -1589,9 +1742,9 @@ impl Renderer {
                     resolve_target: resolve,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: project.environment.fog_color[0] as f64,
-                            g: project.environment.fog_color[1] as f64,
-                            b: project.environment.fog_color[2] as f64,
+                            r: main_globals.fog[0] as f64,
+                            g: main_globals.fog[1] as f64,
+                            b: main_globals.fog[2] as f64,
                             a: 1.0,
                         }),
                         store: if resolve.is_some() {
@@ -1639,6 +1792,26 @@ impl Renderer {
             SLOT_WARP,
             false,
         );
+        if project.post.rays.enabled {
+            self.post_pass(
+                &mut enc,
+                "god rays",
+                &self.rays_pipe,
+                &target.rays,
+                &target.bg_rays,
+                SLOT_RAYS,
+                false,
+            );
+            self.post_pass(
+                &mut enc,
+                "god rays add",
+                &self.rays_add_pipe,
+                &target.hdr2,
+                &target.bg_rays_add,
+                SLOT_RAYS_ADD,
+                true,
+            );
+        }
         if project.post.bloom.enabled {
             for i in 0..BLOOM_LEVELS {
                 self.post_pass(
@@ -1741,6 +1914,12 @@ impl Renderer {
                     pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
                     pass.draw(0..6, 0..*beams);
                 }
+                Cmd::Weather { slot, instances } => {
+                    pass.set_pipeline(&pipes.weather);
+                    pass.set_bind_group(0, &self.globals_bg[globals], &[]);
+                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                    pass.draw(0..6, 0..*instances);
+                }
             }
         }
     }
@@ -1787,9 +1966,11 @@ impl Renderer {
         ctx: &EvalCtx,
         target: &RenderTarget,
         blur: f32,
+        view_proj: Mat4,
+        eye: Vec3,
     ) {
         let post = &project.post;
-        let mut slots: Vec<PostBlock> = vec![Zeroable::zeroed(); SLOT_FINAL as usize + 1];
+        let mut slots: Vec<PostBlock> = vec![Zeroable::zeroed(); SLOT_RAYS_ADD as usize + 1];
         let (rw, rh) = target.refl_size;
         let br = blur.clamp(0.0, 1.0) * 3.0;
         slots[SLOT_BLUR_H as usize][0] = [br / rw as f32, 0.0, 0.0, 0.0];
@@ -1836,6 +2017,41 @@ impl Renderer {
             let (_, sw, sh) = target.bloom[i + 1];
             slots[(SLOT_BLOOM_UP as usize) + i][0] = [1.0 / sw as f32, 1.0 / sh as f32, 0.0, 0.0];
             slots[(SLOT_BLOOM_UP as usize) + i][1] = [up_w, 0.0, 0.0, 0.0];
+        }
+
+        let gr = &post.rays;
+        if gr.enabled {
+            let (light_uv, vis) = match gr.source {
+                RaySource::Centre => ([0.5, 0.5], 1.0),
+                RaySource::Sun => {
+                    let ld = Vec3::from(project.environment.light_dir).normalize_or(Vec3::Y);
+                    let clip = view_proj * (eye + ld * 1000.0).extend(1.0);
+                    if clip.w <= 1e-4 {
+                        ([0.5, 0.5], 0.0)
+                    } else {
+                        let (x, y) = (clip.x / clip.w, clip.y / clip.w);
+                        // Fade out as the light leaves the picture.
+                        let off = (x.abs().max(y.abs()) - 1.0).max(0.0);
+                        (
+                            [x * 0.5 + 0.5, 0.5 - y * 0.5],
+                            (1.0 - off * 0.6).clamp(0.0, 1.0),
+                        )
+                    }
+                }
+            };
+            slots[SLOT_RAYS as usize][0] = [
+                light_uv[0],
+                light_uv[1],
+                vis,
+                gr.intensity.eval(ctx).max(0.0),
+            ];
+            slots[SLOT_RAYS as usize][1] = [
+                gr.length.eval(ctx).clamp(0.0, 1.0),
+                gr.threshold.eval(ctx).max(0.0),
+                target.width as f32 / target.height as f32,
+                gr.flare.eval(ctx).max(0.0),
+            ];
+            slots[SLOT_RAYS as usize][2] = c4(gr.tint, 0.0);
         }
 
         let g = &post.grade;
@@ -2004,6 +2220,9 @@ impl Renderer {
             .map(|i| post_bg(&bloom[i + 1].0, &bloom[i + 1].0))
             .collect();
         let bg_final = post_bg(&hdr2, &bloom[0].0);
+        let rays = tex("god rays", rw, rh, HDR_FORMAT, 1, sampled);
+        let bg_rays = post_bg(&hdr2, &hdr2);
+        let bg_rays_add = post_bg(&rays, &rays);
         RenderTarget {
             id: TARGET_IDS.fetch_add(1, Ordering::Relaxed),
             width: w,
@@ -2027,6 +2246,9 @@ impl Renderer {
             bg_bloom_down,
             bg_bloom_up,
             bg_final,
+            bg_rays,
+            bg_rays_add,
+            rays,
         }
     }
 

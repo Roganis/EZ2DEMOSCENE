@@ -4,7 +4,11 @@
 // Raymarched kinds (tunnel, fractal, sponge, rings):
 // D.v[5]: variant, pattern, size, twist
 // D.v[6]: warp, bend, glow, fog
-// D.v[7]: steps (0 = default), view roll (radians)
+// D.v[7]: steps (0 = default), view roll (radians), loop-safe drift
+//         crossfade (0..1), _
+// Clouds (9): size = cloud scale, warp = coverage, bend = thickness,
+//         glow = sun glow, fog = haze. Aurora (10): size = height,
+//         twist = sway, warp = ripples, glow = brightness.
 
 @group(2) @binding(0) var t_tex: texture_2d<f32>;
 @group(2) @binding(1) var s_tex: sampler;
@@ -423,13 +427,173 @@ fn bg_synth(rd: vec3<f32>, speed: f32, detail: f32, ca: vec3<f32>, cb: vec3<f32>
     return col;
 }
 
+// --- volumetric clouds ------------------------------------------------------
+
+// Cloud density field before thresholding. To drift any distance and
+// still loop, two copies of the field drifting half a loop apart are
+// crossfaded (each one jumps back while invisible), with the contrast
+// kept constant.
+fn cloud_field(p: vec3<f32>, octaves: i32) -> f32 {
+    let speed = D.v[0].y;
+    let x = D.v[7].z;
+    let drift = vec3<f32>(1.0, 0.0, 0.35) * speed * 3.0;
+    let xa = x;
+    let xb = fract(x + 0.5);
+    let wa = 1.0 - abs(2.0 * xa - 1.0);
+    let wb = 1.0 - wa;
+    let na = fbm3(p + drift * xa, octaves);
+    let nb = fbm3(p + drift * xb + vec3<f32>(17.3, 0.0, 41.9), octaves);
+    let mean = 0.47;
+    return mean + (na * wa + nb * wb - mean) / sqrt(wa * wa + wb * wb);
+}
+
+fn cloud_density(p: vec3<f32>, bottom: f32, top: f32, cover: f32, octaves: i32) -> f32 {
+    let h = clamp((p.y - bottom) / (top - bottom), 0.0, 1.0);
+    // Flat bases and rounded tops.
+    let profile = smoothstep(0.0, 0.12, h) * smoothstep(1.0, 0.45, h);
+    let scale = 1.6 / max(D.v[5].z, 0.05);
+    let n = cloud_field(vec3<f32>(p.x * scale, p.y * scale * 1.6, p.z * scale), octaves);
+    return clamp((n * profile - (1.0 - cover)) * 5.0, 0.0, 1.0);
+}
+
+fn bg_clouds(rd: vec3<f32>, frag: vec2<f32>, speed: f32, detail: f32, ca: vec3<f32>, cb: vec3<f32>, cc: vec3<f32>) -> vec3<f32> {
+    let variant = i32(D.v[5].x + 0.5);
+    let sun_dir = normalize(G.light_dir.xyz);
+    let sun_col = G.light_color.rgb * max(G.ground.w, 0.0);
+    let mu = dot(rd, sun_dir);
+    let glow = D.v[6].z;
+    let haze = D.v[6].w;
+    // Sky gradient, sun disc and glow.
+    var sky = mix(cb, ca, smoothstep(0.0, 0.55, rd.y));
+    // Lightning lights up the whole sky a little.
+    sky = sky + vec3<f32>(0.6, 0.65, 0.8) * G.audio.z * 0.15;
+    // Below the horizon, melt into the fog so terrain edges disappear.
+    sky = mix(sky, G.fog.rgb, smoothstep(0.0, -0.08, rd.y));
+    sky = sky + sun_col * (pow(max(mu, 0.0), 8.0) * 0.12 + pow(max(mu, 0.0), 90.0) * 0.6) * glow;
+    sky = sky + sun_col * smoothstep(0.9994, 0.9997, mu) * 12.0;
+    if (rd.y < 0.015) {
+        return sky;
+    }
+    var cover = 0.5;
+    var dark = 1.0;
+    switch variant {
+        case 1: { cover = 0.72; }
+        case 2: { cover = 0.8; dark = 0.35; }
+        default: {}
+    }
+    cover = clamp(cover * D.v[6].x, 0.0, 1.0);
+    let bottom = 1.0;
+    let top = bottom + 0.45 * max(D.v[6].y, 0.05);
+    let t0 = bottom / rd.y;
+    let t1 = top / rd.y;
+    let far = 14.0;
+    if (t0 > far) {
+        return sky;
+    }
+    let steps = steps_or(28);
+    let len = min(t1, far * 1.3) - t0;
+    let dt = len / f32(steps);
+    // Fixed per-pixel jitter hides banding (fixed, so loops stay exact).
+    let jit = hash1(hash_u(u32(frag.x) * 1973u + u32(frag.y) * 9277u));
+    var t = t0 + dt * jit;
+    var trans = 1.0;
+    var acc = vec3<f32>(0.0);
+    // Henyey-Greenstein-ish forward scattering: clouds glow around the sun.
+    let phase_fn = 0.6 + 1.6 * pow(max(mu, 0.0), 6.0) * glow;
+    let amb = mix(cc, ca, 0.35) * dark;
+    let flash = G.audio.z;
+    let octs = select(4, 5, detail > 1.5);
+    for (var i = 0; i < steps; i = i + 1) {
+        let p = rd * t;
+        let dens = cloud_density(p, bottom, top, cover, octs);
+        if (dens > 0.01) {
+            // Light reaching this point: a short march towards the sun.
+            var ld = 0.0;
+            let ls = (top - bottom) * 0.25;
+            for (var j = 1; j <= 3; j = j + 1) {
+                ld = ld + cloud_density(p + sun_dir * ls * f32(j), bottom, top, cover, 2);
+            }
+            let sun_t = exp(-ld * 1.6 / dark);
+            let powder = 1.0 - exp(-dens * 3.0);
+            let hfrac = clamp((p.y - bottom) / (top - bottom), 0.0, 1.0);
+            let lit = sun_col * sun_t * powder * phase_fn * dark
+                + amb * (0.45 + 0.55 * hfrac)
+                + vec3<f32>(0.75, 0.8, 1.0) * flash * 1.2 * (1.0 - hfrac * 0.5);
+            let a = 1.0 - exp(-dens * dt * 6.0);
+            acc = acc + trans * a * lit;
+            trans = trans * (1.0 - a);
+            if (trans < 0.02) {
+                break;
+            }
+        }
+        t = t + dt;
+    }
+    // Distant clouds melt into the horizon haze.
+    let fade = exp(-t0 * 0.12 * max(haze, 0.0));
+    let clouds = acc + sky * trans;
+    return mix(sky, clouds, fade);
+}
+
+// --- aurora -------------------------------------------------------------------
+
+fn bg_aurora(rd: vec3<f32>, speed: f32, detail: f32, ca: vec3<f32>, cb: vec3<f32>, cc: vec3<f32>) -> vec3<f32> {
+    let variant = i32(D.v[5].x + 0.5);
+    let a = G.time.x * TAU * speed;
+    // Night sky with stars.
+    var col = mix(ca * 1.6, ca * 0.4, smoothstep(0.0, 0.6, rd.y));
+    col = col + vec3<f32>(0.9, 0.95, 1.0) * stars(rd, 150.0, 0.06, 3.0) * smoothstep(0.0, 0.2, rd.y);
+    if (rd.y < 0.01) {
+        return col * smoothstep(-0.3, 0.0, rd.y);
+    }
+    let height = max(D.v[5].z, 0.1);
+    let sway = D.v[5].w;
+    let ripples = max(D.v[6].x, 0.0);
+    let bright = max(D.v[6].z, 0.0) + 1.0;
+    var acc = vec3<f32>(0.0);
+    let layers = 24;
+    for (var i = 0; i < layers; i = i + 1) {
+        let fi = f32(i) / f32(layers);
+        let y = 1.0 + fi * 1.2 * height;
+        let t = y / rd.y;
+        if (t > 18.0) {
+            break;
+        }
+        let p = rd.xz * t * 0.35 * detail;
+        var u = p.x;
+        var v = p.y;
+        switch variant {
+            case 1: {
+                u = atan2(p.y, p.x) * 3.0;
+                v = length(p) - 2.5;
+            }
+            case 2: {
+                let r = length(p);
+                u = atan2(p.y, p.x) * 3.0 + r;
+                v = sin(atan2(p.y, p.x) * 2.0 - r * 1.5) * 1.2;
+            }
+            default: {}
+        }
+        // The curtain snakes along u and sways over the loop.
+        let wave = sin(u * 0.7 + sin(a) * sway + 1.3) * 0.9 + sin(u * 1.9 - cos(a) * sway * 0.7) * 0.35;
+        // Several curtains, a few units apart.
+        let dv = v - wave;
+        let dist = abs(dv - round(dv / 3.5) * 3.5);
+        let curtain = exp(-dist * dist * 5.0);
+        let rays = 0.55 + 0.45 * sin(u * 23.0 * ripples + sin(a + u) * 2.0);
+        let fade = (1.0 - fi) * (1.0 - fi) * exp(-t * 0.08);
+        let c = mix(cb, cc, smoothstep(0.1, 0.8, fi));
+        acc = acc + c * curtain * mix(1.0, rays, min(ripples, 1.0)) * fade;
+    }
+    return col + acc * bright * 0.18;
+}
+
 @fragment
 fn fs_main(in: FullscreenOut) -> @location(0) vec4<f32> {
     var rd = view_ray(in.ndc);
     let kind = i32(D.v[0].x + 0.5);
     // Raymarched kinds can roll the view a whole number of turns per loop.
     let roll = D.v[7].y;
-    if (roll != 0.0 && (kind == 3 || kind == 4 || kind >= 7)) {
+    if (roll != 0.0 && (kind == 3 || kind == 4 || kind == 7 || kind == 8)) {
         let cam_fwd = cross(G.cam_up.xyz, G.cam_right.xyz);
         let x = dot(rd, G.cam_right.xyz);
         let y = dot(rd, G.cam_up.xyz);
@@ -489,6 +653,12 @@ fn fs_main(in: FullscreenOut) -> @location(0) vec4<f32> {
         }
         case 8: {
             col = bg_rings(rd, speed, ca, cb, cc);
+        }
+        case 9: {
+            col = bg_clouds(rd, in.pos.xy, speed, detail, ca, cb, cc);
+        }
+        case 10: {
+            col = bg_aurora(rd, speed, detail, ca, cb, cc);
         }
         default: {}
     }

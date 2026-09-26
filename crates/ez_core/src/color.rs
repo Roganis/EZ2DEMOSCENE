@@ -58,6 +58,10 @@ pub fn lerp(a: Rgb, b: Rgb, t: f32) -> Rgb {
     ]
 }
 
+pub fn add(a: Rgb, b: Rgb) -> Rgb {
+    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+}
+
 pub fn scale(c: Rgb, s: f32) -> Rgb {
     [c[0] * s, c[1] * s, c[2] * s]
 }

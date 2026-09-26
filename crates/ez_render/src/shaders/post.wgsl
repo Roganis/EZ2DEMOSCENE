@@ -129,6 +129,70 @@ fn fs_bloom_up(in: VOut) -> @location(0) vec4<f32> {
     return vec4<f32>(c / 12.0 * P.v[1].x, 1.0);
 }
 
+// --- god rays / lens flare --------------------------------------------------
+// P.v[0]: light position (uv), visibility, intensity
+// P.v[1]: length (0..1), threshold, aspect, flare
+// P.v[2]: tint
+@fragment
+fn fs_rays(in: VOut) -> @location(0) vec4<f32> {
+    let sun = P.v[0].xy;
+    let vis = P.v[0].z;
+    let aspect = P.v[1].z;
+    let thr = P.v[1].y;
+    var sum = vec3<f32>(0.0);
+    if (vis > 0.0) {
+        let n = 48;
+        let delta = (in.uv - sun) * clamp(P.v[1].x, 0.02, 1.0) / f32(n);
+        // Fixed per-pixel offset breaks up banding.
+        let jit = hash1(hash_u(u32(in.pos.x) * 7919u + u32(in.pos.y) * 104729u));
+        var uv = in.uv - delta * jit;
+        var decay = 1.0;
+        for (var i = 0; i < n; i = i + 1) {
+            let s = textureSampleLevel(t_a, s_lin, uv, 0.0).rgb;
+            let d = (uv - sun) * vec2<f32>(aspect, 1.0);
+            let near = exp(-dot(d, d) * 2.5);
+            sum = sum + min(max(s - vec3<f32>(thr), vec3<f32>(0.0)), vec3<f32>(6.0)) * decay * near;
+            decay = decay * 0.965;
+            uv = uv - delta;
+        }
+        sum = sum * P.v[0].w * vis / f32(n) * 2.0 * P.v[2].rgb;
+    }
+    // Lens flare: ghosts mirrored through the centre, and a halo.
+    let flare = P.v[1].w;
+    if (flare > 0.0 && vis > 0.0) {
+        // How much of the light is actually visible (not blocked).
+        let lsrc = textureSampleLevel(t_a, s_lin, clamp(sun, vec2<f32>(0.0), vec2<f32>(1.0)), 0.0).rgb;
+        let src = clamp(max(max(lsrc.r, lsrc.g), lsrc.b) - thr, 0.0, 4.0) * vis;
+        let axis = vec2<f32>(0.5) - sun;
+        var f = vec3<f32>(0.0);
+        f = f + ghost(in.uv, sun + axis * 0.4, 0.02, aspect) * vec3<f32>(0.4, 0.8, 1.0);
+        f = f + ghost(in.uv, sun + axis * 0.7, 0.045, aspect) * vec3<f32>(1.0, 0.6, 0.3) * 0.6;
+        f = f + ghost(in.uv, sun + axis * 1.25, 0.03, aspect) * vec3<f32>(0.5, 1.0, 0.6);
+        f = f + ghost(in.uv, sun + axis * 1.6, 0.07, aspect) * vec3<f32>(0.7, 0.4, 1.0) * 0.35;
+        f = f + ghost(in.uv, sun + axis * 2.1, 0.015, aspect) * vec3<f32>(1.0, 0.9, 0.6);
+        // Halo ring around the centre of the lens.
+        let hd = (in.uv - vec2<f32>(0.5) - normalize(-axis + vec2<f32>(1e-5)) * 0.25) * vec2<f32>(aspect, 1.0);
+        let ring = smoothstep(0.03, 0.0, abs(length((in.uv - 0.5) * vec2<f32>(aspect, 1.0)) - 0.45));
+        f = f + vec3<f32>(0.6, 0.8, 1.0) * ring * exp(-dot(hd, hd) * 8.0) * 0.5;
+        // Streak through the light.
+        let sd = (in.uv - sun) * vec2<f32>(aspect, 1.0);
+        f = f + P.v[2].rgb * exp(-abs(sd.y) * 300.0) * exp(-abs(sd.x) * 3.0) * 0.8;
+        sum = sum + f * flare * src * 0.25;
+    }
+    return vec4<f32>(sum, 1.0);
+}
+
+fn ghost(uv: vec2<f32>, c: vec2<f32>, r: f32, aspect: f32) -> f32 {
+    let d = length((uv - c) * vec2<f32>(aspect, 1.0));
+    return smoothstep(r, r * 0.6, d) * (0.6 + 0.4 * smoothstep(r * 0.5, r, d));
+}
+
+// Adds the (half-size) rays image on top of the scene.
+@fragment
+fn fs_rays_add(in: VOut) -> @location(0) vec4<f32> {
+    return vec4<f32>(textureSampleLevel(t_a, s_lin, in.uv, 0.0).rgb, 1.0);
+}
+
 // --- final composite ---------------------------------------------------------
 // P.v[0]: res w, h, 1/w, 1/h
 // P.v[1]: exposure, contrast, saturation, vignette

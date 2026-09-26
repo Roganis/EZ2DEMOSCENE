@@ -107,7 +107,7 @@ fn pick_points(layer: &Layer, ctx: &EvalCtx, proj: &Projector) -> Vec<Pos2> {
         | LayerKind::Terrain(_)
         | LayerKind::Lasers(_)
         | LayerKind::Ribbon(_) => pts.extend(proj.to_screen(pos)),
-        LayerKind::Mirror(_) | LayerKind::Backdrop(_) => {}
+        LayerKind::Mirror(_) | LayerKind::Backdrop(_) | LayerKind::Weather(_) => {}
     }
     pts
 }

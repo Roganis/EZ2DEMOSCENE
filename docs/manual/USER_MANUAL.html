@@ -161,6 +161,11 @@ pickers and menus. When you like it, you export an MP4, WebM, GIF or a folder of
   <div class="card"><img src="img/p_vector_valley.jpg"><div class="t">Vector Valley</div><div class="d">Wireframe landscape, laser fans, neon ribbon.</div></div>
   <div class="card"><img src="img/p_glitch_shrine.jpg"><div class="t">Glitch Shrine</div><div class="d">Glitching sponge, flashing gems, pulsing rose.</div></div>
   <div class="card"><img src="img/p_sponge_dive.jpg"><div class="t">Sponge Dive</div><div class="d">Menger sponge flight, breathing displaced orb.</div></div>
+  <div class="card"><img src="img/p_stormy_lake.jpg"><div class="t">Stormy Lake</div><div class="d">Rain, lightning and storm clouds over a lake.</div></div>
+  <div class="card"><img src="img/p_lava_world.jpg"><div class="t">Lava World</div><div class="d">Lava rivers in volcanic canyons, embers.</div></div>
+  <div class="card"><img src="img/p_sunbeam_peaks.jpg"><div class="t">Sunbeam Peaks</div><div class="d">Volumetric clouds, god rays, lens flare.</div></div>
+  <div class="card"><img src="img/p_aurora_tundra.jpg"><div class="t">Aurora Tundra</div><div class="d">Northern lights, frozen lake, snow.</div></div>
+  <div class="card"><img src="img/p_dune_sea.jpg"><div class="t">Dune Sea</div><div class="d">Sand dunes, sandstorm, a toxic oasis.</div></div>
 </div>
 
 <h2>The one big idea: everything loops</h2>
@@ -259,7 +264,7 @@ program is <code>target/release/ez2demoscene</code> (<code>ez2demoscene.exe</cod
 <p>The layer list works like the layers in a paint program. Each row has a <b>visibility</b> tick box and the layer's
 name. Click a row to edit it. Under the list, the buttons <span class="ui">⬆ ⬇ ⧉ 🗑</span> move, duplicate or delete the
 selected layer, and <b>right-clicking</b> a layer shows the same options.</p>
-<figure><img src="img/addmenu.jpg" ><figcaption><span class="ui">+ Add</span> offers shapes, particles, backgrounds, a mirror floor and 3D model files.</figcaption></figure>
+<figure><img src="img/addmenu.jpg" ><figcaption><span class="ui">+ Add</span> offers shapes, particles, backgrounds, terrain, lasers, ribbons, weather, a mirror floor and 3D model files.</figcaption></figure>
 
 <h2>5.1 Backgrounds</h2>
 <p>A background fills the whole screen behind the other layers and follows the camera. Every background has three colours
@@ -278,6 +283,11 @@ selected layer, and <b>right-clicking</b> a layer shows the same options.</p>
   <tr><td>Raymarched sponge flight</td><td>Flying through an endless Menger sponge, a lattice of beams or a field of cubes. Heavy on phones: lower
   <span class="ui">Quality</span> if it stutters.</td></tr>
   <tr><td>Raymarched ring corridor</td><td>Flying through glowing rings, squares or triangles that alternate between colours B and C.</td></tr>
+  <tr><td>Volumetric clouds</td><td>A real sky: a gradient from colour B (horizon) to A (overhead), a sun in the light direction and
+  raymarched 3D clouds lit by it, glowing at the edges when you look towards the sun. Colour C tints the shadowed sides. The clouds
+  drift with <span class="ui">Motion / loop</span>. Pair it with <b>God rays</b> for sunbeams. Heavy on phones.</td></tr>
+  <tr><td>Aurora night sky</td><td>Stars and rippling northern-lights curtains that fade from colour B at the bottom to colour C at the top.
+  Colour A is the night sky.</td></tr>
 </table>
 <div class="tip"><b>Tip</b>You can stack two backgrounds, but the later one covers the earlier one. Usually one is enough.</div>
 <h3>Raymarching settings</h3>
@@ -297,6 +307,21 @@ that matter for the chosen style are shown, and all of them except Variant, Wall
   <tr><td>Quality</td><td colspan="4">Raymarch steps (fractal: iterations). 0 uses the default; lower it for phones.</td></tr>
 </table>
 <p>The tunnel also has a <span class="ui">Wall pattern</span> (XOR, Checker, Rings, Stripes) used when there is no wall texture.</p>
+<h3>Sky settings</h3>
+<p>The two skies share the same section, with their own meanings:</p>
+<table>
+  <tr><th style="width:22%">Setting</th><th>Volumetric clouds</th><th>Aurora night sky</th></tr>
+  <tr><td>Variant</td><td>Fluffy, Overcast, Storm (dark and heavy)</td><td>Curtains, Rings (around the zenith), Spiral</td></tr>
+  <tr><td>Size</td><td>Cloud scale</td><td>Height of the curtains</td></tr>
+  <tr><td>Twist</td><td>n/a</td><td>Sway: how much the curtains swing over the loop</td></tr>
+  <tr><td>Warp</td><td>Coverage: how much of the sky is cloudy</td><td>Ripples: the fine vertical rays</td></tr>
+  <tr><td>Bend</td><td>Thickness of the cloud layer</td><td>n/a</td></tr>
+  <tr><td>Glow</td><td>Sun glow around the sun and through the clouds</td><td>Brightness</td></tr>
+  <tr><td>Fog ×</td><td>Haze: how much distant clouds melt into the horizon</td><td>n/a</td></tr>
+  <tr><td>Quality</td><td>Raymarch steps (default 28)</td><td>n/a</td></tr>
+</table>
+<div class="tip"><b>Loops</b>Clouds can drift any distance and still loop: two copies of the cloud field, half a loop apart, cross-fade
+into each other, so the jump back at the end of the loop happens while it is invisible.</div>
 
 <h2>5.2 Mirror floor</h2>
 <figure><img src="img/mirror.jpg" ><figcaption>Mirror floor settings.</figcaption></figure>
@@ -408,7 +433,24 @@ The look is controlled by <span class="ui">Sprite</span> (soft glow, pixel squar
   <tr><td>Texture, Tiles, Texture on lines, Chunky pixels</td><td>Maps a texture onto the ground (and optionally the grid lines). It moves with the
   landscape; <span class="ui">Tiles</span> is how many times it repeats across the terrain, a whole number so the loop stays seamless.</td></tr>
   <tr><td>Size, Grid cells</td><td>Its extent and resolution. More cells is smoother but slower.</td></tr>
+  <tr><td>Shape</td><td><b>Hills</b> (rolling), <b>Ridged mountains</b> (sharp crests), <b>Mesas</b> (flat terraces with cliffs), <b>Sand dunes</b>
+  (gentle on one side, steep on the other), <b>Canyons</b> (a plateau cut by winding gorges) and <b>Craters</b>.</td></tr>
+  <tr><td>Biome</td><td>Colours solid ground by height and steepness instead of one <span class="ui">Ground colour</span>:
+  <b>Alpine</b> (grass, rock, snowy peaks, sandy shores), <b>Desert</b> (sand and banded red cliffs), <b>Volcanic</b> (black basalt with
+  glowing cracks), <b>Arctic</b> (snow and blue ice), <b>Alien</b> (purple moss, teal crystal, glowing tips).</td></tr>
 </table>
+<h3>Water &amp; lava</h3>
+<p>A <span class="ui">Liquid</span> fills everything below its <span class="ui">Level</span> with a flat surface. The level is a fraction of the
+mountain height; animate it for tides or rising lava. Liquids also show up on wireframe terrain.</p>
+<table>
+  <tr><th style="width:18%">Liquid</th><th>Look</th><th style="width:30%">Shine / Glow, Ripples / Crust…</th></tr>
+  <tr><td>Water</td><td>Reflects the sky with a sun glint, is lighter in the shallows and has foam and wet sand at the shore.</td><td>Shine, Ripples</td></tr>
+  <tr><td>Lava</td><td>Glowing rivers under a dark, cracked crust that drifts and churns. It lights up the nearby rocks.</td><td>Glow, Crust</td></tr>
+  <tr><td>Toxic goo</td><td>Glowing green slime with popping bubbles.</td><td>Glow, Bubbles</td></tr>
+  <tr><td>Ice</td><td>A frozen, cracked, shiny surface that stays still.</td><td>Shine, Cracks</td></tr>
+</table>
+<p><span class="ui">Current / loop</span> makes the surface drift along the terrain a whole number of times per loop; the ripples and crust
+also turn gently once per bar. Both loop exactly.</p>
 <h2>5.7 Laser beams</h2>
 <p>Club-style beams shooting from the layer's position along its up axis. Turn the layer with <span class="ui">Rotation</span> to aim them,
 and use <span class="ui">Mirror X</span> symmetry for a pair of laser rigs.</p>
@@ -426,7 +468,25 @@ and use <span class="ui">Mirror X</span> symmetry for a pair of laser rigs.</p>
 <span class="ui">Laps / loop</span> (negative runs backwards), <span class="ui">Pulse length</span> and <span class="ui">Pulse glow</span>.
 Ribbons reflect in mirror floors and can take symmetry.</p>
 
-<div class="keep"><h2>5.9 Placing objects in the viewport</h2>
+<h2>5.9 Weather</h2>
+<p><span class="ui">+ Add → ☔ Weather</span> fills a box around the camera with rain, snow, embers, sand or fireflies. The box follows the
+camera, so the weather is everywhere you look. Its <span class="ui">Ground height</span> is where rain splashes and embers start.</p>
+<table>
+  <tr><th style="width:24%">Setting</th><th>Meaning</th></tr>
+  <tr><td>Kind</td><td><b>Rain</b> (streaks and splash rings), <b>Snow</b> (swaying flakes), <b>Rising embers</b> (flickering sparks),
+  <b>Sandstorm</b> (dust blown along the wind), <b>Fireflies</b> (wandering, blinking lights) or <b>None</b> (lightning only).</td></tr>
+  <tr><td>Amount, Size, Colour, Brightness</td><td>How many drops and how they look. Rain also has <span class="ui">Streak length</span> and
+  <span class="ui">Splashes</span>.</td></tr>
+  <tr><td>Falls / loop</td><td>How many times each drop falls per loop: higher is faster. It is a whole number, so the weather loops.</td></tr>
+  <tr><td>Wind, Wind direction</td><td>Slants the rain and snow. Animate Wind with a Sine for gusts.</td></tr>
+  <tr><td>Area, Height</td><td>The size of the box around the camera.</td></tr>
+  <tr><td>Lightning</td><td>Jagged bolts that strike in front of the camera and a flash that lights up the whole scene, clouds included.
+  <span class="ui">Chances / loop</span> and <span class="ui">Chance</span> decide how often; each strike flickers two or three times.</td></tr>
+</table>
+<div class="tip"><b>Performance</b>Weather drops cost about as much as particles. Volumetric clouds are the heavy part of a storm scene:
+lower their <span class="ui">Quality</span> on phones.</div>
+
+<div class="keep"><h2>5.10 Placing objects in the viewport</h2>
 <figure><img src="img/gizmo.jpg"><figcaption>The Dodecahedron is selected: the Move handles appear on it, and the ground grid is on.</figcaption></figure></div>
 <ul>
   <li><b>Select</b> a shape or particle layer by clicking it in the viewport, or in the layer list.</li>
@@ -634,6 +694,9 @@ so two layers can blink in turn.</p>
   <tr><td>Mirror split</td><td>Mirrors one half of the picture onto the other (left → right, top → bottom, or quad). This is instant symmetry.</td></tr>
   <tr><td>Bloom / glow</td><td>Bright things spill light. Intensity sets the strength, Threshold how bright something must be to glow, and Spread
   how wide the halo is.</td></tr>
+  <tr><td>God rays &amp; lens flare</td><td>Shafts of light streaming from the sun (or from the picture centre, for "light at the end of the tunnel").
+  Bright sky near the light is smeared towards it, so clouds, mountains and shapes in front cast streaks of shadow. Length, Threshold and
+  Tint shape the rays; <span class="ui">Lens flare</span> adds ghosts and a streak when you look into the light, and fades when the sun is hidden.</td></tr>
   <tr><td>Chromatic aberration</td><td>An RGB colour split towards the edges, like a cheap lens. Pulse it on the beat.</td></tr>
   <tr><td>Pixelate</td><td>Fat pixels (the size is measured at 1080p, so previews match exports).</td></tr>
   <tr><td>Retro palette</td><td>Reduces the image to a classic computer palette with ordered (Bayer) dithering.</td></tr>
@@ -911,6 +974,22 @@ the app goes back to <b>Automatic</b> by itself.</p>
   <li>Post: Pixelate 3, Retro palette EGA with dithering 0.7, CRT monitor, and Beat flash 0.15.</li>
 </ol>
 
+<h2>Stormy lake</h2>
+<ol>
+  <li>Background <b>Volumetric clouds</b>, variant <b>Storm</b>, with grey-blue colours. Fog colour dark grey-blue, Sun strength 0.7.</li>
+  <li>Add <b>Terrain</b>: Solid, Shape <b>Ridged mountains</b>, Biome <b>Alpine</b>, Valley 0.45, and Liquid <b>Water</b> at Level 0.12.</li>
+  <li>Add <b>Weather → Rain</b> with Falls / loop 14 and a Sine on Wind for gusts. Tick <b>Lightning</b>.</li>
+  <li>Post: lower Saturation to 0.8 and add a little Film grain.</li>
+</ol>
+<h2>Lava world</h2>
+<ol>
+  <li>Background <b>Volumetric clouds</b> (Overcast) in dark reds, with the sun low in front of the camera.</li>
+  <li>Add <b>Terrain</b>: Shape <b>Canyons</b>, Biome <b>Volcanic</b>, Liquid <b>Lava</b> at Level 0.3, Current / loop 2.
+  Give the lava Glow a slow Sine.</li>
+  <li>Add <b>Weather → Rising embers</b> with a strong Brightness so they bloom.</li>
+  <li>Post: <b>God rays</b> with a warm tint, and Bloom.</li>
+</ol>
+
 <!-- ===================================================== 15 -->
 <h1 id="reference"><span class="num">17</span>Reference</h1>
 <h2>Keyboard &amp; mouse</h2>
@@ -935,7 +1014,8 @@ the app goes back to <b>Automatic</b> by itself.</p>
 <b>Hover it</b> to see the frame time, triangle and particle counts, whether the mirror floor is drawing the scene a second
 time, and the <b>five most expensive layers</b>. A <span style="color:#e08a1e">⚠</span> next to a layer in the list marks a
 heavy layer. Hover it for details. The usual fixes are fewer copies, less sphere detail, fewer particles or a shorter trail. You can also
-lower the preview quality, which only affects the preview and never your exports.</p>
+lower the preview quality, which only affects the preview and never your exports. Volumetric clouds and the raymarched
+backgrounds are the heaviest layers; their <span class="ui">Quality</span> setting trades detail for speed.</p>
 <h2>Troubleshooting</h2>
 <table>
   <tr><th style="width:36%">Problem</th><th>Solution</th></tr>

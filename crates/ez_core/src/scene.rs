@@ -328,6 +328,7 @@ impl Layer {
             LayerKind::Terrain(_) => "Terrain",
             LayerKind::Lasers(_) => "Laser beams",
             LayerKind::Ribbon(_) => "Neon ribbon",
+            LayerKind::Weather(_) => "Weather",
         }
     }
 }
@@ -342,6 +343,7 @@ pub enum LayerKind {
     Terrain(Terrain),
     Lasers(Lasers),
     Ribbon(Ribbon),
+    Weather(Weather),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1141,10 +1143,14 @@ pub enum BackdropKind {
     Sponge,
     /// Flight through a corridor of glowing rings.
     Rings,
+    /// Sky with raymarched volumetric clouds and a sun.
+    Clouds,
+    /// Night sky with rippling aurora curtains.
+    Aurora,
 }
 
 impl BackdropKind {
-    pub const ALL: [BackdropKind; 9] = [
+    pub const ALL: [BackdropKind; 11] = [
         BackdropKind::Gradient,
         BackdropKind::Nebula,
         BackdropKind::Starfield,
@@ -1154,6 +1160,8 @@ impl BackdropKind {
         BackdropKind::SynthGrid,
         BackdropKind::Sponge,
         BackdropKind::Rings,
+        BackdropKind::Clouds,
+        BackdropKind::Aurora,
     ];
     pub fn label(self) -> &'static str {
         match self {
@@ -1166,7 +1174,20 @@ impl BackdropKind {
             BackdropKind::SynthGrid => "Synthwave sun & grid",
             BackdropKind::Sponge => "Raymarched sponge flight",
             BackdropKind::Rings => "Raymarched ring corridor",
+            BackdropKind::Clouds => "Volumetric clouds",
+            BackdropKind::Aurora => "Aurora night sky",
         }
+    }
+
+    /// Kinds that fly through raymarched space (the view can roll).
+    pub fn is_flight(self) -> bool {
+        matches!(
+            self,
+            BackdropKind::Tunnel
+                | BackdropKind::Fractal
+                | BackdropKind::Sponge
+                | BackdropKind::Rings
+        )
     }
     pub fn index(self) -> u32 {
         BackdropKind::ALL
@@ -1248,6 +1269,8 @@ impl RaySettings {
             BackdropKind::Fractal => &["Kaliset", "Crystal", "Nebula"],
             BackdropKind::Sponge => &["Menger sponge", "Beam lattice", "Cube field"],
             BackdropKind::Rings => &["Rings", "Squares", "Triangles"],
+            BackdropKind::Clouds => &["Fluffy", "Overcast", "Storm"],
+            BackdropKind::Aurora => &["Curtains", "Rings", "Spiral"],
             _ => &[],
         }
     }
@@ -1283,6 +1306,20 @@ impl RaySettings {
                 Some("Thickness ×"),
                 Some("Path bend ×"),
                 Some("Glow"),
+            ],
+            BackdropKind::Clouds => [
+                Some("Cloud scale ×"),
+                None,
+                Some("Coverage ×"),
+                Some("Thickness ×"),
+                Some("Sun glow"),
+            ],
+            BackdropKind::Aurora => [
+                Some("Height ×"),
+                Some("Sway"),
+                Some("Ripples ×"),
+                None,
+                Some("Brightness"),
             ],
             _ => [None; 5],
         }
@@ -1362,6 +1399,9 @@ pub struct PostStack {
     pub palette: PaletteFx,
     pub crt: Crt,
     pub grade: Grade,
+    /// Light shafts streaming from the sun, plus lens flare.
+    #[serde(skip_serializing_if = "is_default")]
+    pub rays: GodRays,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1381,6 +1421,57 @@ impl Default for Bloom {
             intensity: Param::new(0.8),
             threshold: Param::new(0.8),
             radius: Param::new(0.7),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum RaySource {
+    /// From the sun (the light direction).
+    #[default]
+    Sun,
+    /// From the middle of the picture (light at the end of a tunnel).
+    Centre,
+}
+
+impl RaySource {
+    pub const ALL: [RaySource; 2] = [RaySource::Sun, RaySource::Centre];
+    pub fn label(self) -> &'static str {
+        match self {
+            RaySource::Sun => "Sun",
+            RaySource::Centre => "Picture centre",
+        }
+    }
+}
+
+/// Screen-space light shafts ("god rays"): bright parts of the picture near
+/// the light are smeared towards it, so anything dark in front casts
+/// streaks of shadow through the haze.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GodRays {
+    pub enabled: bool,
+    pub source: RaySource,
+    pub intensity: Param,
+    /// Length of the shafts (0..1).
+    pub length: Param,
+    /// Brightness above which the picture casts rays.
+    pub threshold: Param,
+    pub tint: Rgb,
+    /// Lens flare ghosts and halo (0 = none).
+    pub flare: Param,
+}
+
+impl Default for GodRays {
+    fn default() -> Self {
+        GodRays {
+            enabled: false,
+            source: RaySource::Sun,
+            intensity: Param::new(1.0),
+            length: Param::new(0.7),
+            threshold: Param::new(0.5),
+            tint: [1.0, 0.95, 0.85],
+            flare: Param::new(0.0),
         }
     }
 }
@@ -1671,6 +1762,15 @@ pub struct Terrain {
     pub texture_lines: bool,
     /// Nearest-neighbour sampling for chunky pixels.
     pub pixelated: bool,
+    /// Kind of landscape.
+    #[serde(skip_serializing_if = "is_default")]
+    pub shape: TerrainShape,
+    /// Colours by height and slope (snowy peaks, sandy shores…).
+    #[serde(skip_serializing_if = "is_default")]
+    pub biome: Biome,
+    /// Water, lava… filling the low ground.
+    #[serde(skip_serializing_if = "is_default")]
+    pub liquid: Liquid,
 }
 
 impl Default for Terrain {
@@ -1692,6 +1792,170 @@ impl Default for Terrain {
             tiles: 8,
             texture_lines: false,
             pixelated: false,
+            shape: TerrainShape::Hills,
+            biome: Biome::Plain,
+            liquid: Liquid::default(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum TerrainShape {
+    /// Rolling hills.
+    #[default]
+    Hills,
+    /// Sharp ridged mountains.
+    Mountains,
+    /// Flat-topped mesas in steps.
+    Mesas,
+    /// Wind-blown sand dunes.
+    Dunes,
+    /// Deep winding canyons in a plateau.
+    Canyons,
+    /// Round craters, like the moon.
+    Craters,
+}
+
+impl TerrainShape {
+    pub const ALL: [TerrainShape; 6] = [
+        TerrainShape::Hills,
+        TerrainShape::Mountains,
+        TerrainShape::Mesas,
+        TerrainShape::Dunes,
+        TerrainShape::Canyons,
+        TerrainShape::Craters,
+    ];
+    pub fn label(self) -> &'static str {
+        match self {
+            TerrainShape::Hills => "Hills",
+            TerrainShape::Mountains => "Ridged mountains",
+            TerrainShape::Mesas => "Mesas (terraces)",
+            TerrainShape::Dunes => "Sand dunes",
+            TerrainShape::Canyons => "Canyons",
+            TerrainShape::Craters => "Craters",
+        }
+    }
+    pub fn index(self) -> u32 {
+        TerrainShape::ALL
+            .iter()
+            .position(|t| *t == self)
+            .unwrap_or(0) as u32
+    }
+}
+
+/// Height and slope based colouring of solid terrain.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum Biome {
+    /// One ground colour.
+    #[default]
+    Plain,
+    /// Grass, rock and snowy peaks.
+    Alpine,
+    /// Sand and red rock.
+    Desert,
+    /// Black basalt with glowing cracks.
+    Volcanic,
+    /// Snow and blue ice.
+    Arctic,
+    /// Purple moss and teal crystal.
+    Alien,
+}
+
+impl Biome {
+    pub const ALL: [Biome; 6] = [
+        Biome::Plain,
+        Biome::Alpine,
+        Biome::Desert,
+        Biome::Volcanic,
+        Biome::Arctic,
+        Biome::Alien,
+    ];
+    pub fn label(self) -> &'static str {
+        match self {
+            Biome::Plain => "Plain (ground colour)",
+            Biome::Alpine => "Alpine",
+            Biome::Desert => "Desert",
+            Biome::Volcanic => "Volcanic",
+            Biome::Arctic => "Arctic",
+            Biome::Alien => "Alien",
+        }
+    }
+    pub fn index(self) -> u32 {
+        Biome::ALL.iter().position(|t| *t == self).unwrap_or(0) as u32
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum LiquidKind {
+    #[default]
+    None,
+    /// Reflective water with ripples, foam and a sun glint.
+    Water,
+    /// Glowing, slowly churning lava with a dark crust.
+    Lava,
+    /// Radioactive green goo with bubbles.
+    Toxic,
+    /// Frozen, cracked ice.
+    Ice,
+}
+
+impl LiquidKind {
+    pub const ALL: [LiquidKind; 5] = [
+        LiquidKind::None,
+        LiquidKind::Water,
+        LiquidKind::Lava,
+        LiquidKind::Toxic,
+        LiquidKind::Ice,
+    ];
+    pub fn label(self) -> &'static str {
+        match self {
+            LiquidKind::None => "None",
+            LiquidKind::Water => "Water",
+            LiquidKind::Lava => "Lava",
+            LiquidKind::Toxic => "Toxic goo",
+            LiquidKind::Ice => "Ice",
+        }
+    }
+    pub fn index(self) -> u32 {
+        LiquidKind::ALL.iter().position(|t| *t == self).unwrap_or(0) as u32
+    }
+    /// A good colour to start from.
+    pub fn default_color(self) -> Rgb {
+        match self {
+            LiquidKind::None | LiquidKind::Water => hex(0x0b3d5c),
+            LiquidKind::Lava => hex(0xff5a10),
+            LiquidKind::Toxic => hex(0x40ff30),
+            LiquidKind::Ice => hex(0x9fd8f0),
+        }
+    }
+}
+
+/// A liquid filling the terrain up to `level`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Liquid {
+    pub kind: LiquidKind,
+    /// Surface height as a fraction of the mountain height (animatable:
+    /// tides, rising lava).
+    pub level: Param,
+    pub color: Rgb,
+    /// Glow of lava / goo, shine of water and ice.
+    pub glow: Param,
+    /// Size of waves, ripples and crust (0 = still).
+    pub waves: Param,
+    /// Current: whole drifts of the surface pattern per loop.
+    pub flow: i32,
+}
+
+impl Default for Liquid {
+    fn default() -> Self {
+        Liquid {
+            kind: LiquidKind::None,
+            level: Param::new(0.25),
+            color: hex(0x0b3d5c),
+            glow: Param::new(1.0),
+            waves: Param::new(1.0),
+            flow: 1,
         }
     }
 }
@@ -1840,5 +2104,229 @@ impl Default for Ribbon {
             pulse_length: Param::new(0.08),
             pulse_glow: Param::new(6.0),
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Weather
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum Precipitation {
+    /// Streaks of rain with splashes on the ground.
+    #[default]
+    Rain,
+    /// Slowly swaying snowflakes.
+    Snow,
+    /// Glowing embers rising from the ground.
+    Embers,
+    /// A sandstorm: dust blown sideways.
+    Dust,
+    /// Fireflies wandering and blinking.
+    Fireflies,
+    /// No particles (lightning only).
+    None,
+}
+
+impl Precipitation {
+    pub const ALL: [Precipitation; 6] = [
+        Precipitation::Rain,
+        Precipitation::Snow,
+        Precipitation::Embers,
+        Precipitation::Dust,
+        Precipitation::Fireflies,
+        Precipitation::None,
+    ];
+    pub fn label(self) -> &'static str {
+        match self {
+            Precipitation::Rain => "Rain",
+            Precipitation::Snow => "Snow",
+            Precipitation::Embers => "Rising embers",
+            Precipitation::Dust => "Sandstorm",
+            Precipitation::Fireflies => "Fireflies",
+            Precipitation::None => "None (lightning only)",
+        }
+    }
+    pub fn index(self) -> u32 {
+        Precipitation::ALL
+            .iter()
+            .position(|t| *t == self)
+            .unwrap_or(0) as u32
+    }
+    /// Colour and falls per loop that suit the kind.
+    pub fn defaults(self) -> (Rgb, u32, f32) {
+        match self {
+            Precipitation::Rain => (hex(0x8fa8c8), 12, 0.05),
+            Precipitation::Snow => (hex(0xf0f4ff), 2, 0.12),
+            Precipitation::Embers => (hex(0xff7020), 3, 0.08),
+            Precipitation::Dust => (hex(0xc09060), 4, 0.6),
+            Precipitation::Fireflies => (hex(0xc0ff60), 1, 0.1),
+            Precipitation::None => (hex(0xffffff), 1, 0.1),
+        }
+    }
+}
+
+/// Rain, snow, embers or dust filling a box that follows the camera, with
+/// optional lightning. Every drop falls a whole number of times per loop.
+/// The layer's height (position Y) is the ground where drops splash.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Weather {
+    pub kind: Precipitation,
+    pub count: u32,
+    /// Half width of the box around the camera.
+    pub area: f32,
+    /// Height of the top of the box above the ground.
+    pub height: f32,
+    /// Times each drop falls (or rises) per loop.
+    pub falls: u32,
+    /// Sideways push in degrees of tilt (animatable: gusts).
+    pub wind: Param,
+    /// Wind direction in degrees around the vertical axis.
+    pub wind_dir: f32,
+    /// Size of drops / flakes (animatable).
+    pub size: Param,
+    /// Rain streak length multiplier.
+    pub streak: f32,
+    pub color: Rgb,
+    pub intensity: Param,
+    /// Splash rings where rain hits the ground (0 = none).
+    pub splashes: Param,
+    pub seed: u32,
+    pub lightning: Lightning,
+}
+
+impl Default for Weather {
+    fn default() -> Self {
+        Weather {
+            kind: Precipitation::Rain,
+            count: 6000,
+            area: 18.0,
+            height: 14.0,
+            falls: 12,
+            wind: Param::new(10.0),
+            wind_dir: 30.0,
+            size: Param::new(0.05),
+            streak: 1.0,
+            color: hex(0x8fa8c8),
+            intensity: Param::new(0.6),
+            splashes: Param::new(0.6),
+            seed: 1,
+            lightning: Lightning::default(),
+        }
+    }
+}
+
+/// Lightning strikes: a jagged bolt and a flash that lights up the scene.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Lightning {
+    pub enabled: bool,
+    /// Moments per loop when a strike may happen.
+    pub per_loop: u32,
+    /// Chance of a strike at each moment.
+    pub chance: f32,
+    /// Brightness of the flash lighting up the scene.
+    pub flash: Param,
+    pub color: Rgb,
+    /// Distance of the bolts from the camera.
+    pub distance: f32,
+    pub seed: u32,
+}
+
+impl Default for Lightning {
+    fn default() -> Self {
+        Lightning {
+            enabled: false,
+            per_loop: 8,
+            chance: 0.35,
+            flash: Param::new(1.5),
+            color: hex(0xc8d8ff),
+            distance: 30.0,
+            seed: 7,
+        }
+    }
+}
+
+impl Lightning {
+    /// The strike visible at `phase`: (brightness 0..1, strike number,
+    /// time since it started as a fraction of a slot). Loop-safe: slots
+    /// wrap with the loop.
+    pub fn strike(&self, phase: f32) -> Option<(f32, u32, f32)> {
+        if !self.enabled {
+            return None;
+        }
+        let n = self.per_loop.max(1) as f32;
+        let x = phase.rem_euclid(1.0) * n;
+        let slot = (x.floor() as u32) % self.per_loop.max(1);
+        let r = crate::rng::hash_u32(
+            slot.wrapping_mul(0x9e37_79b9) ^ self.seed.wrapping_mul(0x85eb_ca6b),
+        );
+        let roll = (r >> 8) as f32 / (1u32 << 24) as f32;
+        if roll >= self.chance.clamp(0.0, 1.0) {
+            return None;
+        }
+        // Each strike starts somewhere in the first half of its slot and
+        // flickers two or three times before fading.
+        let start = ((r & 0xff) as f32 / 255.0) * 0.5;
+        let t = x.fract() - start;
+        if t < 0.0 {
+            return None;
+        }
+        let flicker = if t < 0.03 {
+            1.0
+        } else if t < 0.05 {
+            0.25
+        } else if t < 0.09 {
+            0.9
+        } else {
+            (-(t - 0.09) * 20.0).exp()
+        };
+        let b = flicker.clamp(0.0, 1.0);
+        (b > 0.003).then_some((b, slot, t))
+    }
+
+    /// Brightness of the lightning flash at `phase` (0 = none).
+    pub fn flash_at(&self, phase: f32) -> f32 {
+        self.strike(phase).map(|s| s.0).unwrap_or(0.0)
+    }
+}
+
+#[cfg(test)]
+mod weather_tests {
+    use super::*;
+
+    #[test]
+    fn lightning_loops_and_strikes() {
+        let l = Lightning {
+            enabled: true,
+            chance: 1.0,
+            ..Default::default()
+        };
+        assert_eq!(l.flash_at(0.0), l.flash_at(1.0));
+        let lit = (0..1000)
+            .filter(|i| l.flash_at(*i as f32 / 1000.0) > 0.5)
+            .count();
+        assert!(lit > 0, "no strike");
+        assert!(lit < 500, "always lit");
+        let off = Lightning::default();
+        assert_eq!(off.flash_at(0.3), 0.0);
+    }
+
+    #[test]
+    fn new_features_round_trip() {
+        let mut p = Project::default();
+        let mut t = Terrain::default();
+        t.liquid.kind = LiquidKind::Lava;
+        t.shape = TerrainShape::Canyons;
+        t.biome = Biome::Volcanic;
+        p.layers.push(Layer::new("t", LayerKind::Terrain(t)));
+        p.layers
+            .push(Layer::new("w", LayerKind::Weather(Weather::default())));
+        p.post.rays.enabled = true;
+        let back = Project::from_json(&p.to_json()).unwrap();
+        assert_eq!(p, back);
+        // Defaults are not written.
+        let plain = Project::default().to_json();
+        assert!(!plain.contains("rays"));
     }
 }

@@ -153,3 +153,85 @@ fn raymarched_backdrops_loop_with_any_settings() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// Weather, liquids, terrain shapes and the new skies must not jump at the
+/// loop point, nor where a whole-number motion wraps inside the loop (a
+/// current flowing twice per loop wraps at the half). Each frame is compared
+/// with one a hair earlier (film grain, which changes every frame, is
+/// turned off); the same step elsewhere in the loop is the baseline.
+#[test]
+fn weather_liquids_and_skies_are_continuous() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let target = r.create_target(160, 90);
+    let mut scenes: Vec<(String, Project)> = Vec::new();
+    for liquid in LiquidKind::ALL {
+        for (i, shape) in TerrainShape::ALL.iter().enumerate() {
+            let mut p = presets::stormy_lake();
+            p.layers
+                .retain(|l| !matches!(l.kind, LayerKind::Weather(_)));
+            for l in &mut p.layers {
+                if let LayerKind::Terrain(t) = &mut l.kind {
+                    t.shape = *shape;
+                    t.biome = Biome::ALL[i % Biome::ALL.len()];
+                    t.scroll = 1;
+                    t.liquid.kind = liquid;
+                    t.liquid.level = Param::new(0.3);
+                    t.liquid.flow = 2;
+                }
+            }
+            scenes.push((format!("{} / {}", liquid.label(), shape.label()), p));
+        }
+    }
+    for kind in [BackdropKind::Clouds, BackdropKind::Aurora] {
+        for variant in 0..RaySettings::variants(kind).len() as u32 {
+            let mut p = presets::sunbeam_peaks();
+            p.layers
+                .retain(|l| matches!(l.kind, LayerKind::Backdrop(_)));
+            for l in &mut p.layers {
+                if let LayerKind::Backdrop(b) = &mut l.kind {
+                    b.kind = kind;
+                    b.speed = 2;
+                    b.ray.variant = variant;
+                }
+            }
+            scenes.push((format!("{} {variant}", kind.label()), p));
+        }
+    }
+    for kind in Precipitation::ALL {
+        let mut p = presets::stormy_lake();
+        for l in &mut p.layers {
+            if let LayerKind::Weather(w) = &mut l.kind {
+                w.kind = kind;
+                w.lightning.per_loop = 2;
+                w.lightning.chance = 1.0;
+            }
+        }
+        scenes.push((format!("weather {}", kind.label()), p));
+    }
+    let mut failures = Vec::new();
+    for (name, p) in &mut scenes {
+        p.post.grade.grain = Param::new(0.0);
+        let p = &*p;
+        let at = |phase: f32| EvalCtx::new(&p.timing, phase, None);
+        let mut step = |at_phase: f32| {
+            let before = r.render_image(p, &at(at_phase - 2e-5), &target);
+            let after = r.render_image(p, &at(at_phase), &target);
+            mean_abs_diff(before.as_raw(), after.as_raw())
+        };
+        let baseline = step(0.3);
+        let worst = step(1.0).max(step(0.5));
+        eprintln!("{name:<40} jump {worst:.3} (elsewhere {baseline:.3})");
+        if worst > baseline + 0.6 {
+            failures.push(format!("{name}: jump {worst:.2}"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
