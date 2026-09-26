@@ -454,6 +454,10 @@ pub struct MeshLayer {
     pub material: Material,
     pub instancer: Instancer,
     pub variation: Variation,
+    /// Extra geometry detail: each level splits every triangle in four
+    /// (needed for smooth displacement).
+    #[serde(skip_serializing_if = "is_default")]
+    pub subdivide: u32,
 }
 
 impl Default for MeshLayer {
@@ -463,6 +467,7 @@ impl Default for MeshLayer {
             material: Material::default(),
             instancer: Instancer::Single,
             variation: Variation::default(),
+            subdivide: 0,
         }
     }
 }
@@ -874,6 +879,54 @@ pub struct Material {
     /// Geometry corruption (off when the amount is 0).
     #[serde(skip_serializing_if = "is_default")]
     pub glitch: Glitch,
+    /// Surface relief: bump / normal map / displacement.
+    #[serde(skip_serializing_if = "is_default")]
+    pub relief: Relief,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum ReliefMode {
+    /// Brightness of the texture is height.
+    #[default]
+    Bump,
+    /// The texture is a (tangent-space) normal map.
+    NormalMap,
+}
+
+impl ReliefMode {
+    pub const ALL: [ReliefMode; 2] = [ReliefMode::Bump, ReliefMode::NormalMap];
+    pub fn label(self) -> &'static str {
+        match self {
+            ReliefMode::Bump => "Bump (brightness = height)",
+            ReliefMode::NormalMap => "Normal map",
+        }
+    }
+}
+
+/// Makes a surface look (bump / normal map) or be (displacement) uneven.
+/// Uses the material's tiling and scrolling.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Relief {
+    /// Relief texture (built-in or user image); `None` uses the colour texture.
+    pub texture: Option<String>,
+    pub mode: ReliefMode,
+    /// Strength of the lighting relief (animatable). 0 = off.
+    pub bump: Param,
+    /// Moves the surface outwards by the texture brightness (animatable).
+    /// Needs detailed geometry (Subdivide).
+    pub displace: Param,
+}
+
+impl Default for Relief {
+    fn default() -> Self {
+        Relief {
+            texture: None,
+            mode: ReliefMode::Bump,
+            bump: Param::new(0.0),
+            displace: Param::new(0.0),
+        }
+    }
 }
 
 /// How a glitched mesh is corrupted.
@@ -953,6 +1006,7 @@ impl Default for Material {
             rim: Param::new(0.3),
             hue_shift: Param::new(0.0),
             glitch: Glitch::default(),
+            relief: Relief::default(),
         }
     }
 }
@@ -1083,10 +1137,14 @@ pub enum BackdropKind {
     Fractal,
     Plasma,
     SynthGrid,
+    /// Flight through an infinite raymarched Menger sponge.
+    Sponge,
+    /// Flight through a corridor of glowing rings.
+    Rings,
 }
 
 impl BackdropKind {
-    pub const ALL: [BackdropKind; 7] = [
+    pub const ALL: [BackdropKind; 9] = [
         BackdropKind::Gradient,
         BackdropKind::Nebula,
         BackdropKind::Starfield,
@@ -1094,6 +1152,8 @@ impl BackdropKind {
         BackdropKind::Fractal,
         BackdropKind::Plasma,
         BackdropKind::SynthGrid,
+        BackdropKind::Sponge,
+        BackdropKind::Rings,
     ];
     pub fn label(self) -> &'static str {
         match self {
@@ -1104,6 +1164,8 @@ impl BackdropKind {
             BackdropKind::Fractal => "Raymarched fractal",
             BackdropKind::Plasma => "Oldschool plasma",
             BackdropKind::SynthGrid => "Synthwave sun & grid",
+            BackdropKind::Sponge => "Raymarched sponge flight",
+            BackdropKind::Rings => "Raymarched ring corridor",
         }
     }
     pub fn index(self) -> u32 {
@@ -1128,6 +1190,103 @@ pub struct Backdrop {
     pub detail: Param,
     /// Texture used by the tunnel walls.
     pub texture: Option<String>,
+    /// Settings of the raymarched kinds (tunnel, fractal, sponge, rings).
+    #[serde(skip_serializing_if = "is_default")]
+    pub ray: RaySettings,
+}
+
+/// Settings shared by the raymarched backgrounds. What each one does
+/// depends on the kind (see [`RaySettings::labels`]); the defaults keep the
+/// original look.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RaySettings {
+    /// Style: tunnel shape, fractal formula, sponge type, ring shape.
+    pub variant: u32,
+    /// Tunnel wall pattern when there is no texture.
+    pub pattern: u32,
+    /// Radius / zoom / cell size (×).
+    pub size: Param,
+    /// Twist of the space along the flight.
+    pub twist: Param,
+    /// Wall wobble / fractal fold (×).
+    pub warp: Param,
+    /// How much the flight path bends (×).
+    pub bend: Param,
+    /// Glowing lights / edge glow.
+    pub glow: Param,
+    /// Depth fog (×).
+    pub fog: Param,
+    /// Quality: raymarch steps or fractal iterations (0 = default).
+    pub steps: u32,
+    /// Whole rolls of the view per loop.
+    pub spin: i32,
+}
+
+impl Default for RaySettings {
+    fn default() -> Self {
+        RaySettings {
+            variant: 0,
+            pattern: 0,
+            size: Param::new(1.0),
+            twist: Param::new(0.0),
+            warp: Param::new(1.0),
+            bend: Param::new(1.0),
+            glow: Param::new(0.0),
+            fog: Param::new(1.0),
+            steps: 0,
+            spin: 0,
+        }
+    }
+}
+
+impl RaySettings {
+    /// Names of the style choices for a kind (empty = no styles).
+    pub fn variants(kind: BackdropKind) -> &'static [&'static str] {
+        match kind {
+            BackdropKind::Tunnel => &["Round", "Square", "Hexagon", "Triangle", "Flower"],
+            BackdropKind::Fractal => &["Kaliset", "Crystal", "Nebula"],
+            BackdropKind::Sponge => &["Menger sponge", "Beam lattice", "Cube field"],
+            BackdropKind::Rings => &["Rings", "Squares", "Triangles"],
+            _ => &[],
+        }
+    }
+
+    /// Labels for (size, twist, warp, bend, glow) for a kind; `None` hides
+    /// the setting.
+    pub fn labels(kind: BackdropKind) -> [Option<&'static str>; 5] {
+        match kind {
+            BackdropKind::Tunnel => [
+                Some("Radius ×"),
+                Some("Twist"),
+                Some("Wall wobble ×"),
+                Some("Path bend ×"),
+                Some("Light rings"),
+            ],
+            BackdropKind::Fractal => [
+                Some("Zoom ×"),
+                None,
+                Some("Fold ×"),
+                Some("Drift ×"),
+                Some("Brightness"),
+            ],
+            BackdropKind::Sponge => [
+                Some("Cell size ×"),
+                Some("Twist"),
+                None,
+                Some("Path bend ×"),
+                Some("Edge glow"),
+            ],
+            BackdropKind::Rings => [
+                Some("Ring size ×"),
+                Some("Twist"),
+                Some("Thickness ×"),
+                Some("Path bend ×"),
+                Some("Glow"),
+            ],
+            _ => [None; 5],
+        }
+    }
 }
 
 impl Default for Backdrop {
@@ -1141,6 +1300,7 @@ impl Default for Backdrop {
             intensity: Param::new(1.0),
             detail: Param::new(1.0),
             texture: None,
+            ray: RaySettings::default(),
         }
     }
 }

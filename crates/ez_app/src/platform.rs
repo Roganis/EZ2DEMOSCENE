@@ -23,6 +23,7 @@ pub enum TexSlot {
     Backdrop,
     Mirror,
     Terrain,
+    Relief,
 }
 
 /// What a picked file is for.

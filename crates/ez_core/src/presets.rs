@@ -56,6 +56,11 @@ pub fn all() -> Vec<Preset> {
             project: glitch_shrine(),
         },
         Preset {
+            name: "Sponge Dive",
+            description: "Flight through a Menger sponge, a breathing displaced chrome orb.",
+            project: sponge_dive(),
+        },
+        Preset {
             name: "Empty",
             description: "A blank stage with a floor and a sky.",
             project: empty(),
@@ -169,6 +174,7 @@ pub fn neon_arena() -> Project {
                     intensity: Param::new(0.75),
                     detail: Param::new(1.2),
                     texture: None,
+                    ray: Default::default(),
                 }),
             ),
             Layer::new(
@@ -629,6 +635,7 @@ pub fn orbiting_solid() -> Project {
                     intensity: Param::new(0.6),
                     detail: Param::new(1.0),
                     texture: None,
+                    ray: Default::default(),
                 }),
             ),
             Layer::new(
@@ -794,6 +801,7 @@ pub fn retro_tunnel() -> Project {
                     intensity: Param::new(1.2),
                     detail: Param::new(1.0),
                     texture: Some("xor".into()),
+                    ray: Default::default(),
                 }),
             ),
             Layer::new(
@@ -902,6 +910,7 @@ pub fn plasma_kaleido() -> Project {
                     intensity: Param::new(0.9),
                     detail: Param::new(1.0),
                     texture: None,
+                    ray: Default::default(),
                 }),
             ),
             Layer::new(
@@ -1007,6 +1016,7 @@ pub fn synth_sunset() -> Project {
                     intensity: Param::new(1.0),
                     detail: Param::new(1.0),
                     texture: None,
+                    ray: Default::default(),
                 }),
             ),
             Layer::new(
@@ -1130,6 +1140,7 @@ pub fn vector_valley() -> Project {
                     intensity: Param::new(1.0),
                     detail: Param::new(1.0),
                     texture: None,
+                    ray: Default::default(),
                 }),
             ),
             Layer::new(
@@ -1239,6 +1250,7 @@ pub fn glitch_shrine() -> Project {
                     intensity: Param::new(0.7),
                     detail: Param::new(1.0),
                     texture: None,
+                    ray: Default::default(),
                 }),
             ),
             Layer::new(
@@ -1354,6 +1366,121 @@ pub fn glitch_shrine() -> Project {
                 enabled: true,
                 intensity: Param::new(1.0),
                 threshold: Param::new(0.8),
+                radius: Param::new(0.7),
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+pub fn sponge_dive() -> Project {
+    Project {
+        name: "Sponge Dive".into(),
+        timing: crate::Timing {
+            bpm: 124.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Pendulum,
+            swing: Param::new(20.0),
+            target: [0.0, 2.0, 0.0],
+            distance: Param::new(9.0),
+            height: Param::new(1.5),
+            fov: Param::new(60.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0x05030a),
+            fog_density: Param::new(0.01),
+            sky_color: hex(0xa0b0ff),
+            ground_color: hex(0x201008),
+            light_dir: [0.3, 1.0, 0.6],
+            light_color: hex(0xffe0c0),
+            light_intensity: Param::new(1.6),
+            ambient: Param::new(0.35),
+        },
+        layers: vec![
+            Layer::new(
+                "Sponge",
+                LayerKind::Backdrop(Backdrop {
+                    kind: BackdropKind::Sponge,
+                    color_a: hex(0x05030a),
+                    color_b: hex(0x1c1030),
+                    color_c: hex(0x9a4a1c),
+                    speed: 1,
+                    intensity: Param::new(0.8),
+                    detail: Param::new(1.0),
+                    texture: None,
+                    ray: RaySettings {
+                        glow: Param::new(0.4),
+                        fog: Param::new(2.0),
+                        spin: 1,
+                        ..Default::default()
+                    },
+                }),
+            ),
+            Layer::new(
+                "Orb",
+                LayerKind::Mesh(MeshLayer {
+                    subdivide: 1,
+                    ..mesh(
+                        Primitive::Sphere { detail: 5 },
+                        Material {
+                            base_color: hex(0xd0d4e0),
+                            metallic: Param::new(1.0),
+                            roughness: Param::new(0.12),
+                            texture: Some("noise".into()),
+                            texture_scale: Param::new(2.0),
+                            relief: Relief {
+                                bump: Param::new(1.5),
+                                displace: Param::new(0.05).osc(Wave::Swell, 0.25, 16),
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        },
+                    )
+                }),
+            )
+            .scaled(1.6)
+            .at([0.0, 2.0, 0.0])
+            .spin([0, 1, 0]),
+            Layer::new(
+                "Plates",
+                LayerKind::Mesh(MeshLayer {
+                    instancer: Instancer::Radial {
+                        count: 10,
+                        radius: 4.2,
+                    },
+                    ..mesh(
+                        Primitive::Panel { bevel: 0.1 },
+                        Material {
+                            base_color: hex(0x909098),
+                            metallic: Param::new(0.8),
+                            roughness: Param::new(0.3),
+                            texture: Some("metal_plate".into()),
+                            relief: Relief {
+                                bump: Param::new(3.0),
+                                ..Default::default()
+                            },
+                            emissive_color: hex(0xff9040),
+                            emissive: Param::new(0.0).osc(Wave::ExpOut, 2.0, 16),
+                            emissive_mode: EmissiveMode::Edges,
+                            ..Default::default()
+                        },
+                    )
+                }),
+            )
+            .scaled(1.0)
+            .stretched([1.2, 0.15, 0.8])
+            .at([0.0, 0.5, 0.0])
+            .spin([0, -1, 0]),
+        ],
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                intensity: Param::new(0.9),
+                threshold: Param::new(0.9),
                 radius: Param::new(0.7),
             },
             ..Default::default()

@@ -1,6 +1,10 @@
 // Fullscreen procedural / raymarched backgrounds.
 // D.v[0]: kind, speed (cycles/loop), intensity, detail
 // D.v[1..3]: colours a, b, c;  D.v[4].x: has texture
+// Raymarched kinds (tunnel, fractal, sponge, rings):
+// D.v[5]: variant, pattern, size, twist
+// D.v[6]: warp, bend, glow, fog
+// D.v[7]: steps (0 = default), view roll (radians)
 
 @group(2) @binding(0) var t_tex: texture_2d<f32>;
 @group(2) @binding(1) var s_tex: sampler;
@@ -28,7 +32,57 @@ fn stars(dir: vec3<f32>, scale: f32, density: f32, twinkle_cycles: f32) -> f32 {
 
 fn tunnel_path(z: f32, period: f32) -> vec2<f32> {
     let a = z * TAU / period;
-    return vec2<f32>(sin(a) * 0.8, cos(a * 2.0) * 0.5);
+    return vec2<f32>(sin(a) * 0.8, cos(a * 2.0) * 0.5) * D.v[6].y;
+}
+
+fn steps_or(default_steps: i32) -> i32 {
+    let s = i32(D.v[7].x + 0.5);
+    if (s <= 0) {
+        return default_steps;
+    }
+    return s;
+}
+
+// Distance from a point `q` of the cross-section to the tunnel wall
+// (positive inside). `tw` is the twist angle at this depth.
+fn tunnel_dist(q: vec2<f32>, tw: f32, radius: f32, wob: f32) -> f32 {
+    let variant = i32(D.v[5].x + 0.5);
+    let r = length(q);
+    let ang = atan2(q.y, q.x) + tw;
+    var n = 0.0;
+    switch variant {
+        case 1: { n = 4.0; }
+        case 2: { n = 6.0; }
+        case 3: { n = 3.0; }
+        case 4: {
+            // Flower: not an exact distance, so step more carefully.
+            return (radius * (1.0 + 0.22 * cos(ang * 6.0)) + wob - r) * 0.6;
+        }
+        default: { return radius + wob - r; }
+    }
+    // Regular polygon: exact distance to the nearest side.
+    let seg = TAU / n;
+    let a = (ang - floor(ang / seg) * seg) - seg * 0.5;
+    return radius * cos(PI / n) + wob - r * cos(a);
+}
+
+fn wall_pattern(u: f32, v: f32) -> f32 {
+    let pattern = i32(D.v[5].y + 0.5);
+    switch pattern {
+        case 1: {
+            return f32((u32(floor(u * 16.0)) + u32(floor(v * 4.0))) % 2u);
+        }
+        case 2: {
+            return 0.5 + 0.5 * cos(v * TAU * 2.0);
+        }
+        case 3: {
+            return 0.5 + 0.5 * cos(u * TAU * 8.0);
+        }
+        default: {
+            let x = u32(fract(u * 2.0) * 64.0) ^ u32(fract(v) * 64.0);
+            return f32(x & 63u) / 63.0;
+        }
+    }
 }
 
 fn bg_tunnel(rd_in: vec3<f32>, speed: f32, detail: f32, ca: vec3<f32>, cb: vec3<f32>, cc: vec3<f32>, use_tex: bool) -> vec3<f32> {
@@ -44,15 +98,18 @@ fn bg_tunnel(rd_in: vec3<f32>, speed: f32, detail: f32, ca: vec3<f32>, cb: vec3<
     let cam_fwd = cross(G.cam_up.xyz, G.cam_right.xyz);
     let cam_rd = vec3<f32>(dot(rd_in, G.cam_right.xyz), dot(rd_in, G.cam_up.xyz), dot(rd_in, cam_fwd));
     let rd = normalize(right * cam_rd.x + upv * cam_rd.y + fwd * cam_rd.z);
-    let radius = 1.6;
+    let radius = 1.6 * D.v[5].z;
+    // Twist: turns of the cross-section per tunnel period.
+    let twist = D.v[5].w * TAU / period;
+    let wobble = 0.08 * D.v[6].x;
+    let steps = steps_or(64);
     var t = 0.0;
     var hit = false;
-    for (var i = 0; i < 64; i = i + 1) {
+    for (var i = 0; i < steps; i = i + 1) {
         let p = ro + rd * t;
         let q = p.xy - tunnel_path(p.z, period);
         let ang = atan2(q.y, q.x);
-        let wall = radius + 0.08 * sin(ang * 6.0 + p.z * TAU / 4.0);
-        let d = wall - length(q);
+        let d = tunnel_dist(q, p.z * twist, radius, wobble * sin(ang * 6.0 + p.z * TAU / 4.0));
         if (d < 0.002) {
             hit = true;
             break;
@@ -62,20 +119,29 @@ fn bg_tunnel(rd_in: vec3<f32>, speed: f32, detail: f32, ca: vec3<f32>, cb: vec3<
             break;
         }
     }
+    // Out of steps but not far away: a ray skimming a wall. Shade the wall
+    // rather than leaving a dark seam.
+    if (!hit && t < 60.0) {
+        hit = true;
+    }
     let p = ro + rd * t;
     let q = p.xy - tunnel_path(p.z, period);
-    let u = atan2(q.y, q.x) / TAU + 0.5;
+    let u = (atan2(q.y, q.x) + p.z * twist) / TAU + 0.5;
     let v = p.z / period * 4.0 * detail;
     var pattern: vec3<f32>;
     if (use_tex) {
         pattern = textureSampleLevel(t_tex, s_tex, vec2<f32>(u * 2.0, v), 0.0).rgb;
     } else {
-        let x = u32(fract(u * 2.0) * 64.0) ^ u32(fract(v) * 64.0);
-        let k = f32(x & 63u) / 63.0;
-        pattern = vec3<f32>(k);
+        pattern = vec3<f32>(wall_pattern(u, v));
     }
     var col = mix(cb, cc, pattern) * (0.3 + 0.7 * pattern);
-    let fog = exp(-t * 0.06);
+    // Light rings sliding past with the flight.
+    let glow = D.v[6].z;
+    if (glow > 0.0) {
+        let ring = exp(-abs(fract(p.z / period * 2.0) - 0.5) * 30.0);
+        col = col + cc * ring * glow * 3.0;
+    }
+    let fog = exp(-t * 0.06 * D.v[6].w);
     col = mix(ca, col, fog);
     if (!hit) {
         col = ca;
@@ -85,27 +151,221 @@ fn bg_tunnel(rd_in: vec3<f32>, speed: f32, detail: f32, ca: vec3<f32>, cb: vec3<
 
 fn bg_kaliset(rd: vec3<f32>, speed: f32, detail: f32, ca: vec3<f32>, cb: vec3<f32>, cc: vec3<f32>) -> vec3<f32> {
     let a = G.time.x * speed * TAU;
-    let origin = vec3<f32>(1.0 + 0.3 * cos(a), 0.5 + 0.3 * sin(a), 0.5 + 0.2 * sin(a));
-    var s = 0.1;
+    let drift = D.v[6].y;
+    let origin = vec3<f32>(1.0 + 0.3 * cos(a) * drift, 0.5 + 0.3 * sin(a) * drift, 0.5 + 0.2 * sin(a) * drift);
+    // Formula variants: mirror offset and repeat period of the fold.
+    let variant = i32(D.v[5].x + 0.5);
+    var off = 0.85;
+    var rep = 1.7;
+    if (variant == 1) {
+        off = 0.5;
+        rep = 1.0;
+    } else if (variant == 2) {
+        off = 1.2;
+        rep = 2.4;
+    }
+    let fold = 0.53 * detail * D.v[6].x;
+    let zoom = D.v[5].z;
+    let iters = steps_or(13);
+    let keep = pow(0.73, D.v[6].w);
+    var s = 0.1 * zoom;
     var fade = 1.0;
     var v = vec3<f32>(0.0);
     for (var r = 0; r < 12; r = r + 1) {
         var p = origin + s * rd * 0.5;
-        p = abs(vec3<f32>(0.85) - (p - floor(p / 1.7) * 1.7));
+        p = abs(vec3<f32>(off) - (p - floor(p / rep) * rep));
         var pa = 0.0;
         var acc = 0.0;
-        for (var i = 0; i < 13; i = i + 1) {
-            p = abs(p) / dot(p, p) - 0.53 * detail;
+        for (var i = 0; i < iters; i = i + 1) {
+            p = abs(p) / dot(p, p) - fold;
             let lp = length(p);
             acc = acc + abs(lp - pa);
             pa = lp;
         }
         acc = acc * acc * acc * 0.0015;
         v = v + fade * mix(cb, cc, clamp(f32(r) / 12.0, 0.0, 1.0)) * acc * 0.12;
-        fade = fade * 0.73;
-        s = s + 0.1;
+        fade = fade * keep;
+        s = s + 0.1 * zoom;
     }
-    return ca + v * 0.25;
+    return ca + v * 0.25 * (1.0 + D.v[6].z);
+}
+
+// Ray direction in "flight" space: looking down -Z, keeping the user's
+// camera turn and field of view.
+fn flight_dir(rd_in: vec3<f32>) -> vec3<f32> {
+    let cam_fwd = cross(G.cam_up.xyz, G.cam_right.xyz);
+    return normalize(vec3<f32>(dot(rd_in, G.cam_right.xyz), dot(rd_in, G.cam_up.xyz), -dot(rd_in, cam_fwd)));
+}
+
+fn rot2(v: vec2<f32>, a: f32) -> vec2<f32> {
+    let c = cos(a);
+    let s = sin(a);
+    return vec2<f32>(c * v.x - s * v.y, s * v.x + c * v.y);
+}
+
+fn sd_box(p: vec3<f32>, b: vec3<f32>) -> f32 {
+    let q = abs(p) - b;
+    return length(max(q, vec3<f32>(0.0))) + min(max(q.x, max(q.y, q.z)), 0.0);
+}
+
+// Infinite sponge-like structures repeating every 2 units.
+fn sponge_sdf(p_in: vec3<f32>) -> f32 {
+    let variant = i32(D.v[5].x + 0.5);
+    let p = p_in - 2.0 * floor((p_in + 1.0) / 2.0);
+    switch variant {
+        case 1: {
+            // Beam lattice: three infinite beams through every cell corner.
+            let q = abs(p) - vec3<f32>(1.0);
+            let b = 0.18;
+            let dx = length(max(abs(vec2<f32>(q.y, q.z)) - vec2<f32>(b), vec2<f32>(0.0)));
+            let dy = length(max(abs(vec2<f32>(q.x, q.z)) - vec2<f32>(b), vec2<f32>(0.0)));
+            let dz = length(max(abs(vec2<f32>(q.x, q.y)) - vec2<f32>(b), vec2<f32>(0.0)));
+            return min(dx, min(dy, dz));
+        }
+        case 2: {
+            // Field of small cubes, one per cell corner.
+            let q = abs(p) - vec3<f32>(1.0);
+            return sd_box(q, vec3<f32>(0.28)) - 0.03;
+        }
+        default: {
+            // Menger sponge.
+            var d = sd_box(p, vec3<f32>(1.0));
+            var sc = 1.0;
+            for (var m = 0; m < 4; m = m + 1) {
+                let a = (p * sc) - 2.0 * floor((p * sc) / 2.0) - 1.0;
+                sc = sc * 3.0;
+                let r = abs(vec3<f32>(1.0) - 3.0 * abs(a));
+                let da = max(r.x, r.y);
+                let db = max(r.y, r.z);
+                let dc = max(r.z, r.x);
+                let c = (min(da, min(db, dc)) - 1.0) / sc;
+                d = max(d, c);
+            }
+            return d;
+        }
+    }
+}
+
+fn sponge_map(p: vec3<f32>) -> f32 {
+    let size = max(D.v[5].z, 0.05);
+    var q = p / size;
+    let tw = D.v[5].w * q.z * TAU / 8.0;
+    let xy = rot2(q.xy, tw);
+    q = vec3<f32>(xy, q.z);
+    return sponge_sdf(q) * size;
+}
+
+fn bg_sponge(rd_in: vec3<f32>, speed: f32, ca: vec3<f32>, cb: vec3<f32>, cc: vec3<f32>) -> vec3<f32> {
+    let size = max(D.v[5].z, 0.05);
+    // One loop flies 8 cells per speed unit, so the view repeats exactly.
+    let period = 16.0 * size;
+    let z0 = -G.time.x * speed * period;
+    let bend = D.v[6].y;
+    let a = G.time.x * TAU * f32(speed);
+    let ro = vec3<f32>(sin(a) * 0.15 * bend * size, cos(a * 2.0) * 0.1 * bend * size, z0);
+    let rd = flight_dir(rd_in);
+    let steps = steps_or(80);
+    var t = 0.02;
+    var glow = 0.0;
+    var hit = false;
+    var n_steps = 0;
+    for (var i = 0; i < steps; i = i + 1) {
+        let d = sponge_map(ro + rd * t);
+        glow = glow + exp(-d * 40.0 / size) * 0.02;
+        if (d < 0.001 * t) {
+            hit = true;
+            break;
+        }
+        t = t + d;
+        n_steps = i;
+        if (t > 40.0 * size) {
+            break;
+        }
+    }
+    let p = ro + rd * t;
+    let e = vec2<f32>(0.002 * size, 0.0);
+    let n = normalize(vec3<f32>(
+        sponge_map(p + e.xyy) - sponge_map(p - e.xyy),
+        sponge_map(p + e.yxy) - sponge_map(p - e.yxy),
+        sponge_map(p + e.yyx) - sponge_map(p - e.yyx),
+    ));
+    let ao = 1.0 - f32(n_steps) / f32(steps);
+    let light = 0.35 + 0.65 * max(dot(n, normalize(vec3<f32>(0.4, 0.8, 0.3))), 0.0);
+    var col = mix(cb, cc, 0.5 + 0.5 * n.y) * light * ao;
+    col = col + cc * glow * D.v[6].z;
+    let fog = exp(-t / size * 0.08 * D.v[6].w);
+    col = mix(ca, col, fog);
+    if (!hit) {
+        col = ca + cc * glow * D.v[6].z;
+    }
+    return col;
+}
+
+// Glowing rings (or squares / triangles) every 2 units along -Z.
+fn ring_sdf(p: vec3<f32>) -> f32 {
+    let size = max(D.v[5].z, 0.05);
+    let thick = 0.06 * D.v[6].x;
+    let cell = 2.0 * size;
+    var q = p;
+    q.z = q.z - cell * floor(q.z / cell + 0.5);
+    let tw = D.v[5].w * floor(p.z / cell + 0.5) * 0.35;
+    let xy = rot2(q.xy, tw);
+    let variant = i32(D.v[5].x + 0.5);
+    let radius = 1.5 * size;
+    var d2 = 0.0;
+    switch variant {
+        case 1: {
+            let a = abs(xy) - vec2<f32>(radius);
+            d2 = abs(max(a.x, a.y));
+        }
+        case 2: {
+            let ang = atan2(xy.y, xy.x) + PI * 0.5;
+            let seg = TAU / 3.0;
+            let loc = (ang - floor(ang / seg) * seg) - seg * 0.5;
+            d2 = abs(length(xy) * cos(loc) - radius * 0.6);
+        }
+        default: {
+            d2 = abs(length(xy) - radius);
+        }
+    }
+    return length(vec2<f32>(d2, q.z)) - thick;
+}
+
+fn bg_rings(rd_in: vec3<f32>, speed: f32, ca: vec3<f32>, cb: vec3<f32>, cc: vec3<f32>) -> vec3<f32> {
+    let size = max(D.v[5].z, 0.05);
+    let period = 16.0 * size;
+    let z0 = -G.time.x * speed * period;
+    let a = G.time.x * TAU * f32(speed);
+    let bend = D.v[6].y;
+    let ro = vec3<f32>(sin(a) * 0.4 * bend * size, cos(a) * 0.3 * bend * size, z0);
+    let rd = flight_dir(rd_in);
+    let steps = steps_or(64);
+    var t = 0.0;
+    var glow = 0.0;
+    var hit = false;
+    for (var i = 0; i < steps; i = i + 1) {
+        let p = ro + rd * t;
+        let d = ring_sdf(p);
+        // Colour of the glow alternates between the two colours per ring.
+        glow = glow + exp(-d * 12.0 / size) * 0.03;
+        if (d < 0.001) {
+            hit = true;
+            break;
+        }
+        t = t + d * 0.9;
+        if (t > 50.0 * size) {
+            break;
+        }
+    }
+    let p = ro + rd * t;
+    let k = 0.5 + 0.5 * cos(PI * floor(p.z / (2.0 * size) + 0.5));
+    let ring_col = mix(cb, cc, k);
+    let fog = exp(-t / size * 0.05 * D.v[6].w);
+    var col = ca + ring_col * glow * (1.0 + D.v[6].z);
+    if (hit) {
+        col = mix(ca, ring_col * 2.0, fog);
+    }
+    return col;
 }
 
 fn bg_plasma(rd: vec3<f32>, speed: f32, detail: f32, ca: vec3<f32>, cb: vec3<f32>, cc: vec3<f32>) -> vec3<f32> {
@@ -155,8 +415,17 @@ fn bg_synth(rd: vec3<f32>, speed: f32, detail: f32, ca: vec3<f32>, cb: vec3<f32>
 
 @fragment
 fn fs_main(in: FullscreenOut) -> @location(0) vec4<f32> {
-    let rd = view_ray(in.ndc);
+    var rd = view_ray(in.ndc);
     let kind = i32(D.v[0].x + 0.5);
+    // Raymarched kinds can roll the view a whole number of turns per loop.
+    let roll = D.v[7].y;
+    if (roll != 0.0 && (kind == 3 || kind == 4 || kind >= 7)) {
+        let cam_fwd = cross(G.cam_up.xyz, G.cam_right.xyz);
+        let x = dot(rd, G.cam_right.xyz);
+        let y = dot(rd, G.cam_up.xyz);
+        let r = rot2(vec2<f32>(x, y), roll);
+        rd = normalize(G.cam_right.xyz * r.x + G.cam_up.xyz * r.y + cam_fwd * dot(rd, cam_fwd));
+    }
     let speed = D.v[0].y;
     let intensity = D.v[0].z;
     let detail = D.v[0].w;
@@ -204,6 +473,12 @@ fn fs_main(in: FullscreenOut) -> @location(0) vec4<f32> {
         }
         case 6: {
             col = bg_synth(rd, speed, detail, ca, cb, cc);
+        }
+        case 7: {
+            col = bg_sponge(rd, speed, ca, cb, cc);
+        }
+        case 8: {
+            col = bg_rings(rd, speed, ca, cb, cc);
         }
         default: {}
     }

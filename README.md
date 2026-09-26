@@ -20,8 +20,11 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   cloud drift, grain) runs an integer number of cycles per loop, so frame
   *N* equals frame 0. The test suite checks this for every preset.
 - **Presets + layers for beginners.**
-  - Backgrounds: gradient sky, nebula, starfield, raymarched tunnel,
-    fractal (Kaliset), oldschool plasma, synthwave sun & grid.
+  - Backgrounds: gradient sky, nebula, starfield, oldschool plasma,
+    synthwave sun & grid, and four raymarched ones with their own
+    settings: tunnel (5 shapes, wall patterns, twist, light rings),
+    fractal (3 formulas, fold, zoom), Menger sponge flight (sponge, beam
+    lattice, cube field) and a ring corridor.
   - Mirror floor: real planar reflections, blur, a glowing neon grid and
     LED textures.
   - Shapes: 25 built-ins (platonic solids, crystals, shards, beveled tech
@@ -45,7 +48,9 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     flashes.
 - **Materials.** Glossy/metallic surfaces with fake studio reflections,
   flat-shaded facets, rim light, and neon glow on the whole surface, along
-  polygon edges (Tron look), in stripes, or from a texture. **Glitch**
+  polygon edges (Tron look), in stripes, or from a texture. **Relief**
+  adds bump maps, normal maps and real displacement (with subdivision).
+  **Glitch**
   corrupts a shape's geometry (jitter, VHS slices, shatter) in loop-safe
   bursts.
 - **Retro PC textures.** 33 built-in tileable textures (XOR, plasma,

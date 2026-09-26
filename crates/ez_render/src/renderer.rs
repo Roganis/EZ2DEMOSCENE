@@ -87,6 +87,7 @@ enum Cmd {
         slot: u32,
         mesh: String,
         tex: String,
+        relief: String,
         pixelated: bool,
         first: u32,
         count: u32,
@@ -144,6 +145,8 @@ fn backdrop_load(kind: BackdropKind) -> f32 {
         BackdropKind::SynthGrid => 0.2,
         BackdropKind::Plasma => 0.15,
         BackdropKind::Gradient => 0.05,
+        BackdropKind::Sponge => 1.2,
+        BackdropKind::Rings => 0.5,
     }
 }
 
@@ -169,6 +172,9 @@ pub struct Renderer {
     msaa: u32,
 
     bgl_tex: wgpu::BindGroupLayout,
+    /// Meshes: colour texture, sampler and relief texture, also read by the
+    /// vertex shader (displacement).
+    bgl_mesh_tex: wgpu::BindGroupLayout,
     bgl_floor: wgpu::BindGroupLayout,
     bgl_post: wgpu::BindGroupLayout,
 
@@ -198,6 +204,7 @@ pub struct Renderer {
     meshes: HashMap<String, GpuMesh>,
     textures: HashMap<String, GpuTexture>,
     tex_bgs: HashMap<(String, bool), wgpu::BindGroup>,
+    mesh_tex_bgs: HashMap<(String, String, bool), wgpu::BindGroup>,
     /// Asset loading problems (shown in the UI), keyed by asset.
     pub errors: HashMap<String, String>,
 
@@ -380,6 +387,24 @@ impl Renderer {
             label: Some("tex"),
             entries: &[tex_entry(0), sampler_entry(1)],
         });
+        let vf = wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT;
+        let bgl_mesh_tex = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("mesh tex"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    visibility: vf,
+                    ..tex_entry(0)
+                },
+                wgpu::BindGroupLayoutEntry {
+                    visibility: vf,
+                    ..sampler_entry(1)
+                },
+                wgpu::BindGroupLayoutEntry {
+                    visibility: vf,
+                    ..tex_entry(2)
+                },
+            ],
+        });
         let bgl_floor = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("floor"),
             entries: &[
@@ -436,6 +461,11 @@ impl Renderer {
         let scene_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("scene"),
             bind_group_layouts: &[Some(&bgl_globals), Some(&bgl_draw), Some(&bgl_tex)],
+            immediate_size: 0,
+        });
+        let mesh_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("mesh"),
+            bind_group_layouts: &[Some(&bgl_globals), Some(&bgl_draw), Some(&bgl_mesh_tex)],
             immediate_size: 0,
         });
         let particle_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -508,7 +538,7 @@ impl Renderer {
                 device,
                 PipeDesc {
                     label: "mesh",
-                    layout: &scene_layout,
+                    layout: &mesh_layout,
                     module: &sh_mesh,
                     fs: "fs_main",
                     buffers: &mesh_buffers,
@@ -630,6 +660,7 @@ impl Renderer {
             queue: queue.clone(),
             msaa,
             bgl_tex,
+            bgl_mesh_tex,
             bgl_floor,
             bgl_post,
             globals_buf,
@@ -655,6 +686,7 @@ impl Renderer {
             meshes: HashMap::new(),
             textures: HashMap::new(),
             tex_bgs: HashMap::new(),
+            mesh_tex_bgs: HashMap::new(),
             errors: HashMap::new(),
             instance_cache: HashMap::new(),
             frame_no: 0,
@@ -761,6 +793,8 @@ impl Renderer {
         }
         let view = texture.create_view(&Default::default());
         self.tex_bgs.retain(|(k, _), _| *k != key);
+        self.mesh_tex_bgs
+            .retain(|(k, r, _), _| *k != key && *r != key);
         self.textures.insert(
             key,
             GpuTexture {
@@ -842,6 +876,68 @@ impl Renderer {
             ],
         });
         self.tex_bgs.insert(k, bg);
+    }
+
+    fn mesh_tex_bind_group(&mut self, tex: &str, relief: &str, nearest: bool) {
+        let k = (tex.to_string(), relief.to_string(), nearest);
+        if self.mesh_tex_bgs.contains_key(&k) {
+            return;
+        }
+        let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("mesh tex"),
+            layout: &self.bgl_mesh_tex,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&self.textures[tex].view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(if nearest {
+                        &self.sampler_nearest
+                    } else {
+                        &self.sampler_repeat
+                    }),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&self.textures[relief].view),
+                },
+            ],
+        });
+        self.mesh_tex_bgs.insert(k, bg);
+    }
+
+    /// Geometry of a mesh source, subdivided `levels` times (cached).
+    fn mesh_key_subdivided(&mut self, source: &MeshSource, levels: u32) -> String {
+        let base = self.mesh_key(source);
+        if levels == 0 {
+            return base;
+        }
+        // Keep the result under ~2M triangles.
+        let tris = self
+            .meshes
+            .get(&base)
+            .map(|g| g.count as u64 / 3)
+            .unwrap_or(1)
+            .max(1);
+        let mut levels = levels.min(4);
+        while levels > 0 && tris * 4u64.pow(levels) > 2_000_000 {
+            levels -= 1;
+        }
+        let key = format!("{base}#s{levels}");
+        if levels == 0 || self.meshes.contains_key(&key) {
+            return if levels == 0 { base } else { key };
+        }
+        let mut data = match source {
+            MeshSource::Primitive(p) => primitive(p),
+            MeshSource::File { path } => {
+                load_mesh_asset(path).unwrap_or_else(|_| primitive(&Primitive::Cube))
+            }
+        };
+        data.subdivide(levels);
+        self.upload_mesh(key.clone(), &data);
+        key
     }
 
     fn mesh_key(&mut self, source: &MeshSource) -> String {
@@ -1010,6 +1106,25 @@ impl Renderer {
                     blk[2] = c4(b.color_b, 0.0);
                     blk[3] = c4(b.color_c, 0.0);
                     blk[4] = [if b.texture.is_some() { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0];
+                    let r = &b.ray;
+                    blk[5] = [
+                        r.variant as f32,
+                        r.pattern as f32,
+                        r.size.eval(ctx),
+                        r.twist.eval(ctx),
+                    ];
+                    blk[6] = [
+                        r.warp.eval(ctx),
+                        r.bend.eval(ctx),
+                        r.glow.eval(ctx),
+                        r.fog.eval(ctx),
+                    ];
+                    blk[7] = [
+                        r.steps.min(256) as f32,
+                        TAU * r.spin as f32 * ctx.phase,
+                        0.0,
+                        0.0,
+                    ];
                     ls.draws = 1;
                     ls.load = backdrop_load(b.kind);
                     cmds.push(Cmd::Backdrop {
@@ -1019,10 +1134,21 @@ impl Renderer {
                     blocks.push(blk);
                 }
                 LayerKind::Mesh(m) => {
-                    let mesh = self.mesh_key(&m.source);
+                    let mesh = self.mesh_key_subdivided(&m.source, m.subdivide);
                     let mat = &m.material;
                     let tex = self.texture_key(project, mat.texture.as_deref());
-                    self.tex_bind_group(&tex, mat.pixelated);
+                    let rel = &mat.relief;
+                    let relief_on = rel.bump.is_animated()
+                        || rel.bump.base != 0.0
+                        || rel.displace.is_animated()
+                        || rel.displace.base != 0.0;
+                    let relief_name = rel.texture.as_deref().or(mat.texture.as_deref());
+                    let relief = if relief_on {
+                        self.texture_key(project, relief_name)
+                    } else {
+                        "__white".to_string()
+                    };
+                    self.mesh_tex_bind_group(&tex, &relief, mat.pixelated);
                     let first = instances.len() as u32;
                     let to_raw = |i: &Instance| InstanceRaw {
                         model: m4(i.model),
@@ -1082,10 +1208,24 @@ impl Renderer {
                         g.chance.eval(ctx).clamp(0.0, 1.0),
                     ];
                     blk[5] = [g.seed as f32, 0.0, 0.0, 0.0];
+                    blk[8] = [
+                        rel.bump.eval(ctx),
+                        rel.displace.eval(ctx),
+                        match rel.mode {
+                            ReliefMode::Bump => 0.0,
+                            ReliefMode::NormalMap => 1.0,
+                        },
+                        if relief_on && relief_name.is_some() {
+                            1.0
+                        } else {
+                            0.0
+                        },
+                    ];
                     cmds.push(Cmd::Mesh {
                         slot: blocks.len() as u32,
                         mesh,
                         tex,
+                        relief,
                         pixelated: mat.pixelated,
                         first,
                         count: count as u32,
@@ -1210,7 +1350,7 @@ impl Renderer {
                 LayerKind::Ribbon(r) => {
                     let mesh = self.ribbon_key(r);
                     let tex = self.texture_key(project, None);
-                    self.tex_bind_group(&tex, false);
+                    self.mesh_tex_bind_group(&tex, &tex, false);
                     let lm = layer_matrix(&layer.transform, ctx);
                     let first = instances.len() as u32;
                     let syms = symmetry_matrices(&layer.symmetry);
@@ -1243,7 +1383,8 @@ impl Renderer {
                     cmds.push(Cmd::Mesh {
                         slot: blocks.len() as u32,
                         mesh,
-                        tex,
+                        tex: tex.clone(),
+                        relief: tex,
                         pixelated: false,
                         first,
                         count: syms.len() as u32,
@@ -1553,6 +1694,7 @@ impl Renderer {
                     slot,
                     mesh,
                     tex,
+                    relief,
                     pixelated,
                     first,
                     count,
@@ -1564,7 +1706,11 @@ impl Renderer {
                     pass.set_pipeline(&pipes.mesh);
                     pass.set_bind_group(0, &self.globals_bg[globals], &[]);
                     pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
-                    pass.set_bind_group(2, &self.tex_bgs[&(tex.clone(), *pixelated)], &[]);
+                    pass.set_bind_group(
+                        2,
+                        &self.mesh_tex_bgs[&(tex.clone(), relief.clone(), *pixelated)],
+                        &[],
+                    );
                     pass.set_vertex_buffer(0, m.vbuf.slice(..));
                     pass.set_vertex_buffer(1, self.inst_buf.slice(..));
                     pass.set_index_buffer(m.ibuf.slice(..), wgpu::IndexFormat::Uint32);

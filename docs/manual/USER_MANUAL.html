@@ -111,7 +111,7 @@
   <img src="img/cover.jpg" alt="">
   <div class="fade"></div>
   <div class="title">
-    <div class="kicker">USER MANUAL · VERSION 0.5</div>
+    <div class="kicker">USER MANUAL · VERSION 0.6</div>
     <h1>EZ2DEMOSCENE</h1>
     <p>Build seamless, stylised 3D loops the demoscene way: neon, mirrors, particles and retro pixels. No code needed.</p>
   </div>
@@ -160,6 +160,7 @@ pickers and menus. When you like it, you export an MP4, WebM, GIF or a folder of
   <div class="card"><img src="img/p_synth_sunset.jpg"><div class="t">Synth Sunset</div><div class="d">Striped sun, neon grid, pyramids.</div></div>
   <div class="card"><img src="img/p_vector_valley.jpg"><div class="t">Vector Valley</div><div class="d">Wireframe landscape, laser fans, neon ribbon.</div></div>
   <div class="card"><img src="img/p_glitch_shrine.jpg"><div class="t">Glitch Shrine</div><div class="d">Glitching sponge, flashing gems, pulsing rose.</div></div>
+  <div class="card"><img src="img/p_sponge_dive.jpg"><div class="t">Sponge Dive</div><div class="d">Menger sponge flight, breathing displaced orb.</div></div>
 </div>
 
 <h2>The one big idea: everything loops</h2>
@@ -274,8 +275,28 @@ selected layer, and <b>right-clicking</b> a layer shows the same options.</p>
   <tr><td>Raymarched fractal</td><td>A volumetric "Kaliset" fractal space. It looks psychedelic and cosmic, and is heavy on slow GPUs.</td></tr>
   <tr><td>Oldschool plasma</td><td>The 90s sine plasma.</td></tr>
   <tr><td>Synthwave sun &amp; grid</td><td>A striped sun sinking into a scrolling neon grid, with stars.</td></tr>
+  <tr><td>Raymarched sponge flight</td><td>Flying through an endless Menger sponge, a lattice of beams or a field of cubes. Heavy on phones: lower
+  <span class="ui">Quality</span> if it stutters.</td></tr>
+  <tr><td>Raymarched ring corridor</td><td>Flying through glowing rings, squares or triangles that alternate between colours B and C.</td></tr>
 </table>
 <div class="tip"><b>Tip</b>You can stack two backgrounds, but the later one covers the earlier one. Usually one is enough.</div>
+<h3>Raymarching settings</h3>
+<p>The four raymarched backgrounds (tunnel, fractal, sponge, rings) get an extra <span class="ui">Raymarching</span> section. Only the settings
+that matter for the chosen style are shown, and all of them except Variant, Wall pattern, Roll and Quality can be animated with
+<span class="ui">~</span>.</p>
+<table>
+  <tr><th style="width:22%">Setting</th><th>Tunnel</th><th>Fractal</th><th>Sponge</th><th>Rings</th></tr>
+  <tr><td>Variant</td><td>Round, Square, Hexagon, Triangle, Flower</td><td>Kaliset, Crystal, Nebula</td><td>Menger sponge, Beam lattice, Cube field</td><td>Rings, Squares, Triangles</td></tr>
+  <tr><td>Size</td><td>Radius</td><td>Zoom</td><td>Cell size</td><td>Ring size</td></tr>
+  <tr><td>Twist</td><td>Twists the walls along the flight</td><td>n/a</td><td>Twists the space</td><td>Turns each ring a little more</td></tr>
+  <tr><td>Warp</td><td>Wall wobble</td><td>Fold (changes the whole look)</td><td>n/a</td><td>Thickness</td></tr>
+  <tr><td>Bend</td><td>How much the path winds</td><td>Drift</td><td>Path sway</td><td>Path sway</td></tr>
+  <tr><td>Glow</td><td>Light rings sliding past</td><td>Brightness</td><td>Edge glow</td><td>Glow</td></tr>
+  <tr><td>Fog ×</td><td colspan="4">Depth fog (0 = none).</td></tr>
+  <tr><td>Roll / loop</td><td colspan="4">Whole turns of the view per loop.</td></tr>
+  <tr><td>Quality</td><td colspan="4">Raymarch steps (fractal: iterations). 0 uses the default; lower it for phones.</td></tr>
+</table>
+<p>The tunnel also has a <span class="ui">Wall pattern</span> (XOR, Checker, Rings, Stripes) used when there is no wall texture.</p>
 
 <h2>5.2 Mirror floor</h2>
 <figure><img src="img/mirror.jpg" ><figcaption>Mirror floor settings.</figcaption></figure>
@@ -443,6 +464,24 @@ step for <kbd>Ctrl</kbd>+<kbd>Z</kbd>.</div>
   <tr><td>Texture</td><td>Bright parts of the texture glow (LED grids, circuits, tech-panel slits).</td></tr>
 </table>
 <p><span class="ui">Hue shift</span> rotates all the colours of the layer. Animate it with a Saw wave for rainbow cycling.</p>
+
+<h2>Relief: bump, normal and displacement maps</h2>
+<p>The <span class="ui">Relief</span> section of a shape layer makes its surface uneven. It uses the material's
+<span class="ui">Tiling</span> and <span class="ui">Scroll</span>, and the colour texture unless you pick a separate
+<span class="ui">Relief texture</span>.</p>
+<table>
+  <tr><th style="width:24%">Setting</th><th>Result</th></tr>
+  <tr><td>Mode: Bump</td><td>The texture's brightness is height: bright parts look raised, dark parts sunken (mortar between bricks, rivets,
+  grid lines). Only the lighting changes, so it's cheap.</td></tr>
+  <tr><td>Mode: Normal map</td><td>The texture is a normal map (the purple-blue images from 3D tools and texture sites). Import one as an image and
+  pick it as the relief texture.</td></tr>
+  <tr><td>Relief</td><td>Strength of the bump or normal map (animatable).</td></tr>
+  <tr><td>Displacement</td><td>Really moves the surface outwards by the texture brightness (negative pushes inwards). Animate it for pulsing,
+  breathing shapes.</td></tr>
+  <tr><td>Subdivide</td><td>Adds geometry detail (each level splits every triangle in four), so displacement can show fine patterns.</td></tr>
+</table>
+<div class="tip"><b>Tip</b>Displacement looks best on smooth shapes (sphere, torus, capsule, rounded cube). Faceted shapes such as the cube or
+the gem open up at their edges, because each face moves along its own direction.</div>
 
 <h2>Glitch</h2>
 <p>The <span class="ui">Glitch</span> section of a shape layer corrupts its geometry, like a broken signal. Set an <span class="ui">Amount</span>

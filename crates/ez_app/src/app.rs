@@ -547,6 +547,9 @@ impl EzApp {
                         inspector::add_user_texture(&mut self.project.textures, &p.path, &p.name);
                     if let Some(layer) = self.layer_for(lref) {
                         match (&mut layer.kind, slot) {
+                            (LayerKind::Mesh(m), platform::TexSlot::Relief) => {
+                                m.material.relief.texture = Some(name.clone())
+                            }
                             (LayerKind::Mesh(m), _) => m.material.texture = Some(name.clone()),
                             (LayerKind::Backdrop(b), _) => b.texture = Some(name.clone()),
                             (LayerKind::Mirror(f), _) => f.texture = Some(name.clone()),

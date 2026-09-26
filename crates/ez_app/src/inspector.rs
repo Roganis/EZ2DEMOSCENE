@@ -731,6 +731,16 @@ fn mesh_ui(ui: &mut Ui, m: &mut MeshLayer, textures: &[UserTexture], lref: Layer
     section(ui, "Material", true, |ui| {
         material_ui(ui, &mut m.material, textures, lref)
     });
+    section(ui, "Relief (bump / normal / displacement)", false, |ui| {
+        relief_ui(
+            ui,
+            &mut m.material.relief,
+            m.material.texture.is_some(),
+            &mut m.subdivide,
+            textures,
+            lref,
+        )
+    });
     section(ui, "Glitch", false, |ui| {
         glitch_ui(ui, &mut m.material.glitch)
     });
@@ -742,6 +752,63 @@ fn mesh_ui(ui: &mut Ui, m: &mut MeshLayer, textures: &[UserTexture], lref: Layer
             variation_ui(ui, &mut m.variation)
         });
     }
+}
+
+fn relief_ui(
+    ui: &mut Ui,
+    r: &mut Relief,
+    has_colour_texture: bool,
+    subdivide: &mut u32,
+    textures: &[UserTexture],
+    lref: LayerRef,
+) {
+    ui.label(
+        RichText::new(
+            "Uses the material's Tiling and Scroll. Without a relief texture the colour texture is used.",
+        )
+        .weak(),
+    );
+    texture_picker(
+        ui,
+        "Relief texture",
+        &mut r.texture,
+        textures,
+        Some((lref, TexSlot::Relief)),
+    );
+    if r.texture.is_none() && !has_colour_texture {
+        ui.label(
+            RichText::new("Pick a relief texture (or a colour texture) to see it.")
+                .color(egui::Color32::LIGHT_YELLOW),
+        );
+    }
+    combo(
+        ui,
+        "Mode",
+        "How the texture is read",
+        &mut r.mode,
+        &ReliefMode::ALL,
+        |m| m.label(),
+    );
+    let tip = match r.mode {
+        ReliefMode::Bump => "Bright = raised, dark = sunken (lighting only)",
+        ReliefMode::NormalMap => "Strength of a normal-map image (the purple-blue kind)",
+    };
+    param(ui, "Relief", tip, &mut r.bump, 0.0..=4.0);
+    param(
+        ui,
+        "Displacement",
+        "Really moves the surface out by the texture brightness. Raise Subdivide for detail. \
+         Works best on smooth shapes (sphere, torus, capsule, rounded cube): faceted ones open at their edges.",
+        &mut r.displace,
+        -1.0..=1.0,
+    );
+    drag_u(
+        ui,
+        "Subdivide",
+        "Extra geometry detail for displacement (each level = 4× triangles)",
+        subdivide,
+        0..=4,
+    );
 }
 
 fn glitch_ui(ui: &mut Ui, g: &mut Glitch) {
@@ -1067,6 +1134,91 @@ fn backdrop_ui(ui: &mut Ui, b: &mut Backdrop, textures: &[UserTexture], lref: La
             );
         }
     });
+    let labels = RaySettings::labels(b.kind);
+    if labels.iter().any(|l| l.is_some()) {
+        section(ui, "Raymarching", true, |ui| {
+            ray_ui(ui, b.kind, &mut b.ray, b.texture.is_some())
+        });
+    }
+}
+
+/// Settings of the raymarched backgrounds; labels depend on the kind.
+fn ray_ui(ui: &mut Ui, kind: BackdropKind, r: &mut RaySettings, has_texture: bool) {
+    let variants = RaySettings::variants(kind);
+    if !variants.is_empty() {
+        row(ui, "Variant", "Shape or formula", |ui| {
+            egui::ComboBox::from_id_salt("ray_variant")
+                .selected_text(variants.get(r.variant as usize).copied().unwrap_or("?"))
+                .show_ui(ui, |ui| {
+                    for (i, v) in variants.iter().enumerate() {
+                        ui.selectable_value(&mut r.variant, i as u32, *v);
+                    }
+                });
+        });
+    }
+    if kind == BackdropKind::Tunnel && !has_texture {
+        const PATTERNS: [&str; 4] = ["XOR", "Checker", "Rings", "Stripes"];
+        row(
+            ui,
+            "Wall pattern",
+            "Used when there is no wall texture",
+            |ui| {
+                egui::ComboBox::from_id_salt("ray_pattern")
+                    .selected_text(PATTERNS.get(r.pattern as usize).copied().unwrap_or("?"))
+                    .show_ui(ui, |ui| {
+                        for (i, v) in PATTERNS.iter().enumerate() {
+                            ui.selectable_value(&mut r.pattern, i as u32, *v);
+                        }
+                    });
+            },
+        );
+    }
+    let [size, twist, warp, bend, glow] = RaySettings::labels(kind);
+    if let Some(l) = size {
+        param(ui, l, "", &mut r.size, 0.2..=3.0);
+    }
+    if let Some(l) = twist {
+        param(
+            ui,
+            l,
+            "How much the space twists along the flight",
+            &mut r.twist,
+            -2.0..=2.0,
+        );
+    }
+    if let Some(l) = warp {
+        param(ui, l, "", &mut r.warp, 0.0..=3.0);
+    }
+    if let Some(l) = bend {
+        param(ui, l, "", &mut r.bend, 0.0..=3.0);
+    }
+    if let Some(l) = glow {
+        param(ui, l, "", &mut r.glow, 0.0..=4.0);
+    }
+    param(ui, "Fog ×", "Depth fog (0 = none)", &mut r.fog, 0.0..=4.0);
+    drag_i(
+        ui,
+        "Roll / loop",
+        "Whole turns of the view per loop",
+        &mut r.spin,
+        -8..=8,
+    );
+    let (default_steps, what) = if kind == BackdropKind::Fractal {
+        (13, "Fractal iterations")
+    } else {
+        (
+            if kind == BackdropKind::Sponge { 80 } else { 64 },
+            "Raymarch steps",
+        )
+    };
+    row(
+        ui,
+        "Quality",
+        &format!("{what} (0 = default {default_steps}); lower is faster on phones"),
+        |ui| {
+            ui.add(egui::DragValue::new(&mut r.steps).range(0..=256).speed(0.3));
+        },
+    );
 }
 
 fn terrain_ui(ui: &mut Ui, t: &mut Terrain, textures: &[UserTexture], lref: LayerRef) {
