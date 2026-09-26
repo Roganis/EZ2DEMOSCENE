@@ -71,6 +71,9 @@ pub enum NodeKind {
         glitch: f32,
         glitch_style: GlitchStyle,
     },
+    /// Sets the deformation (twist, bend, taper, wobble, explode) of every
+    /// incoming shape layer.
+    Deform { deform: Deform },
     /// Makes or shapes a signal.
     Signal { sig: SignalNode },
     /// Sets one setting of every incoming layer from a signal.
@@ -99,6 +102,7 @@ impl NodeKind {
             NodeKind::Mirror { .. } => "Mirror".into(),
             NodeKind::Strobe { .. } => "Strobe".into(),
             NodeKind::Material { .. } => "Colour / material".into(),
+            NodeKind::Deform { .. } => "Deform".into(),
             NodeKind::Signal { sig } => sig.title().into(),
             NodeKind::Drive { path, .. } if path.is_empty() => "Drive".into(),
             NodeKind::Drive { path, .. } => format!("Drive {path}"),
@@ -186,6 +190,12 @@ impl NodeKind {
                 glitch: 0.0,
                 glitch_style: GlitchStyle::Jitter,
             },
+            NodeKind::Deform {
+                deform: Deform {
+                    twist: crate::Param::new(0.5),
+                    ..Default::default()
+                },
+            },
             NodeKind::Drive {
                 path: String::new(),
                 mode: DriveMode::Replace,
@@ -198,6 +208,15 @@ impl NodeKind {
         match self {
             NodeKind::Source { layer } => vec![layer.clone()],
             NodeKind::Signal { .. } => Vec::new(),
+            NodeKind::Deform { deform } => input
+                .into_iter()
+                .map(|mut l| {
+                    if let LayerKind::Mesh(m) = &mut l.kind {
+                        m.deform = deform.clone();
+                    }
+                    l
+                })
+                .collect(),
             // Driving needs the moment; see Graph::eval_node.
             NodeKind::Drive { .. } | NodeKind::Merge | NodeKind::Output => input,
             NodeKind::Symmetry { symmetry } => input

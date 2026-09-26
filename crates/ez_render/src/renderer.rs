@@ -1741,6 +1741,21 @@ impl Renderer {
                             0.0
                         },
                     ];
+                    let df = &m.deform;
+                    if df.is_active() {
+                        blk[9] = [
+                            df.twist.eval(ctx),
+                            df.bend.eval(ctx).to_radians(),
+                            df.taper.eval(ctx),
+                            df.noise.eval(ctx),
+                        ];
+                        blk[10] = [
+                            df.noise_scale.max(0.01),
+                            TAU * (ctx.phase * df.noise_speed as f32).rem_euclid(1.0),
+                            df.explode.eval(ctx),
+                            df.reach(ctx),
+                        ];
+                    }
                     cmds.push(Cmd::Mesh {
                         slot: blocks.len() as u32,
                         mesh,
@@ -2651,9 +2666,15 @@ impl Renderer {
         };
         match cmd {
             Cmd::Mesh {
-                mesh, first, count, ..
+                mesh,
+                first,
+                count,
+                slot,
+                ..
             } => {
-                let mr = self.meshes.get(mesh)?.radius;
+                // Deformed shapes reach further (blk[10].w, 0 = none).
+                let reach = blocks[*slot as usize][10][3].max(1.0);
+                let mr = self.meshes.get(mesh)?.radius * reach;
                 let inst = self
                     .uploaded
                     .get(*first as usize..(*first + *count) as usize)?;

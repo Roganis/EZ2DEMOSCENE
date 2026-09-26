@@ -8,6 +8,8 @@
 // D.v[6]: pulse mode (4): pulses, head position (0..1), pulse length, pulse glow
 // D.v[7]: pulse mode (4): base glow
 // D.v[8]: relief strength, displacement, relief mode (0 bump, 1 normal map), has relief
+// D.v[9]: deform: twist (turns bottom to top), bend (radians), taper, wobble
+// D.v[10]: deform: wobble scale, wobble angle (loop-safe), explode, reach (0 = no deform)
 
 @group(2) @binding(0) var t_tex: texture_2d<f32>;
 @group(2) @binding(1) var s_tex: sampler;
@@ -84,6 +86,73 @@ fn glitch(pos: vec3<f32>, normal: vec3<f32>, inst_rand: f32) -> vec3<f32> {
     return p;
 }
 
+fn rot_xz(v: vec3<f32>, a: f32) -> vec3<f32> {
+    let c = cos(a);
+    let s = sin(a);
+    return vec3<f32>(c * v.x - s * v.z, v.y, s * v.x + c * v.z);
+}
+
+struct Deformed {
+    pos: vec3<f32>,
+    normal: vec3<f32>,
+};
+
+// Twist, bend, taper, wobble and explode in object space (the shape fits a
+// unit sphere; y runs from its bottom to its top).
+fn deform(pos_in: vec3<f32>, n_in: vec3<f32>) -> Deformed {
+    var out: Deformed;
+    out.pos = pos_in;
+    out.normal = n_in;
+    if (D.v[10].w <= 0.0) {
+        return out;
+    }
+    var p = pos_in;
+    var n = n_in;
+    // Taper: scale across by height.
+    let taper = D.v[9].z;
+    if (taper != 0.0) {
+        let k = max(1.0 + taper * p.y, 0.02);
+        p = vec3<f32>(p.x * k, p.y, p.z * k);
+        n = normalize(vec3<f32>(n.x, n.y * k - taper * dot(n.xz, p.xz) / k, n.z));
+    }
+    // Twist: turn around y, more further up.
+    let twist = D.v[9].x;
+    if (twist != 0.0) {
+        let a = twist * PI * p.y;
+        p = rot_xz(p, a);
+        n = rot_xz(n, a);
+    }
+    // Bend: curve the y axis into an arc in the x-y plane.
+    let bend = D.v[9].y;
+    if (abs(bend) > 1e-4) {
+        let k = bend * 0.5;
+        let r = 1.0 / k;
+        let phi = p.y * k;
+        let c = cos(phi);
+        let s = sin(phi);
+        let x = r - (r - p.x) * c;
+        let y = (r - p.x) * s;
+        p = vec3<f32>(x, y, p.z);
+        n = vec3<f32>(c * n.x - s * n.y, s * n.x + c * n.y, n.z);
+    }
+    // Wobble: bumps along the normal that flow around once per cycle.
+    let wobble = D.v[9].w;
+    if (wobble != 0.0) {
+        let a = D.v[10].y;
+        let q = pos_in * D.v[10].x + vec3<f32>(cos(a), sin(a), 0.0) * 1.5;
+        p = p + normalize(n) * (vnoise3(q) * 2.0 - 1.0) * wobble;
+    }
+    // Explode: faces (flat shading) or vertices fly out along their normal.
+    let explode = D.v[10].z;
+    if (explode != 0.0) {
+        let r = hash_v3(n_in, 0x2545f491u);
+        p = p + normalize(n) * (r.x + 0.75) * explode;
+    }
+    out.pos = p;
+    out.normal = n;
+    return out;
+}
+
 @vertex
 fn vs_main(in: VIn) -> VOut {
     let model = mat4x4<f32>(in.m0, in.m1, in.m2, in.m3);
@@ -94,10 +163,11 @@ fn vs_main(in: VIn) -> VOut {
         let h = lum(textureSampleLevel(t_relief, s_tex, duv, 0.0).rgb);
         pos = pos + normalize(in.normal) * h * D.v[8].y;
     }
-    let world = model * vec4<f32>(glitch(pos, in.normal, in.inst.z), 1.0);
+    let d = deform(pos, in.normal);
+    let world = model * vec4<f32>(glitch(d.pos, d.normal, in.inst.z), 1.0);
     var out: VOut;
     out.world = world.xyz;
-    out.normal = normalize((model * vec4<f32>(in.normal, 0.0)).xyz);
+    out.normal = normalize((model * vec4<f32>(d.normal, 0.0)).xyz);
     out.pos = G.view_proj * world;
     out.uv = in.uv;
     out.edge = in.edge;

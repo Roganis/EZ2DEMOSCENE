@@ -744,6 +744,9 @@ pub struct MeshLayer {
     /// (needed for smooth displacement).
     #[serde(skip_serializing_if = "is_default")]
     pub subdivide: u32,
+    /// Twist, bend, taper, wobble and explode the shape.
+    #[serde(skip_serializing_if = "is_default")]
+    pub deform: Deform,
 }
 
 impl Default for MeshLayer {
@@ -754,7 +757,65 @@ impl Default for MeshLayer {
             instancer: Instancer::Single,
             variation: Variation::default(),
             subdivide: 0,
+            deform: Deform::default(),
         }
+    }
+}
+
+/// Shape deformations, applied on the GPU to every copy (in the shape's
+/// own space, where it fits in a unit sphere; y is "up the shape").
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Deform {
+    /// Turns of twist from the bottom to the top.
+    pub twist: Param,
+    /// Bend from the bottom to the top, in degrees.
+    pub bend: Param,
+    /// Top wider (+) or narrower (−) than the bottom.
+    pub taper: Param,
+    /// Bumpy wobble along the surface.
+    pub noise: Param,
+    /// Size of the wobble bumps (higher = smaller bumps).
+    pub noise_scale: f32,
+    /// Times the wobble flows around per loop.
+    pub noise_speed: i32,
+    /// Faces fly apart (clearest with flat shading).
+    pub explode: Param,
+}
+
+impl Default for Deform {
+    fn default() -> Self {
+        Deform {
+            twist: Param::new(0.0),
+            bend: Param::new(0.0),
+            taper: Param::new(0.0),
+            noise: Param::new(0.0),
+            noise_scale: 2.0,
+            noise_speed: 1,
+            explode: Param::new(0.0),
+        }
+    }
+}
+
+impl Deform {
+    pub fn is_active(&self) -> bool {
+        [
+            &self.twist,
+            &self.bend,
+            &self.taper,
+            &self.noise,
+            &self.explode,
+        ]
+        .iter()
+        .any(|p| p.base != 0.0 || p.is_animated())
+    }
+
+    /// How far outside its unit sphere the deformed shape can reach, as a
+    /// radius multiplier (for culling), at `ctx`.
+    pub fn reach(&self, ctx: &crate::EvalCtx) -> f32 {
+        let taper = self.taper.eval(ctx).abs();
+        let bend = self.bend.eval(ctx).abs().to_radians();
+        1.0 + taper + bend * 0.5 + self.noise.eval(ctx).abs() + self.explode.eval(ctx).abs() * 1.5
     }
 }
 

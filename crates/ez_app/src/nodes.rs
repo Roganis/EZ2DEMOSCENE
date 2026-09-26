@@ -391,6 +391,11 @@ impl SnarlViewer<NodeKind> for Viewer<'_> {
                 NodeKind::Signal { sig } => {
                     ui.push_id(("signal", node.0), |ui| signal_ui(ui, sig));
                 }
+                NodeKind::Deform { deform } => {
+                    ui.push_id(("deform", node.0), |ui| {
+                        crate::inspector::deform_ui(ui, deform)
+                    });
+                }
                 NodeKind::Drive { path, mode } => {
                     let layers = self.graph.upstream_layers(node.0 as u32, 0);
                     let mut paths: Vec<String> = layers

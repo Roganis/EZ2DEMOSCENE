@@ -933,6 +933,9 @@ fn mesh_ui(ui: &mut Ui, m: &mut MeshLayer, textures: &[UserTexture], lref: Layer
     section(ui, "Glitch", false, |ui| {
         glitch_ui(ui, &mut m.material.glitch)
     });
+    section(ui, "Deform", m.deform.is_active(), |ui| {
+        deform_ui(ui, &mut m.deform)
+    });
     section(ui, "Copies (instancing)", true, |ui| {
         instancer_ui(ui, &mut m.instancer)
     });
@@ -2140,4 +2143,58 @@ pub fn layer_icon(l: &Layer) -> &'static str {
         LayerKind::Weather(_) => "☔",
         LayerKind::Falls(_) => "🌊",
     }
+}
+
+pub fn deform_ui(ui: &mut Ui, d: &mut Deform) {
+    param(
+        ui,
+        "Twist",
+        "Turns of twist from the bottom of the shape to its top",
+        &mut d.twist,
+        -2.0..=2.0,
+    );
+    param(
+        ui,
+        "Bend",
+        "Bends the shape into an arc (degrees from bottom to top)",
+        &mut d.bend,
+        -180.0..=180.0,
+    );
+    param(
+        ui,
+        "Taper",
+        "Top wider (+) or narrower (−) than the bottom",
+        &mut d.taper,
+        -1.0..=1.0,
+    );
+    param(
+        ui,
+        "Wobble",
+        "Bumps that flow over the surface (add Subdivide in Relief for smooth bumps on simple shapes)",
+        &mut d.noise,
+        0.0..=0.5,
+    );
+    if d.noise.base != 0.0 || d.noise.is_animated() {
+        slider(
+            ui,
+            "Bump size",
+            "Higher = smaller bumps",
+            &mut d.noise_scale,
+            0.5..=8.0,
+        );
+        drag_i(
+            ui,
+            "Flow / loop",
+            "Times the bumps flow around per loop",
+            &mut d.noise_speed,
+            -8..=8,
+        );
+    }
+    param(
+        ui,
+        "Explode",
+        "Faces fly apart (clearest with flat shading); try ~ with a beat fade",
+        &mut d.explode,
+        0.0..=2.0,
+    );
 }

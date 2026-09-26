@@ -441,3 +441,48 @@ fn terrain_lod_loops_and_matches_the_full_grid() {
     }
     assert!(tested >= 3);
 }
+
+/// Deformations change the shape and keep the loop seamless.
+#[test]
+fn deformed_shapes_loop() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
+    let target = r.create_target(320, 180);
+    let plain = presets::orbiting_solid();
+    let mut p = plain.clone();
+    for l in &mut p.layers {
+        if let LayerKind::Mesh(m) = &mut l.kind {
+            if l.name == "Dodecahedron" {
+                m.subdivide = 2;
+                m.deform = Deform {
+                    twist: Param::new(0.4).osc(Wave::Sine, 0.3, 1),
+                    bend: Param::new(40.0),
+                    taper: Param::new(-0.3),
+                    noise: Param::new(0.15),
+                    noise_speed: 2,
+                    explode: Param::new(0.0).osc(Wave::ExpOut, 0.4, 8),
+                    ..Default::default()
+                };
+            }
+        }
+    }
+    let at = |phase: f32| EvalCtx::new(&p.timing, phase, None);
+    let a = r.render_image(&p, &at(0.0), &target);
+    let b = r.render_image(&p, &at(1.0), &target);
+    let before = r.render_image(&p, &at(1.0 - 1.0 / 240.0), &target);
+    let reference = r.render_image(&plain, &at(0.0), &target);
+    a.save(snapshot_dir().join("deformed.png")).unwrap();
+    let seam = mean_abs_diff(a.as_raw(), b.as_raw());
+    let step = mean_abs_diff(a.as_raw(), before.as_raw());
+    let change = mean_abs_diff(a.as_raw(), reference.as_raw());
+    eprintln!("deform seam {seam:.3} last step {step:.2} vs plain {change:.2}");
+    assert!(seam < 0.6);
+    assert!(change > 1.0, "deform barely visible");
+}
