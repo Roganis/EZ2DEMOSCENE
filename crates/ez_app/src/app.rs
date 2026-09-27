@@ -1596,7 +1596,10 @@ impl EzApp {
     }
 
     fn viewport_ui(&mut self, ui: &mut Ui) {
-        ui.horizontal(|ui| {
+        // Wrap rather than overflow: an overflowing row widens the ui, and
+        // the picture below would then be sized past the screen edge (phones
+        // in portrait).
+        ui.horizontal_wrapped(|ui| {
             ui.label("Preview");
             egui::ComboBox::from_id_salt("aspect")
                 .selected_text(format!("{}:{}", self.aspect.0, self.aspect.1))
@@ -1691,7 +1694,11 @@ impl EzApp {
                 }
             }
         });
-        let avail = ui.available_size();
+        // Never size the picture beyond what is actually visible.
+        let mut avail = ui.available_size();
+        let visible = ui.clip_rect().intersect(ui.ctx().content_rect());
+        avail.x = avail.x.min(visible.max.x - ui.cursor().min.x).max(1.0);
+        avail.y = avail.y.min(visible.max.y - ui.cursor().min.y).max(1.0);
         let ar = self.aspect.0 as f32 / self.aspect.1 as f32;
         let mut size = egui::vec2(avail.x, avail.x / ar);
         if size.y > avail.y {
@@ -1745,13 +1752,17 @@ impl EzApp {
             },
         };
         let resp = ui
-            .centered_and_justified(|ui| {
-                ui.add(
-                    egui::Image::new(egui::load::SizedTexture::new(tex, size))
-                        .sense(egui::Sense::click_and_drag())
-                        .corner_radius(4.0),
-                )
-            })
+            .allocate_ui_with_layout(
+                avail,
+                egui::Layout::centered_and_justified(egui::Direction::TopDown),
+                |ui| {
+                    ui.add(
+                        egui::Image::new(egui::load::SizedTexture::new(tex, size))
+                            .sense(egui::Sense::click_and_drag())
+                            .corner_radius(4.0),
+                    )
+                },
+            )
             .inner;
         // Gizmo, picking and mouse camera control.
         let cam_state = self.project.camera.eval(&ctx);
