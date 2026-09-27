@@ -36,6 +36,8 @@ pub struct LogoBake {
     pub pad: [f32; 2],
     /// Pixels from the outline to a field value of 0 or 1.
     pub spread: f32,
+    /// The field deep inside the thickest part (the top of a pillow).
+    pub max_field: f32,
 }
 
 impl LogoBake {
@@ -265,7 +267,9 @@ fn finish(frame: &Frame, inside: &[bool], color: Option<&[[f32; 3]]>) -> LogoBak
                 [rgb[0], rgb[1], rgb[2], 0.5 + d / (2.0 * frame.spread)];
         }
     }
+    let max_field = pixels.iter().fold(0.5f32, |m, p| m.max(p[3]));
     LogoBake {
+        max_field,
         width: ow,
         height: oh,
         pixels,

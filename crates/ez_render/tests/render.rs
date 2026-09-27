@@ -1517,3 +1517,90 @@ fn logos_stay_sharp_under_depth_of_field() {
     eprintln!("logo under depth of field: diff {diff:.2}");
     assert!(diff < 3.0, "the logo is blurred");
 }
+
+/// Lit logos: every bevel shades the letters and follows the light, a
+/// material sphere changes them, and a glint sweeps across and loops.
+#[test]
+fn lit_logos_follow_the_light_and_glint_loops() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let target = r.create_target(320, 180);
+    let mut plain = presets::empty();
+    plain.post.grade.grain = Param::new(0.0);
+    plain.post.bloom.enabled = false;
+    plain
+        .layers
+        .retain(|l| !matches!(l.kind, LayerKind::Mesh(_)));
+    let at = |p: &Project, phase: f32| EvalCtx::new(&p.timing, phase, None);
+    let with = |g: LogoLayer| {
+        let mut p = plain.clone();
+        p.layers.push(Layer::new("Logo", LayerKind::Logo(g)));
+        p
+    };
+    let base = LogoLayer {
+        text: "LIT".into(),
+        size: Param::new(0.5),
+        color_top: [0.8, 0.8, 0.8],
+        color_bottom: [0.8, 0.8, 0.8],
+        ..Default::default()
+    };
+    let flat = r.render_image(&with(base.clone()), &at(&plain, 0.2), &target);
+    for bevel in LogoBevel::ALL.into_iter().skip(1) {
+        let lit = |angle: f32| LogoLayer {
+            bevel,
+            bevel_width: Param::new(0.8),
+            light_angle: Param::new(angle),
+            ..base.clone()
+        };
+        let a = r.render_image(&with(lit(135.0)), &at(&plain, 0.2), &target);
+        let b = r.render_image(&with(lit(-45.0)), &at(&plain, 0.2), &target);
+        a.save(snapshot_dir().join(format!("logo_bevel_{}.png", bevel.label())))
+            .unwrap();
+        let shaded = mean_abs_diff(a.as_raw(), flat.as_raw());
+        let turns = mean_abs_diff(a.as_raw(), b.as_raw());
+        eprintln!(
+            "{}: shaded {shaded:.2}, follows the light {turns:.2}",
+            bevel.label()
+        );
+        assert!(shaded > 0.5, "{} doesn't shade", bevel.label());
+        assert!(turns > 0.5, "{} ignores the light", bevel.label());
+    }
+    // A material sphere.
+    let gold = r.render_image(
+        &with(LogoLayer {
+            bevel: LogoBevel::Round,
+            matcap: Some("matcap_gold".into()),
+            ..base.clone()
+        }),
+        &at(&plain, 0.2),
+        &target,
+    );
+    gold.save(snapshot_dir().join("logo_matcap_gold.png"))
+        .unwrap();
+    assert!(mean_abs_diff(gold.as_raw(), flat.as_raw()) > 1.0);
+    // A glint sweeping twice per loop, with a light circling once.
+    let p = with(LogoLayer {
+        bevel: LogoBevel::Chiselled,
+        light_angle: Param::new(0.0).osc(Wave::Saw, 180.0, 1),
+        glint: Param::new(2.0),
+        glint_cycles: 2,
+        glint_width: 0.2,
+        ..base.clone()
+    });
+    let a = r.render_image(&p, &at(&p, 0.0), &target);
+    let b = r.render_image(&p, &at(&p, 1.0), &target);
+    let mid = r.render_image(&p, &at(&p, 0.25), &target);
+    mid.save(snapshot_dir().join("logo_glint.png")).unwrap();
+    let seam = mean_abs_diff(a.as_raw(), b.as_raw());
+    let sweep = mean_abs_diff(a.as_raw(), mid.as_raw());
+    eprintln!("glint: seam {seam:.3}, sweeps {sweep:.2}");
+    assert!(seam < 0.6, "the glint doesn't loop");
+    assert!(sweep > 0.5, "the glint doesn't move");
+}

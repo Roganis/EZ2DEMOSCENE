@@ -3390,6 +3390,46 @@ impl LogoColors {
     }
 }
 
+/// The shape of a logo's bevel, from the edge inward.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum LogoBevel {
+    /// Flat: no lighting.
+    #[default]
+    Off,
+    /// A rounded edge (a quarter circle).
+    Round,
+    /// A straight slope, like cut metal.
+    Chiselled,
+    /// Terraces.
+    Stepped,
+    /// The whole logo bulges like a cushion.
+    Pillow,
+}
+
+impl LogoBevel {
+    pub const ALL: [LogoBevel; 5] = [
+        LogoBevel::Off,
+        LogoBevel::Round,
+        LogoBevel::Chiselled,
+        LogoBevel::Stepped,
+        LogoBevel::Pillow,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            LogoBevel::Off => "Flat",
+            LogoBevel::Round => "Round",
+            LogoBevel::Chiselled => "Chiselled",
+            LogoBevel::Stepped => "Stepped",
+            LogoBevel::Pillow => "Pillow",
+        }
+    }
+
+    pub fn index(self) -> u32 {
+        LogoBevel::ALL.iter().position(|b| *b == self).unwrap_or(0) as u32
+    }
+}
+
 /// The point of the logo that sits at its position (and that it turns
 /// around).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -3479,6 +3519,40 @@ pub struct LogoLayer {
     pub shadow: Param,
     /// Chrome: a shiny bevel reflecting the sky.
     pub chrome: Param,
+    /// Relief lit by a light on the screen.
+    pub bevel: LogoBevel,
+    /// How far in from the edge the bevel reaches (1 = a fifth of the
+    /// logo's shorter side; Pillow always spans the whole logo).
+    pub bevel_width: Param,
+    /// How steep the bevel is.
+    pub bevel_depth: Param,
+    /// Terraces of the Stepped bevel.
+    pub steps: u32,
+    /// Where the light comes from on the screen, in degrees (0 = from the
+    /// right, 90 = from above).
+    pub light_angle: Param,
+    /// How high the light is above the logo, in degrees.
+    pub light_height: Param,
+    pub light_color: Rgb,
+    /// How much the light shades the logo (0 = flat colour).
+    pub lighting: Param,
+    /// Highlights.
+    pub shine: Param,
+    /// Small, sharp highlights (1) or broad ones (0).
+    pub gloss: f32,
+    /// A material from a picture of a lit sphere (built-in or yours),
+    /// looked up by the bevel's slope.
+    pub matcap: Option<String>,
+    pub matcap_amount: Param,
+    /// A bright band sweeping across the logo.
+    pub glint: Param,
+    /// Sweeps per loop.
+    pub glint_cycles: i32,
+    /// Band width (fraction of the logo's height).
+    pub glint_width: f32,
+    /// Direction the band travels, in degrees (0 = to the right).
+    pub glint_angle: f32,
+    pub glint_color: Rgb,
 }
 
 impl Default for LogoLayer {
@@ -3505,6 +3579,23 @@ impl Default for LogoLayer {
             outline_color: hex(0x000000),
             shadow: Param::new(0.0),
             chrome: Param::new(0.0),
+            bevel: LogoBevel::Off,
+            bevel_width: Param::new(0.4),
+            bevel_depth: Param::new(1.0),
+            steps: 3,
+            light_angle: Param::new(120.0),
+            light_height: Param::new(40.0),
+            light_color: [1.0, 1.0, 1.0],
+            lighting: Param::new(1.0),
+            shine: Param::new(0.5),
+            gloss: 0.6,
+            matcap: None,
+            matcap_amount: Param::new(1.0),
+            glint: Param::new(0.0),
+            glint_cycles: 1,
+            glint_width: 0.12,
+            glint_angle: 20.0,
+            glint_color: [1.0, 1.0, 1.0],
         }
     }
 }

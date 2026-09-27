@@ -60,7 +60,22 @@ pub const BUILTIN: &[(&str, &str)] = &[
         "sheet_sparkle",
         "Sprite sheet (4x4): a twinkling star, loops",
     ),
+    ("matcap_gold", "Material sphere: polished gold"),
+    (
+        "matcap_chrome",
+        "Material sphere: chrome reflecting sky and ground",
+    ),
+    ("matcap_plastic", "Material sphere: glossy red plastic"),
+    (
+        "matcap_candy",
+        "Material sphere: pink candy with a cyan rim",
+    ),
 ];
+
+/// A built-in material sphere (matcap) for lit logos.
+pub fn is_matcap(name: &str) -> bool {
+    name.starts_with("matcap_")
+}
 
 /// Columns and rows of a built-in sprite sheet.
 pub fn sheet_grid(name: &str) -> Option<(u32, u32)> {
@@ -167,6 +182,9 @@ pub fn generate(name: &str) -> RgbaImage {
 }
 
 fn pixel(name: &str, x: u32, y: u32, u: f32, v: f32) -> [f32; 3] {
+    if is_matcap(name) {
+        return matcap(name, u, v);
+    }
     match name {
         "checker" => {
             let c = ((x / 32) + (y / 32)) % 2;
@@ -568,6 +586,59 @@ fn pixel(name: &str, x: u32, y: u32, u: f32, v: f32) -> [f32; 3] {
             } else {
                 [0.0, 0.0, 0.0]
             }
+        }
+    }
+}
+
+/// A lit sphere seen straight on: each pixel is the colour of the surface
+/// facing that way. Outside the disc repeats its rim.
+fn matcap(name: &str, u: f32, v: f32) -> [f32; 3] {
+    let (x, y) = (u * 2.0 - 1.0, 1.0 - v * 2.0);
+    let r = (x * x + y * y).sqrt();
+    let k = if r > 0.995 { 0.995 / r } else { 1.0 };
+    let (x, y) = (x * k, y * k);
+    let z = (1.0 - x * x - y * y).max(0.0).sqrt();
+    // The view reflected off the surface, and a light up and to the left.
+    let (rx, ry, rz) = (2.0 * z * x, 2.0 * z * y, 2.0 * z * z - 1.0);
+    let l = {
+        let (lx, ly, lz) = (-0.5f32, 0.6f32, 0.62f32);
+        let n = (lx * lx + ly * ly + lz * lz).sqrt();
+        (lx / n, ly / n, lz / n)
+    };
+    let spec = |p: f32| {
+        let d = (rx * l.0 + ry * l.1 + rz * l.2).max(0.0);
+        d.powf(p)
+    };
+    let add =
+        |a: [f32; 3], b: [f32; 3], k: f32| [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k];
+    // Sky above the horizon, ground below, a bright line between.
+    let env = |sky_low: u32, sky_high: u32, ground_near: u32, ground_far: u32, line: u32| {
+        let c = if ry >= 0.0 {
+            mix(rgb(sky_low), rgb(sky_high), ry.powf(0.6))
+        } else {
+            mix(rgb(ground_near), rgb(ground_far), (-ry).powf(0.5))
+        };
+        add(c, rgb(line), (-(ry / 0.04).powi(2)).exp() * 0.8)
+    };
+    match name {
+        "matcap_gold" => {
+            let c = env(0xfff0b0, 0xc88a2a, 0x7a4410, 0x1a0c02, 0xfff6d8);
+            add(c, rgb(0xfff8e0), spec(40.0) * 1.2)
+        }
+        "matcap_chrome" => {
+            let c = env(0xe0f0ff, 0x3a6fd0, 0x4a3a30, 0x0a0a0c, 0xffffff);
+            add(c, [1.0; 3], spec(60.0) * 1.2)
+        }
+        "matcap_plastic" => {
+            let ndl = (x * l.0 + y * l.1 + z * l.2).max(0.0);
+            let c = mix(rgb(0x300408), rgb(0xe02434), ndl * 0.85 + 0.1);
+            add(c, [1.0; 3], spec(80.0) * 1.1)
+        }
+        _ => {
+            let c = mix(rgb(0xff5ac0), rgb(0x6a24e0), (1.0 - y) * 0.5);
+            let rim = (1.0 - z).powi(3);
+            let c = add(c, rgb(0x6ff6ff), rim * 1.2);
+            add(c, [1.0; 3], spec(90.0) * 1.3 + spec(8.0) * 0.15)
         }
     }
 }

@@ -432,7 +432,32 @@
           0.023153365
         ],
         "shadow": 1.0,
-        "chrome": 0.45
+        "chrome": 0.45,
+        "bevel": "Round",
+        "bevel_width": 0.5,
+        "bevel_depth": 1.0,
+        "steps": 3,
+        "light_angle": 120.0,
+        "light_height": 40.0,
+        "light_color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "lighting": 1.0,
+        "shine": 0.5,
+        "gloss": 0.6,
+        "matcap": null,
+        "matcap_amount": 1.0,
+        "glint": 1.2,
+        "glint_cycles": 4,
+        "glint_width": 0.12,
+        "glint_angle": 20.0,
+        "glint_color": [
+          1.0,
+          1.0,
+          1.0
+        ]
       }
     },
     {
@@ -503,7 +528,32 @@
           0.0
         ],
         "shadow": 0.9,
-        "chrome": 0.0
+        "chrome": 0.0,
+        "bevel": "Off",
+        "bevel_width": 0.4,
+        "bevel_depth": 1.0,
+        "steps": 3,
+        "light_angle": 120.0,
+        "light_height": 40.0,
+        "light_color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "lighting": 1.0,
+        "shine": 0.5,
+        "gloss": 0.6,
+        "matcap": null,
+        "matcap_amount": 1.0,
+        "glint": 0.0,
+        "glint_cycles": 1,
+        "glint_width": 0.12,
+        "glint_angle": 20.0,
+        "glint_color": [
+          1.0,
+          1.0,
+          1.0
+        ]
       }
     }
   ],

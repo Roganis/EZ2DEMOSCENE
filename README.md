@@ -68,7 +68,10 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     anchor, size and turn, all animatable), drawn before the post effects
     but after depth of field. The shape is baked into a signed distance
     field, so outlines, glow, drop shadows and a chrome bevel work on any
-    image, at any size.
+    image, at any size. Bevels (round, chiselled, stepped, pillow) lit by
+    a light that can circle or follow the beat, material spheres
+    (matcaps: gold, chrome, plastic, candy or your own) and a glint
+    sweeping across a whole number of times per loop.
   - **Electric arcs**: tesla lightning between two points, to the nearest
     copies of a shape (jumping as they move) or copy to copy, crawling and
     re-striking a whole number of times per loop.

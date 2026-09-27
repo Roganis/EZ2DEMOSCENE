@@ -616,7 +616,7 @@ lasts and takes a new shape at every strike.</p>
 
 <h2>5.14 Logos</h2>
 <p>A logo or title laid flat on the screen, over the whole scene: it stays the same size and in the same place whatever the camera does.
-Add one from <span class="ui">+ Add → 🏷 Logo</span> (Title, Chrome logo, Corner tag or Image logo). It is drawn before the post effects, so
+Add one from <span class="ui">+ Add → 🏷 Logo</span> (Title, Chrome logo, Gold logo, Corner tag or Image logo). It is drawn before the post effects, so
 bloom, god rays, feedback trails, scanlines and the colour grade apply to it, but depth of field never blurs it.</p>
 <table>
   <tr><th style="width:24%">Setting</th><th>What it does</th></tr>
@@ -630,11 +630,23 @@ bloom, god rays, feedback trails, scanlines and the colour grade apply to it, bu
   <span class="ui">Tint</span>; for text, the tint).</td></tr>
   <tr><td>Glow, Outline, Drop shadow, Chrome</td><td>The same looks as text: brightness (above 1 it glows), an outline ring, a shadow down and to
   the right, and a shiny bevel reflecting the sky.</td></tr>
+  <tr><td>Bevel</td><td>Under <span class="ui">Lighting</span>: gives the flat logo a relief lit by a light on the screen. <b>Round</b> edges,
+  <b>Chiselled</b> (straight slopes, like cut metal), <b>Stepped</b> (terraces; set the <span class="ui">Steps</span>) or <b>Pillow</b> (the whole
+  logo bulges). <span class="ui">Bevel width</span> is how far in from the edge it reaches, <span class="ui">Depth</span> how steep it is.</td></tr>
+  <tr><td>Light</td><td><span class="ui">Light from</span> is the direction on the screen in degrees (0 from the right, 90 from above);
+  <span class="ui">↻ Circle the light</span> sends it round once per loop, and 🎵 can swing it on the beat. <span class="ui">Light height</span>: low
+  lights rake across the bevel. <span class="ui">Shading</span> is how much the light darkens and brightens the colour,
+  <span class="ui">Shine</span> and <span class="ui">Gloss</span> the highlights.</td></tr>
+  <tr><td>Material</td><td>A picture of a lit sphere (a <i>matcap</i>): each part of the bevel takes the colour of the sphere where it faces the
+  same way. Built in: <b>matcap_gold</b>, <b>matcap_chrome</b>, <b>matcap_plastic</b> and <b>matcap_candy</b>, or import your own picture of a
+  sphere. It works without a bevel too, but only shows its middle colour.</td></tr>
+  <tr><td>Glint</td><td>A bright band sweeping across the logo, a whole number of <span class="ui">Sweeps / loop</span> (4 = every bar of a
+  16-beat loop), with its width, direction and colour.</td></tr>
 </table>
 <p>Every number has <span class="ui">~</span> and 🎵: pulse the glow on the kick, sway the turn, slide the logo in. With the logo selected, the
 viewport shows one handle at its anchor: drag it with <span class="ui">Move</span> to place the logo, with <span class="ui">Scale</span> to size it
-and with <span class="ui">Rotate</span> to turn it (<kbd>Ctrl</kbd> snaps). The <b>Sunset Title</b> preset has a chrome title pulsing on every
-beat and a pixel tag in the corner.</p>
+and with <span class="ui">Rotate</span> to turn it (<kbd>Ctrl</kbd> snaps). The <b>Sunset Title</b> preset has a bevelled chrome title pulsing on
+every beat, with a glint on every bar, and a pixel tag in the corner.</p>
 <div class="tip"><b>Tip</b>The logo's shape is worked out once when you type or pick an image (it becomes a distance field, which keeps the
 edges sharp at any size and gives outlines, glows and bevels for free), so the first frame after a change can take a moment.</div>
 

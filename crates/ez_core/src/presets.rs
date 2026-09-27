@@ -156,7 +156,7 @@ pub fn all() -> Vec<Preset> {
         },
         Preset {
             name: "Sunset Title",
-            description: "Synth Sunset with a title card: a chrome logo pulsing to the beat and a pixel tag in the corner, drawn flat on the screen.",
+            description: "Synth Sunset with a title card: a bevelled chrome logo pulsing to the beat with a glint on every bar, and a pixel tag in the corner.",
             project: sunset_title(),
         },
         Preset {
@@ -782,6 +782,11 @@ pub fn sunset_title() -> Project {
             outline_color: hex(0x10002a),
             shadow: Param::new(1.0),
             chrome: Param::new(0.45),
+            bevel: LogoBevel::Round,
+            bevel_width: Param::new(0.5),
+            light_angle: Param::new(120.0),
+            glint: Param::new(1.2),
+            glint_cycles: 4,
             ..Default::default()
         }),
     ));

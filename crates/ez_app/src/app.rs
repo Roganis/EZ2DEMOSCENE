@@ -628,6 +628,9 @@ impl EzApp {
                             (LayerKind::Mirror(f), _) => f.texture = Some(name.clone()),
                             (LayerKind::Terrain(t), _) => t.texture = Some(name.clone()),
                             (LayerKind::Sprite(sp), _) => sp.image = Some(name.clone()),
+                            (LayerKind::Logo(g), platform::TexSlot::Matcap) => {
+                                g.matcap = Some(name.clone())
+                            }
                             (LayerKind::Logo(g), _) => g.image = Some(name.clone()),
                             _ => {}
                         }

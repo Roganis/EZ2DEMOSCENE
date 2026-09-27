@@ -511,7 +511,7 @@ every look show only where they are anchored, move and loop, empty ones
 draw nothing, and depth of field leaves a logo sharp. Preset: Sunset
 Title.
 
-### ☐ 9.2 Lit logos
+### ☑ 9.2 Lit logos
 Make a flat logo read as a solid, shiny object.
 
 **How.**
@@ -525,6 +525,26 @@ Make a flat logo read as a solid, shiny object.
 - **Matcap** option: look up a small sphere image by the normal (a few
   built-in matcaps: gold, chrome, plastic, candy), beside the existing
   environment reflection.
+
+**Done.** A Lighting section on the logo layer. The height is a remap of
+the field (round: a quarter circle; chiselled: linear; stepped: smoothed
+terraces; pillow: a quarter circle spanning the deepest point, which the
+bake now records), and the normal is its slope from neighbours one texel
+apart (the text bevel's wider spacing flattened thin strokes), turned
+with the logo. The light is not three modes but one direction on the
+screen plus a height, both Params: *fixed* is a value, *circling* a Saw
+with amplitude 180° (a "Circle the light" button sets it), *following
+the beat* a music link. Flat tops keep their colour; slopes towards the
+light brighten, away from it darken (Shading), with a Blinn highlight
+(Shine, Gloss). Matcaps are generated built-in textures
+(`matcap_gold`, `matcap_chrome`, `matcap_plastic`, `matcap_candy`) or
+any image, bound as a second texture, and mix over the shaded colour;
+the existing chrome reflection stays as it was. The glint is a Gaussian
+band in logo heights at `fract(phase × sweeps)`, masked by the letters,
+so it loops exactly. Tested: every bevel shades the letters and follows
+the light, a matcap changes them, a glint with a circling light loops and
+moves. Sunset Title's title got a round bevel and a glint on every bar;
++ Add → Logo has a Gold logo.
 
 ### ☐ 9.3 Distance-field effects
 **How.**

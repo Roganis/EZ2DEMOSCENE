@@ -2689,7 +2689,7 @@ pub fn add_layer_menu(ui: &mut Ui, templates: &[Layer]) -> Option<Layer> {
         }
     });
     ui.menu_button("🏷 Logo", |ui| {
-        let logos: [(&str, &str, LogoLayer); 4] = [
+        let logos: [(&str, &str, LogoLayer); 5] = [
             (
                 "Title",
                 "Big text in the middle of the screen",
@@ -2707,6 +2707,24 @@ pub fn add_layer_menu(ui: &mut Ui, templates: &[Layer]) -> Option<Layer> {
                     outline_color: ez_core::color::hex(0x1a0830),
                     shadow: Param::new(0.8),
                     chrome: Param::new(0.7),
+                    ..Default::default()
+                },
+            ),
+            (
+                "Gold logo",
+                "Bevelled gold letters with a glint sweeping across on every bar",
+                LogoLayer {
+                    text: "GOLD".into(),
+                    size: Param::new(0.25),
+                    bevel: LogoBevel::Round,
+                    bevel_width: Param::new(0.6),
+                    matcap: Some("matcap_gold".into()),
+                    shine: Param::new(0.8),
+                    outline: Param::new(0.25),
+                    outline_color: ez_core::color::hex(0x2a1400),
+                    shadow: Param::new(0.8),
+                    glint: Param::new(1.5),
+                    glint_cycles: 4,
                     ..Default::default()
                 },
             ),
@@ -3243,6 +3261,159 @@ fn logo_ui(ui: &mut Ui, g: &mut LogoLayer, textures: &[UserTexture], lref: Layer
             0.0..=1.0,
         );
     });
+    section(ui, "Lighting", g.bevel != LogoBevel::Off, |ui| {
+        combo(
+            ui,
+            "Bevel",
+            "The shape of the edges, lit by a light on the screen",
+            &mut g.bevel,
+            &LogoBevel::ALL,
+            |b| b.label(),
+        );
+        if g.bevel != LogoBevel::Off {
+            if g.bevel != LogoBevel::Pillow {
+                param(
+                    ui,
+                    "Bevel width",
+                    "How far in from the edge it reaches",
+                    &mut g.bevel_width,
+                    0.05..=2.0,
+                );
+            }
+            param(
+                ui,
+                "Depth",
+                "How steep it is",
+                &mut g.bevel_depth,
+                0.0..=3.0,
+            );
+            if g.bevel == LogoBevel::Stepped {
+                drag_u(ui, "Steps", "Terraces", &mut g.steps, 1..=12);
+            }
+            param(
+                ui,
+                "Light from",
+                "Degrees: 0 = from the right, 90 = from above",
+                &mut g.light_angle,
+                -180.0..=180.0,
+            );
+            if ui
+                .small_button("↻ Circle the light")
+                .on_hover_text("The light goes round once per loop")
+                .clicked()
+            {
+                let from = g.light_angle.base;
+                g.light_angle = Param::new(from).osc(Wave::Saw, 180.0, 1);
+            }
+            param(
+                ui,
+                "Light height",
+                "Degrees above the logo: low lights rake across the bevel",
+                &mut g.light_height,
+                0.0..=90.0,
+            );
+            color(ui, "Light colour", "", &mut g.light_color);
+            param(
+                ui,
+                "Shading",
+                "How much the light shades the colour (0 = flat)",
+                &mut g.lighting,
+                0.0..=2.0,
+            );
+            param(ui, "Shine", "Highlights", &mut g.shine, 0.0..=3.0);
+            slider(
+                ui,
+                "Gloss",
+                "Small sharp highlights (1) or broad soft ones (0)",
+                &mut g.gloss,
+                0.0..=1.0,
+            );
+        }
+        matcap_picker(ui, &mut g.matcap, textures, lref);
+        if g.matcap.is_some() {
+            param(
+                ui,
+                "Material",
+                "How much of the material shows",
+                &mut g.matcap_amount,
+                0.0..=1.0,
+            );
+        }
+    });
+    section(
+        ui,
+        "Glint",
+        g.glint.is_animated() || g.glint.base > 0.0,
+        |ui| {
+            param(
+                ui,
+                "Glint",
+                "A bright band sweeping across the logo",
+                &mut g.glint,
+                0.0..=4.0,
+            );
+            drag_i(
+                ui,
+                "Sweeps / loop",
+                "Whole sweeps per loop (negative = the other way)",
+                &mut g.glint_cycles,
+                -32..=32,
+            );
+            slider(
+                ui,
+                "Width",
+                "In logo heights",
+                &mut g.glint_width,
+                0.01..=1.0,
+            );
+            slider(
+                ui,
+                "Direction",
+                "Degrees: 0 = to the right, 90 = upwards",
+                &mut g.glint_angle,
+                -180.0..=180.0,
+            );
+            color(ui, "Colour", "", &mut g.glint_color);
+        },
+    );
+}
+
+/// A material sphere for a lit logo: built-in or one of your images.
+fn matcap_picker(
+    ui: &mut Ui,
+    matcap: &mut Option<String>,
+    textures: &[UserTexture],
+    lref: LayerRef,
+) {
+    row(
+        ui,
+        "Material",
+        "A picture of a lit sphere; the bevel picks the colour facing each way",
+        |ui| {
+            let text = matcap.clone().unwrap_or_else(|| "None".into());
+            egui::ComboBox::from_id_salt(ui.id().with("matcap"))
+                .selected_text(text)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(matcap, None, "None");
+                    for (name, desc) in texgen::BUILTIN.iter().filter(|(n, _)| texgen::is_matcap(n))
+                    {
+                        ui.selectable_value(matcap, Some(name.to_string()), *name)
+                            .on_hover_text(*desc);
+                    }
+                    if !textures.is_empty() {
+                        ui.separator();
+                        ui.label(RichText::new("Your images").weak());
+                        for t in textures.iter() {
+                            ui.selectable_value(matcap, Some(t.name.clone()), &t.name);
+                        }
+                    }
+                    ui.separator();
+                    if ui.button("Import image…").clicked() {
+                        platform::pick(Purpose::SetTexture(lref, TexSlot::Matcap));
+                    }
+                });
+        },
+    );
 }
 
 /// Built-in fonts, or a TTF / OTF file.

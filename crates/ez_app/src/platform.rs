@@ -26,6 +26,8 @@ pub enum TexSlot {
     Relief,
     Sprite,
     Logo,
+    /// A logo's material sphere.
+    Matcap,
 }
 
 /// What a picked file is for.

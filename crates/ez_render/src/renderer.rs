@@ -214,10 +214,12 @@ enum Cmd {
         first: u32,
         count: u32,
     },
-    /// A logo flat on the screen, drawn after the scene (see `logo.wgsl`).
+    /// A logo flat on the screen, drawn after the scene (see `logo.wgsl`),
+    /// with its material sphere.
     Logo {
         slot: u32,
         tex: String,
+        matcap: String,
     },
     /// Contact shadows under the copies `first..first + count` of a mesh.
     Contact {
@@ -240,6 +242,8 @@ struct LogoFit {
     pad: [f32; 2],
     /// Distance field spread in texels.
     spread: f32,
+    /// The field at the logo's thickest point.
+    max_field: f32,
 }
 
 /// Vertices of one spotlight cone (see spots.wgsl).
@@ -1183,11 +1187,22 @@ impl Renderer {
         let sh_logo = shader(device, "logo", include_str!("shaders/logo.wgsl"), true);
         // Logos go on the picture after depth of field (no depth, no MSAA:
         // the distance field antialiases).
+        // Logo texture, then the material sphere.
+        let logo_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("logo"),
+            bind_group_layouts: &[
+                Some(&bgl_globals),
+                Some(&bgl_draw),
+                Some(&bgl_tex),
+                Some(&bgl_tex),
+            ],
+            immediate_size: 0,
+        });
         let logo_pipe = make_pipeline(
             device,
             PipeDesc {
                 label: "logo",
-                layout: &scene_layout,
+                layout: &logo_layout,
                 module: &sh_logo,
                 fs: "fs_main",
                 buffers: &[],
@@ -2045,6 +2060,7 @@ impl Renderer {
                 aspect: b.aspect,
                 pad: b.pad,
                 spread: b.spread,
+                max_field: b.max_field,
             }
         });
         self.logos.insert(key.clone(), (frame, fit));
@@ -3242,9 +3258,48 @@ impl Renderer {
                         },
                     ];
                     blk[7] = [fit.width as f32, fit.height as f32, 0.0, 0.0];
+                    // Lighting: bevel, light, material sphere, glint.
+                    blk[8] = [
+                        g.bevel.index() as f32,
+                        g.bevel_width.eval(ctx).max(0.0) * 0.5,
+                        g.bevel_depth.eval(ctx).max(0.0),
+                        g.steps.max(1) as f32,
+                    ];
+                    let (la, lh) = (
+                        g.light_angle.eval(ctx).to_radians(),
+                        g.light_height.eval(ctx).clamp(0.0, 90.0).to_radians(),
+                    );
+                    blk[9] = [
+                        la.cos() * lh.cos(),
+                        la.sin() * lh.cos(),
+                        lh.sin(),
+                        g.lighting.eval(ctx).max(0.0),
+                    ];
+                    blk[10] = c4(g.light_color, g.shine.eval(ctx).max(0.0));
+                    let has_matcap = g.matcap.as_deref().is_some_and(|m| !m.is_empty());
+                    blk[11] = [
+                        4.0 + g.gloss.clamp(0.0, 1.0).powi(2) * 124.0,
+                        if has_matcap {
+                            g.matcap_amount.eval(ctx).clamp(0.0, 1.0)
+                        } else {
+                            0.0
+                        },
+                        fit.max_field,
+                        g.glint.eval(ctx).max(0.0),
+                    ];
+                    blk[12] = [
+                        (ctx.phase * g.glint_cycles as f32).rem_euclid(1.0),
+                        g.glint_width.max(0.005),
+                        g.glint_angle.to_radians(),
+                        0.0,
+                    ];
+                    blk[13] = c4(g.glint_color, 0.0);
+                    let matcap = self.texture_key(project, g.matcap.as_deref());
+                    self.tex_bind_group(&matcap, false);
                     cmds.push(Cmd::Logo {
                         slot: blocks.len() as u32,
                         tex,
+                        matcap,
                     });
                     blocks.push(blk);
                 }
@@ -4186,9 +4241,10 @@ impl Renderer {
             pass.set_pipeline(&self.logo_pipe);
             pass.set_bind_group(0, &self.globals_bg[0], &[]);
             for c in &cmds {
-                if let Cmd::Logo { slot, tex } = c {
+                if let Cmd::Logo { slot, tex, matcap } = c {
                     pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
                     pass.set_bind_group(2, &self.tex_bgs[&(tex.clone(), false)], &[]);
+                    pass.set_bind_group(3, &self.tex_bgs[&(matcap.clone(), false)], &[]);
                     pass.draw(0..6, 0..1);
                 }
             }
