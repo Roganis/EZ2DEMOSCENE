@@ -1828,3 +1828,112 @@ fn logo_rasters_and_distortion_loop() {
         assert!(changes > 0.3, "{name} doesn't show");
     }
 }
+
+/// Logos attached to the screen and to each other: a subtitle snapped
+/// under a title follows it; missing targets and loops fall back to the
+/// screen.
+#[test]
+fn logos_attach_to_the_screen_and_each_other() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let (w, h) = (320.0f32, 180.0f32);
+    let target = r.create_target(w as u32, h as u32);
+    let mut p = presets::empty();
+    p.post.grade.grain = Param::new(0.0);
+    p.layers.retain(|l| !matches!(l.kind, LayerKind::Mesh(_)));
+    let logo = |g: LogoLayer, name: &str| Layer::new(name, LayerKind::Logo(g));
+    let first = p.layers.len();
+    // A title in the top right corner, 5% in from both edges.
+    p.layers.push(logo(
+        LogoLayer {
+            text: "TITLE".into(),
+            attach_point: LogoAnchor::TopRight,
+            anchor: LogoAnchor::TopRight,
+            x: Param::new(-0.05),
+            y: Param::new(-0.05),
+            size: Param::new(0.2),
+            ..Default::default()
+        },
+        "Title",
+    ));
+    // Snapped under it, centred, with a small gap.
+    p.layers.push(logo(
+        LogoLayer {
+            text: "subtitle".into(),
+            attach_to: "Title".into(),
+            attach_point: LogoAnchor::Bottom,
+            anchor: LogoAnchor::Top,
+            x: Param::new(0.0),
+            y: Param::new(-0.02),
+            size: Param::new(0.08),
+            ..Default::default()
+        },
+        "Sub",
+    ));
+    // Attached to something that isn't there: measured from the screen.
+    p.layers.push(logo(
+        LogoLayer {
+            text: "LOST".into(),
+            attach_to: "Nobody".into(),
+            attach_point: LogoAnchor::Centre,
+            x: Param::new(0.0),
+            y: Param::new(0.0),
+            ..Default::default()
+        },
+        "Lost",
+    ));
+    // Two logos attached to each other.
+    for (name, other) in [("A", "B"), ("B", "A")] {
+        p.layers.push(logo(
+            LogoLayer {
+                text: name.into(),
+                attach_to: other.into(),
+                attach_point: LogoAnchor::Centre,
+                x: Param::new(0.1),
+                y: Param::new(0.0),
+                ..Default::default()
+            },
+            name,
+        ));
+    }
+    let ctx = EvalCtx::new(&p.timing, 0.3, None);
+    let at = r.logo_anchors(&p, &ctx, [w, h]);
+    let title = at[first].expect("title placed");
+    let sub = at[first + 1].expect("subtitle placed");
+    let lost = at[first + 2].expect("lost placed");
+    assert!((title[0] - 0.95).abs() < 1e-4 && (title[1] - 0.95).abs() < 1e-4);
+    // The title's bottom is its height below its top anchor; its middle is
+    // half its width left of its right edge.
+    let img = r.render_image(&p, &ctx, &target);
+    img.save(snapshot_dir().join("logo_attach.png")).unwrap();
+    assert!((sub[1] - (0.95 - 0.2 - 0.02)).abs() < 1e-4, "{sub:?}");
+    assert!(sub[0] < 0.95 - 0.05 && sub[0] > 0.5, "{sub:?}");
+    assert!((lost[0] - 0.5).abs() < 1e-4 && (lost[1] - 0.5).abs() < 1e-4);
+    let (a, b) = (at[first + 3].expect("A"), at[first + 4].expect("B"));
+    assert!(a[0].is_finite() && b[0].is_finite());
+    // Moving the title carries the subtitle along.
+    if let LayerKind::Logo(g) = &mut p.layers[first].kind {
+        g.y = Param::new(-0.3);
+    }
+    let moved = r.logo_anchors(&p, &ctx, [w, h]);
+    let sub2 = moved[first + 1].unwrap();
+    assert!((sub2[1] - (sub[1] - 0.25)).abs() < 1e-4 && (sub2[0] - sub[0]).abs() < 1e-4);
+    // Turned a quarter, the title's bottom is to its right... of the anchor.
+    if let LayerKind::Logo(g) = &mut p.layers[first].kind {
+        g.rotation = Param::new(90.0);
+        g.anchor = LogoAnchor::Centre;
+    }
+    let turned = r.logo_anchors(&p, &ctx, [w, h]);
+    let t = turned[first].unwrap();
+    let s = turned[first + 1].unwrap();
+    // Turned anticlockwise, the bottom points right: the subtitle's anchor
+    // is half a title height right of the title's centre (in pixels).
+    assert!(((s[0] - t[0]) * w - 0.1 * h).abs() < 0.5, "{t:?} {s:?}");
+}

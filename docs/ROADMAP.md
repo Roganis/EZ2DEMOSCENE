@@ -511,6 +511,22 @@ every look show only where they are anchored, move and loop, empty ones
 draw nothing, and depth of field leaves a logo sharp. Preset: Sunset
 Title.
 
+**Follow-up: placement like a photo editor's reference points.** A logo
+is placed against *the screen* or *another logo layer* (by name), from
+one of nine points of it (`attach_point`), plus offsets in fractions of
+the screen. A Place grid snaps: on the screen inside that point, a
+margin in; against a logo outside that side (the logo's own anchor is
+the opposite point), a small gap out, so a subtitle snaps under a title
+in one click and follows it, turned or animated. The renderer resolves
+the chain each frame from the baked widths (missing targets and loops
+fall back to the screen) and hands the anchors to the viewport's
+handles. Old projects keep their meaning: the default point is the
+screen's bottom left, which makes the offsets the old absolute
+position; new logos from + Add are measured from their own anchor.
+Tested: a title in a corner, a subtitle under it (also after the title
+moves and turns), a missing target, and two logos attached to each
+other.
+
 ### ☑ 9.2 Lit logos
 Make a flat logo read as a solid, shiny object.
 

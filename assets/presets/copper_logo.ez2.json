@@ -291,6 +291,8 @@
         "font_file": null,
         "image": null,
         "mask": "Alpha",
+        "attach_to": "",
+        "attach_point": "BottomLeft",
         "x": 0.5,
         "y": 0.62,
         "anchor": "Centre",

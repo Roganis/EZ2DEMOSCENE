@@ -836,6 +836,8 @@ pub fn textures_ui(ui: &mut Ui, textures: &mut Vec<UserTexture>) {
 pub const TERRAIN_NAMES: &str = "ez2-terrain-names";
 /// egui temp-data key: names of the shape and sprite layers.
 pub const COPY_LAYER_NAMES: &str = "ez2-copy-layer-names";
+/// Names of the logo layers (what a logo can be attached to).
+pub const LOGO_NAMES: &str = "ez2-logo-names";
 
 pub fn layer_ui(ui: &mut Ui, layer: &mut Layer, textures: &[UserTexture], lref: LayerRef) {
     ui.horizontal(|ui| {
@@ -857,7 +859,7 @@ pub fn layer_ui(ui: &mut Ui, layer: &mut Layer, textures: &[UserTexture], lref: 
         LayerKind::Text(t) => text_ui(ui, t, lref),
         LayerKind::Sprite(sp) => sprite_ui(ui, sp, textures, lref),
         LayerKind::Arcs(a) => arcs_ui(ui, a),
-        LayerKind::Logo(g) => logo_ui(ui, g, textures, lref),
+        LayerKind::Logo(g) => logo_ui(ui, g, &layer.name, textures, lref),
     }
     let is_mesh_like = matches!(
         layer.kind,
@@ -2754,8 +2756,9 @@ pub fn add_layer_menu(ui: &mut Ui, templates: &[Layer]) -> Option<Layer> {
                 },
             ),
         ];
-        for (name, tip, g) in logos {
+        for (name, tip, mut g) in logos {
             if ui.button(name).on_hover_text(tip).clicked() {
+                measure_from_anchor(&mut g);
                 out = Some(Layer::new(name, LayerKind::Logo(g)));
             }
         }
@@ -3161,7 +3164,13 @@ fn arc_target_ui(ui: &mut Ui, target: &mut String, names: &[String]) {
     }
 }
 
-fn logo_ui(ui: &mut Ui, g: &mut LogoLayer, textures: &[UserTexture], lref: LayerRef) {
+fn logo_ui(
+    ui: &mut Ui,
+    g: &mut LogoLayer,
+    own_name: &str,
+    textures: &[UserTexture],
+    lref: LayerRef,
+) {
     section(ui, "Logo", true, |ui| {
         combo(ui, "Made of", "", &mut g.source, &LogoSource::ALL, |s| {
             s.label()
@@ -3196,20 +3205,89 @@ fn logo_ui(ui: &mut Ui, g: &mut LogoLayer, textures: &[UserTexture], lref: Layer
         }
     });
     section(ui, "On screen", true, |ui| {
+        let names: Vec<String> = ui
+            .data(|d| d.get_temp::<Vec<String>>(egui::Id::new(LOGO_NAMES)))
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|n| n != own_name)
+            .collect();
+        row(
+            ui,
+            "Attach to",
+            "Place the logo on the screen, or against another logo (it follows it)",
+            |ui| {
+                let label = if g.attach_to.is_empty() {
+                    "The screen".to_string()
+                } else {
+                    g.attach_to.clone()
+                };
+                let before = g.attach_to.clone();
+                egui::ComboBox::from_id_salt("logo_attach")
+                    .selected_text(label)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut g.attach_to, String::new(), "The screen");
+                        for n in &names {
+                            ui.selectable_value(&mut g.attach_to, n.clone(), n);
+                        }
+                    });
+                if g.attach_to != before {
+                    // Start from a sensible spot: the middle of the screen,
+                    // or just under the other logo.
+                    let place = if g.attach_to.is_empty() {
+                        LogoAnchor::Centre
+                    } else {
+                        LogoAnchor::Bottom
+                    };
+                    snap_logo(g, place);
+                }
+            },
+        );
+        if !g.attach_to.is_empty() && !names.contains(&g.attach_to) {
+            ui.label(
+                RichText::new("No logo layer with that name: placed on the screen.")
+                    .weak()
+                    .small(),
+            );
+        }
+        let tip = if g.attach_to.is_empty() {
+            "Snap into a part of the screen (a corner, an edge or the middle)"
+        } else {
+            "Snap against the other logo: below, above, beside, at a corner or on top of it"
+        };
+        row(ui, "Place", tip, |ui| {
+            if let Some(a) = anchor_grid(ui, "logo_place", g.attach_point) {
+                snap_logo(g, a);
+            }
+        });
         param(
             ui,
-            "Across",
-            "Position from the left edge (0) to the right edge (1)",
+            "Offset across",
+            "From the point it is placed at, as a fraction of the screen width",
             &mut g.x,
-            0.0..=1.0,
+            -1.0..=1.0,
         );
         param(
             ui,
-            "Up",
-            "Position from the bottom (0) to the top (1)",
+            "Offset up",
+            "From the point it is placed at, as a fraction of the screen height",
             &mut g.y,
-            0.0..=1.0,
+            -1.0..=1.0,
         );
+        let from = g.attach_point;
+        combo(
+            ui,
+            "Measured from",
+            "The point of the screen (or of the other logo) the offsets start from",
+            &mut g.attach_point,
+            &LogoAnchor::ALL,
+            |a| a.label(),
+        );
+        if g.attach_point != from && g.attach_to.is_empty() {
+            // On the screen the logo stays where it is.
+            let (a, b) = (from.point(), g.attach_point.point());
+            g.x.base += a[0] - b[0];
+            g.y.base += a[1] - b[1];
+        }
         combo(
             ui,
             "Anchor",
@@ -3724,6 +3802,66 @@ fn matcap_picker(
                 });
         },
     );
+}
+
+/// A 3×3 grid of anchor points, the current one lit; returns the one
+/// clicked.
+fn anchor_grid(ui: &mut Ui, id: &str, current: LogoAnchor) -> Option<LogoAnchor> {
+    let mut picked = None;
+    egui::Grid::new(ui.id().with(id))
+        .spacing([2.0, 2.0])
+        .show(ui, |ui| {
+            for (i, a) in LogoAnchor::ALL.into_iter().enumerate() {
+                let on = a == current;
+                let b = ui
+                    .add(
+                        egui::Button::new(if on { "■" } else { "□" })
+                            .selected(on)
+                            .min_size(egui::vec2(22.0, 18.0)),
+                    )
+                    .on_hover_text(a.label());
+                if b.clicked() {
+                    picked = Some(a);
+                }
+                if i % 3 == 2 {
+                    ui.end_row();
+                }
+            }
+        });
+    picked
+}
+
+/// Measure a screen-placed logo's position from its own anchor point of
+/// the screen (the same place on screen), so the Place grid shows where
+/// it is.
+fn measure_from_anchor(g: &mut LogoLayer) {
+    if g.attach_to.is_empty() {
+        let (a, b) = (g.attach_point.point(), g.anchor.point());
+        g.x.base += a[0] - b[0];
+        g.y.base += a[1] - b[1];
+        g.attach_point = g.anchor;
+    }
+}
+
+/// Snap a logo to point `at` of what it is attached to. On the screen it
+/// sits inside, a small margin from the edges; against another logo it
+/// sits outside, touching with a small gap (the middle: on top of it).
+fn snap_logo(g: &mut LogoLayer, at: LogoAnchor) {
+    let [px, py] = at.point();
+    // -1, 0 or 1: which side of the middle.
+    let (sx, sy) = ((px - 0.5) * 2.0, (py - 0.5) * 2.0);
+    g.attach_point = at;
+    if g.attach_to.is_empty() {
+        const MARGIN: f32 = 0.04;
+        g.anchor = at;
+        g.x = Param::new(-sx * MARGIN);
+        g.y = Param::new(-sy * MARGIN);
+    } else {
+        const GAP: f32 = 0.02;
+        g.anchor = at.opposite();
+        g.x = Param::new(sx * GAP);
+        g.y = Param::new(sy * GAP);
+    }
 }
 
 /// Built-in fonts, or a TTF / OTF file.

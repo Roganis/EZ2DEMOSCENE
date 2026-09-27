@@ -64,8 +64,10 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     wall, spiral, curve, big swarms of up to 250,000 in orbits, a cloud,
     a shell or a spiral galaxy) is placed with its variation by a compute
     shader on desktop and WebGPU; WebGL2 runs the same maths on the CPU.
-  - **Logos**: text or an image laid flat on the screen (placed by an
-    anchor, size and turn, all animatable), drawn before the post effects
+  - **Logos**: text or an image laid flat on the screen (snapped to a
+    part of the screen or against another logo, which it then follows,
+    like a photo editor's reference points; size and turn animatable),
+    drawn before the post effects
     but after depth of field. The shape is baked into a signed distance
     field, so outlines, glow, drop shadows and a chrome bevel work on any
     image, at any size. Bevels (round, chiselled, stepped, pillow) lit by

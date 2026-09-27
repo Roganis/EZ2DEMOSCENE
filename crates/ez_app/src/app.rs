@@ -1171,6 +1171,14 @@ impl EzApp {
             .map(|l| l.name.clone())
             .collect();
         ui.data_mut(|d| d.insert_temp(egui::Id::new(inspector::COPY_LAYER_NAMES), copy_layers));
+        let logos: Vec<String> = self
+            .project
+            .layers
+            .iter()
+            .filter(|l| matches!(l.kind, LayerKind::Logo(_)))
+            .map(|l| l.name.clone())
+            .collect();
+        ui.data_mut(|d| d.insert_temp(egui::Id::new(inspector::LOGO_NAMES), logos));
         let ctx = self.project.ctx_at(self.time, self.audio_env.as_deref());
         let view = self.project.camera.view_point(&ctx);
         ui.data_mut(|d| d.insert_temp(egui::Id::new(inspector::CAMERA_VIEW), view));
@@ -1742,7 +1750,20 @@ impl EzApp {
         // The response covers the whole centred area; the picture itself is
         // `size`, centred in it.
         let image_rect = egui::Rect::from_center_size(resp.rect.center(), size);
-        let proj = Projector::new(&cam_state, image_rect);
+        let mut proj = Projector::new(&cam_state, image_rect);
+        // Logos are placed on the picture, some against each other.
+        if self
+            .project
+            .layers
+            .iter()
+            .any(|l| matches!(l.kind, LayerKind::Logo(_)))
+        {
+            proj.logos = self.viewport.renderer.logo_anchors(
+                &self.project,
+                &ctx,
+                [image_rect.width(), image_rect.height()],
+            );
+        }
         let painter = ui.painter_at(image_rect);
         if self.gizmo.grid {
             gizmo::draw_grid(&painter, &proj, 0.0);
@@ -1752,7 +1773,7 @@ impl EzApp {
         if gizmo_ok && self.mode == Mode::Simple && !self.project.use_graph {
             if let Selection::Layer(i) = self.selection {
                 if let Some(layer) = self.project.layers.get_mut(i) {
-                    on_gizmo = self.gizmo.show(&painter, &resp, &proj, layer, snapping);
+                    on_gizmo = self.gizmo.show(&painter, &resp, &proj, layer, i, snapping);
                 }
             }
             if resp.clicked() && !on_gizmo {

@@ -381,6 +381,8 @@
         "font_file": null,
         "image": null,
         "mask": "Alpha",
+        "attach_to": "",
+        "attach_point": "BottomLeft",
         "x": 0.5,
         "y": {
           "base": 0.8,
@@ -571,6 +573,8 @@
         "font_file": null,
         "image": null,
         "mask": "Alpha",
+        "attach_to": "",
+        "attach_point": "BottomLeft",
         "x": 0.97,
         "y": 0.05,
         "anchor": "BottomRight",

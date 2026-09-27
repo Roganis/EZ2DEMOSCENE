@@ -57,6 +57,9 @@ pub struct Projector {
     vp: Mat4,
     rect: Rect,
     pub eye: Vec3,
+    /// Where each logo layer's anchor is (fractions of the view from the
+    /// bottom left), by layer index; filled in by the caller.
+    pub logos: Vec<Option<[f32; 2]>>,
 }
 
 impl Projector {
@@ -66,6 +69,7 @@ impl Projector {
             vp: cam.proj(aspect) * cam.view(),
             rect,
             eye: cam.eye,
+            logos: Vec::new(),
         }
     }
 
@@ -76,6 +80,14 @@ impl Projector {
             self.rect.left() + x * self.rect.width(),
             self.rect.bottom() - y * self.rect.height(),
         )
+    }
+
+    /// Where logo layer `i` is anchored on the screen.
+    fn logo_point(&self, i: usize, g: &LogoLayer) -> Pos2 {
+        match self.logos.get(i).copied().flatten() {
+            Some([x, y]) => self.screen_point(x, y),
+            None => self.screen_point(g.x.base, g.y.base),
+        }
     }
 
     /// `None` when the point is behind the camera.
@@ -99,7 +111,7 @@ fn dist_to_segment(p: Pos2, a: Pos2, b: Pos2) -> f32 {
 }
 
 /// Screen positions representing a layer, used for click-picking.
-fn pick_points(layer: &Layer, ctx: &EvalCtx, proj: &Projector) -> Vec<Pos2> {
+fn pick_points(layer: &Layer, index: usize, ctx: &EvalCtx, proj: &Projector) -> Vec<Pos2> {
     let mut pts = Vec::new();
     let pos = Vec3::from(layer.transform.position);
     match &layer.kind {
@@ -128,7 +140,7 @@ fn pick_points(layer: &Layer, ctx: &EvalCtx, proj: &Projector) -> Vec<Pos2> {
         | LayerKind::Text(_)
         | LayerKind::Arcs(_)
         | LayerKind::Falls(_) => pts.extend(proj.to_screen(pos)),
-        LayerKind::Logo(g) => pts.push(proj.screen_point(g.x.base, g.y.base)),
+        LayerKind::Logo(g) => pts.push(proj.logo_point(index, g)),
         LayerKind::Mirror(_) | LayerKind::Backdrop(_) | LayerKind::Weather(_) => {}
     }
     pts
@@ -138,7 +150,7 @@ fn pick_points(layer: &Layer, ctx: &EvalCtx, proj: &Projector) -> Vec<Pos2> {
 pub fn pick(layers: &[Layer], ctx: &EvalCtx, proj: &Projector, click: Pos2) -> Option<usize> {
     let mut best = (28.0f32, None);
     for (i, l) in layers.iter().enumerate().filter(|(_, l)| l.enabled) {
-        for p in pick_points(l, ctx, proj) {
+        for p in pick_points(l, i, ctx, proj) {
             let d = (p - click).length();
             if d < best.0 {
                 best = (d, Some(i));
@@ -211,9 +223,9 @@ impl Gizmo {
         resp: &egui::Response,
         proj: &Projector,
         g: &mut LogoLayer,
+        o: Pos2,
         snapping: bool,
     ) -> bool {
-        let o = proj.screen_point(g.x.base, g.y.base);
         let k = if self.touch { 2.2 } else { 1.0 };
         let near = |p: Pos2| (p - o).length() < 10.0 * k;
         let hovered = resp.hover_pos().is_some_and(near);
@@ -273,6 +285,7 @@ impl Gizmo {
         resp: &egui::Response,
         proj: &Projector,
         layer: &mut Layer,
+        index: usize,
         snapping: bool,
     ) -> bool {
         if matches!(layer.kind, LayerKind::Backdrop(_)) {
@@ -280,7 +293,8 @@ impl Gizmo {
             return false;
         }
         if let LayerKind::Logo(g) = &mut layer.kind {
-            return self.logo_handle(painter, resp, proj, g, snapping);
+            let at = proj.logo_point(index, g);
+            return self.logo_handle(painter, resp, proj, g, at, snapping);
         }
         let only_y = matches!(layer.kind, LayerKind::Mirror(_));
         let t = &mut layer.transform;

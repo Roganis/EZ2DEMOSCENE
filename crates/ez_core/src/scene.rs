@@ -3509,6 +3509,20 @@ impl LogoAnchor {
         }
     }
 
+    /// The point in the same place on the opposite side (Top ↔ Bottom,
+    /// Left ↔ Right).
+    pub fn opposite(self) -> LogoAnchor {
+        let [x, y] = self.point();
+        LogoAnchor::at(1.0 - x, 1.0 - y)
+    }
+
+    /// The anchor at (0, 0.5 or 1 from the left, from the bottom).
+    pub fn at(x: f32, y: f32) -> LogoAnchor {
+        let col = (x * 2.0).round().clamp(0.0, 2.0) as usize;
+        let row = 2 - (y * 2.0).round().clamp(0.0, 2.0) as usize;
+        LogoAnchor::ALL[row * 3 + col]
+    }
+
     /// The anchor inside the logo (0..1 from the left, 0..1 from the bottom).
     pub fn point(self) -> [f32; 2] {
         let i = LogoAnchor::ALL.iter().position(|a| *a == self).unwrap_or(4);
@@ -3531,8 +3545,14 @@ pub struct LogoLayer {
     /// A texture (built-in or added to the project).
     pub image: Option<String>,
     pub mask: LogoMask,
-    /// Position of the anchor on the screen (0..1 from the left and from
-    /// the bottom).
+    /// Another logo layer (by name) this one is placed against; empty:
+    /// the screen.
+    pub attach_to: String,
+    /// The point of the screen (or of that logo) the position is measured
+    /// from. Bottom left (the default) makes the position absolute.
+    pub attach_point: LogoAnchor,
+    /// Position of the anchor from the attach point, as fractions of the
+    /// screen's width and height (to the right, up).
     pub x: Param,
     pub y: Param,
     pub anchor: LogoAnchor,
@@ -3682,6 +3702,8 @@ impl Default for LogoLayer {
             font_file: None,
             image: None,
             mask: LogoMask::Alpha,
+            attach_to: String::new(),
+            attach_point: LogoAnchor::BottomLeft,
             x: Param::new(0.5),
             y: Param::new(0.5),
             anchor: LogoAnchor::Centre,
@@ -4255,5 +4277,22 @@ mod env_tests {
         let plain = Environment::default().eval(&crate::EvalCtx::at(0.4));
         assert_eq!(plain.night, 0.0);
         assert_eq!(plain.fog_color, Environment::default().fog_color);
+    }
+}
+
+#[cfg(test)]
+mod logo_anchor_tests {
+    use super::LogoAnchor;
+
+    #[test]
+    fn anchors_round_trip_and_mirror() {
+        for a in LogoAnchor::ALL {
+            let [x, y] = a.point();
+            assert_eq!(LogoAnchor::at(x, y), a);
+            assert_eq!(a.opposite().opposite(), a);
+        }
+        assert_eq!(LogoAnchor::Bottom.opposite(), LogoAnchor::Top);
+        assert_eq!(LogoAnchor::TopLeft.opposite(), LogoAnchor::BottomRight);
+        assert_eq!(LogoAnchor::Centre.opposite(), LogoAnchor::Centre);
     }
 }

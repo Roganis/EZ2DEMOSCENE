@@ -623,8 +623,14 @@ bloom, god rays, feedback trails, scanlines and the colour grade apply to it, bu
   <tr><td>Made of</td><td><b>Text</b> (one or more lines, any built-in font or your own TTF/OTF) or an <b>Image</b>. For an image,
   <span class="ui">Shape from</span> picks which parts are the logo: its <b>Transparency</b>, its <b>Bright parts</b> (a logo on black) or its
   <b>Dark parts</b> (a logo on white). Empty margins are cut off, so the size is the logo's own.</td></tr>
-  <tr><td>Across, Up</td><td>Where the logo sits: 0 to 1 from the left edge and from the bottom. <span class="ui">Anchor</span> is the point of the
-  logo that sits there (Centre, Top left, Bottom right…) and the point it turns around.</td></tr>
+  <tr><td>Attach to, Place</td><td>Like the reference points in a photo editor. <span class="ui">Attach to</span> is <b>The screen</b> or another
+  logo layer. Click a square of the <span class="ui">Place</span> grid to snap there: on the screen the logo goes inside that corner, edge
+  or the middle, a small margin in; against another logo it goes outside that side (the bottom square puts it underneath, the top right
+  one at its top right corner, the middle one on top of it), with a small gap. An attached logo follows the other one wherever it moves,
+  turns or grows. If the other logo is renamed or deleted, the logo goes back to the screen.</td></tr>
+  <tr><td>Offset across, Offset up</td><td>Where the logo sits from that point, as fractions of the screen's width and height (right and up
+  are positive). <span class="ui">Measured from</span> is the point the offsets start from (on the screen, changing it keeps the logo in
+  place) and <span class="ui">Anchor</span> the point of the logo that sits there, which it also turns around.</td></tr>
   <tr><td>Size, Turn, Opacity</td><td>Height as a fraction of the screen height (the width follows), a turn in degrees, and transparency.</td></tr>
   <tr><td>Colours</td><td><b>Gradient</b> (top and bottom colour) or <b>Image colours</b> (the picture's own colours times a
   <span class="ui">Tint</span>; for text, the tint).</td></tr>
@@ -664,7 +670,7 @@ bloom, god rays, feedback trails, scanlines and the colour grade apply to it, bu
   <tr><td>Chromatic split</td><td>Red and blue pulled apart in a direction, like a misaligned CRT.</td></tr>
 </table>
 <p>Every number has <span class="ui">~</span> and 🎵: pulse the glow on the kick, sway the turn, slide the logo in. With the logo selected, the
-viewport shows one handle at its anchor: drag it with <span class="ui">Move</span> to place the logo, with <span class="ui">Scale</span> to size it
+viewport shows one handle at its anchor: drag it with <span class="ui">Move</span> to change the offsets, with <span class="ui">Scale</span> to size it
 and with <span class="ui">Rotate</span> to turn it (<kbd>Ctrl</kbd> snaps). The <b>Sunset Title</b> preset has a bevelled chrome title pulsing on
 every beat, with a glint on every bar, and a pixel tag in the corner. <b>Logo Morph</b> melts one word into another over Neon Arena,
 extruded, with stacked outlines and rings on every beat. <b>Copper Logo</b> has copper bars, a sway and a glitch on every beat over the

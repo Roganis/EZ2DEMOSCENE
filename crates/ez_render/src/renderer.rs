@@ -8,7 +8,7 @@ use ez_core::eval::{
 };
 use ez_core::palette::PaletteId;
 use ez_core::*;
-use glam::{Mat4, Vec3, Vec4};
+use glam::{Mat4, Vec2, Vec3, Vec4};
 use image::RgbaImage;
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -233,6 +233,62 @@ enum Cmd {
         /// The copies are in the compute pass's buffer.
         gpu: bool,
     },
+}
+
+/// Place logo `i` (see `Renderer::place_logos`): measured from the screen
+/// or from a point of the logo it is attached to, placed first. A missing
+/// target or a loop of attachments falls back to the screen.
+#[allow(clippy::too_many_arguments)]
+fn place_logo(
+    i: usize,
+    layers: &[Layer],
+    fits: &[Option<LogoFit>],
+    ctx: &EvalCtx,
+    w: f32,
+    h: f32,
+    out: &mut [Option<Vec2>],
+    state: &mut [u8],
+) {
+    if state[i] != 0 {
+        return;
+    }
+    state[i] = 1;
+    let (LayerKind::Logo(g), Some(_)) = (&layers[i].kind, &fits[i]) else {
+        state[i] = 2;
+        return;
+    };
+    let [px, py] = g.attach_point.point();
+    let screen = Vec2::new(px * w, py * h);
+    let target = (!g.attach_to.is_empty())
+        .then(|| {
+            layers.iter().enumerate().position(|(j, l)| {
+                j != i && l.enabled && l.name == g.attach_to && matches!(l.kind, LayerKind::Logo(_))
+            })
+        })
+        .flatten();
+    let origin = match target {
+        // Not while it is being placed itself (a loop).
+        Some(j) if state[j] != 1 => {
+            place_logo(j, layers, fits, ctx, w, h, out, state);
+            match (&layers[j].kind, out[j], &fits[j]) {
+                (LayerKind::Logo(t), Some(at), Some(fit)) => {
+                    let th = t.size.eval(ctx).max(0.0) * h;
+                    let size = Vec2::new(th * fit.aspect, th);
+                    let [ax, ay] = t.anchor.point();
+                    let local = (Vec2::new(px, py) - Vec2::new(ax, ay)) * size;
+                    let a = t.rotation.eval(ctx).to_radians();
+                    at + Vec2::new(
+                        local.x * a.cos() - local.y * a.sin(),
+                        local.x * a.sin() + local.y * a.cos(),
+                    )
+                }
+                _ => screen,
+            }
+        }
+        _ => screen,
+    };
+    out[i] = Some(origin + Vec2::new(g.x.eval(ctx) * w, g.y.eval(ctx) * h));
+    state[i] = 2;
 }
 
 /// Texture key of a logo's coarse far field.
@@ -2214,6 +2270,47 @@ impl Renderer {
         self.logo_bgs.insert(key.clone(), bg);
     }
 
+    /// Where every logo layer's anchor sits on a `w` × `h` picture (pixels
+    /// from the bottom left), following attachments to other logos. `None`
+    /// for other layers and logos with nothing to draw.
+    fn place_logos(
+        &mut self,
+        project: &Project,
+        layers: &[Layer],
+        ctx: &EvalCtx,
+        w: f32,
+        h: f32,
+    ) -> Vec<Option<Vec2>> {
+        let fits: Vec<Option<LogoFit>> = layers
+            .iter()
+            .map(|l| match &l.kind {
+                LayerKind::Logo(g) if l.enabled => self.logo_texture(project, g).map(|(_, f)| f),
+                _ => None,
+            })
+            .collect();
+        let mut out = vec![None; layers.len()];
+        let mut state = vec![0u8; layers.len()];
+        for i in 0..layers.len() {
+            place_logo(i, layers, &fits, ctx, w, h, &mut out, &mut state);
+        }
+        out
+    }
+
+    /// Where the logo layers' anchors are on a picture of `size`, as
+    /// fractions from the bottom left (for the viewport's handles).
+    pub fn logo_anchors(
+        &mut self,
+        project: &Project,
+        ctx: &EvalCtx,
+        size: [f32; 2],
+    ) -> Vec<Option<[f32; 2]>> {
+        let layers = project.scene_layers(ctx);
+        self.place_logos(project, &layers, ctx, size[0], size[1])
+            .into_iter()
+            .map(|p| p.map(|p| [p.x / size[0].max(1.0), p.y / size[1].max(1.0)]))
+            .collect()
+    }
+
     /// A built-in or project image, decoded (with its retro look).
     fn load_image(&self, project: &Project, name: &str) -> Result<RgbaImage, String> {
         if texgen::is_builtin(name) {
@@ -2822,6 +2919,8 @@ impl Renderer {
         };
         let env = project.environment.eval(ctx);
 
+        // Logos placed against the screen or each other.
+        let logo_places = self.place_logos(project, &layers, ctx, w as f32, h as f32);
         for (li, layer) in layers.iter().enumerate().filter(|(_, l)| l.enabled) {
             // Blinking layers can be hidden right now; flashing ones glow more.
             let Some(flash) = layer.blink.eval(ctx.beat_phase) else {
@@ -3359,9 +3458,10 @@ impl Renderer {
                     blk[1] = c4(g.color_bottom, g.outline.eval(ctx));
                     blk[2] = c4(g.outline_color, g.shadow.eval(ctx));
                     blk[3] = c4(g.tint, g.chrome.eval(ctx));
+                    let at = logo_places[li].unwrap_or_default();
                     blk[4] = [
-                        g.x.eval(ctx),
-                        g.y.eval(ctx),
+                        at.x / w as f32,
+                        at.y / h as f32,
                         g.size.eval(ctx).max(0.0),
                         g.rotation.eval(ctx).to_radians(),
                     ];
