@@ -41,6 +41,15 @@
 //          quad, extra margin across (logo heights)
 // E.v[13]: the other's texels per this one's, _, _, _
 // E.v[14], E.v[15]: the other's far field, as D.v[14], D.v[15]
+// E.v[16]: copper bars (0..1), bars per logo height, scroll (bars, 0..2), _
+// E.v[17]: first bar colour, _
+// E.v[18]: second bar colour, _
+// E.v[19]: rows sideways, columns up (logo heights), waves per logo
+//          height, wave position (0..1)
+// E.v[20]: glitch jump (logo heights), slices per logo height, share that
+//          jumps, seed (changes a whole number of times per loop)
+// E.v[21]: colour split (logo heights), direction (radians), a jumping
+//          slice's split (logo heights), _
 
 @group(2) @binding(0) var t_tex: texture_2d<f32>;
 // The logo it morphs into (this one when none).
@@ -51,7 +60,12 @@
 // Coarse far fields of both (see logo.rs).
 @group(2) @binding(4) var t_far: texture_2d<f32>;
 @group(2) @binding(5) var t_morph_far: texture_2d<f32>;
-@group(3) @binding(0) var<uniform> E: Draw;
+@group(3) @binding(0) var<uniform> E: Effects;
+
+// Two blocks of effect settings.
+struct Effects {
+    v: array<vec4<f32>, 32>,
+};
 
 // Height of the bevel (0 at the outline, 1 on top) for a field value.
 fn bevel_height(d: f32) -> f32 {
@@ -192,33 +206,29 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> LOut {
     return out;
 }
 
-@fragment
-fn fs_main(in: LOut) -> @location(0) vec4<f32> {
+// The whole logo at `uv` (texture coordinates) and `box` (the shape's box).
+fn shade(uv: vec2<f32>, box: vec2<f32>, lod: f32) -> vec4<f32> {
     let tsz = max(D.v[7].xy, vec2<f32>(1.0));
     let texel = 1.0 / tsz;
     let spread = D.v[6].z;
-    // Mip level from the screen footprint (every sample below uses it).
-    let fx = dpdx(in.uv * tsz);
-    let fy = dpdy(in.uv * tsz);
-    let lod = max(0.5 * log2(max(max(dot(fx, fx), dot(fy, fy)), 1e-8)), 0.0);
     // Neighbours at the same distances (in spreads) as the text's.
     let g = texel * spread * 0.1875;
     let so = texel * spread * vec2<f32>(0.375, 0.5);
-    let s = shape(in.uv, lod);
+    let s = shape(uv, lod);
     let d = s.a;
-    let d_r = shape(in.uv + vec2<f32>(g.x, 0.0), lod).a;
-    let d_l = shape(in.uv - vec2<f32>(g.x, 0.0), lod).a;
-    let d_u = shape(in.uv - vec2<f32>(0.0, g.y), lod).a;
-    let d_d = shape(in.uv + vec2<f32>(0.0, g.y), lod).a;
+    let d_r = shape(uv + vec2<f32>(g.x, 0.0), lod).a;
+    let d_l = shape(uv - vec2<f32>(g.x, 0.0), lod).a;
+    let d_u = shape(uv - vec2<f32>(0.0, g.y), lod).a;
+    let d_d = shape(uv + vec2<f32>(0.0, g.y), lod).a;
     let dx = d_r - d_l;
     let dy = d_u - d_d;
-    let ds = shape(in.uv - so, lod).a;
+    let ds = shape(uv - so, lod).a;
     // The bevel's slope from close neighbours (a texel away), so thin
     // strokes keep their shape.
-    let b_r = shape(in.uv + vec2<f32>(texel.x, 0.0), lod).a;
-    let b_l = shape(in.uv - vec2<f32>(texel.x, 0.0), lod).a;
-    let b_u = shape(in.uv - vec2<f32>(0.0, texel.y), lod).a;
-    let b_d = shape(in.uv + vec2<f32>(0.0, texel.y), lod).a;
+    let b_r = shape(uv + vec2<f32>(texel.x, 0.0), lod).a;
+    let b_l = shape(uv - vec2<f32>(texel.x, 0.0), lod).a;
+    let b_u = shape(uv - vec2<f32>(0.0, texel.y), lod).a;
+    let b_d = shape(uv + vec2<f32>(0.0, texel.y), lod).a;
     let w = max(fwidth(d) * 0.75, 1e-4);
     // Distance outside the outline in logo heights, and where we are
     // (logo heights from the middle).
@@ -226,12 +236,23 @@ fn fs_main(in: LOut) -> @location(0) vec4<f32> {
     let dist = (0.5 - d) * ka;
     let fd = max(fwidth(dist), 1e-5);
     let aspect = D.v[5].z;
-    let pc = (in.box - 0.5) * vec2<f32>(aspect, 1.0);
+    let pc = (box - 0.5) * vec2<f32>(aspect, 1.0);
     let mh = max((deepest() - 0.5) * ka, 1e-3);
 
     var col = s.rgb * D.v[3].rgb;
     if (D.v[6].w > 0.5) {
-        col = mix(D.v[1].rgb, D.v[0].rgb, clamp(in.box.y, 0.0, 1.0));
+        col = mix(D.v[1].rgb, D.v[0].rgb, clamp(box.y, 0.0, 1.0));
+    }
+    // Copper bars: alternating colours, bright in the middle of each bar.
+    let cu = clamp(E.v[16].x, 0.0, 1.0);
+    if (cu > 0.0) {
+        let pos = box.y * E.v[16].y + E.v[16].z;
+        let f = fract(pos);
+        let even = fract(floor(pos) * 0.5) < 0.25;
+        let prof = sin(PI * f);
+        let bar = select(E.v[18].rgb, E.v[17].rgb, even) * (0.25 + 0.95 * prof)
+            + vec3<f32>(pow(prof, 12.0) * 0.6);
+        col = mix(col, bar, cu);
     }
     let a = D.v[4].w;
     // The bevel's surface normal on the screen (x right, y up, z out):
@@ -324,7 +345,7 @@ fn fs_main(in: LOut) -> @location(0) vec4<f32> {
         let step_uv = vec2<f32>(cos(ea) * texel.x, -sin(ea) * texel.y) * ch * len / 24.0;
         for (var i = 1; i <= 24; i = i + 1) {
             let t = f32(i) / 24.0;
-            let e = shape(in.uv - step_uv * f32(i), lod).a;
+            let e = shape(uv - step_uv * f32(i), lod).a;
             let c = smoothstep(0.5 - w, 0.5 + w, e) * (1.0 - ext.a);
             ext = ext + vec4<f32>(mix(E.v[6].rgb, E.v[6].rgb * 0.3, t), 1.0) * c;
         }
@@ -381,4 +402,48 @@ fn fs_main(in: LOut) -> @location(0) vec4<f32> {
         shown = clamp((r * (1.0 + soft) - t) / soft, 0.0, 1.0);
     }
     return outc * shown * clamp(D.v[5].w, 0.0, 1.0);
+}
+
+@fragment
+fn fs_main(in: LOut) -> @location(0) vec4<f32> {
+    let tsz = max(D.v[7].xy, vec2<f32>(1.0));
+    let aspect = max(D.v[5].z, 1e-3);
+    // Logo heights to texture coordinates and to the box.
+    let ch = tsz.y / (1.0 + 2.0 * D.v[6].y);
+    let h_uv = vec2<f32>(ch / tsz.x, -ch / tsz.y);
+    let h_box = vec2<f32>(1.0 / aspect, 1.0);
+    // Mip level from the screen footprint (every sample uses it).
+    let fx = dpdx(in.uv * tsz);
+    let fy = dpdy(in.uv * tsz);
+    let lod = max(0.5 * log2(max(max(dot(fx, fx), dot(fy, fy)), 1e-8)), 0.0);
+    // How far this pixel's picture is moved (logo heights).
+    var off = vec2<f32>(0.0);
+    let waves = E.v[19].z;
+    let wpos = E.v[19].w;
+    off.x = off.x + E.v[19].x * sin(TAU * (in.box.y * waves + wpos));
+    off.y = off.y + E.v[19].y * sin(TAU * (in.box.x * aspect * waves + wpos));
+    // Raster glitch: some slices jump sideways, split in colour.
+    var split = 0.0;
+    let jump = E.v[20].x;
+    if (jump > 0.0) {
+        let slice = bitcast<u32>(i32(floor(in.box.y * max(E.v[20].y, 0.1))));
+        let seed = u32(E.v[20].w);
+        if (hash2u(slice * 3u + 1u, seed) < E.v[20].z) {
+            let k = hash2u(slice * 3u + 2u, seed) * 2.0 - 1.0;
+            off.x = off.x + k * jump;
+            split = E.v[21].z * sign(k);
+        }
+    }
+    let uv = in.uv - off * h_uv;
+    let box = in.box - off * h_box;
+    if (E.v[21].x > 0.0 || jump > 0.0) {
+        // Chromatic split: red one way, blue the other.
+        let ca = E.v[21].y;
+        let c = vec2<f32>(cos(ca), sin(ca)) * (E.v[21].x + split);
+        let r = shade(uv - c * h_uv, box - c * h_box, lod);
+        let g = shade(uv, box, lod);
+        let b = shade(uv + c * h_uv, box + c * h_box, lod);
+        return vec4<f32>(r.r, g.g, b.b, (r.a + g.a + b.a) / 3.0);
+    }
+    return shade(uv, box, lod);
 }

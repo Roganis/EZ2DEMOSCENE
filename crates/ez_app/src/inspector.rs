@@ -3377,6 +3377,7 @@ fn logo_ui(ui: &mut Ui, g: &mut LogoLayer, textures: &[UserTexture], lref: Layer
         },
     );
     logo_effects_ui(ui, g, textures, lref);
+    logo_raster_ui(ui, g);
 }
 
 /// Distance-field effects of a logo (distances in logo heights).
@@ -3569,6 +3570,122 @@ fn logo_effects_ui(ui: &mut Ui, g: &mut LogoLayer, textures: &[UserTexture], lre
             }
         }
     });
+}
+
+/// Rasters and distortion of a logo (distances in logo heights).
+fn logo_raster_ui(ui: &mut Ui, g: &mut LogoLayer) {
+    let on = |p: &Param| p.is_animated() || p.base > 0.0;
+    section(ui, "Copper bars", on(&g.copper), |ui| {
+        param(
+            ui,
+            "Copper",
+            "Scrolling colour bars through the letters (0 = none, 1 = all bars)",
+            &mut g.copper,
+            0.0..=1.0,
+        );
+        slider(
+            ui,
+            "Bars",
+            "Per logo height",
+            &mut g.copper_bars,
+            0.5..=16.0,
+        );
+        drag_i(
+            ui,
+            "Scrolls / loop",
+            "Pairs of bars passing per loop (negative = upward)",
+            &mut g.copper_cycles,
+            -32..=32,
+        );
+        color(ui, "Bar colour 1", "", &mut g.copper_a);
+        color(ui, "Bar colour 2", "", &mut g.copper_b);
+    });
+    section(
+        ui,
+        "Wobble & glitch",
+        on(&g.wobble_x) || on(&g.wobble_y) || on(&g.glitch) || on(&g.chroma),
+        |ui| {
+            param(
+                ui,
+                "Sway",
+                "Rows swaying sideways, in logo heights",
+                &mut g.wobble_x,
+                0.0..=0.5,
+            );
+            param(
+                ui,
+                "Bob",
+                "Columns bobbing up and down, in logo heights",
+                &mut g.wobble_y,
+                0.0..=0.5,
+            );
+            if on(&g.wobble_x) || on(&g.wobble_y) {
+                slider(
+                    ui,
+                    "Waves",
+                    "Per logo height",
+                    &mut g.wobble_waves,
+                    0.1..=8.0,
+                );
+                drag_i(
+                    ui,
+                    "Rolls / loop",
+                    "Times the waves roll past per loop",
+                    &mut g.wobble_cycles,
+                    -32..=32,
+                );
+            }
+            ui.separator();
+            param(
+                ui,
+                "Glitch",
+                "Slices jumping sideways (the largest jump, in logo heights). Try 🎵 on the kick",
+                &mut g.glitch,
+                0.0..=0.5,
+            );
+            if on(&g.glitch) {
+                slider(
+                    ui,
+                    "Slices",
+                    "Per logo height",
+                    &mut g.glitch_slices,
+                    1.0..=60.0,
+                );
+                slider(ui, "Share jumping", "", &mut g.glitch_chance, 0.0..=1.0);
+                drag_u(
+                    ui,
+                    "New jumps / loop",
+                    "16 = every beat of a 16-beat loop",
+                    &mut g.glitch_per_loop,
+                    1..=256,
+                );
+                slider(
+                    ui,
+                    "Colour split",
+                    "Of a jumping slice, in logo heights",
+                    &mut g.glitch_split,
+                    0.0..=0.2,
+                );
+            }
+            ui.separator();
+            param(
+                ui,
+                "Chromatic split",
+                "Red and blue pulled apart, in logo heights",
+                &mut g.chroma,
+                0.0..=0.2,
+            );
+            if on(&g.chroma) {
+                slider(
+                    ui,
+                    "Direction",
+                    "Degrees red moves: 0 = to the right",
+                    &mut g.chroma_angle,
+                    -180.0..=180.0,
+                );
+            }
+        },
+    );
 }
 
 /// A material sphere for a lit logo: built-in or one of your images.

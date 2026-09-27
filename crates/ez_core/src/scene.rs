@@ -3639,6 +3639,38 @@ pub struct LogoLayer {
     pub morph_source: LogoSource,
     pub morph_text: String,
     pub morph_image: Option<String>,
+    // Rasters and distortion.
+    /// Copper bars scrolling through the letters (0 = none, 1 = all bars).
+    pub copper: Param,
+    /// Bars per logo height.
+    pub copper_bars: f32,
+    /// Pairs of bars scrolling past per loop (negative = upward).
+    pub copper_cycles: i32,
+    /// The two alternating bar colours.
+    pub copper_a: Rgb,
+    pub copper_b: Rgb,
+    /// Rows swaying sideways (logo heights).
+    pub wobble_x: Param,
+    /// Columns bobbing up and down (logo heights).
+    pub wobble_y: Param,
+    /// Waves per logo height.
+    pub wobble_waves: f32,
+    /// Times the waves roll past per loop.
+    pub wobble_cycles: i32,
+    /// Horizontal slices jumping sideways (largest jump, logo heights).
+    pub glitch: Param,
+    /// Slices per logo height.
+    pub glitch_slices: f32,
+    /// Share of the slices that jump.
+    pub glitch_chance: f32,
+    /// New jumps per loop (16 = every beat of a 16-beat loop).
+    pub glitch_per_loop: u32,
+    /// Colour split of a jumping slice (logo heights).
+    pub glitch_split: f32,
+    /// Red and blue pulled apart (logo heights).
+    pub chroma: Param,
+    /// Direction red moves, in degrees.
+    pub chroma_angle: f32,
 }
 
 impl Default for LogoLayer {
@@ -3711,6 +3743,22 @@ impl Default for LogoLayer {
             morph_source: LogoSource::Text,
             morph_text: "LOOP".into(),
             morph_image: None,
+            copper: Param::new(0.0),
+            copper_bars: 3.0,
+            copper_cycles: 1,
+            copper_a: hex(0xff3040),
+            copper_b: hex(0x3060ff),
+            wobble_x: Param::new(0.0),
+            wobble_y: Param::new(0.0),
+            wobble_waves: 1.5,
+            wobble_cycles: 1,
+            glitch: Param::new(0.0),
+            glitch_slices: 12.0,
+            glitch_chance: 0.3,
+            glitch_per_loop: 16,
+            glitch_split: 0.02,
+            chroma: Param::new(0.0),
+            chroma_angle: 0.0,
         }
     }
 }

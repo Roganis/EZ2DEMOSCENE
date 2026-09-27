@@ -694,6 +694,8 @@ pub fn tint_layer(l: &mut Layer, hue: f32, glow: f32) {
             g.stack_color_a = hue_rotate(g.stack_color_a, hue);
             g.stack_color_b = hue_rotate(g.stack_color_b, hue);
             g.extrude_color = hue_rotate(g.extrude_color, hue);
+            g.copper_a = hue_rotate(g.copper_a, hue);
+            g.copper_b = hue_rotate(g.copper_b, hue);
             g.glow.base *= glow;
             g.glow.amp *= glow;
         }

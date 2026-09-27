@@ -506,7 +506,31 @@
         "morph": 0.0,
         "morph_source": "Text",
         "morph_text": "LOOP",
-        "morph_image": null
+        "morph_image": null,
+        "copper": 0.0,
+        "copper_bars": 3.0,
+        "copper_cycles": 1,
+        "copper_a": [
+          1.0,
+          0.029556833,
+          0.051269468
+        ],
+        "copper_b": [
+          0.029556833,
+          0.11697067,
+          1.0
+        ],
+        "wobble_x": 0.0,
+        "wobble_y": 0.0,
+        "wobble_waves": 1.5,
+        "wobble_cycles": 1,
+        "glitch": 0.0,
+        "glitch_slices": 12.0,
+        "glitch_chance": 0.3,
+        "glitch_per_loop": 16,
+        "glitch_split": 0.02,
+        "chroma": 0.0,
+        "chroma_angle": 0.0
       }
     },
     {
@@ -651,7 +675,31 @@
         "morph": 0.0,
         "morph_source": "Text",
         "morph_text": "LOOP",
-        "morph_image": null
+        "morph_image": null,
+        "copper": 0.0,
+        "copper_bars": 3.0,
+        "copper_cycles": 1,
+        "copper_a": [
+          1.0,
+          0.029556833,
+          0.051269468
+        ],
+        "copper_b": [
+          0.029556833,
+          0.11697067,
+          1.0
+        ],
+        "wobble_x": 0.0,
+        "wobble_y": 0.0,
+        "wobble_waves": 1.5,
+        "wobble_cycles": 1,
+        "glitch": 0.0,
+        "glitch_slices": 12.0,
+        "glitch_chance": 0.3,
+        "glitch_per_loop": 16,
+        "glitch_split": 0.02,
+        "chroma": 0.0,
+        "chroma_angle": 0.0
       }
     }
   ],

@@ -596,7 +596,7 @@ GPU every effect shows, animates and loops, every reveal shows nothing
 at 0 and the whole logo at 1, and a full morph is the other logo.
 Preset: Logo Morph.
 
-### ☐ 9.4 Rasters & distortion
+### ☑ 9.4 Rasters & distortion
 **How.**
 - **Copper bars:** horizontal colour bands scrolling through the logo only
   (masked by the SDF), a whole number of passes per loop.
@@ -605,6 +605,21 @@ Preset: Logo Morph.
 - **Raster glitch:** hashed horizontal slices shifted and colour-split,
   reseeded per beat.
 - **Chromatic split:** R, G and B sampled at small offsets.
+
+**Done.** The logo's fragment shader became `shade(uv, box, lod)`; the
+entry point moves the picture first (wobble: a sine of the row for the
+sideways sway and of the column for the bob; glitch: slices hashed with
+a seed that steps a whole number of times per loop, so the jumps repeat
+every loop), then shades once, or three times for a colour split,
+keeping red from one, green from the middle and blue from the other
+(with the average coverage). A jumping slice adds its own split. Mip
+levels come from the unmoved coordinates, so slice edges don't blur.
+Copper bars replace the colour in the letters before lighting (two
+colours alternating, so the scroll is in pairs of bars per loop to stay
+seamless). The settings outgrew the second block: logo effects are now
+bound as 512 bytes (two slots) of the draw buffer. The quad grows by
+the distortions' reach. Tested: every effect shows, moves and loops.
+Preset: Copper Logo.
 
 ### ☐ 9.5 Retro looks
 **How.**

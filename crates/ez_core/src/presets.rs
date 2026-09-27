@@ -165,6 +165,11 @@ pub fn all() -> Vec<Preset> {
             project: logo_morph(),
         },
         Preset {
+            name: "Copper Logo",
+            description: "Retro Tunnel with an Amiga logo: copper bars scrolling through the letters, a sine sway, and slices glitching on the kick.",
+            project: copper_logo(),
+        },
+        Preset {
             name: "Empty",
             description: "A blank stage with a floor and a sky.",
             project: empty(),
@@ -845,6 +850,38 @@ pub fn logo_morph() -> Project {
             contour_spacing: 0.1,
             contour_reach: 0.3,
             contour_color: hex(0x40e0ff),
+            ..Default::default()
+        }),
+    ));
+    p
+}
+
+/// Rasters on a logo over the Retro Tunnel: copper bars, a sine sway and
+/// a raster glitch on every beat.
+pub fn copper_logo() -> Project {
+    let mut p = retro_tunnel();
+    p.name = "Copper Logo".into();
+    p.layers.push(Layer::new(
+        "Logo",
+        LayerKind::Logo(LogoLayer {
+            text: "AMIGA".into(),
+            font: TextFont::Pixel,
+            y: Param::new(0.62),
+            size: Param::new(0.28),
+            outline: Param::new(0.3),
+            outline_color: hex(0x000000),
+            shadow: Param::new(1.0),
+            copper: Param::new(1.0),
+            copper_bars: 4.0,
+            copper_cycles: 2,
+            copper_a: hex(0xff4020),
+            copper_b: hex(0x20c0ff),
+            wobble_x: Param::new(0.05),
+            wobble_waves: 1.0,
+            wobble_cycles: 2,
+            glitch: Param::new(0.0).osc(Wave::ExpOut, 0.12, 16),
+            glitch_chance: 0.35,
+            glitch_split: 0.03,
             ..Default::default()
         }),
     ));

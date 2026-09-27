@@ -28,6 +28,8 @@ pub const OUTPUT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSr
 pub const DISPLAY_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 const DRAW_SLOT: u64 = 256;
+/// A logo's effect settings: two draw slots read as one.
+const LOGO_FX_SIZE: u64 = 2 * DRAW_SLOT;
 const POST_SLOT: u64 = 512;
 /// Distance to the camera for depth of field.
 const DOF_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R16Float;
@@ -787,6 +789,9 @@ pub struct Renderer {
     fonts: HashMap<String, std::sync::Arc<crate::text::FontAtlas>>,
     logo_pipe: wgpu::RenderPipeline,
     bgl_logo: wgpu::BindGroupLayout,
+    /// Logo effect settings (two slots of the draw buffer).
+    bgl_logo_fx: wgpu::BindGroupLayout,
+    logo_fx_bg: wgpu::BindGroup,
     /// Logo texture bind groups by (logo, morph target, material sphere).
     logo_bgs: HashMap<(String, String, String), wgpu::BindGroup>,
     /// Baked logos by texture key, with the frame they were last drawn
@@ -1225,13 +1230,18 @@ impl Renderer {
                 tex_entry(5),
             ],
         });
+        let bgl_logo_fx = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("logo effects"),
+            entries: &[uniform_entry(0, true, LOGO_FX_SIZE)],
+        });
+        let logo_fx_bg = Self::make_draw_bg_sized(device, &bgl_logo_fx, &draw_buf, LOGO_FX_SIZE);
         let logo_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("logo"),
             bind_group_layouts: &[
                 Some(&bgl_globals),
                 Some(&bgl_draw),
                 Some(&bgl_logo),
-                Some(&bgl_draw),
+                Some(&bgl_logo_fx),
             ],
             immediate_size: 0,
         });
@@ -1838,6 +1848,8 @@ impl Renderer {
             compose_buf,
             fonts: HashMap::new(),
             logo_pipe,
+            logo_fx_bg,
+            bgl_logo_fx,
             bgl_logo,
             logo_bgs: HashMap::new(),
             logos: HashMap::new(),
@@ -1870,6 +1882,16 @@ impl Renderer {
         layout: &wgpu::BindGroupLayout,
         buf: &wgpu::Buffer,
     ) -> wgpu::BindGroup {
+        Self::make_draw_bg_sized(device, layout, buf, DRAW_SLOT)
+    }
+
+    /// The draw buffer seen `size` bytes at a time (several slots).
+    fn make_draw_bg_sized(
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+        buf: &wgpu::Buffer,
+        size: u64,
+    ) -> wgpu::BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("draw"),
             layout,
@@ -1878,7 +1900,7 @@ impl Renderer {
                 resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                     buffer: buf,
                     offset: 0,
-                    size: wgpu::BufferSize::new(DRAW_SLOT),
+                    size: wgpu::BufferSize::new(size),
                 }),
             }],
         })
@@ -3464,6 +3486,12 @@ impl Renderer {
                         margin = margin.max(g.stack.min(16) as f32 * (w + g.stack_gap.max(0.0)));
                     }
                     margin = margin.max(g.extrude.base.abs() + g.extrude.amp.abs());
+                    // Distortion moves the picture around.
+                    let reach = |p: &Param| p.base.abs() + p.amp.abs();
+                    margin += reach(&g.wobble_x).max(reach(&g.wobble_y))
+                        + reach(&g.glitch)
+                        + reach(&g.chroma)
+                        + g.glitch_split.abs();
                     let wider = if morph_t > 0.0 {
                         (other.aspect - fit.aspect).max(0.0)
                     } else {
@@ -3483,6 +3511,35 @@ impl Renderer {
                     ];
                     e[14] = [other.far[0], other.far[1], other.far[2], 0.0];
                     e[15] = [other.far[3], other.far[4], 0.0, 0.0];
+                    // Rasters and distortion.
+                    let mut e2: Block = Zeroable::zeroed();
+                    e2[0] = [
+                        g.copper.eval(ctx).clamp(0.0, 1.0),
+                        g.copper_bars.max(0.1),
+                        (ctx.phase * g.copper_cycles as f32 * 2.0).rem_euclid(2.0),
+                        0.0,
+                    ];
+                    e2[1] = c4(g.copper_a, 0.0);
+                    e2[2] = c4(g.copper_b, 0.0);
+                    e2[3] = [
+                        g.wobble_x.eval(ctx),
+                        g.wobble_y.eval(ctx),
+                        g.wobble_waves,
+                        (ctx.phase * g.wobble_cycles as f32).rem_euclid(1.0),
+                    ];
+                    let per_loop = g.glitch_per_loop.max(1);
+                    e2[4] = [
+                        g.glitch.eval(ctx).max(0.0),
+                        g.glitch_slices.max(0.1),
+                        g.glitch_chance.clamp(0.0, 1.0),
+                        (((ctx.phase.rem_euclid(1.0) * per_loop as f32) as u32) % per_loop) as f32,
+                    ];
+                    e2[5] = [
+                        g.chroma.eval(ctx).max(0.0),
+                        g.chroma_angle.to_radians(),
+                        g.glitch_split,
+                        0.0,
+                    ];
                     let key = (tex, morph, matcap);
                     self.logo_bind_group(&key);
                     let (tex, morph, matcap) = key;
@@ -3494,6 +3551,7 @@ impl Renderer {
                     });
                     blocks.push(blk);
                     blocks.push(e);
+                    blocks.push(e2);
                 }
                 LayerKind::Arcs(arc) => {
                     let lm = layer_matrix(&layer.transform, ctx);
@@ -3957,6 +4015,12 @@ impl Renderer {
             self.draw_cap = (blocks.len() as u64).next_power_of_two();
             self.draw_buf = Self::make_draw_buf(&self.device, self.draw_cap);
             self.draw_bg = Self::make_draw_bg(&self.device, &self.bgl_draw, &self.draw_buf);
+            self.logo_fx_bg = Self::make_draw_bg_sized(
+                &self.device,
+                &self.bgl_logo_fx,
+                &self.draw_buf,
+                LOGO_FX_SIZE,
+            );
         }
         self.queue
             .write_buffer(&self.draw_buf, 0, bytemuck::cast_slice(&blocks));
@@ -4443,7 +4507,7 @@ impl Renderer {
                     let key = (tex.clone(), morph.clone(), matcap.clone());
                     pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
                     pass.set_bind_group(2, &self.logo_bgs[&key], &[]);
-                    pass.set_bind_group(3, &self.draw_bg, &[(slot + 1) * DRAW_SLOT as u32]);
+                    pass.set_bind_group(3, &self.logo_fx_bg, &[(slot + 1) * DRAW_SLOT as u32]);
                     pass.draw(0..6, 0..1);
                 }
             }

@@ -1744,3 +1744,87 @@ fn logo_field_effects_show_and_loop() {
     eprintln!("morph to OK vs OK: {diff:.3}");
     assert!(diff < 0.3, "a full morph isn't the other logo");
 }
+
+/// Rasters and distortion on logos: copper bars, wobble, raster glitch
+/// and colour split show, move and loop.
+#[test]
+fn logo_rasters_and_distortion_loop() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let target = r.create_target(320, 180);
+    let mut plain = presets::empty();
+    plain.post.grade.grain = Param::new(0.0);
+    plain.post.bloom.enabled = false;
+    plain
+        .layers
+        .retain(|l| !matches!(l.kind, LayerKind::Mesh(_)));
+    let at = |p: &Project, phase: f32| EvalCtx::new(&p.timing, phase, None);
+    let with = |g: LogoLayer| {
+        let mut p = plain.clone();
+        p.layers.push(Layer::new("Logo", LayerKind::Logo(g)));
+        p
+    };
+    let base = LogoLayer {
+        text: "RASTER".into(),
+        size: Param::new(0.3),
+        ..Default::default()
+    };
+    let mut render = |p: &Project, phase: f32| r.render_image(p, &at(p, phase), &target);
+    let logo = render(&with(base.clone()), 0.3);
+    let cases: Vec<(&str, LogoLayer)> = vec![
+        (
+            "copper",
+            LogoLayer {
+                copper: Param::new(1.0),
+                copper_cycles: 2,
+                ..base.clone()
+            },
+        ),
+        (
+            "wobble",
+            LogoLayer {
+                wobble_x: Param::new(0.08),
+                wobble_y: Param::new(0.05),
+                wobble_cycles: 2,
+                ..base.clone()
+            },
+        ),
+        (
+            "glitch",
+            LogoLayer {
+                glitch: Param::new(0.15),
+                glitch_chance: 0.5,
+                ..base.clone()
+            },
+        ),
+        (
+            "chroma",
+            LogoLayer {
+                chroma: Param::new(0.03).osc(Wave::Sine, 0.02, 1),
+                ..base.clone()
+            },
+        ),
+    ];
+    for (name, g) in cases {
+        let p = with(g);
+        let a = render(&p, 0.0);
+        let b = render(&p, 1.0);
+        let mid = render(&p, 0.3);
+        mid.save(snapshot_dir().join(format!("logo_raster_{name}.png")))
+            .unwrap();
+        let seam = mean_abs_diff(a.as_raw(), b.as_raw());
+        let moves = mean_abs_diff(a.as_raw(), mid.as_raw());
+        let changes = mean_abs_diff(mid.as_raw(), logo.as_raw());
+        eprintln!("{name}: seam {seam:.3}, moves {moves:.2}, changes the logo {changes:.2}");
+        assert!(seam < 0.6, "{name} doesn't loop");
+        assert!(moves > 0.2, "{name} doesn't move");
+        assert!(changes > 0.3, "{name} doesn't show");
+    }
+}
