@@ -28,6 +28,8 @@ pub enum TexSlot {
     Logo,
     /// A logo's material sphere.
     Matcap,
+    /// The image a logo morphs into.
+    MorphImage,
 }
 
 /// What a picked file is for.

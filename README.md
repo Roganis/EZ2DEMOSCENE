@@ -71,7 +71,10 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     image, at any size. Bevels (round, chiselled, stepped, pillow) lit by
     a light that can circle or follow the beat, material spheres
     (matcaps: gold, chrome, plastic, candy or your own) and a glint
-    sweeping across a whole number of times per loop.
+    sweeping across a whole number of times per loop. Distance-field
+    effects: rings rippling out from the edges, stacked outlines, a fake
+    extrusion, dissolving with a burning edge, reveals (grow, edges first,
+    wipe, circle) and morphing into another text or image.
   - **Electric arcs**: tesla lightning between two points, to the nearest
     copies of a shape (jumping as they move) or copy to copy, crawling and
     re-striking a whole number of times per loop.

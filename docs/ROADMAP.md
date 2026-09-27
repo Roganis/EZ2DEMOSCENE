@@ -546,7 +546,7 @@ the light, a matcap changes them, a glint with a circling light loops and
 moves. Sunset Title's title got a round bevel and a glint on every bar;
 + Add → Logo has a Gold logo.
 
-### ☐ 9.3 Distance-field effects
+### ☑ 9.3 Distance-field effects
 **How.**
 - **Contour lines / neon tubes:** `fract(d * N - phase * cycles)`, rings
   that pulse outward from the edges.
@@ -559,6 +559,42 @@ moves. Sunset Title's title got a round bevel and a glint on every bar;
   the edge inward), linear or radial.
 - **Morph** between two logos by mixing their fields (also as a scene
   transition).
+
+**Done, but the morph is not a scene transition.** Distances are in logo
+heights throughout. Effects reaching past the baked texture needed more
+field than its padding: the bake now adds a coarse **far field** (the
+same distance transform on cells of 2+ texels, about 300k at most)
+reaching 2.2 logo heights around the shape; the shader uses the fine
+field inside the texture and blends into the far one over the outer part
+of the padding, and the quad grows by each effect's reach. (Extending
+the fine field from its edge with its gradient left bands where the
+gradient turns.) Logos now bind their texture, the morph target, the
+matcap and both far fields in one group, which frees a second block of
+settings.
+- **Rings:** `fract(distance / spacing - fract(phase × rings))`,
+  antialiased with the distance's screen derivative, fading with the
+  reach and to nothing before the quad's edge; optionally inside too.
+- **Stacked outlines:** up to 16 bands outward from the edge, colours
+  from inner to outer.
+- **Extrusion:** the field sampled 24 times back along a direction,
+  nearest in front, darkening with depth.
+- **Dissolve:** two octaves of value noise mixed with the depth inside
+  the letters (0 patches, 1 from the edges), against the amount, with an
+  HDR burn front.
+- **Reveals:** Grow sinks the field by the unrevealed part of the
+  deepest point (so outlines, glow and every effect grow with it);
+  Edges first hides what is deeper than the revealed depth; Wipe and
+  Circle are soft masks over the logo and its effects' margin.
+- **Morph:** into another text (same font) or image, baked like the logo
+  and placed on the same anchor and height; the two distances are mixed
+  in logo heights, colours with them. A full morph matches the other
+  logo drawn alone. As a scene transition it would need the other
+  scene's logo; instead the morph is a Param, so a ramp over a song
+  section does the same job.
+Tested: the far field against the analytic distance of a disc; on the
+GPU every effect shows, animates and loops, every reveal shows nothing
+at 0 and the whole logo at 1, and a full morph is the other logo.
+Preset: Logo Morph.
 
 ### ☐ 9.4 Rasters & distortion
 **How.**

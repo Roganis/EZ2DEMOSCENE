@@ -3376,6 +3376,199 @@ fn logo_ui(ui: &mut Ui, g: &mut LogoLayer, textures: &[UserTexture], lref: Layer
             color(ui, "Colour", "", &mut g.glint_color);
         },
     );
+    logo_effects_ui(ui, g, textures, lref);
+}
+
+/// Distance-field effects of a logo (distances in logo heights).
+fn logo_effects_ui(ui: &mut Ui, g: &mut LogoLayer, textures: &[UserTexture], lref: LayerRef) {
+    let on = |p: &Param| p.is_animated() || p.base > 0.0;
+    section(
+        ui,
+        "Rings & outlines",
+        on(&g.contours) || g.stack > 0,
+        |ui| {
+            param(
+                ui,
+                "Rings",
+                "Brightness of rings rippling out from the edges",
+                &mut g.contours,
+                0.0..=4.0,
+            );
+            if on(&g.contours) {
+                slider(
+                    ui,
+                    "Spacing",
+                    "Between rings, in logo heights",
+                    &mut g.contour_spacing,
+                    0.01..=0.5,
+                );
+                drag_i(
+                    ui,
+                    "Rings / loop",
+                    "Rings passing per loop (negative = inward)",
+                    &mut g.contour_cycles,
+                    -32..=32,
+                );
+                slider(
+                    ui,
+                    "Reach",
+                    "How far out they fade, in logo heights",
+                    &mut g.contour_reach,
+                    0.05..=1.0,
+                );
+                slider(
+                    ui,
+                    "Line width",
+                    "Fraction of the spacing",
+                    &mut g.contour_width,
+                    0.02..=1.0,
+                );
+                color(ui, "Ring colour", "", &mut g.contour_color);
+                ui.checkbox(&mut g.contour_inside, "Inside the letters too");
+            }
+            ui.separator();
+            drag_u(
+                ui,
+                "Stacked outlines",
+                "Solid outlines around the logo, one outside the other",
+                &mut g.stack,
+                0..=16,
+            );
+            if g.stack > 0 {
+                param(
+                    ui,
+                    "Width",
+                    "Of each outline, in logo heights",
+                    &mut g.stack_width,
+                    0.0..=0.2,
+                );
+                slider(
+                    ui,
+                    "Gap",
+                    "Between outlines, in logo heights",
+                    &mut g.stack_gap,
+                    0.0..=0.2,
+                );
+                color(ui, "Inner colour", "", &mut g.stack_color_a);
+                color(ui, "Outer colour", "", &mut g.stack_color_b);
+            }
+        },
+    );
+    section(ui, "Extrude", on(&g.extrude), |ui| {
+        param(
+            ui,
+            "Depth",
+            "Fake 3D: the logo repeated behind itself, in logo heights",
+            &mut g.extrude,
+            0.0..=1.0,
+        );
+        slider(
+            ui,
+            "Direction",
+            "Degrees: 0 = to the right, -90 = down",
+            &mut g.extrude_angle,
+            -180.0..=180.0,
+        );
+        color(ui, "Side colour", "", &mut g.extrude_color);
+    });
+    section(ui, "Dissolve", on(&g.dissolve), |ui| {
+        param(
+            ui,
+            "Dissolve",
+            "0 = whole, 1 = burnt away. Animate it: ~ with Linear in",
+            &mut g.dissolve,
+            0.0..=1.0,
+        );
+        slider(
+            ui,
+            "Patches",
+            "Burnt patches per logo height",
+            &mut g.dissolve_scale,
+            0.5..=30.0,
+        );
+        slider(
+            ui,
+            "From the edges",
+            "0: patches anywhere; 1: eaten from the edges inward",
+            &mut g.dissolve_edges,
+            0.0..=1.0,
+        );
+        slider(
+            ui,
+            "Burn width",
+            "The glowing front",
+            &mut g.burn_width,
+            0.0..=0.4,
+        );
+        color(ui, "Burn colour", "", &mut g.burn_color);
+        drag_u(
+            ui,
+            "Seed",
+            "Different patches",
+            &mut g.dissolve_seed,
+            0..=999,
+        );
+    });
+    section(
+        ui,
+        "Reveal",
+        g.reveal_amount.is_animated() || g.reveal_amount.base < 1.0,
+        |ui| {
+            combo(ui, "How", "", &mut g.reveal, &LogoReveal::ALL, |r| {
+                r.label()
+            });
+            param(
+                ui,
+                "Shown",
+                "0 = hidden, 1 = whole. Animate it to bring the logo in",
+                &mut g.reveal_amount,
+                0.0..=1.0,
+            );
+            if matches!(g.reveal, LogoReveal::Wipe | LogoReveal::Radial) {
+                if g.reveal == LogoReveal::Wipe {
+                    slider(
+                        ui,
+                        "Direction",
+                        "Degrees: 0 = left to right, 90 = bottom to top",
+                        &mut g.reveal_angle,
+                        -180.0..=180.0,
+                    );
+                }
+                slider(ui, "Softness", "Of the edge", &mut g.reveal_soft, 0.0..=1.0);
+            }
+        },
+    );
+    section(ui, "Morph", on(&g.morph), |ui| {
+        param(
+            ui,
+            "Morph",
+            "Blend into another logo: 0 = this one, 1 = the other",
+            &mut g.morph,
+            0.0..=1.0,
+        );
+        combo(ui, "Into", "", &mut g.morph_source, &LogoSource::ALL, |s| {
+            s.label()
+        });
+        match g.morph_source {
+            LogoSource::Text => {
+                ui.add(
+                    egui::TextEdit::multiline(&mut g.morph_text)
+                        .desired_rows(1)
+                        .desired_width(f32::INFINITY)
+                        .hint_text("The other text (same font)"),
+                );
+            }
+            LogoSource::Image => {
+                texture_picker(
+                    ui,
+                    "Image",
+                    &mut g.morph_image,
+                    textures,
+                    Some((lref, TexSlot::MorphImage)),
+                );
+            }
+        }
+    });
 }
 
 /// A material sphere for a lit logo: built-in or one of your images.

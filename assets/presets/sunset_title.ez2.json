@@ -457,7 +457,56 @@
           1.0,
           1.0,
           1.0
-        ]
+        ],
+        "contours": 0.0,
+        "contour_spacing": 0.08,
+        "contour_cycles": 2,
+        "contour_reach": 0.5,
+        "contour_width": 0.15,
+        "contour_color": [
+          0.051269468,
+          0.74540436,
+          1.0
+        ],
+        "contour_inside": false,
+        "stack": 0,
+        "stack_width": 0.03,
+        "stack_gap": 0.0,
+        "stack_color_a": [
+          1.0,
+          0.02415763,
+          0.6724432
+        ],
+        "stack_color_b": [
+          0.014443844,
+          0.051269468,
+          1.0
+        ],
+        "extrude": 0.0,
+        "extrude_angle": -60.0,
+        "extrude_color": [
+          0.11697067,
+          0.014443844,
+          0.3515327
+        ],
+        "dissolve": 0.0,
+        "dissolve_scale": 6.0,
+        "dissolve_edges": 0.3,
+        "burn_width": 0.08,
+        "burn_color": [
+          1.0,
+          0.1620294,
+          0.014443844
+        ],
+        "dissolve_seed": 1,
+        "reveal": "Grow",
+        "reveal_amount": 1.0,
+        "reveal_angle": 0.0,
+        "reveal_soft": 0.1,
+        "morph": 0.0,
+        "morph_source": "Text",
+        "morph_text": "LOOP",
+        "morph_image": null
       }
     },
     {
@@ -553,7 +602,56 @@
           1.0,
           1.0,
           1.0
-        ]
+        ],
+        "contours": 0.0,
+        "contour_spacing": 0.08,
+        "contour_cycles": 2,
+        "contour_reach": 0.5,
+        "contour_width": 0.15,
+        "contour_color": [
+          0.051269468,
+          0.74540436,
+          1.0
+        ],
+        "contour_inside": false,
+        "stack": 0,
+        "stack_width": 0.03,
+        "stack_gap": 0.0,
+        "stack_color_a": [
+          1.0,
+          0.02415763,
+          0.6724432
+        ],
+        "stack_color_b": [
+          0.014443844,
+          0.051269468,
+          1.0
+        ],
+        "extrude": 0.0,
+        "extrude_angle": -60.0,
+        "extrude_color": [
+          0.11697067,
+          0.014443844,
+          0.3515327
+        ],
+        "dissolve": 0.0,
+        "dissolve_scale": 6.0,
+        "dissolve_edges": 0.3,
+        "burn_width": 0.08,
+        "burn_color": [
+          1.0,
+          0.1620294,
+          0.014443844
+        ],
+        "dissolve_seed": 1,
+        "reveal": "Grow",
+        "reveal_amount": 1.0,
+        "reveal_angle": 0.0,
+        "reveal_soft": 0.1,
+        "morph": 0.0,
+        "morph_source": "Text",
+        "morph_text": "LOOP",
+        "morph_image": null
       }
     }
   ],

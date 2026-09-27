@@ -1604,3 +1604,143 @@ fn lit_logos_follow_the_light_and_glint_loops() {
     assert!(seam < 0.6, "the glint doesn't loop");
     assert!(sweep > 0.5, "the glint doesn't move");
 }
+
+/// Distance-field effects on logos: rings, stacked outlines, extrusion,
+/// dissolve, reveals and morphing all show, animate and loop.
+#[test]
+fn logo_field_effects_show_and_loop() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let target = r.create_target(320, 180);
+    let mut plain = presets::empty();
+    plain.post.grade.grain = Param::new(0.0);
+    plain.post.bloom.enabled = false;
+    plain
+        .layers
+        .retain(|l| !matches!(l.kind, LayerKind::Mesh(_)));
+    let at = |p: &Project, phase: f32| EvalCtx::new(&p.timing, phase, None);
+    let with = |g: LogoLayer| {
+        let mut p = plain.clone();
+        p.layers.push(Layer::new("Logo", LayerKind::Logo(g)));
+        p
+    };
+    let base = LogoLayer {
+        text: "FX".into(),
+        size: Param::new(0.35),
+        ..Default::default()
+    };
+    let wave = |base: f32, amp: f32| Param {
+        amp,
+        wave: Wave::Triangle,
+        ..Param::new(base)
+    };
+    let mut render = |p: &Project, phase: f32| r.render_image(p, &at(p, phase), &target);
+    let logo = render(&with(base.clone()), 0.3);
+    let cases: Vec<(&str, LogoLayer)> = vec![
+        (
+            "contours",
+            LogoLayer {
+                contours: Param::new(2.0),
+                contour_cycles: 2,
+                ..base.clone()
+            },
+        ),
+        (
+            "stack",
+            LogoLayer {
+                stack: 4,
+                stack_width: wave(0.04, 0.02),
+                ..base.clone()
+            },
+        ),
+        (
+            "extrude",
+            LogoLayer {
+                extrude: wave(0.2, 0.1),
+                ..base.clone()
+            },
+        ),
+        (
+            "dissolve",
+            LogoLayer {
+                dissolve: wave(0.5, 0.4),
+                ..base.clone()
+            },
+        ),
+        (
+            "wipe",
+            LogoLayer {
+                reveal: LogoReveal::Wipe,
+                reveal_amount: wave(0.5, 0.5),
+                ..base.clone()
+            },
+        ),
+        (
+            "morph",
+            LogoLayer {
+                morph: wave(0.5, 0.5),
+                morph_text: "OK".into(),
+                ..base.clone()
+            },
+        ),
+    ];
+    for (name, g) in cases {
+        let p = with(g);
+        let a = render(&p, 0.0);
+        let b = render(&p, 1.0);
+        let mid = render(&p, 0.3);
+        mid.save(snapshot_dir().join(format!("logo_fx_{name}.png")))
+            .unwrap();
+        let seam = mean_abs_diff(a.as_raw(), b.as_raw());
+        let moves = mean_abs_diff(a.as_raw(), mid.as_raw());
+        let changes = mean_abs_diff(mid.as_raw(), logo.as_raw());
+        eprintln!("{name}: seam {seam:.3}, moves {moves:.2}, changes the logo {changes:.2}");
+        assert!(seam < 0.6, "{name} doesn't loop");
+        assert!(moves > 0.2, "{name} doesn't animate");
+        assert!(changes > 0.3, "{name} doesn't show");
+    }
+    // Reveals: nothing at 0, the whole logo at 1.
+    let empty = render(&plain, 0.3);
+    for reveal in LogoReveal::ALL {
+        let shown = |amount: f32| {
+            with(LogoLayer {
+                reveal,
+                reveal_amount: Param::new(amount),
+                ..base.clone()
+            })
+        };
+        let none = render(&shown(0.0), 0.3);
+        let full = render(&shown(1.0), 0.3);
+        let hidden = mean_abs_diff(none.as_raw(), empty.as_raw());
+        let whole = mean_abs_diff(full.as_raw(), logo.as_raw());
+        eprintln!("{}: at 0 {hidden:.3}, at 1 {whole:.3}", reveal.label());
+        assert!(hidden < 0.05, "{} shows something at 0", reveal.label());
+        assert!(whole < 0.05, "{} hides something at 1", reveal.label());
+    }
+    // A full morph is the other logo.
+    let morphed = render(
+        &with(LogoLayer {
+            morph: Param::new(1.0),
+            morph_text: "OK".into(),
+            ..base.clone()
+        }),
+        0.3,
+    );
+    let ok = render(
+        &with(LogoLayer {
+            text: "OK".into(),
+            ..base.clone()
+        }),
+        0.3,
+    );
+    let diff = mean_abs_diff(morphed.as_raw(), ok.as_raw());
+    eprintln!("morph to OK vs OK: {diff:.3}");
+    assert!(diff < 0.3, "a full morph isn't the other logo");
+}

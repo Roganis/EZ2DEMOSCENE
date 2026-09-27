@@ -160,6 +160,11 @@ pub fn all() -> Vec<Preset> {
             project: sunset_title(),
         },
         Preset {
+            name: "Logo Morph",
+            description: "Neon Arena with a logo that melts from one word into another and back, extruded, stacked in outlines, with rings rippling out on the beat.",
+            project: logo_morph(),
+        },
+        Preset {
             name: "Empty",
             description: "A blank stage with a floor and a sky.",
             project: empty(),
@@ -803,6 +808,43 @@ pub fn sunset_title() -> Project {
             color_bottom: hex(0xff8040),
             glow: Param::new(1.4),
             shadow: Param::new(0.9),
+            ..Default::default()
+        }),
+    ));
+    p
+}
+
+/// Distance-field logo effects over Neon Arena: a morph between two words
+/// (held, then quick: the wave overshoots and is clamped), an extrusion,
+/// stacked outlines and rings on every beat.
+pub fn logo_morph() -> Project {
+    let mut p = neon_arena();
+    p.name = "Logo Morph".into();
+    p.layers.push(Layer::new(
+        "Logo",
+        LayerKind::Logo(LogoLayer {
+            text: "EZ2".into(),
+            font: TextFont::Sans,
+            size: Param::new(0.3),
+            color_top: hex(0xffffff),
+            color_bottom: hex(0xffd23c),
+            glow: Param::new(1.2),
+            bevel: LogoBevel::Round,
+            bevel_width: Param::new(0.6),
+            morph: Param::new(0.5).osc(Wave::Sine, 1.5, 1),
+            morph_text: "LOOP".into(),
+            extrude: Param::new(0.12),
+            extrude_angle: -55.0,
+            extrude_color: hex(0xc03000),
+            stack: 2,
+            stack_width: Param::new(0.025),
+            stack_color_a: hex(0x101010),
+            stack_color_b: hex(0xff2bd6),
+            contours: Param::new(0.0).osc(Wave::ExpOut, 1.2, 16),
+            contour_cycles: 16,
+            contour_spacing: 0.1,
+            contour_reach: 0.3,
+            contour_color: hex(0x40e0ff),
             ..Default::default()
         }),
     ));

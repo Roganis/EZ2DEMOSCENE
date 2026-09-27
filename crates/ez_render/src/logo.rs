@@ -22,6 +22,10 @@ const MAX_SIDE: u32 = 2048;
 const WORK_PIXELS: u32 = 1_500_000;
 /// Distance field spread as a fraction of the shape's shorter side.
 const SPREAD: f32 = 0.2;
+/// How far the coarse far field reaches beyond the shape (logo heights).
+const FAR_REACH: f32 = 2.2;
+/// Cells of the far field aimed for at most.
+const FAR_CELLS: f32 = 300_000.0;
 
 /// A baked logo.
 #[derive(Clone, Debug)]
@@ -38,6 +42,23 @@ pub struct LogoBake {
     pub spread: f32,
     /// The field deep inside the thickest part (the top of a pillow).
     pub max_field: f32,
+    /// The same field, coarse, reaching far around the logo.
+    pub far: FarField,
+}
+
+/// A coarse distance field around a logo, for effects that reach beyond
+/// the baked texture (rings, stacked outlines, extrusion). Same values as
+/// the fine field.
+#[derive(Clone, Debug)]
+pub struct FarField {
+    pub width: u32,
+    pub height: u32,
+    /// Row-major from the top.
+    pub field: Vec<f32>,
+    /// Top left corner, in texels of the fine texture (negative: beyond it).
+    pub origin: [f32; 2],
+    /// Texels of the fine texture per cell.
+    pub cell: f32,
 }
 
 impl LogoBake {
@@ -268,7 +289,9 @@ fn finish(frame: &Frame, inside: &[bool], color: Option<&[[f32; 3]]>) -> LogoBak
         }
     }
     let max_field = pixels.iter().fold(0.5f32, |m, p| m.max(p[3]));
+    let far = far_field(&pixels, ow, oh, frame);
     LogoBake {
+        far,
         max_field,
         width: ow,
         height: oh,
@@ -279,6 +302,63 @@ fn finish(frame: &Frame, inside: &[bool], color: Option<&[[f32; 3]]>) -> LogoBak
             frame.pad as f32 / frame.ch as f32,
         ],
         spread: frame.spread,
+    }
+}
+
+/// The coarse far field: the fine field's inside, averaged into cells,
+/// with room for `FAR_REACH` logo heights around the shape.
+fn far_field(pixels: &[[f32; 4]], ow: u32, oh: u32, frame: &Frame) -> FarField {
+    let reach = (FAR_REACH * frame.ch as f32 - frame.pad as f32).max(0.0);
+    let (tw, th) = (ow as f32 + 2.0 * reach, oh as f32 + 2.0 * reach);
+    let cell = (tw * th / FAR_CELLS).sqrt().max(2.0).ceil();
+    let (fw, fh) = ((tw / cell).ceil() as u32, (th / cell).ceil() as u32);
+    let origin = [
+        -(fw as f32 * cell - ow as f32) * 0.5,
+        -(fh as f32 * cell - oh as f32) * 0.5,
+    ];
+    // A cell is inside when most of the fine texels it covers are.
+    let inside: Vec<bool> = (0..fw * fh)
+        .map(|i| {
+            let (cx, cy) = ((i % fw) as f32, (i / fw) as f32);
+            let (x0, y0) = (origin[0] + cx * cell, origin[1] + cy * cell);
+            let (mut n, mut on) = (0u32, 0u32);
+            let steps = (cell as u32).clamp(1, 4);
+            for sy in 0..steps {
+                for sx in 0..steps {
+                    let x = x0 + (sx as f32 + 0.5) * cell / steps as f32;
+                    let y = y0 + (sy as f32 + 0.5) * cell / steps as f32;
+                    n += 1;
+                    if x >= 0.0 && y >= 0.0 && x < ow as f32 && y < oh as f32 {
+                        let p = pixels[(y as u32 * ow + x as u32) as usize];
+                        if p[3] > 0.5 {
+                            on += 1;
+                        }
+                    }
+                }
+            }
+            on * 2 > n
+        })
+        .collect();
+    let (to_in, _) = edt(fw, fh, |i| inside[i]);
+    let (to_out, _) = edt(fw, fh, |i| !inside[i]);
+    let field = (0..(fw * fh) as usize)
+        .map(|i| {
+            let d = if inside[i] {
+                to_out[i].sqrt() - 0.5
+            } else {
+                0.5 - to_in[i].sqrt()
+            };
+            // No inside cell at all: far away everywhere.
+            let d = d.clamp(-1e4, 1e4);
+            0.5 + d * cell / (2.0 * frame.spread)
+        })
+        .collect();
+    FarField {
+        width: fw,
+        height: fh,
+        field,
+        origin,
+        cell,
     }
 }
 
@@ -558,6 +638,36 @@ mod tests {
         // Colour is the image's red everywhere, spread outside too.
         let p = b.pixels[0];
         assert!(p[0] > 0.9 && p[1] < 0.05 && p[2] < 0.05, "{p:?}");
+    }
+
+    /// Far from the disc the coarse field still measures the distance.
+    #[test]
+    fn far_field_reaches_out() {
+        let n = 120u32;
+        let r = 40.0f32;
+        let img = RgbaImage::from_fn(n, n, |x, y| {
+            let d = Vec2::new(x as f32 + 0.5, y as f32 + 0.5).distance(Vec2::splat(n as f32 / 2.0));
+            Rgba([255, 255, 255, if d < r { 255 } else { 0 }])
+        });
+        let b = bake_image(&img, LogoMask::Alpha).expect("bake");
+        let f = &b.far;
+        // Covers two logo heights around the shape.
+        let ch = b.height as f32 / (1.0 + 2.0 * b.pad[1]);
+        assert!(-f.origin[0] > 1.5 * ch, "{:?} vs {ch}", f.origin);
+        let (cx, cy) = (b.width as f32 / 2.0, b.height as f32 / 2.0);
+        let rad = ch / 2.0;
+        for j in (0..f.height).step_by(5) {
+            for i in (0..f.width).step_by(5) {
+                let x = f.origin[0] + (i as f32 + 0.5) * f.cell;
+                let y = f.origin[1] + (j as f32 + 0.5) * f.cell;
+                let d = Vec2::new(x - cx, y - cy).length();
+                let want = 0.5 + (rad - d) / (2.0 * b.spread);
+                let got = f.field[(j * f.width + i) as usize];
+                // Within about a cell.
+                let tol = f.cell / (2.0 * b.spread) * 1.2;
+                assert!((got - want).abs() < tol, "at {i},{j}: {got} vs {want}");
+            }
+        }
     }
 
     #[test]

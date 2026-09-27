@@ -642,11 +642,25 @@ bloom, god rays, feedback trails, scanlines and the colour grade apply to it, bu
   sphere. It works without a bevel too, but only shows its middle colour.</td></tr>
   <tr><td>Glint</td><td>A bright band sweeping across the logo, a whole number of <span class="ui">Sweeps / loop</span> (4 = every bar of a
   16-beat loop), with its width, direction and colour.</td></tr>
+  <tr><td>Rings &amp; outlines</td><td><span class="ui">Rings</span>: glowing lines following the logo's shape, rippling outward a whole number
+  of times per loop (negative: inward), fading with the <span class="ui">Reach</span>; optionally inside the letters too.
+  <span class="ui">Stacked outlines</span>: solid outlines one outside the other, shading from the inner to the outer colour, like an 80s
+  logo.</td></tr>
+  <tr><td>Extrude</td><td>Fake 3D: the logo repeated behind itself in a direction, fading darker, without any mesh.</td></tr>
+  <tr><td>Dissolve</td><td>Burns the logo away (0 whole, 1 gone) in patches, or from the edges inward, with a glowing burn front. Animate
+  <span class="ui">Dissolve</span> with <span class="ui">~</span> to burn it in or out.</td></tr>
+  <tr><td>Reveal</td><td>How the logo appears as <span class="ui">Shown</span> goes from 0 to 1: <b>Grow from the middle</b> (the letters
+  thicken from their middle lines), <b>Edges first</b> (outlines, then filling inward), a <b>Wipe</b> in any direction or a
+  <b>Circle</b> opening from the middle, with a soft edge.</td></tr>
+  <tr><td>Morph</td><td>Melts the logo into another text (same font) or image: 0 is this logo, 1 the other. The shapes blend through their
+  outlines, so a quick change reads best; a <span class="ui">~</span> sine with an amplitude above 0.5 holds each end and switches
+  quickly.</td></tr>
 </table>
 <p>Every number has <span class="ui">~</span> and 🎵: pulse the glow on the kick, sway the turn, slide the logo in. With the logo selected, the
 viewport shows one handle at its anchor: drag it with <span class="ui">Move</span> to place the logo, with <span class="ui">Scale</span> to size it
 and with <span class="ui">Rotate</span> to turn it (<kbd>Ctrl</kbd> snaps). The <b>Sunset Title</b> preset has a bevelled chrome title pulsing on
-every beat, with a glint on every bar, and a pixel tag in the corner.</p>
+every beat, with a glint on every bar, and a pixel tag in the corner. <b>Logo Morph</b> melts one word into another over Neon Arena,
+extruded, with stacked outlines and rings on every beat.</p>
 <div class="tip"><b>Tip</b>The logo's shape is worked out once when you type or pick an image (it becomes a distance field, which keeps the
 edges sharp at any size and gives outlines, glows and bevels for free), so the first frame after a change can take a moment.</div>
 

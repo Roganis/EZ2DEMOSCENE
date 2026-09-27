@@ -631,6 +631,9 @@ impl EzApp {
                             (LayerKind::Logo(g), platform::TexSlot::Matcap) => {
                                 g.matcap = Some(name.clone())
                             }
+                            (LayerKind::Logo(g), platform::TexSlot::MorphImage) => {
+                                g.morph_image = Some(name.clone())
+                            }
                             (LayerKind::Logo(g), _) => g.image = Some(name.clone()),
                             _ => {}
                         }

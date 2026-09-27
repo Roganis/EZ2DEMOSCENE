@@ -214,11 +214,13 @@ enum Cmd {
         first: u32,
         count: u32,
     },
-    /// A logo flat on the screen, drawn after the scene (see `logo.wgsl`),
-    /// with its material sphere.
+    /// A logo flat on the screen, drawn after the scene (see `logo.wgsl`):
+    /// its blocks at `slot` and `slot + 1`, its texture, the logo it morphs
+    /// into and its material sphere.
     Logo {
         slot: u32,
         tex: String,
+        morph: String,
         matcap: String,
     },
     /// Contact shadows under the copies `first..first + count` of a mesh.
@@ -229,6 +231,11 @@ enum Cmd {
         /// The copies are in the compute pass's buffer.
         gpu: bool,
     },
+}
+
+/// Texture key of a logo's coarse far field.
+fn far_key(logo: &str) -> String {
+    format!("{logo}:far")
 }
 
 /// How a baked logo texture maps onto the screen.
@@ -244,6 +251,21 @@ struct LogoFit {
     spread: f32,
     /// The field at the logo's thickest point.
     max_field: f32,
+    /// Far field: origin (texels), cell size, size (cells).
+    far: [f32; 5],
+}
+
+impl LogoFit {
+    /// Logo heights per unit of the field (0.5 per spread).
+    fn heights_per_field(&self) -> f32 {
+        let ch = self.height as f32 / (1.0 + 2.0 * self.pad[1]);
+        2.0 * self.spread / ch.max(1.0)
+    }
+
+    /// Texels across the shape's height.
+    fn content_height(&self) -> f32 {
+        self.height as f32 / (1.0 + 2.0 * self.pad[1])
+    }
 }
 
 /// Vertices of one spotlight cone (see spots.wgsl).
@@ -764,6 +786,9 @@ pub struct Renderer {
     /// Font atlases by texture key.
     fonts: HashMap<String, std::sync::Arc<crate::text::FontAtlas>>,
     logo_pipe: wgpu::RenderPipeline,
+    bgl_logo: wgpu::BindGroupLayout,
+    /// Logo texture bind groups by (logo, morph target, material sphere).
+    logo_bgs: HashMap<(String, String, String), wgpu::BindGroup>,
     /// Baked logos by texture key, with the frame they were last drawn
     /// (`None`: nothing to draw).
     logos: HashMap<String, (u64, Option<LogoFit>)>,
@@ -1187,14 +1212,26 @@ impl Renderer {
         let sh_logo = shader(device, "logo", include_str!("shaders/logo.wgsl"), true);
         // Logos go on the picture after depth of field (no depth, no MSAA:
         // the distance field antialiases).
-        // Logo texture, then the material sphere.
+        // The logo, the logo it morphs into and the material sphere, then
+        // a second block of settings.
+        let bgl_logo = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("logo tex"),
+            entries: &[
+                tex_entry(0),
+                tex_entry(1),
+                tex_entry(2),
+                sampler_entry(3),
+                tex_entry(4),
+                tex_entry(5),
+            ],
+        });
         let logo_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("logo"),
             bind_group_layouts: &[
                 Some(&bgl_globals),
                 Some(&bgl_draw),
-                Some(&bgl_tex),
-                Some(&bgl_tex),
+                Some(&bgl_logo),
+                Some(&bgl_draw),
             ],
             immediate_size: 0,
         });
@@ -1801,6 +1838,8 @@ impl Renderer {
             compose_buf,
             fonts: HashMap::new(),
             logo_pipe,
+            bgl_logo,
+            logo_bgs: HashMap::new(),
             logos: HashMap::new(),
             surface_cache: HashMap::new(),
             frame_no: 0,
@@ -1931,6 +1970,8 @@ impl Renderer {
         }
         let view = texture.create_view(&Default::default());
         self.tex_bgs.retain(|(k, _), _| *k != key);
+        self.logo_bgs
+            .retain(|(a, b, c), _| *a != key && *b != key && *c != key);
         self.mesh_tex_bgs
             .retain(|(k, r, _), _| *k != key && *r != key);
         self.textures.insert(
@@ -1987,6 +2028,8 @@ impl Renderer {
         }
         let view = texture.create_view(&Default::default());
         self.tex_bgs.retain(|(k, _), _| *k != key);
+        self.logo_bgs
+            .retain(|(a, b, c), _| *a != key && *b != key && *c != key);
         self.textures.insert(
             key,
             GpuTexture {
@@ -2053,8 +2096,17 @@ impl Renderer {
         };
         let fit = bake.map(|b| {
             self.upload_float_texture(key.clone(), b.width, b.height, &b.pixels);
-            self.tex_bind_group(&key, false);
+            let f = &b.far;
+            let far: Vec<[f32; 4]> = f.field.iter().map(|v| [*v; 4]).collect();
+            self.upload_float_texture(far_key(&key), f.width, f.height, &far);
             LogoFit {
+                far: [
+                    f.origin[0],
+                    f.origin[1],
+                    f.cell,
+                    f.width as f32,
+                    f.height as f32,
+                ],
                 width: b.width,
                 height: b.height,
                 aspect: b.aspect,
@@ -2075,7 +2127,10 @@ impl Renderer {
         for k in stale {
             self.logos.remove(&k);
             self.textures.remove(&k);
+            self.textures.remove(&far_key(&k));
             self.tex_bgs.retain(|(t, _), _| *t != k);
+            self.logo_bgs
+                .retain(|(a, b, c), _| *a != k && *b != k && *c != k);
         }
         fit.map(|f| (key, f))
     }
@@ -2092,6 +2147,49 @@ impl Renderer {
                 None => format!("u:{name}"),
             }
         })
+    }
+
+    /// The textures of a logo in one bind group (clamped: beyond the edge
+    /// the shader extends the field itself).
+    fn logo_bind_group(&mut self, key: &(String, String, String)) {
+        if self.logo_bgs.contains_key(key) {
+            return;
+        }
+        let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("logo tex"),
+            layout: &self.bgl_logo,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&self.textures[&key.0].view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&self.textures[&key.1].view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&self.textures[&key.2].view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler_clamp),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(
+                        &self.textures[&far_key(&key.0)].view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::TextureView(
+                        &self.textures[&far_key(&key.1)].view,
+                    ),
+                },
+            ],
+        });
+        self.logo_bgs.insert(key.clone(), bg);
     }
 
     /// A built-in or project image, decoded (with its retro look).
@@ -3294,14 +3392,108 @@ impl Renderer {
                         0.0,
                     ];
                     blk[13] = c4(g.glint_color, 0.0);
+                    blk[14] = [fit.far[0], fit.far[1], fit.far[2], 0.0];
+                    blk[15] = [fit.far[3], fit.far[4], 0.0, 0.0];
                     let matcap = self.texture_key(project, g.matcap.as_deref());
-                    self.tex_bind_group(&matcap, false);
+                    // The logo it morphs into: the same layer made of the
+                    // morph source.
+                    let morph_t = g.morph.eval(ctx).clamp(0.0, 1.0);
+                    let target = if g.morph.is_animated() || g.morph.base > 0.0 {
+                        let other = LogoLayer {
+                            source: g.morph_source,
+                            text: g.morph_text.clone(),
+                            image: g.morph_image.clone(),
+                            ..g.clone()
+                        };
+                        self.logo_texture(project, &other)
+                    } else {
+                        None
+                    };
+                    let (morph, other) = match target {
+                        Some((k, f)) => (k, f),
+                        None => (tex.clone(), fit),
+                    };
+                    let morph_t = if morph == tex { 0.0 } else { morph_t };
+                    let mut e: Block = Zeroable::zeroed();
+                    e[0] = [
+                        g.contours.eval(ctx).max(0.0),
+                        g.contour_spacing.max(0.005),
+                        (ctx.phase * g.contour_cycles as f32).rem_euclid(1.0),
+                        g.contour_reach.max(0.01),
+                    ];
+                    e[1] = c4(g.contour_color, g.contour_width.clamp(0.01, 1.0));
+                    let stack_w = g.stack_width.eval(ctx).max(0.0);
+                    e[2] = [
+                        g.stack.min(16) as f32,
+                        stack_w,
+                        g.stack_gap.max(0.0),
+                        if g.contour_inside { 1.0 } else { 0.0 },
+                    ];
+                    e[3] = c4(g.stack_color_a, 0.0);
+                    e[4] = c4(g.stack_color_b, 0.0);
+                    let extrude = g.extrude.eval(ctx).clamp(0.0, 2.0);
+                    e[5] = [extrude, g.extrude_angle.to_radians(), 0.0, 0.0];
+                    e[6] = c4(g.extrude_color, 0.0);
+                    e[7] = [
+                        g.dissolve.eval(ctx).clamp(0.0, 1.0),
+                        g.dissolve_scale.max(0.1),
+                        g.dissolve_edges.clamp(0.0, 1.0),
+                        g.burn_width.max(0.0),
+                    ];
+                    e[8] = c4(g.burn_color, (g.dissolve_seed % 997) as f32 * 3.7);
+                    e[9] = [
+                        g.reveal_amount.eval(ctx).clamp(0.0, 1.0),
+                        g.reveal.index() as f32,
+                        g.reveal_angle.to_radians(),
+                        g.reveal_soft.max(0.0),
+                    ];
+                    e[10] = [morph_t, other.aspect, other.pad[0], other.pad[1]];
+                    e[11] = [
+                        other.spread,
+                        other.width as f32,
+                        other.height as f32,
+                        other.max_field,
+                    ];
+                    // Room for what reaches past the padding (logo heights).
+                    let mut margin: f32 = 0.0;
+                    if g.contours.is_animated() || g.contours.base > 0.0 {
+                        margin = margin.max(g.contour_reach.max(0.01) * 3.0);
+                    }
+                    if g.stack > 0 {
+                        let w = g.stack_width.base.abs() + g.stack_width.amp.abs();
+                        margin = margin.max(g.stack.min(16) as f32 * (w + g.stack_gap.max(0.0)));
+                    }
+                    margin = margin.max(g.extrude.base.abs() + g.extrude.amp.abs());
+                    let wider = if morph_t > 0.0 {
+                        (other.aspect - fit.aspect).max(0.0)
+                    } else {
+                        0.0
+                    };
+                    e[12] = [
+                        fit.heights_per_field(),
+                        other.heights_per_field(),
+                        margin.min(2.0),
+                        wider,
+                    ];
+                    e[13] = [
+                        other.content_height() / fit.content_height().max(1.0),
+                        0.0,
+                        0.0,
+                        0.0,
+                    ];
+                    e[14] = [other.far[0], other.far[1], other.far[2], 0.0];
+                    e[15] = [other.far[3], other.far[4], 0.0, 0.0];
+                    let key = (tex, morph, matcap);
+                    self.logo_bind_group(&key);
+                    let (tex, morph, matcap) = key;
                     cmds.push(Cmd::Logo {
                         slot: blocks.len() as u32,
                         tex,
+                        morph,
                         matcap,
                     });
                     blocks.push(blk);
+                    blocks.push(e);
                 }
                 LayerKind::Arcs(arc) => {
                     let lm = layer_matrix(&layer.transform, ctx);
@@ -4241,10 +4433,17 @@ impl Renderer {
             pass.set_pipeline(&self.logo_pipe);
             pass.set_bind_group(0, &self.globals_bg[0], &[]);
             for c in &cmds {
-                if let Cmd::Logo { slot, tex, matcap } = c {
+                if let Cmd::Logo {
+                    slot,
+                    tex,
+                    morph,
+                    matcap,
+                } = c
+                {
+                    let key = (tex.clone(), morph.clone(), matcap.clone());
                     pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
-                    pass.set_bind_group(2, &self.tex_bgs[&(tex.clone(), false)], &[]);
-                    pass.set_bind_group(3, &self.tex_bgs[&(matcap.clone(), false)], &[]);
+                    pass.set_bind_group(2, &self.logo_bgs[&key], &[]);
+                    pass.set_bind_group(3, &self.draw_bg, &[(slot + 1) * DRAW_SLOT as u32]);
                     pass.draw(0..6, 0..1);
                 }
             }

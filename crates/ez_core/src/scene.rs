@@ -3430,6 +3430,42 @@ impl LogoBevel {
     }
 }
 
+/// How a logo appears as its reveal goes from 0 to 1.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum LogoReveal {
+    /// The letters grow outward from their middle lines.
+    #[default]
+    Grow,
+    /// Outlines first, then they fill inward.
+    Edges,
+    /// A straight wipe across, in a direction.
+    Wipe,
+    /// A circle opening from the middle.
+    Radial,
+}
+
+impl LogoReveal {
+    pub const ALL: [LogoReveal; 4] = [
+        LogoReveal::Grow,
+        LogoReveal::Edges,
+        LogoReveal::Wipe,
+        LogoReveal::Radial,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            LogoReveal::Grow => "Grow from the middle",
+            LogoReveal::Edges => "Edges first",
+            LogoReveal::Wipe => "Wipe",
+            LogoReveal::Radial => "Circle",
+        }
+    }
+
+    pub fn index(self) -> u32 {
+        LogoReveal::ALL.iter().position(|r| *r == self).unwrap_or(0) as u32
+    }
+}
+
 /// The point of the logo that sits at its position (and that it turns
 /// around).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -3553,6 +3589,56 @@ pub struct LogoLayer {
     /// Direction the band travels, in degrees (0 = to the right).
     pub glint_angle: f32,
     pub glint_color: Rgb,
+    // Distance-field effects. Distances are in logo heights.
+    /// Rings rippling out from the edges (brightness; 0 = none).
+    pub contours: Param,
+    /// Distance between rings.
+    pub contour_spacing: f32,
+    /// Rings passing per loop (negative = inward).
+    pub contour_cycles: i32,
+    /// How far out they fade.
+    pub contour_reach: f32,
+    /// Line thickness (fraction of the spacing).
+    pub contour_width: f32,
+    pub contour_color: Rgb,
+    /// Rings inside the letters too.
+    pub contour_inside: bool,
+    /// Solid outlines stacked around the logo (0 = none).
+    pub stack: u32,
+    pub stack_width: Param,
+    /// Space between them.
+    pub stack_gap: f32,
+    /// Colours of the first and last outline.
+    pub stack_color_a: Rgb,
+    pub stack_color_b: Rgb,
+    /// Fake 3D depth behind the logo, its length (0 = none).
+    pub extrude: Param,
+    /// Direction it goes, in degrees (0 = to the right, -90 = down).
+    pub extrude_angle: f32,
+    pub extrude_color: Rgb,
+    /// Burning away: 0 = whole, 1 = gone.
+    pub dissolve: Param,
+    /// Size of the burnt patches (patches per logo height).
+    pub dissolve_scale: f32,
+    /// 0: patches anywhere; 1: eaten from the edges inward.
+    pub dissolve_edges: f32,
+    /// Width of the glowing burn front.
+    pub burn_width: f32,
+    pub burn_color: Rgb,
+    pub dissolve_seed: u32,
+    /// How the logo appears as `reveal_amount` goes from 0 to 1.
+    pub reveal: LogoReveal,
+    /// 1 = fully shown.
+    pub reveal_amount: Param,
+    /// Wipe direction, in degrees (0 = left to right).
+    pub reveal_angle: f32,
+    /// Softness of a wipe's or circle's edge.
+    pub reveal_soft: f32,
+    /// Blend towards a second logo: 0 = this one, 1 = the other.
+    pub morph: Param,
+    pub morph_source: LogoSource,
+    pub morph_text: String,
+    pub morph_image: Option<String>,
 }
 
 impl Default for LogoLayer {
@@ -3596,6 +3682,35 @@ impl Default for LogoLayer {
             glint_width: 0.12,
             glint_angle: 20.0,
             glint_color: [1.0, 1.0, 1.0],
+            contours: Param::new(0.0),
+            contour_spacing: 0.08,
+            contour_cycles: 2,
+            contour_reach: 0.5,
+            contour_width: 0.15,
+            contour_color: hex(0x40e0ff),
+            contour_inside: false,
+            stack: 0,
+            stack_width: Param::new(0.03),
+            stack_gap: 0.0,
+            stack_color_a: hex(0xff2bd6),
+            stack_color_b: hex(0x2040ff),
+            extrude: Param::new(0.0),
+            extrude_angle: -60.0,
+            extrude_color: hex(0x6020a0),
+            dissolve: Param::new(0.0),
+            dissolve_scale: 6.0,
+            dissolve_edges: 0.3,
+            burn_width: 0.08,
+            burn_color: hex(0xff7020),
+            dissolve_seed: 1,
+            reveal: LogoReveal::Grow,
+            reveal_amount: Param::new(1.0),
+            reveal_angle: 0.0,
+            reveal_soft: 0.1,
+            morph: Param::new(0.0),
+            morph_source: LogoSource::Text,
+            morph_text: "LOOP".into(),
+            morph_image: None,
         }
     }
 }
