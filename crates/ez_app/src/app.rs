@@ -27,6 +27,7 @@ enum Selection {
     Sequence,
     Camera,
     Environment,
+    Colors,
     Post,
     Textures,
     Layer(usize),
@@ -1003,6 +1004,7 @@ impl EzApp {
             (Selection::Timing, "⏱  Timing & music"),
             (Selection::Camera, "🎥  Camera"),
             (Selection::Environment, "☀  Light & fog"),
+            (Selection::Colors, "🎨  Colour scheme"),
             (Selection::Post, "🎞  Post effects"),
             (Selection::Textures, "🖼  Your images"),
             (Selection::Sequence, "🎬  Scenes & timeline"),
@@ -1179,6 +1181,8 @@ impl EzApp {
             .map(|l| l.name.clone())
             .collect();
         ui.data_mut(|d| d.insert_temp(egui::Id::new(inspector::LOGO_NAMES), logos));
+        let scheme_on = self.project.color_scheme.enabled;
+        ui.data_mut(|d| d.insert_temp(egui::Id::new(inspector::SCHEME_ON), scheme_on));
         let ctx = self.project.ctx_at(self.time, self.audio_env.as_deref());
         let view = self.project.camera.view_point(&ctx);
         ui.data_mut(|d| d.insert_temp(egui::Id::new(inspector::CAMERA_VIEW), view));
@@ -1206,6 +1210,10 @@ impl EzApp {
                 }
                 Selection::Camera => inspector::camera_ui(ui, &mut self.project.camera),
                 Selection::Environment => inspector::environment_ui(ui, &mut self.project.environment),
+                Selection::Colors => {
+                    let ctx = self.project.ctx_at(self.time, self.audio_env.as_deref());
+                    inspector::color_scheme_ui(ui, &mut self.project.color_scheme, &ctx);
+                }
                 Selection::Post => inspector::post_ui(ui, &mut self.project.post),
                 Selection::Textures => inspector::textures_ui(ui, &mut self.project.textures),
                 Selection::Sequence => {

@@ -3299,7 +3299,7 @@ impl Renderer {
             lightning: (0.0, [1.0; 3]),
             ..Default::default()
         };
-        let env = project.environment.eval(ctx);
+        let env = project.scene_environment(ctx).eval(ctx);
 
         // Logos placed against the screen or each other.
         let logo_places = self.place_logos(project, &layers, ctx, w as f32, h as f32);
@@ -5587,7 +5587,7 @@ impl Renderer {
                 gr.flare.eval(ctx).max(0.0),
             ];
             // Rays gather near the sun (falloff).
-            slots[SLOT_RAYS as usize][2] = c4(gr.tint, 2.5);
+            slots[SLOT_RAYS as usize][2] = c4(project.scene_color(gr.tint, ctx), 2.5);
         }
 
         let g = &post.grade;

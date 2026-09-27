@@ -94,6 +94,12 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   - Laser beams or hazy **spotlight cones** with pools of light.
   - Particles can be smoke instead of glow, and there is a tornado
     emitter.
+  - **Colour scheme**: one key colour and a harmony rule (one hue,
+    neighbours, opposites, split, triad, square) that every colour of the
+    project follows. Each keeps its lightness (worked out in OKLCH) while its
+    hue moves to the scheme; stored colours stay, layers can opt out, and
+    the scheme can turn round the colour wheel a whole number of times
+    per loop.
   - **Sun shadows** (soft shadow map) and contact shadows on floors.
   - Atmosphere: **mist** pooling in valleys, underwater **caustics**, a
     **rainbow**, and a **day & night cycle** with sunsets, stars and a

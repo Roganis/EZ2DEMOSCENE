@@ -33,7 +33,16 @@ pub fn randomize(project: &mut Project, seed: u64, opt: RandomizeOptions) {
     let mut rng = Rng::new(seed);
     let k = opt.strength.clamp(0.0, 1.0);
 
-    if opt.colors {
+    if opt.colors && project.color_scheme.enabled {
+        // With a colour scheme, a new key colour (and sometimes a new
+        // harmony) recolours everything together.
+        let hue = rng.signed() * 0.5 * k;
+        let scheme = &mut project.color_scheme;
+        scheme.key = hue_rotate(scheme.key, hue);
+        if rng.chance(0.5 * k) {
+            scheme.harmony = *rng.pick(&crate::scene::Harmony::ALL);
+        }
+    } else if opt.colors {
         // One global hue rotation keeps the palette harmonious.
         let hue = rng.signed() * 0.5 * k;
         for l in &mut project.layers {

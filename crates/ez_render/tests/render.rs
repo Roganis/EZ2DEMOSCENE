@@ -2137,3 +2137,61 @@ fn logos_meet_the_scene() {
     assert!(seam < 0.6, "echoes don't loop");
     assert!(trail > 0.3, "no trail");
 }
+
+/// The colour scheme: off it changes nothing, on it recolours the scene,
+/// layers can keep their colours, and a turning key loops.
+#[test]
+fn color_scheme_recolours_and_loops() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let target = r.create_target(320, 180);
+    let mut p = presets::neon_arena();
+    p.post.grade.grain = Param::new(0.0);
+    let at = |p: &Project, phase: f32| EvalCtx::new(&p.timing, phase, None);
+    let mut render = |p: &Project, phase: f32| r.render_image(p, &at(p, phase), &target);
+    let before = render(&p, 0.3);
+    // Off (the default): identical.
+    let mut off = p.clone();
+    off.color_scheme.key = color::hex(0x20ff80);
+    assert_eq!(
+        render(&off, 0.3).as_raw(),
+        before.as_raw(),
+        "an off scheme changed the picture"
+    );
+    // On: recoloured.
+    let mut on = off.clone();
+    on.color_scheme.enabled = true;
+    on.color_scheme.harmony = Harmony::Mono;
+    let green = render(&on, 0.3);
+    green.save(snapshot_dir().join("scheme_green.png")).unwrap();
+    let changed = mean_abs_diff(green.as_raw(), before.as_raw());
+    eprintln!("scheme changes the picture by {changed:.2}");
+    assert!(changed > 2.0, "the scheme barely shows");
+    // Every layer keeping its colours, environment left out: as before.
+    let mut kept = on.clone();
+    kept.color_scheme.environment = false;
+    for l in &mut kept.layers {
+        l.keep_colors = true;
+    }
+    let same = mean_abs_diff(render(&kept, 0.3).as_raw(), before.as_raw());
+    assert!(same < 0.05, "kept layers still changed ({same})");
+    // A key turning once per loop loops, and moves.
+    let mut turning = on.clone();
+    turning.color_scheme.key_turn = Param::new(0.0).osc(Wave::Saw, 180.0, 1);
+    let a = render(&turning, 0.0);
+    let b = render(&turning, 1.0);
+    let mid = render(&turning, 0.5);
+    mid.save(snapshot_dir().join("scheme_turned.png")).unwrap();
+    let seam = mean_abs_diff(a.as_raw(), b.as_raw());
+    let moves = mean_abs_diff(a.as_raw(), mid.as_raw());
+    eprintln!("turning scheme: seam {seam:.3}, moves {moves:.2}");
+    assert!(seam < 0.6, "a turning scheme doesn't loop");
+    assert!(moves > 1.0, "a turning scheme doesn't turn");
+}

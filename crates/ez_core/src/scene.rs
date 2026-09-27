@@ -46,6 +46,10 @@ pub struct Project {
     /// Other scenes and the timeline playing them (inactive by default).
     #[serde(skip_serializing_if = "is_default")]
     pub sequence: crate::sequence::Sequence,
+    /// Every colour brought into harmony with one key colour (off by
+    /// default).
+    #[serde(skip_serializing_if = "is_default")]
+    pub color_scheme: ColorScheme,
 }
 
 impl Default for Project {
@@ -64,6 +68,7 @@ impl Default for Project {
             graph: None,
             use_graph: false,
             sequence: Default::default(),
+            color_scheme: ColorScheme::default(),
         }
     }
 }
@@ -121,7 +126,41 @@ impl Project {
             _ => Cow::Borrowed(&self.layers[..]),
         };
         link_terrains(&mut layers);
+        // The colour scheme, worked out on copies (the stored colours stay).
+        if let Some(h) = self.color_scheme.harmoniser(ctx) {
+            for l in layers.to_mut().iter_mut().filter(|l| !l.keep_colors) {
+                l.kind.for_each_color_mut(|c| *c = h.apply(*c));
+            }
+        }
         layers
+    }
+
+    /// The environment as drawn: in the colour scheme when it covers it.
+    pub fn scene_environment(&self, ctx: &crate::EvalCtx) -> Cow<'_, Environment> {
+        match self.environment_harmoniser(ctx) {
+            Some(h) => {
+                let mut env = self.environment.clone();
+                env.for_each_color_mut(|c| *c = h.apply(*c));
+                Cow::Owned(env)
+            }
+            None => Cow::Borrowed(&self.environment),
+        }
+    }
+
+    /// A colour of the environment or the post effects as drawn.
+    pub fn scene_color(&self, c: Rgb, ctx: &crate::EvalCtx) -> Rgb {
+        match self.environment_harmoniser(ctx) {
+            Some(h) => h.apply(c),
+            None => c,
+        }
+    }
+
+    fn environment_harmoniser(&self, ctx: &crate::EvalCtx) -> Option<crate::color::Harmoniser> {
+        if self.color_scheme.environment {
+            self.color_scheme.harmoniser(ctx)
+        } else {
+            None
+        }
     }
 
     pub fn find_texture(&self, name: &str) -> Option<&UserTexture> {
@@ -308,6 +347,128 @@ pub struct Environment {
     /// Shadows cast by the sun, and soft contact shadows on floors.
     #[serde(skip_serializing_if = "is_default")]
     pub shadows: Shadows,
+}
+
+/// How a colour scheme's hues sit around its key colour.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum Harmony {
+    /// The key hue only.
+    Mono,
+    /// The key and its neighbours (30° either side).
+    Analogous,
+    /// The key and the opposite hue.
+    #[default]
+    Complementary,
+    /// The key and the two hues beside its opposite.
+    Split,
+    /// Three hues evenly around the wheel.
+    Triadic,
+    /// Four hues: two opposite pairs.
+    Tetradic,
+}
+
+impl Harmony {
+    pub const ALL: [Harmony; 6] = [
+        Harmony::Mono,
+        Harmony::Analogous,
+        Harmony::Complementary,
+        Harmony::Split,
+        Harmony::Triadic,
+        Harmony::Tetradic,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Harmony::Mono => "One hue",
+            Harmony::Analogous => "Neighbours",
+            Harmony::Complementary => "Opposites",
+            Harmony::Split => "Split opposites",
+            Harmony::Triadic => "Triad",
+            Harmony::Tetradic => "Square",
+        }
+    }
+
+    /// Hues of the scheme relative to the key, in degrees.
+    pub fn offsets(self) -> &'static [f32] {
+        match self {
+            Harmony::Mono => &[0.0],
+            Harmony::Analogous => &[-30.0, 0.0, 30.0],
+            Harmony::Complementary => &[0.0, 180.0],
+            Harmony::Split => &[0.0, 150.0, 210.0],
+            Harmony::Triadic => &[0.0, 120.0, 240.0],
+            Harmony::Tetradic => &[0.0, 90.0, 180.0, 270.0],
+        }
+    }
+}
+
+/// A colour scheme: every colour setting keeps its lightness while its
+/// hue is pulled toward the scheme's hues, worked out when drawing (the
+/// stored colours never change). Pictures (textures, sprites) keep their
+/// own colours.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ColorScheme {
+    pub enabled: bool,
+    /// The colour everything harmonises with.
+    pub key: Rgb,
+    /// Degrees added to the key's hue (animate it to turn the scheme).
+    pub key_turn: Param,
+    pub harmony: Harmony,
+    /// 0 = colours unchanged, 1 = every hue on the scheme.
+    pub hue_pull: f32,
+    /// 0 = colours keep their saturation, 1 = all take the key's.
+    pub chroma_match: f32,
+    /// The sky, fog, sun and god rays too.
+    pub environment: bool,
+}
+
+impl Default for ColorScheme {
+    fn default() -> Self {
+        ColorScheme {
+            enabled: false,
+            key: hex(0xff2bd6),
+            key_turn: Param::new(0.0),
+            harmony: Harmony::Complementary,
+            hue_pull: 1.0,
+            chroma_match: 0.0,
+            environment: true,
+        }
+    }
+}
+
+impl ColorScheme {
+    /// The scheme at this moment, or `None` when it is off.
+    pub fn harmoniser(&self, ctx: &crate::EvalCtx) -> Option<crate::color::Harmoniser> {
+        self.enabled.then(|| {
+            let offsets: Vec<f32> = self
+                .harmony
+                .offsets()
+                .iter()
+                .map(|d| d.to_radians())
+                .collect();
+            crate::color::Harmoniser::new(
+                self.key,
+                self.key_turn.eval(ctx).to_radians(),
+                &offsets,
+                self.hue_pull,
+                self.chroma_match,
+            )
+        })
+    }
+}
+
+impl Environment {
+    /// Every colour setting of the environment.
+    pub fn for_each_color_mut(&mut self, mut f: impl FnMut(&mut Rgb)) {
+        f(&mut self.fog_color);
+        f(&mut self.sky_color);
+        f(&mut self.ground_color);
+        f(&mut self.light_color);
+        f(&mut self.caustics.color);
+        f(&mut self.day_cycle.sunset_color);
+        f(&mut self.day_cycle.night_color);
+        f(&mut self.day_cycle.moon_color);
+    }
 }
 
 /// Sun shadows (a shadow map around the camera's target) and contact
@@ -559,6 +720,9 @@ pub struct Layer {
     /// Blinking / flashing over the loop.
     #[serde(skip_serializing_if = "is_default")]
     pub blink: Blink,
+    /// Left out of the project's colour scheme (fire stays orange).
+    #[serde(skip_serializing_if = "is_default")]
+    pub keep_colors: bool,
     pub kind: LayerKind,
 }
 
@@ -570,6 +734,7 @@ impl Default for Layer {
             transform: Transform::default(),
             symmetry: Symmetry::None,
             blink: Blink::default(),
+            keep_colors: false,
             kind: LayerKind::Mesh(MeshLayer::default()),
         }
     }
@@ -742,6 +907,74 @@ impl LayerKind {
             LayerKind::Mesh(m) => Some(&mut m.instancer),
             LayerKind::Sprite(s) => Some(&mut s.instancer),
             _ => None,
+        }
+    }
+
+    /// Every colour setting of the layer (pictures aside).
+    pub fn for_each_color_mut(&mut self, mut f: impl FnMut(&mut Rgb)) {
+        match self {
+            LayerKind::Mesh(m) => {
+                f(&mut m.material.base_color);
+                f(&mut m.material.emissive_color);
+                m.ramp.colors.iter_mut().for_each(&mut f);
+            }
+            LayerKind::Particles(p) => {
+                f(&mut p.color_a);
+                f(&mut p.color_b);
+            }
+            LayerKind::Backdrop(b) => {
+                f(&mut b.color_a);
+                f(&mut b.color_b);
+                f(&mut b.color_c);
+            }
+            LayerKind::Mirror(m) => {
+                f(&mut m.base_color);
+                f(&mut m.tint);
+                f(&mut m.grid_color);
+            }
+            LayerKind::Terrain(t) => {
+                f(&mut t.line_color);
+                f(&mut t.fill_color);
+                f(&mut t.liquid.color);
+            }
+            LayerKind::Lasers(z) => {
+                f(&mut z.color_a);
+                f(&mut z.color_b);
+            }
+            LayerKind::Ribbon(r) => f(&mut r.color),
+            LayerKind::Weather(w) => {
+                f(&mut w.color);
+                f(&mut w.lightning.color);
+            }
+            LayerKind::Falls(fl) => f(&mut fl.color),
+            LayerKind::Text(t) => {
+                f(&mut t.color_top);
+                f(&mut t.color_bottom);
+                f(&mut t.outline_color);
+            }
+            LayerKind::Sprite(sp) => f(&mut sp.tint),
+            LayerKind::Arcs(a) => f(&mut a.color),
+            LayerKind::Logo(g) => {
+                for c in [
+                    &mut g.tint,
+                    &mut g.color_top,
+                    &mut g.color_bottom,
+                    &mut g.outline_color,
+                    &mut g.light_color,
+                    &mut g.glint_color,
+                    &mut g.contour_color,
+                    &mut g.stack_color_a,
+                    &mut g.stack_color_b,
+                    &mut g.extrude_color,
+                    &mut g.burn_color,
+                    &mut g.copper_a,
+                    &mut g.copper_b,
+                    &mut g.glass_tint,
+                    &mut g.rays_tint,
+                ] {
+                    f(c);
+                }
+            }
         }
     }
 
@@ -4377,5 +4610,91 @@ mod logo_anchor_tests {
         assert_eq!(LogoAnchor::Bottom.opposite(), LogoAnchor::Top);
         assert_eq!(LogoAnchor::TopLeft.opposite(), LogoAnchor::BottomRight);
         assert_eq!(LogoAnchor::Centre.opposite(), LogoAnchor::Centre);
+    }
+}
+
+#[cfg(test)]
+mod color_scheme_tests {
+    use super::*;
+    use crate::color::to_oklch;
+
+    fn layers() -> Vec<Layer> {
+        [
+            LayerKind::Mesh(MeshLayer::default()),
+            LayerKind::Particles(ParticleLayer::default()),
+            LayerKind::Backdrop(Backdrop::default()),
+            LayerKind::Mirror(MirrorFloor::default()),
+            LayerKind::Terrain(Terrain::default()),
+            LayerKind::Lasers(Lasers::default()),
+            LayerKind::Ribbon(Ribbon::default()),
+            LayerKind::Weather(Weather::default()),
+            LayerKind::Falls(Falls::default()),
+            LayerKind::Text(TextLayer::default()),
+            LayerKind::Sprite(SpriteLayer::default()),
+            LayerKind::Arcs(ArcLayer::default()),
+            LayerKind::Logo(LogoLayer::default()),
+        ]
+        .into_iter()
+        .map(|k| Layer::new("L", k))
+        .collect()
+    }
+
+    /// The visitor reaches real, distinct colour fields: a colour written
+    /// through it shows up that many times in the saved layer.
+    #[test]
+    fn visitor_reaches_every_color_once() {
+        let mark = [0.123_456_78f32, 0.234_567_8, 0.345_678_9];
+        for mut l in layers() {
+            let mut n = 0;
+            l.kind.for_each_color_mut(|c| {
+                *c = mark;
+                n += 1;
+            });
+            let json = serde_json::to_string(&l).unwrap();
+            let found = json.matches("0.12345678").count();
+            assert!(n > 0, "{}: no colours", l.type_label());
+            assert_eq!(found, n, "{}: {n} visited, {found} saved", l.type_label());
+        }
+        let mut env = Environment::default();
+        let mut n = 0;
+        env.for_each_color_mut(|_| n += 1);
+        assert_eq!(n, 8);
+    }
+
+    #[test]
+    fn scheme_recolours_only_when_on_and_not_kept_layers() {
+        let mut p = Project {
+            layers: layers(),
+            ..Default::default()
+        };
+        let ctx = p.ctx(0.3, None);
+        // Off: the very same layers.
+        assert!(matches!(p.scene_layers(&ctx), Cow::Borrowed(_)));
+        p.color_scheme.enabled = true;
+        p.color_scheme.key = crate::color::hex(0x2060ff);
+        p.color_scheme.harmony = Harmony::Mono;
+        p.layers[0].keep_colors = true;
+        let drawn = p.scene_layers(&ctx);
+        assert_eq!(drawn[0], p.layers[0], "a kept layer changed");
+        let mut changed = 0;
+        for (a, b) in p.layers.iter().zip(drawn.iter()).skip(1) {
+            let (mut ca, mut cb) = (a.clone(), b.clone());
+            let mut va = Vec::new();
+            let mut vb = Vec::new();
+            ca.kind.for_each_color_mut(|c| va.push(*c));
+            cb.kind.for_each_color_mut(|c| vb.push(*c));
+            for (x, y) in va.iter().zip(&vb) {
+                // Lightness kept, colourful ones moved.
+                assert!((to_oklch(*x)[0] - to_oklch(*y)[0]).abs() < 5e-3);
+                if x != y {
+                    changed += 1;
+                }
+            }
+        }
+        assert!(changed > 5, "only {changed} colours changed");
+        // The environment follows unless told not to.
+        assert_ne!(*p.scene_environment(&ctx), p.environment);
+        p.color_scheme.environment = false;
+        assert!(matches!(p.scene_environment(&ctx), Cow::Borrowed(_)));
     }
 }

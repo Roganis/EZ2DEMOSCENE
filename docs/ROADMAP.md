@@ -701,6 +701,31 @@ show and loop; echoes trail a moving logo and loop. Preset: Glass Galaxy.
 
 ---
 
+## Extras
+
+### ☑ Colour scheme from one key colour
+One key colour and a harmony rule (Mono, Analogous ±30°, Complementary,
+Split 150°/210°, Triadic, Tetradic) that the whole project follows, live:
+`Project::scene_layers` (and `scene_environment`, `scene_color` for the
+sky, fog, sun and god rays) harmonise copies of the colours when drawing,
+so every renderer, export, thumbnail and scene sees the same, and the
+stored colours never change. Each colour goes to OKLCH: lightness kept,
+hue pulled to the nearest scheme hue (picked before the key's animated
+turn, so a turning scheme rotates every colour smoothly instead of
+jumping between hues), chroma optionally matched to the key's, then back
+into the displayable range by reducing chroma; near-greys stay grey and
+glows keep their brightness. One visitor, `for_each_color_mut`, reaches
+every colour of every layer kind; the Tint node and Randomize use it
+too (they used to miss outlines, the mesh colour ramp and several logo
+colours). Layers can keep their own colours;
+Randomize picks a new key when a scheme is on. Tested: OKLab round trip,
+lightness kept, greys untouched, hues on the scheme, full turns, smooth
+turning, the visitor against the saved layers, and on the GPU: off is
+byte-identical, on recolours, kept layers stay, a turning scheme loops.
+Preset: Colour Wheel Arena.
+
+---
+
 ## Order of work
 
 0.1 → 1.1 → 1.2 → 2.1 → 2.3 → 2.4 → 2.5 → 2.2 → 2.6 → 3.1 → 3.2 → 3.3 →

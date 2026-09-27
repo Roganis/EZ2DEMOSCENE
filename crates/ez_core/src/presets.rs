@@ -180,6 +180,11 @@ pub fn all() -> Vec<Preset> {
             project: glass_galaxy(),
         },
         Preset {
+            name: "Colour Wheel Arena",
+            description: "Neon Arena under a colour scheme: every colour follows three hues of one key colour, turning round the colour wheel once per loop.",
+            project: colour_wheel_arena(),
+        },
+        Preset {
             name: "Empty",
             description: "A blank stage with a floor and a sky.",
             project: empty(),
@@ -966,6 +971,23 @@ pub fn glass_galaxy() -> Project {
             ..Default::default()
         }),
     ));
+    p
+}
+
+/// Neon Arena recoloured by a colour scheme: a triad of hues from one key
+/// colour that turns once per loop, the lights and darks as they were.
+pub fn colour_wheel_arena() -> Project {
+    let mut p = neon_arena();
+    p.name = "Colour Wheel Arena".into();
+    p.color_scheme = ColorScheme {
+        enabled: true,
+        key: hex(0x20c0ff),
+        key_turn: Param::new(0.0).osc(Wave::Saw, 180.0, 1),
+        harmony: Harmony::Triadic,
+        hue_pull: 1.0,
+        chroma_match: 0.4,
+        environment: true,
+    };
     p
 }
 

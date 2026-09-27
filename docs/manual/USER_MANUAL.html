@@ -928,6 +928,27 @@ yellow line with numbered points.</p>
   over. <span class="ui">Sun direction</span> sets where the sun is at noon. Clouds, god rays and reflections all follow the sun.</li>
 </ul>
 
+<h2>Colour scheme</h2>
+<p><span class="ui">🎨 Colour scheme</span> (left panel) brings every colour of the project into harmony with one <b>key colour</b>. Each
+colour keeps its <i>lightness</i>, so darks stay dark and glows stay bright, while its hue moves to the nearest of the scheme's hues. The
+work happens in a perceptual colour space (OKLCH), so a colour's brightness doesn't change when its hue does. Your own colours are kept: turn the scheme off and
+they're back. Pictures (textures, sprites, imported images) keep their own colours; the <b>Retro palette</b> post effect is the way
+to force those into a palette.</p>
+<table>
+  <tr><th style="width:24%">Setting</th><th>What it does</th></tr>
+  <tr><td>Key colour, Harmony</td><td>The colour everything goes with, and which hues go with it: <b>One hue</b>, <b>Neighbours</b> (30°
+  either side), <b>Opposites</b>, <b>Split opposites</b>, a <b>Triad</b> or a <b>Square</b>. The swatches show the scheme's hues.</td></tr>
+  <tr><td>Hue pull</td><td>How far colours move toward the scheme: 0 changes nothing, 1 puts every hue on it.</td></tr>
+  <tr><td>Saturation match</td><td>0 keeps each colour's own saturation; 1 makes them all as saturated as the key.</td></tr>
+  <tr><td>Turn</td><td>Degrees added to the key's hue. Animate it (<span class="ui">↻ Turn once per loop</span>) and the whole scene goes
+  round the colour wheel together.</td></tr>
+  <tr><td>Sky, fog, sun and rays too</td><td>Whether the environment follows the scheme.</td></tr>
+</table>
+<p>Near-greys (black floors, white letters) are left alone. A layer whose colours mean something, like fire, can tick
+<span class="ui">Keep own colours</span> at the top of its settings (shown while a scheme is on). With a scheme on,
+<span class="ui">🎲 Randomize</span> picks a new key colour (and sometimes a new harmony) instead of rotating each layer. The
+<b>Colour Wheel Arena</b> preset is Neon Arena under a triad that turns once per loop.</p>
+
 <!-- ===================================================== 9 -->
 <h1 id="post"><span class="num">9</span>Post effects</h1>
 <figure><img src="img/post.jpg" ><figcaption>Post effects. Tick a section's box to enable it, and click its arrow to open its settings.</figcaption></figure>
@@ -1057,8 +1078,8 @@ another on a <b>timeline</b>. Open <span class="ui">🎬 Scenes &amp; timeline</
 <!-- ===================================================== 11 -->
 <h1 id="random"><span class="num">11</span>Randomize, Surprise me &amp; undo</h1>
 <ul>
-  <li><span class="ui">🎲 Randomize</span> shuffles the current scene: one harmonious hue rotation of all colours, new shapes and layouts,
-  new motion and a few post-effect changes. Every click gives a new variation.</li>
+  <li><span class="ui">🎲 Randomize</span> shuffles the current scene: one harmonious hue rotation of all colours (with a colour scheme on, a
+  new key colour instead), new shapes and layouts, new motion and a few post-effect changes. Every click gives a new variation.</li>
   <li><span class="ui">⚙</span> opens the <b>Randomizer</b> settings. Choose what may change (Colours, Shapes &amp; layouts, Motion, Post
   effects), how strongly, and the <b>seed</b>. The same seed always gives the same result.</li>
   <li><span class="ui">Surprise me</span> picks a random preset and randomizes it strongly.</li>

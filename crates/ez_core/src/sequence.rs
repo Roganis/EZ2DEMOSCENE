@@ -314,6 +314,8 @@ impl Project {
             graph: self.graph.clone(),
             use_graph: self.use_graph,
             sequence: Sequence::default(),
+            // One scheme for every scene.
+            color_scheme: self.color_scheme.clone(),
         }
     }
 

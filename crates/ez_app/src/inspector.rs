@@ -368,6 +368,86 @@ fn path_ui(ui: &mut Ui, c: &mut Camera, view: Option<PathPoint>) {
     }
 }
 
+/// The project's colour scheme: one key colour everything harmonises with.
+pub fn color_scheme_ui(ui: &mut Ui, s: &mut ColorScheme, ctx: &EvalCtx) {
+    section(ui, "Colour scheme", true, |ui| {
+        ui.checkbox(&mut s.enabled, "Bring every colour into one scheme");
+        ui.label(
+            RichText::new(
+                "Each colour keeps its lightness while its hue moves to the scheme's hues. \
+                 Your colours are kept: turn this off to see them again. Pictures keep theirs.",
+            )
+            .weak()
+            .small(),
+        );
+        color(
+            ui,
+            "Key colour",
+            "The colour everything harmonises with",
+            &mut s.key,
+        );
+        combo(
+            ui,
+            "Harmony",
+            "Which hues go with the key",
+            &mut s.harmony,
+            &Harmony::ALL,
+            |h| h.label(),
+        );
+        // The scheme's hues right now.
+        let offsets: Vec<f32> = s.harmony.offsets().iter().map(|d| d.to_radians()).collect();
+        let h = ez_core::color::Harmoniser::new(
+            s.key,
+            s.key_turn.eval(ctx).to_radians(),
+            &offsets,
+            1.0,
+            0.0,
+        );
+        row(ui, "Hues", "The scheme's colours", |ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
+            for c in h.swatches() {
+                let (rect, _) =
+                    ui.allocate_exact_size(egui::vec2(22.0, 16.0), egui::Sense::hover());
+                let v = ez_core::color::to_hex(c);
+                ui.painter().rect_filled(
+                    rect,
+                    3.0,
+                    egui::Color32::from_rgb((v >> 16) as u8, (v >> 8) as u8, v as u8),
+                );
+            }
+        });
+        slider(
+            ui,
+            "Hue pull",
+            "0 = colours unchanged, 1 = every hue on the scheme",
+            &mut s.hue_pull,
+            0.0..=1.0,
+        );
+        slider(
+            ui,
+            "Saturation match",
+            "0 = colours keep their saturation, 1 = all as saturated as the key",
+            &mut s.chroma_match,
+            0.0..=1.0,
+        );
+        param(
+            ui,
+            "Turn",
+            "Degrees added to the key's hue: animate it to turn the whole scheme",
+            &mut s.key_turn,
+            -180.0..=180.0,
+        );
+        if ui
+            .small_button("↻ Turn once per loop")
+            .on_hover_text("The whole scheme goes round the colour wheel once per loop")
+            .clicked()
+        {
+            s.key_turn = Param::new(0.0).osc(Wave::Saw, 180.0, 1);
+        }
+        ui.checkbox(&mut s.environment, "Sky, fog, sun and rays too");
+    });
+}
+
 pub fn environment_ui(ui: &mut Ui, e: &mut Environment) {
     ui.heading("Light & atmosphere");
     color(
@@ -838,6 +918,9 @@ pub const TERRAIN_NAMES: &str = "ez2-terrain-names";
 pub const COPY_LAYER_NAMES: &str = "ez2-copy-layer-names";
 /// Names of the logo layers (what a logo can be attached to).
 pub const LOGO_NAMES: &str = "ez2-logo-names";
+/// Whether the project's colour scheme is on (layers offer to keep their
+/// own colours).
+pub const SCHEME_ON: &str = "ez2-scheme-on";
 
 pub fn layer_ui(ui: &mut Ui, layer: &mut Layer, textures: &[UserTexture], lref: LayerRef) {
     ui.horizontal(|ui| {
@@ -845,6 +928,13 @@ pub fn layer_ui(ui: &mut Ui, layer: &mut Layer, textures: &[UserTexture], lref: 
         ui.add(egui::TextEdit::singleline(&mut layer.name).desired_width(180.0));
         ui.label(RichText::new(layer.type_label()).weak());
     });
+    if ui
+        .data(|d| d.get_temp::<bool>(egui::Id::new(SCHEME_ON)))
+        .unwrap_or(false)
+    {
+        ui.checkbox(&mut layer.keep_colors, "Keep own colours")
+            .on_hover_text("Leave this layer out of the colour scheme (fire stays orange)");
+    }
     ui.add_space(4.0);
     match &mut layer.kind {
         LayerKind::Mesh(m) => mesh_ui(ui, m, textures, lref),

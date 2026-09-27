@@ -618,84 +618,56 @@ pub fn set_layer_color(l: &mut Layer, c: Rgb) {
 
 /// Rotate all colours of a layer and scale its glow.
 pub fn tint_layer(l: &mut Layer, hue: f32, glow: f32) {
+    if hue != 0.0 {
+        l.kind.for_each_color_mut(|c| *c = hue_rotate(*c, hue));
+    }
     match &mut l.kind {
         LayerKind::Mesh(m) => {
-            m.material.base_color = hue_rotate(m.material.base_color, hue);
-            m.material.emissive_color = hue_rotate(m.material.emissive_color, hue);
             m.material.emissive.base *= glow;
             m.material.emissive.amp *= glow;
         }
         LayerKind::Particles(p) => {
-            p.color_a = hue_rotate(p.color_a, hue);
-            p.color_b = hue_rotate(p.color_b, hue);
             p.intensity.base *= glow;
         }
         LayerKind::Backdrop(b) => {
-            b.color_a = hue_rotate(b.color_a, hue);
-            b.color_b = hue_rotate(b.color_b, hue);
-            b.color_c = hue_rotate(b.color_c, hue);
             b.intensity.base *= glow;
         }
         LayerKind::Mirror(m) => {
-            m.base_color = hue_rotate(m.base_color, hue);
-            m.tint = hue_rotate(m.tint, hue);
-            m.grid_color = hue_rotate(m.grid_color, hue);
             m.grid.base *= glow;
         }
         LayerKind::Terrain(t) => {
-            t.line_color = hue_rotate(t.line_color, hue);
-            t.fill_color = hue_rotate(t.fill_color, hue);
-            t.liquid.color = hue_rotate(t.liquid.color, hue);
             t.glow.base *= glow;
             t.glow.amp *= glow;
         }
         LayerKind::Lasers(z) => {
-            z.color_a = hue_rotate(z.color_a, hue);
-            z.color_b = hue_rotate(z.color_b, hue);
             z.intensity.base *= glow;
             z.intensity.amp *= glow;
         }
         LayerKind::Ribbon(r) => {
-            r.color = hue_rotate(r.color, hue);
             r.glow.base *= glow;
             r.glow.amp *= glow;
         }
         LayerKind::Weather(w) => {
-            w.color = hue_rotate(w.color, hue);
             w.intensity.base *= glow;
             w.intensity.amp *= glow;
         }
         LayerKind::Falls(f) => {
-            f.color = hue_rotate(f.color, hue);
             f.glow.base *= glow;
             f.glow.amp *= glow;
         }
         LayerKind::Text(t) => {
-            t.color_top = hue_rotate(t.color_top, hue);
-            t.color_bottom = hue_rotate(t.color_bottom, hue);
             t.glow.base *= glow;
             t.glow.amp *= glow;
         }
         LayerKind::Sprite(sp) => {
-            sp.tint = hue_rotate(sp.tint, hue);
             sp.glow.base *= glow;
             sp.glow.amp *= glow;
         }
         LayerKind::Arcs(a) => {
-            a.color = hue_rotate(a.color, hue);
             a.glow.base *= glow;
             a.glow.amp *= glow;
         }
         LayerKind::Logo(g) => {
-            g.tint = hue_rotate(g.tint, hue);
-            g.color_top = hue_rotate(g.color_top, hue);
-            g.color_bottom = hue_rotate(g.color_bottom, hue);
-            g.contour_color = hue_rotate(g.contour_color, hue);
-            g.stack_color_a = hue_rotate(g.stack_color_a, hue);
-            g.stack_color_b = hue_rotate(g.stack_color_b, hue);
-            g.extrude_color = hue_rotate(g.extrude_color, hue);
-            g.copper_a = hue_rotate(g.copper_a, hue);
-            g.copper_b = hue_rotate(g.copper_b, hue);
             g.glow.base *= glow;
             g.glow.amp *= glow;
         }
