@@ -127,11 +127,15 @@ enum Running {
 
 pub struct ExportUi {
     pub open: bool,
+    /// The project's music is still being analysed: hold exports.
+    pub music_loading: bool,
     format: WebFormat,
     width: u32,
     height: u32,
     fps: f32,
     repeats: u32,
+    motion_blur: u32,
+    shutter: f32,
     running: Option<Running>,
     request: Option<(Project, Option<AudioEnvelope>)>,
     file_name: String,
@@ -143,6 +147,7 @@ impl Default for ExportUi {
         let video = video_encoder_available();
         ExportUi {
             open: false,
+            music_loading: false,
             format: if video {
                 WebFormat::Mp4
             } else {
@@ -152,6 +157,8 @@ impl Default for ExportUi {
             height: if video { 720 } else { 270 },
             fps: if video { 30.0 } else { 25.0 },
             repeats: 1,
+            motion_blur: 1,
+            shutter: 0.5,
             running: None,
             request: None,
             file_name: String::new(),
@@ -181,13 +188,17 @@ impl ExportUi {
     }
 
     fn contents(&mut self, ui: &mut Ui, project: &Project, audio: Option<&AudioEnvelope>) {
-        let frames = project.timing.frame_count(self.fps);
+        let (frames, looped) = ez_export::export_frames(project, audio, self.fps);
         ui.label(
-            RichText::new(format!(
-                "One loop = {:.2} s = {} frames, rendered at exact loop positions so the file loops seamlessly.",
-                project.timing.loop_seconds(),
-                frames
-            ))
+            RichText::new(if looped {
+                format!(
+                    "One loop = {:.2} s = {} frames, rendered at exact loop positions so the file loops seamlessly.",
+                    project.timing.loop_seconds(),
+                    frames
+                )
+            } else {
+                format!("Whole song = {:.1} s = {} frames.", frames as f32 / self.fps, frames)
+            })
             .weak(),
         );
         let video_ok = video_encoder_available();
@@ -249,7 +260,23 @@ impl ExportUi {
                         }
                     });
                     ui.end_row();
-                    if self.format != WebFormat::Gif {
+                    ui.label("Motion blur");
+                    ui.horizontal(|ui| {
+                        for (k, label) in [(1u32, "off"), (4, "4×"), (8, "8×"), (16, "16×")] {
+                            ui.selectable_value(&mut self.motion_blur, k, label).on_hover_text(
+                                "Average this many in-between moments per frame: smooth, film-like motion \
+                                 (the export takes that many times longer)",
+                            );
+                        }
+                    });
+                    ui.end_row();
+                    if self.motion_blur > 1 {
+                        ui.label("Shutter");
+                        ui.add(egui::Slider::new(&mut self.shutter, 0.1..=1.0))
+                            .on_hover_text("How much of the time between frames is blurred");
+                        ui.end_row();
+                    }
+                    if self.format != WebFormat::Gif && looped {
                         ui.label("Repeat loop");
                         ui.add(
                             egui::DragValue::new(&mut self.repeats)
@@ -285,6 +312,10 @@ impl ExportUi {
                 self.request = None;
                 self.status = Some(Err("export cancelled".into()));
             }
+            ui.ctx().request_repaint();
+        } else if self.music_loading {
+            ui.spinner();
+            ui.label("Waiting for the music analysis…");
             ui.ctx().request_repaint();
         } else if ui
             .add(
@@ -364,9 +395,10 @@ impl ExportUi {
             } else {
                 self.repeats
             };
-            let job = Box::new(ExportJob::new(
-                renderer, project, audio, w, h, self.fps, repeats, sink,
-            ));
+            let job = Box::new(
+                ExportJob::new(renderer, project, audio, w, h, self.fps, repeats, sink)
+                    .with_motion_blur(self.motion_blur, self.shutter),
+            );
             self.running = Some(Running::Frames { job, video: None });
         }
 
@@ -389,16 +421,19 @@ impl ExportUi {
                             enc: enc.clone(),
                             index: 0,
                         });
-                        let job = Box::new(ExportJob::new(
-                            renderer,
-                            project,
-                            audio,
-                            w,
-                            h,
-                            self.fps,
-                            self.repeats,
-                            sink,
-                        ));
+                        let job = Box::new(
+                            ExportJob::new(
+                                renderer,
+                                project,
+                                audio,
+                                w,
+                                h,
+                                self.fps,
+                                self.repeats,
+                                sink,
+                            )
+                            .with_motion_blur(self.motion_blur, self.shutter),
+                        );
                         self.running = Some(Running::Frames {
                             job,
                             video: Some(enc),

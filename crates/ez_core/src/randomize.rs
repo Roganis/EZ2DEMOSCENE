@@ -33,7 +33,16 @@ pub fn randomize(project: &mut Project, seed: u64, opt: RandomizeOptions) {
     let mut rng = Rng::new(seed);
     let k = opt.strength.clamp(0.0, 1.0);
 
-    if opt.colors {
+    if opt.colors && project.color_scheme.enabled {
+        // With a colour scheme, a new key colour (and sometimes a new
+        // harmony) recolours everything together.
+        let hue = rng.signed() * 0.5 * k;
+        let scheme = &mut project.color_scheme;
+        scheme.key = hue_rotate(scheme.key, hue);
+        if rng.chance(0.5 * k) {
+            scheme.harmony = *rng.pick(&crate::scene::Harmony::ALL);
+        }
+    } else if opt.colors {
         // One global hue rotation keeps the palette harmonious.
         let hue = rng.signed() * 0.5 * k;
         for l in &mut project.layers {
@@ -108,6 +117,9 @@ pub fn randomize(project: &mut Project, seed: u64, opt: RandomizeOptions) {
                 if opt.motion && rng.chance(0.3 * k) {
                     t.scroll = rng.range_u32(1, 3) as i32;
                 }
+                if opt.shapes && rng.chance(0.2 * k) {
+                    t.shape = *rng.pick(&TerrainShape::ALL);
+                }
             }
             LayerKind::Lasers(z) => {
                 if opt.shapes && rng.chance(0.3 * k) {
@@ -117,6 +129,19 @@ pub fn randomize(project: &mut Project, seed: u64, opt: RandomizeOptions) {
                     z.sweep_cycles = rng.range_u32(1, 4) as i32;
                 }
                 z.seed = rng.next_u32() % 1000;
+            }
+            LayerKind::Falls(f) => {
+                if opt.motion {
+                    f.flow = rng.range_u32(2, 8);
+                }
+                f.seed = rng.next_u32() % 1000;
+            }
+            LayerKind::Weather(w) => {
+                if opt.motion {
+                    w.wind_dir = rng.range(0.0, 360.0);
+                }
+                w.seed = rng.next_u32() % 1000;
+                w.lightning.seed = rng.next_u32() % 1000;
             }
             LayerKind::Ribbon(r) => {
                 if opt.shapes && rng.chance(0.4 * k) {
@@ -131,11 +156,36 @@ pub fn randomize(project: &mut Project, seed: u64, opt: RandomizeOptions) {
                     r.pulse_speed = *rng.pick(&[-2, -1, 1, 2]);
                 }
             }
+            // The words and the picture are the user's.
+            LayerKind::Logo(_) => {}
+            LayerKind::Text(t) => {
+                // The words are the user's; only the motion changes.
+                if opt.motion && matches!(t.style, TextStyle::SineScroller) {
+                    t.wave_cycles = *rng.pick(&[1, 2, 3, 4]);
+                }
+            }
+            LayerKind::Arcs(a) => {
+                if opt.motion {
+                    a.seed = rng.next_u32() % 1000;
+                    a.strikes = *rng.pick(&[4, 8, 16, 32]);
+                }
+            }
+            LayerKind::Sprite(sp) => {
+                if opt.shapes {
+                    sp.variation.seed = rng.next_u32() % 1000;
+                }
+                if opt.motion && sp.frame_count() > 1 {
+                    sp.cycles = *rng.pick(&[1, 2, 4]);
+                }
+            }
         }
         if opt.shapes
             && !matches!(
                 l.kind,
-                LayerKind::Backdrop(_) | LayerKind::Mirror(_) | LayerKind::Terrain(_)
+                LayerKind::Backdrop(_)
+                    | LayerKind::Mirror(_)
+                    | LayerKind::Terrain(_)
+                    | LayerKind::Weather(_)
             )
         {
             l.symmetry = match l.symmetry {
@@ -197,6 +247,10 @@ fn scale_counts(inst: &mut Instancer, rng: &mut Rng, k: f32) {
             *count = f(rng, *count, 5, 400);
             *seed = rng.next_u32() % 1000;
         }
+        Instancer::Swarm { count, seed, .. } => {
+            *count = f(rng, *count, 1000, SWARM_MAX);
+            *seed = rng.next_u32() % 1000;
+        }
         Instancer::Spiral { count, turns, .. } => {
             *count = f(rng, *count, 8, 300);
             *turns = (*turns * (1.0 + rng.signed() * 0.5 * k)).max(0.5);
@@ -204,6 +258,11 @@ fn scale_counts(inst: &mut Instancer, rng: &mut Rng, k: f32) {
         Instancer::Wall { cols, rows, .. } => {
             *cols = f(rng, *cols, 2, 40);
             *rows = f(rng, *rows, 1, 12);
+        }
+        Instancer::Curve { count, .. } => *count = f(rng, *count, 6, 120),
+        Instancer::Surface { count, seed, .. } | Instancer::OnTerrain { count, seed, .. } => {
+            *count = f(rng, *count, 10, 400);
+            *seed = rng.next_u32() % 1000;
         }
         Instancer::Grid { .. } | Instancer::Single => {}
     }

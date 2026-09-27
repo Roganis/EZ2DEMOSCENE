@@ -6,9 +6,11 @@
 
 pub mod gpu;
 pub mod import;
+pub mod logo;
 pub mod mesh;
 mod renderer;
 pub mod texgen;
+pub mod text;
 
 pub use renderer::{
     supported_msaa, FrameStats, LayerStats, Readback, RenderTarget, Renderer, HDR_FORMAT,

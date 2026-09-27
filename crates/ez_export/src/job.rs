@@ -137,11 +137,20 @@ pub struct ExportJob {
     audio: Option<AudioEnvelope>,
     target: RenderTarget,
     sink: Option<Box<dyn FrameSink>>,
-    pending: Option<Readback>,
+    /// Frames rendered and being copied back, oldest first.
+    pending: std::collections::VecDeque<Readback>,
     frames: u32,
+    /// Frames are loop phases (else seconds into the song).
+    looped: bool,
+    fps: f32,
     total: u32,
     next: u32,
     done: u32,
+    /// Motion blur (sub-frames per frame) and the sub-frame to render next.
+    blur: crate::MotionBlur,
+    sub: u32,
+    /// Feedback warm-up frames still to render (a loop before frame 0).
+    warmup: u32,
 }
 
 impl ExportJob {
@@ -158,18 +167,35 @@ impl ExportJob {
         repeats: u32,
         sink: Box<dyn FrameSink>,
     ) -> ExportJob {
-        let frames = project.timing.frame_count(fps);
+        let (frames, looped) = crate::export_frames(&project, audio.as_ref(), fps);
+        let project_uses_feedback = project.uses_feedback();
+        let repeats = if looped { repeats } else { 1 };
         ExportJob {
             target: renderer.create_target(width.max(16) & !1, height.max(16) & !1),
             project,
             audio,
             sink: Some(sink),
-            pending: None,
+            pending: Default::default(),
             frames,
+            looped,
+            fps,
             total: frames * repeats.max(1),
             next: 0,
             done: 0,
+            blur: crate::MotionBlur::new(1, 0.0),
+            sub: 0,
+            warmup: if looped && project_uses_feedback {
+                frames
+            } else {
+                0
+            },
         }
+    }
+
+    /// Average `subframes` sub-frames over the `shutter` per frame.
+    pub fn with_motion_blur(mut self, subframes: u32, shutter: f32) -> ExportJob {
+        self.blur = crate::MotionBlur::new(subframes, shutter);
+        self
     }
 
     pub fn extension(&self) -> &'static str {
@@ -185,29 +211,59 @@ impl ExportJob {
 
     /// Advance the export. Call repeatedly (e.g. once or twice per UI frame).
     pub fn step(&mut self, renderer: &mut Renderer) -> Result<JobState> {
-        if let Some(rb) = &self.pending {
-            renderer.poll();
-            if !rb.is_ready() {
-                return Ok(JobState::Running(self.progress()));
-            }
-            let rb = self.pending.take().unwrap();
+        // Up to three frames in flight: the GPU renders the next frames
+        // while earlier ones are copied back.
+        const IN_FLIGHT: usize = 3;
+        renderer.poll();
+        while self.pending.front().is_some_and(|rb| rb.is_ready()) {
+            let rb = self.pending.pop_front().unwrap();
             let (w, h) = (rb.width, rb.height);
             let Some(px) = rb.take() else {
                 bail!("reading back a frame failed");
             };
+            let Some(frame) = self.blur.add(px) else {
+                continue;
+            };
             if let Some(sink) = &mut self.sink {
-                sink.add_frame(&px, w, h)?;
+                sink.add_frame(&frame, w, h)?;
             }
             self.done += 1;
         }
-        if self.next < self.total {
+        if self.warmup > 0 {
+            // A loop of warm-up (not kept) builds the feedback history.
+            let ctx = crate::export_ctx_at(
+                &self.project,
+                self.audio.as_ref(),
+                self.fps,
+                self.frames,
+                self.looped,
+                (self.frames - self.warmup) as f64,
+            );
+            renderer.render(&self.project, &ctx, &self.target);
+            self.warmup -= 1;
+            return Ok(JobState::Running(self.progress()));
+        }
+        if self.next < self.total && self.pending.len() < IN_FLIGHT {
             // Frame i sits at phase i / N: the last frame is not a copy of
             // the first, so the file loops without a seam.
-            let phase = (self.next % self.frames) as f32 / self.frames as f32;
-            let ctx = EvalCtx::new(&self.project.timing, phase, self.audio.as_ref());
+            let ctx: EvalCtx = crate::export_ctx_at(
+                &self.project,
+                self.audio.as_ref(),
+                self.fps,
+                self.frames,
+                self.looped,
+                self.next as f64 + self.blur.offset(self.sub),
+            );
             renderer.render(&self.project, &ctx, &self.target);
-            self.pending = Some(renderer.start_readback(&self.target));
-            self.next += 1;
+            self.pending
+                .push_back(renderer.start_readback(&self.target));
+            self.sub += 1;
+            if self.sub >= self.blur.subframes() {
+                self.sub = 0;
+                self.next += 1;
+            }
+        }
+        if self.done < self.total {
             return Ok(JobState::Running(self.progress()));
         }
         match self.sink.take() {
@@ -275,5 +331,121 @@ mod tests {
         let zip_bytes = run(&mut job, &mut r);
         let archive = zip::ZipArchive::new(std::io::Cursor::new(zip_bytes)).unwrap();
         assert_eq!(archive.len(), 12);
+    }
+
+    #[test]
+    fn motion_blur_averages_in_linear_light() {
+        let mut b = crate::MotionBlur::new(2, 1.0);
+        assert!(b.add(vec![0, 0, 0, 255]).is_none());
+        let out = b.add(vec![255, 255, 255, 255]).unwrap();
+        // Half of full linear light is sRGB 188, not 128.
+        assert_eq!(out, vec![188, 188, 188, 255]);
+        assert_eq!(b.offset(0), -0.25);
+        assert_eq!(b.offset(1), 0.25);
+        assert_eq!(crate::MotionBlur::new(1, 1.0).offset(0), 0.0);
+    }
+
+    #[test]
+    fn motion_blurred_export_keeps_its_frames() {
+        let Ok(gpu) = Gpu::headless() else {
+            eprintln!("no GPU, skipping");
+            return;
+        };
+        let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+        let mut p = presets::orbiting_solid();
+        p.timing.bpm = 240.0;
+        p.timing.loop_beats = 2;
+        p.post.grade.grain = ez_core::Param::new(0.0);
+        let frames = |blur: u32, r: &mut Renderer| {
+            let mut job = ExportJob::new(
+                r,
+                p.clone(),
+                None,
+                64,
+                36,
+                12.0,
+                1,
+                Box::<PngZipSink>::default(),
+            )
+            .with_motion_blur(blur, 1.0);
+            let bytes = run(&mut job, r);
+            let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+            (0..zip.len())
+                .map(|i| {
+                    let mut f = zip.by_index(i).unwrap();
+                    let mut v = Vec::new();
+                    std::io::Read::read_to_end(&mut f, &mut v).unwrap();
+                    image::load_from_memory(&v).unwrap().to_rgba8()
+                })
+                .collect::<Vec<_>>()
+        };
+        let sharp = frames(1, &mut r);
+        let blurred = frames(6, &mut r);
+        assert_eq!(sharp.len(), blurred.len());
+        let diff: f32 = sharp[2]
+            .as_raw()
+            .iter()
+            .zip(blurred[2].as_raw())
+            .map(|(a, b)| (*a as i32 - *b as i32).unsigned_abs() as f32)
+            .sum::<f32>()
+            / sharp[2].as_raw().len() as f32;
+        assert!(diff > 0.5, "motion blur changed nothing ({diff})");
+    }
+
+    #[test]
+    fn feedback_export_starts_with_trails_and_closes_the_loop() {
+        let Ok(gpu) = Gpu::headless() else {
+            eprintln!("no GPU, skipping");
+            return;
+        };
+        let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+        let mut p = presets::orbiting_solid();
+        p.timing.bpm = 240.0;
+        p.timing.loop_beats = 2;
+        p.post.grade.grain = ez_core::Param::new(0.0);
+        p.post.feedback.enabled = true;
+        p.post.feedback.length = ez_core::Param::new(0.7);
+        p.post.feedback.zoom = 1.3;
+        let export = |p: &ez_core::Project, r: &mut Renderer| {
+            let mut job = ExportJob::new(
+                r,
+                p.clone(),
+                None,
+                64,
+                36,
+                12.0,
+                1,
+                Box::<PngZipSink>::default(),
+            );
+            let bytes = run(&mut job, r);
+            let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+            (0..zip.len())
+                .map(|i| {
+                    let mut f = zip.by_index(i).unwrap();
+                    let mut v = Vec::new();
+                    std::io::Read::read_to_end(&mut f, &mut v).unwrap();
+                    image::load_from_memory(&v).unwrap().to_rgba8()
+                })
+                .collect::<Vec<_>>()
+        };
+        let diff = |a: &image::RgbaImage, b: &image::RgbaImage| {
+            a.as_raw()
+                .iter()
+                .zip(b.as_raw())
+                .map(|(a, b)| (*a as i32 - *b as i32).unsigned_abs() as f32)
+                .sum::<f32>()
+                / a.as_raw().len() as f32
+        };
+        let first = export(&p, &mut r);
+        // A second export from a renderer with other history gives the
+        // same frames: the warm-up starts from a fixed state.
+        let second = export(&p, &mut r);
+        assert_eq!(first.len(), 6);
+        assert!(diff(&first[0], &second[0]) < 0.01);
+        let mut plain = p.clone();
+        plain.post.feedback.enabled = false;
+        let without = export(&plain, &mut r);
+        // Frame 0 already has trails (it follows the warm-up loop).
+        assert!(diff(&first[0], &without[0]) > 1.0, "no trails on frame 0");
     }
 }

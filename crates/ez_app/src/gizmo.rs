@@ -2,8 +2,8 @@
 //! scale it, optional ground grid. Hold Ctrl to snap.
 
 use egui::{Color32, Pos2, Rect, Stroke, Vec2};
-use ez_core::eval::{mesh_instances, CameraState};
-use ez_core::{EvalCtx, Layer, LayerKind};
+use ez_core::eval::{copies_with, mesh_instances, CameraState};
+use ez_core::{EvalCtx, Layer, LayerKind, LogoLayer};
 use glam::{Mat4, Vec3, Vec4};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -57,6 +57,9 @@ pub struct Projector {
     vp: Mat4,
     rect: Rect,
     pub eye: Vec3,
+    /// Where each logo layer's anchor is (fractions of the view from the
+    /// bottom left), by layer index; filled in by the caller.
+    pub logos: Vec<Option<[f32; 2]>>,
 }
 
 impl Projector {
@@ -66,6 +69,24 @@ impl Projector {
             vp: cam.proj(aspect) * cam.view(),
             rect,
             eye: cam.eye,
+            logos: Vec::new(),
+        }
+    }
+
+    /// A point given as fractions of the view (from the left, from the
+    /// bottom), as logos are placed.
+    pub fn screen_point(&self, x: f32, y: f32) -> Pos2 {
+        Pos2::new(
+            self.rect.left() + x * self.rect.width(),
+            self.rect.bottom() - y * self.rect.height(),
+        )
+    }
+
+    /// Where logo layer `i` is anchored on the screen.
+    fn logo_point(&self, i: usize, g: &LogoLayer) -> Pos2 {
+        match self.logos.get(i).copied().flatten() {
+            Some([x, y]) => self.screen_point(x, y),
+            None => self.screen_point(g.x.base, g.y.base),
         }
     }
 
@@ -90,7 +111,7 @@ fn dist_to_segment(p: Pos2, a: Pos2, b: Pos2) -> f32 {
 }
 
 /// Screen positions representing a layer, used for click-picking.
-fn pick_points(layer: &Layer, ctx: &EvalCtx, proj: &Projector) -> Vec<Pos2> {
+fn pick_points(layer: &Layer, index: usize, ctx: &EvalCtx, proj: &Projector) -> Vec<Pos2> {
     let mut pts = Vec::new();
     let pos = Vec3::from(layer.transform.position);
     match &layer.kind {
@@ -103,11 +124,24 @@ fn pick_points(layer: &Layer, ctx: &EvalCtx, proj: &Projector) -> Vec<Pos2> {
                 }
             }
         }
+        LayerKind::Sprite(sp) => {
+            let mut inst = Vec::new();
+            copies_with(layer, &sp.instancer, &sp.variation, ctx, None, &mut inst);
+            for i in inst.iter().take(512) {
+                if let Some(p) = proj.to_screen(i.model.w_axis.truncate()) {
+                    pts.push(p);
+                }
+            }
+        }
         LayerKind::Particles(_)
         | LayerKind::Terrain(_)
         | LayerKind::Lasers(_)
-        | LayerKind::Ribbon(_) => pts.extend(proj.to_screen(pos)),
-        LayerKind::Mirror(_) | LayerKind::Backdrop(_) => {}
+        | LayerKind::Ribbon(_)
+        | LayerKind::Text(_)
+        | LayerKind::Arcs(_)
+        | LayerKind::Falls(_) => pts.extend(proj.to_screen(pos)),
+        LayerKind::Logo(g) => pts.push(proj.logo_point(index, g)),
+        LayerKind::Mirror(_) | LayerKind::Backdrop(_) | LayerKind::Weather(_) => {}
     }
     pts
 }
@@ -116,7 +150,7 @@ fn pick_points(layer: &Layer, ctx: &EvalCtx, proj: &Projector) -> Vec<Pos2> {
 pub fn pick(layers: &[Layer], ctx: &EvalCtx, proj: &Projector, click: Pos2) -> Option<usize> {
     let mut best = (28.0f32, None);
     for (i, l) in layers.iter().enumerate().filter(|(_, l)| l.enabled) {
-        for p in pick_points(l, ctx, proj) {
+        for p in pick_points(l, i, ctx, proj) {
             let d = (p - click).length();
             if d < best.0 {
                 best = (d, Some(i));
@@ -181,6 +215,67 @@ impl Gizmo {
         self.drag.is_some()
     }
 
+    /// A logo lives on the screen: one handle at its anchor. Move drags it
+    /// across the view, Scale sizes it, Rotate turns it.
+    fn logo_handle(
+        &mut self,
+        painter: &egui::Painter,
+        resp: &egui::Response,
+        proj: &Projector,
+        g: &mut LogoLayer,
+        o: Pos2,
+        snapping: bool,
+    ) -> bool {
+        let k = if self.touch { 2.2 } else { 1.0 };
+        let near = |p: Pos2| (p - o).length() < 10.0 * k;
+        let hovered = resp.hover_pos().is_some_and(near);
+        // Where the button went down: at a low frame rate the pointer has
+        // already left the handle by the time the drag starts.
+        let pressed = resp.ctx.input(|i| i.pointer.press_origin());
+        if resp.drag_started() && pressed.or(resp.hover_pos()).is_some_and(near) {
+            self.drag = Some(Drag {
+                handle: Handle::Center,
+                start_pos: [g.x.base, g.y.base, 0.0],
+                start_rot: [g.rotation.base, 0.0, 0.0],
+                start_stretch: [1.0; 3],
+                start_scale: g.size.base,
+                amount: 0.0,
+            });
+        }
+        if resp.drag_stopped() {
+            self.drag = None;
+        }
+        if let (Some(d), true) = (&mut self.drag, resp.dragged()) {
+            let delta = resp.drag_delta();
+            let r = proj.rect;
+            match self.mode {
+                GizmoMode::Move => {
+                    d.start_pos[0] += delta.x / r.width().max(1.0);
+                    d.start_pos[1] -= delta.y / r.height().max(1.0);
+                    let place = |v: f32| if snapping { snap(v, 0.05) } else { v };
+                    g.x.base = place(d.start_pos[0]);
+                    g.y.base = place(d.start_pos[1]);
+                }
+                GizmoMode::Scale => {
+                    d.amount += (delta.x - delta.y) * 0.01;
+                    let v = (d.start_scale * (1.0 + d.amount)).max(0.01);
+                    g.size.base = if snapping { snap(v, 0.05).max(0.05) } else { v };
+                }
+                GizmoMode::Rotate => {
+                    d.amount += (delta.x - delta.y) * 0.5;
+                    let v = d.start_rot[0] + d.amount;
+                    g.rotation.base = if snapping { snap(v, ROTATE_SNAP) } else { v };
+                }
+            }
+        }
+        let hot = hovered || self.drag.is_some();
+        let color = if hot { Color32::WHITE } else { AXIS_COLORS[1] };
+        let rect = Rect::from_center_size(o, Vec2::splat(12.0 * k));
+        painter.rect_stroke(rect, 2.0, Stroke::new(2.0, color), egui::StrokeKind::Middle);
+        painter.circle_filled(o, 2.5, color);
+        hot
+    }
+
     /// Draws the gizmo for `layer` and handles dragging. Returns true when
     /// the pointer is on (or dragging) a handle, so the caller should not
     /// orbit the camera.
@@ -190,11 +285,16 @@ impl Gizmo {
         resp: &egui::Response,
         proj: &Projector,
         layer: &mut Layer,
+        index: usize,
         snapping: bool,
     ) -> bool {
         if matches!(layer.kind, LayerKind::Backdrop(_)) {
             self.drag = None;
             return false;
+        }
+        if let LayerKind::Logo(g) = &mut layer.kind {
+            let at = proj.logo_point(index, g);
+            return self.logo_handle(painter, resp, proj, g, at, snapping);
         }
         let only_y = matches!(layer.kind, LayerKind::Mirror(_));
         let t = &mut layer.transform;

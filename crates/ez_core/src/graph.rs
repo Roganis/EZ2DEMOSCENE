@@ -7,7 +7,18 @@
 use crate::color::{hue_rotate, Rgb};
 use crate::rng::Rng;
 use crate::scene::*;
+use crate::signal::{DriveMode, SignalNode};
+use crate::EvalCtx;
 use serde::{Deserialize, Serialize};
+
+/// What flows along a wire.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PinKind {
+    /// A stream of layers.
+    Layers,
+    /// One number that changes over the loop.
+    Signal,
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "node")]
@@ -60,6 +71,46 @@ pub enum NodeKind {
         glitch: f32,
         glitch_style: GlitchStyle,
     },
+    /// Sets the deformation (twist, bend, taper, wobble, explode) of every
+    /// incoming shape layer.
+    Deform { deform: Deform },
+    /// Spreads colours across the copies of every incoming shape layer.
+    Colors { ramp: ColorRamp },
+    /// Lays the copies of every incoming shape along a curve: the curve of
+    /// the ribbon layer on the second input (following its placement), or
+    /// the node's own.
+    FollowCurve {
+        curve: RibbonCurve,
+        freq: [u32; 3],
+        size: f32,
+        count: u32,
+        laps: i32,
+        align: bool,
+    },
+    /// Scatters the copies of every incoming shape over the surface of the
+    /// shape layer on the second input (following its placement).
+    OnSurface {
+        count: u32,
+        seed: u32,
+        align: bool,
+        lift: f32,
+    },
+    /// Stands the copies of every incoming shape on the terrain layer on
+    /// the second input; they ride along as it scrolls.
+    OnTerrain {
+        count: u32,
+        seed: u32,
+        align: bool,
+        lift: f32,
+    },
+    /// Makes or shapes a signal.
+    Signal { sig: SignalNode },
+    /// Sets one setting of every incoming layer from a signal.
+    Drive {
+        /// Setting path (see [`crate::signal::setting_paths`]).
+        path: String,
+        mode: DriveMode,
+    },
     /// Concatenates any number of streams.
     Merge,
     /// Final output: everything connected here is rendered.
@@ -80,8 +131,60 @@ impl NodeKind {
             NodeKind::Mirror { .. } => "Mirror".into(),
             NodeKind::Strobe { .. } => "Strobe".into(),
             NodeKind::Material { .. } => "Colour / material".into(),
+            NodeKind::Deform { .. } => "Deform".into(),
+            NodeKind::FollowCurve { .. } => "Along a curve".into(),
+            NodeKind::OnSurface { .. } => "On a surface".into(),
+            NodeKind::OnTerrain { .. } => "On a terrain".into(),
+            NodeKind::Colors { .. } => "Colours across copies".into(),
+            NodeKind::Signal { sig } => sig.title().into(),
+            NodeKind::Drive { path, .. } if path.is_empty() => "Drive".into(),
+            NodeKind::Drive { path, .. } => format!("Drive {path}"),
             NodeKind::Merge => "Merge".into(),
             NodeKind::Output => "Output".into(),
+        }
+    }
+
+    /// Nodes whose second input is a layer they look at (a curve, a
+    /// surface, a terrain) rather than layers they pass on.
+    pub fn has_reference(&self) -> bool {
+        matches!(
+            self,
+            NodeKind::FollowCurve { .. } | NodeKind::OnSurface { .. } | NodeKind::OnTerrain { .. }
+        )
+    }
+
+    /// Name of input `pin`.
+    pub fn input_name(&self, pin: usize) -> &'static str {
+        match self {
+            NodeKind::Signal { sig } => sig.input_names().get(pin).copied().unwrap_or("in"),
+            NodeKind::Drive { .. } if pin == 1 => "signal",
+            NodeKind::FollowCurve { .. } if pin == 1 => "ribbon",
+            NodeKind::OnSurface { .. } if pin == 1 => "surface",
+            NodeKind::OnTerrain { .. } if pin == 1 => "terrain",
+            _ if self.inputs() > 1
+                && !self.has_reference()
+                && !matches!(self, NodeKind::Drive { .. }) =>
+            {
+                "in"
+            }
+            _ => "layers",
+        }
+    }
+
+    /// What input pin `pin` takes.
+    pub fn input_kind(&self, pin: usize) -> PinKind {
+        match self {
+            NodeKind::Signal { .. } => PinKind::Signal,
+            NodeKind::Drive { .. } if pin == 1 => PinKind::Signal,
+            _ => PinKind::Layers,
+        }
+    }
+
+    /// What the output pins give.
+    pub fn output_kind(&self) -> PinKind {
+        match self {
+            NodeKind::Signal { .. } => PinKind::Signal,
+            _ => PinKind::Layers,
         }
     }
 
@@ -89,6 +192,9 @@ impl NodeKind {
     pub fn inputs(&self) -> usize {
         match self {
             NodeKind::Source { .. } => 0,
+            NodeKind::Signal { sig } => sig.input_names().len(),
+            NodeKind::Drive { .. } => 2,
+            k if k.has_reference() => 2,
             NodeKind::Merge => 4,
             NodeKind::Output => 8,
             _ => 1,
@@ -145,14 +251,181 @@ impl NodeKind {
                 glitch: 0.0,
                 glitch_style: GlitchStyle::Jitter,
             },
+            NodeKind::Deform {
+                deform: Deform {
+                    twist: crate::Param::new(0.5),
+                    ..Default::default()
+                },
+            },
+            NodeKind::Colors {
+                ramp: ColorRamp {
+                    enabled: true,
+                    ..Default::default()
+                },
+            },
+            NodeKind::FollowCurve {
+                curve: RibbonCurve::Knot,
+                freq: [2, 3, 5],
+                size: 4.0,
+                count: 24,
+                laps: 1,
+                align: true,
+            },
+            NodeKind::OnSurface {
+                count: 80,
+                seed: 1,
+                align: true,
+                lift: 0.0,
+            },
+            NodeKind::OnTerrain {
+                count: 60,
+                seed: 1,
+                align: false,
+                lift: 0.0,
+            },
+            NodeKind::Drive {
+                path: String::new(),
+                mode: DriveMode::Replace,
+            },
             NodeKind::Merge,
         ]
+    }
+
+    /// [`NodeKind::apply`] for nodes with a reference input.
+    fn apply_with(&self, input: Vec<Layer>, reference: &[Layer]) -> Vec<Layer> {
+        match self {
+            NodeKind::FollowCurve {
+                curve,
+                freq,
+                size,
+                count,
+                laps,
+                align,
+            } => {
+                let ribbon = reference.iter().find_map(|l| match &l.kind {
+                    LayerKind::Ribbon(r) => Some((l, r)),
+                    _ => None,
+                });
+                input
+                    .into_iter()
+                    .map(|mut l| {
+                        if let Some(copies) = l.kind.instancer_mut() {
+                            let (curve, freq, size) = match ribbon {
+                                Some((rl, r)) => {
+                                    // Ride the ribbon wherever it is.
+                                    l.transform.position = rl.transform.position;
+                                    l.transform.rotation = rl.transform.rotation;
+                                    l.transform.spin = rl.transform.spin;
+                                    (r.curve, r.freq, rl.transform.scale.base)
+                                }
+                                None => (*curve, *freq, *size),
+                            };
+                            *copies = Instancer::Curve {
+                                curve,
+                                freq,
+                                size,
+                                count: *count,
+                                laps: *laps,
+                                align: *align,
+                            };
+                        }
+                        l
+                    })
+                    .collect()
+            }
+            NodeKind::OnSurface {
+                count,
+                seed,
+                align,
+                lift,
+            } => {
+                let Some((sl, sm)) = reference.iter().find_map(|l| match &l.kind {
+                    LayerKind::Mesh(m) => Some((l, m)),
+                    _ => None,
+                }) else {
+                    // Nothing to cover yet.
+                    return input;
+                };
+                input
+                    .into_iter()
+                    .map(|mut l| {
+                        if let Some(copies) = l.kind.instancer_mut() {
+                            l.transform.position = sl.transform.position;
+                            l.transform.rotation = sl.transform.rotation;
+                            l.transform.spin = sl.transform.spin;
+                            *copies = Instancer::Surface {
+                                shape: sm.source.clone(),
+                                size: sl.transform.scale.base,
+                                count: *count,
+                                seed: *seed,
+                                align: *align,
+                                lift: *lift,
+                            };
+                        }
+                        l
+                    })
+                    .collect()
+            }
+            NodeKind::OnTerrain {
+                count,
+                seed,
+                align,
+                lift,
+            } => {
+                let Some((tl, t)) = reference.iter().find_map(|l| match &l.kind {
+                    LayerKind::Terrain(t) => Some((l, t)),
+                    _ => None,
+                }) else {
+                    return input;
+                };
+                input
+                    .into_iter()
+                    .map(|mut l| {
+                        if let Some(copies) = l.kind.instancer_mut() {
+                            *copies = Instancer::OnTerrain {
+                                terrain: tl.name.clone(),
+                                count: *count,
+                                seed: *seed,
+                                align: *align,
+                                lift: *lift,
+                                ground: Some(Box::new((t.clone(), tl.transform.clone()))),
+                            };
+                        }
+                        l
+                    })
+                    .collect()
+            }
+            _ => self.apply(input),
+        }
     }
 
     fn apply(&self, input: Vec<Layer>) -> Vec<Layer> {
         match self {
             NodeKind::Source { layer } => vec![layer.clone()],
-            NodeKind::Merge | NodeKind::Output => input,
+            NodeKind::Signal { .. } => Vec::new(),
+            NodeKind::FollowCurve { .. }
+            | NodeKind::OnSurface { .. }
+            | NodeKind::OnTerrain { .. } => self.apply_with(input, &[]),
+            NodeKind::Colors { ramp } => input
+                .into_iter()
+                .map(|mut l| {
+                    if let LayerKind::Mesh(m) = &mut l.kind {
+                        m.ramp = ramp.clone();
+                    }
+                    l
+                })
+                .collect(),
+            NodeKind::Deform { deform } => input
+                .into_iter()
+                .map(|mut l| {
+                    if let LayerKind::Mesh(m) = &mut l.kind {
+                        m.deform = deform.clone();
+                    }
+                    l
+                })
+                .collect(),
+            // Driving needs the moment; see Graph::eval_node.
+            NodeKind::Drive { .. } | NodeKind::Merge | NodeKind::Output => input,
             NodeKind::Symmetry { symmetry } => input
                 .into_iter()
                 .map(|mut l| {
@@ -334,51 +607,69 @@ pub fn set_layer_color(l: &mut Layer, c: Rgb) {
             z.color_b = c;
         }
         LayerKind::Ribbon(r) => r.color = c,
+        LayerKind::Weather(w) => w.color = c,
+        LayerKind::Falls(f) => f.color = c,
+        LayerKind::Text(t) => t.color_bottom = c,
+        LayerKind::Sprite(sp) => sp.tint = c,
+        LayerKind::Arcs(a) => a.color = c,
+        LayerKind::Logo(g) => g.color_bottom = c,
     }
 }
 
 /// Rotate all colours of a layer and scale its glow.
 pub fn tint_layer(l: &mut Layer, hue: f32, glow: f32) {
+    if hue != 0.0 {
+        l.kind.for_each_color_mut(|c| *c = hue_rotate(*c, hue));
+    }
     match &mut l.kind {
         LayerKind::Mesh(m) => {
-            m.material.base_color = hue_rotate(m.material.base_color, hue);
-            m.material.emissive_color = hue_rotate(m.material.emissive_color, hue);
             m.material.emissive.base *= glow;
             m.material.emissive.amp *= glow;
         }
         LayerKind::Particles(p) => {
-            p.color_a = hue_rotate(p.color_a, hue);
-            p.color_b = hue_rotate(p.color_b, hue);
             p.intensity.base *= glow;
         }
         LayerKind::Backdrop(b) => {
-            b.color_a = hue_rotate(b.color_a, hue);
-            b.color_b = hue_rotate(b.color_b, hue);
-            b.color_c = hue_rotate(b.color_c, hue);
             b.intensity.base *= glow;
         }
         LayerKind::Mirror(m) => {
-            m.base_color = hue_rotate(m.base_color, hue);
-            m.tint = hue_rotate(m.tint, hue);
-            m.grid_color = hue_rotate(m.grid_color, hue);
             m.grid.base *= glow;
         }
         LayerKind::Terrain(t) => {
-            t.line_color = hue_rotate(t.line_color, hue);
-            t.fill_color = hue_rotate(t.fill_color, hue);
             t.glow.base *= glow;
             t.glow.amp *= glow;
         }
         LayerKind::Lasers(z) => {
-            z.color_a = hue_rotate(z.color_a, hue);
-            z.color_b = hue_rotate(z.color_b, hue);
             z.intensity.base *= glow;
             z.intensity.amp *= glow;
         }
         LayerKind::Ribbon(r) => {
-            r.color = hue_rotate(r.color, hue);
             r.glow.base *= glow;
             r.glow.amp *= glow;
+        }
+        LayerKind::Weather(w) => {
+            w.intensity.base *= glow;
+            w.intensity.amp *= glow;
+        }
+        LayerKind::Falls(f) => {
+            f.glow.base *= glow;
+            f.glow.amp *= glow;
+        }
+        LayerKind::Text(t) => {
+            t.glow.base *= glow;
+            t.glow.amp *= glow;
+        }
+        LayerKind::Sprite(sp) => {
+            sp.glow.base *= glow;
+            sp.glow.amp *= glow;
+        }
+        LayerKind::Arcs(a) => {
+            a.glow.base *= glow;
+            a.glow.amp *= glow;
+        }
+        LayerKind::Logo(g) => {
+            g.glow.base *= glow;
+            g.glow.amp *= glow;
         }
     }
 }
@@ -449,8 +740,19 @@ impl Graph {
         self.nodes.iter().find(|n| n.id == id)
     }
 
-    /// Compile the graph to a layer list (cycles are ignored).
+    /// Compile the graph to a layer list (cycles are ignored). Drive nodes
+    /// are left out: this is the graph's structure, e.g. for converting it
+    /// to plain layers. [`Graph::compile_at`] is what gets rendered.
     pub fn compile(&self) -> Vec<Layer> {
+        self.compile_with(None)
+    }
+
+    /// The layers at one moment, with every Drive node applied.
+    pub fn compile_at(&self, ctx: &EvalCtx) -> Vec<Layer> {
+        self.compile_with(Some(ctx))
+    }
+
+    fn compile_with(&self, ctx: Option<&EvalCtx>) -> Vec<Layer> {
         let Some(out) = self
             .nodes
             .iter()
@@ -459,10 +761,25 @@ impl Graph {
             return Vec::new();
         };
         let mut visiting = Vec::new();
-        self.eval_node(out.id, &mut visiting)
+        self.eval_node(out.id, ctx, &mut visiting)
     }
 
-    fn eval_node(&self, id: u32, visiting: &mut Vec<u32>) -> Vec<Layer> {
+    /// Wires into `id`, sorted by pin, whose source gives what the pin takes.
+    fn inputs_of(&self, id: u32, kind: &NodeKind) -> Vec<&Wire> {
+        let mut inputs: Vec<&Wire> = self
+            .wires
+            .iter()
+            .filter(|w| w.to == id)
+            .filter(|w| {
+                self.node(w.from)
+                    .is_some_and(|f| f.kind.output_kind() == kind.input_kind(w.to_pin))
+            })
+            .collect();
+        inputs.sort_by_key(|w| w.to_pin);
+        inputs
+    }
+
+    fn eval_node(&self, id: u32, ctx: Option<&EvalCtx>, visiting: &mut Vec<u32>) -> Vec<Layer> {
         if visiting.contains(&id) || visiting.len() > 256 {
             return Vec::new();
         }
@@ -470,14 +787,93 @@ impl Graph {
             return Vec::new();
         };
         visiting.push(id);
-        let mut inputs: Vec<&Wire> = self.wires.iter().filter(|w| w.to == id).collect();
-        inputs.sort_by_key(|w| w.to_pin);
+        let inputs = self.inputs_of(id, &node.kind);
         let mut stream = Vec::new();
+        let mut reference = Vec::new();
+        let mut signal = None;
         for w in inputs {
-            stream.extend(self.eval_node(w.from, visiting));
+            match node.kind.input_kind(w.to_pin) {
+                PinKind::Layers if w.to_pin == 1 && node.kind.has_reference() => {
+                    reference.extend(self.eval_node(w.from, ctx, visiting))
+                }
+                PinKind::Layers => stream.extend(self.eval_node(w.from, ctx, visiting)),
+                PinKind::Signal => {
+                    if let Some(c) = ctx {
+                        signal = self.eval_signal(w.from, &crate::signal::wrapped(c), visiting);
+                    }
+                }
+            }
         }
         visiting.pop();
-        node.kind.apply(stream)
+        if let (NodeKind::Drive { path, mode }, Some(v)) = (&node.kind, signal) {
+            if !path.is_empty() {
+                for l in &mut stream {
+                    crate::signal::drive(l, path, *mode, v);
+                }
+            }
+            return stream;
+        }
+        node.kind.apply_with(stream, &reference)
+    }
+
+    /// The layers flowing into input `pin` of node `id` (structure only,
+    /// no drives): what a Drive node can set.
+    pub fn upstream_layers(&self, id: u32, pin: usize) -> Vec<Layer> {
+        let Some(node) = self.node(id) else {
+            return Vec::new();
+        };
+        self.inputs_of(id, &node.kind)
+            .into_iter()
+            .filter(|w| w.to_pin == pin)
+            .flat_map(|w| self.eval_node(w.from, None, &mut vec![id]))
+            .collect()
+    }
+
+    /// Value of signal node `id` at `ctx` (`None` for a missing or
+    /// non-signal node, or a cycle).
+    pub fn signal_at(&self, id: u32, ctx: &EvalCtx) -> Option<f32> {
+        self.eval_signal(id, &crate::signal::wrapped(ctx), &mut Vec::new())
+    }
+
+    fn eval_signal(&self, id: u32, ctx: &EvalCtx, visiting: &mut Vec<u32>) -> Option<f32> {
+        if visiting.contains(&id) || visiting.len() > 256 {
+            return None;
+        }
+        let node = self.node(id)?;
+        let NodeKind::Signal { sig } = &node.kind else {
+            return None;
+        };
+        visiting.push(id);
+        let mut inputs = vec![None; sig.input_names().len()];
+        for w in self.inputs_of(id, &node.kind) {
+            if w.to_pin >= inputs.len() {
+                continue;
+            }
+            inputs[w.to_pin] = match sig {
+                // A symmetric window over the (circular) loop keeps it exact.
+                SignalNode::Smooth { beats } => {
+                    // Midpoints of N slices: never exactly on a beat, where
+                    // steps change.
+                    const N: usize = 16;
+                    let width = beats.abs();
+                    let mut sum = 0.0;
+                    let mut got = 0;
+                    for k in 0..N {
+                        let d = width * ((k as f32 + 0.5) / N as f32 - 0.5);
+                        let c = crate::signal::shifted(ctx, d);
+                        if let Some(v) = self.eval_signal(w.from, &c, visiting) {
+                            sum += v;
+                            got += 1;
+                        }
+                    }
+                    (got > 0).then(|| sum / got as f32)
+                }
+                _ => self.eval_signal(w.from, ctx, visiting),
+            };
+        }
+        visiting.pop();
+        let v = sig.eval(&inputs, ctx);
+        Some(if v.is_finite() { v } else { 0.0 })
     }
 }
 
@@ -574,6 +970,62 @@ mod tests {
             let want = Mat4::from_scale(s) * layer_matrix(&l.transform, &ctx);
             let got = layer_matrix(&mirror_layer(l.clone(), axis, 0.0).transform, &ctx);
             assert!(want.abs_diff_eq(got, 1e-4), "axis {axis}");
+        }
+    }
+
+    #[test]
+    fn follow_curve_rides_the_ribbon() {
+        use crate::eval::{mesh_instances, Instance};
+        let mut g = Graph::default();
+        let out = g.add(NodeKind::Output, [0.0; 2]);
+        let shapes = g.add(
+            NodeKind::Source {
+                layer: Layer::new("Beads", LayerKind::Mesh(MeshLayer::default())),
+            },
+            [0.0; 2],
+        );
+        let ribbon = Layer::new(
+            "Ribbon",
+            LayerKind::Ribbon(Ribbon {
+                curve: RibbonCurve::Wave,
+                freq: [3, 1, 1],
+                ..Default::default()
+            }),
+        )
+        .at([1.0, 2.0, 3.0])
+        .scaled(5.0);
+        let rib = g.add(NodeKind::Source { layer: ribbon }, [0.0; 2]);
+        let follow = g.add(
+            NodeKind::modifier_templates()
+                .into_iter()
+                .find(|k| matches!(k, NodeKind::FollowCurve { .. }))
+                .unwrap(),
+            [0.0; 2],
+        );
+        g.connect(shapes, 0, follow, 0);
+        g.connect(rib, 0, follow, 1);
+        g.connect(follow, 0, out, 0);
+        let layers = g.compile();
+        // The ribbon is only looked at, not passed on.
+        assert_eq!(layers.len(), 1);
+        let LayerKind::Mesh(m) = &layers[0].kind else {
+            panic!()
+        };
+        let at = |phase: f32| {
+            let mut v: Vec<Instance> = Vec::new();
+            mesh_instances(&layers[0], m, &crate::EvalCtx::at(phase), &mut v);
+            v
+        };
+        let (a, b) = (at(0.0), at(1.0));
+        assert_eq!(a.len(), 24);
+        for (x, y) in a.iter().zip(&b) {
+            assert!(x.model.abs_diff_eq(y.model, 1e-3));
+        }
+        // Every copy sits on the (scaled, moved) wavy ring.
+        for i in &at(0.37) {
+            let p = i.model.w_axis.truncate() - glam::Vec3::new(1.0, 2.0, 3.0);
+            let r = (p.x * p.x + p.z * p.z).sqrt();
+            assert!((r - 5.0).abs() < 0.05, "off the ring: {p}");
         }
     }
 

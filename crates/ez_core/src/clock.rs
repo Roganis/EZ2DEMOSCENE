@@ -1,7 +1,8 @@
 //! Loop clock: tempo, loop length and the evaluation context handed to every
 //! animated value.
 
-use crate::audio::AudioEnvelope;
+use crate::audio::{AudioEnvelope, Curve};
+use crate::music::{MusicFrame, MusicMode, MusicSettings};
 use serde::{Deserialize, Serialize};
 
 /// Tempo and loop length. The loop always spans a whole number of beats.
@@ -45,42 +46,110 @@ impl Timing {
 /// Everything an animated value may depend on for one frame.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct EvalCtx {
-    /// Loop phase in [0, 1).
+    /// Loop phase in [0, 1) that drives motion (time-warped by the music
+    /// when a time warp is set).
     pub phase: f32,
+    /// Phase of the real clock, for things that must stay on the beat
+    /// (beat fades, strobes, blinks).
+    pub beat_phase: f32,
     /// Beats in one loop.
     pub loop_beats: u32,
+    /// Length of one beat in seconds.
+    pub beat_seconds: f32,
     /// Overall audio level (0..1) at this point in the loop, 0 without audio.
     pub audio: f32,
     /// Low-frequency ("kick") audio level (0..1).
     pub bass: f32,
+    /// Everything the music does right now.
+    pub music: MusicFrame,
 }
 
 impl EvalCtx {
+    /// Context at a loop phase, reacting to the start of the song.
     pub fn new(timing: &Timing, phase: f32, audio: Option<&AudioEnvelope>) -> Self {
-        let (a, b) = audio
-            .map(|e| e.sample(phase * timing.loop_seconds()))
-            .unwrap_or((0.0, 0.0));
-        EvalCtx {
+        Self::with_music(timing, &MusicSettings::default(), phase, audio)
+    }
+
+    /// Context at a loop phase, with the loop window and time warp of
+    /// `music`.
+    pub fn with_music(
+        timing: &Timing,
+        music: &MusicSettings,
+        phase: f32,
+        audio: Option<&AudioEnvelope>,
+    ) -> Self {
+        let s = MusicSettings {
+            mode: MusicMode::LoopWindow,
+            ..music.clone()
+        };
+        let t = phase.rem_euclid(1.0) * timing.loop_seconds();
+        Self::build(timing, &s, phase, t, audio)
+    }
+
+    /// Context `seconds` into the song (full-track mode).
+    pub fn song(
+        timing: &Timing,
+        music: &MusicSettings,
+        seconds: f32,
+        audio: Option<&AudioEnvelope>,
+    ) -> Self {
+        let s = MusicSettings {
+            mode: MusicMode::FullTrack,
+            ..music.clone()
+        };
+        let phase = timing.phase_at(seconds as f64);
+        Self::build(timing, &s, phase, seconds, audio)
+    }
+
+    fn build(
+        timing: &Timing,
+        music: &MusicSettings,
+        phase: f32,
+        t: f32,
+        audio: Option<&AudioEnvelope>,
+    ) -> Self {
+        let mut ctx = EvalCtx {
             phase,
+            beat_phase: phase,
             loop_beats: timing.loop_beats.max(1),
-            audio: a,
-            bass: b,
+            beat_seconds: timing.beat_seconds(),
+            audio: 0.0,
+            bass: 0.0,
+            music: MusicFrame::default(),
+        };
+        if let Some(env) = audio {
+            ctx.music = crate::music::frame_at(env, music, timing, t);
+            ctx.phase = crate::music::warped_phase(env, music, timing, t);
+            ctx.audio = ctx.music.fast[Curve::Level as usize];
+            ctx.bass = ctx.music.fast[Curve::Kick as usize];
         }
+        ctx
+    }
+
+    /// Replace the music with a live frame (microphone input).
+    pub fn with_frame(mut self, frame: MusicFrame) -> Self {
+        self.audio = frame.fast[Curve::Level as usize];
+        self.bass = frame.fast[Curve::Kick as usize];
+        self.music = frame;
+        self
     }
 
     /// Context with only a phase (no audio), handy for tests and thumbnails.
     pub fn at(phase: f32) -> Self {
         EvalCtx {
             phase,
+            beat_phase: phase,
             loop_beats: 16,
+            beat_seconds: 0.5,
             audio: 0.0,
             bass: 0.0,
+            music: MusicFrame::default(),
         }
     }
 
     /// Continuous beat position within the loop (0..loop_beats).
     pub fn beat(&self) -> f32 {
-        self.phase * self.loop_beats as f32
+        self.beat_phase * self.loop_beats as f32
     }
 
     /// Fractional part of the current beat (0..1).

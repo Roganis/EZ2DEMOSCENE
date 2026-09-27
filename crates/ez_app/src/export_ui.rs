@@ -27,6 +27,8 @@ struct JobState {
 #[derive(Default)]
 pub struct ExportUi {
     pub open: bool,
+    /// The project's music is still being analysed: hold exports.
+    pub music_loading: bool,
     pub settings: ExportSettings,
     ffmpeg_path: String,
     ffmpeg_found: Option<Option<PathBuf>>,
@@ -69,13 +71,21 @@ impl ExportUi {
 
     fn contents(&mut self, ui: &mut Ui, project: &Project, audio: Option<&AudioEnvelope>) {
         let s = &mut self.settings;
-        let frames = project.timing.frame_count(s.fps);
+        let (frames, looped) = ez_export::export_frames(project, audio, s.fps);
         ui.label(
-            RichText::new(format!(
-                "One loop = {:.2} s = {} frames. Frames are rendered at exact loop positions, so the file loops seamlessly.",
-                project.timing.loop_seconds(),
-                frames
-            ))
+            RichText::new(if looped {
+                format!(
+                    "One loop = {:.2} s = {} frames. Frames are rendered at exact loop positions, so the file loops seamlessly.",
+                    project.timing.loop_seconds(),
+                    frames
+                )
+            } else {
+                format!(
+                    "Whole song = {:.1} s = {} frames (set in Timing & music).",
+                    frames as f32 / s.fps,
+                    frames
+                )
+            })
             .weak(),
         );
         ui.add_space(6.0);
@@ -130,7 +140,23 @@ impl ExportUi {
                 });
                 ui.end_row();
 
-                if s.format != ExportFormat::PngSequence {
+                ui.label("Motion blur");
+                ui.horizontal(|ui| {
+                    for (k, label) in [(1u32, "off"), (4, "4×"), (8, "8×"), (16, "16×")] {
+                        ui.selectable_value(&mut s.motion_blur, k, label).on_hover_text(
+                            "Average this many in-between moments per frame: smooth, film-like motion \
+                             (the export takes that many times longer)",
+                        );
+                    }
+                });
+                ui.end_row();
+                if s.motion_blur > 1 {
+                    ui.label("Shutter");
+                    ui.add(egui::Slider::new(&mut s.shutter, 0.1..=1.0))
+                        .on_hover_text("How much of the time between frames is blurred");
+                    ui.end_row();
+                }
+                if s.format != ExportFormat::PngSequence && looped {
                     ui.label("Repeat loop");
                     ui.add(
                         egui::DragValue::new(&mut s.repeats)
@@ -238,6 +264,14 @@ impl ExportUi {
                 ui.ctx().request_repaint();
                 return;
             }
+        }
+        if self.music_loading {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label("Waiting for the music analysis…");
+            });
+            ui.ctx().request_repaint();
+            return;
         }
         if ui
             .add(

@@ -23,6 +23,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExportFormat {
@@ -92,6 +94,10 @@ pub struct ExportSettings {
     pub ffmpeg: Option<PathBuf>,
     /// Mux the project's audio track into video exports.
     pub include_audio: bool,
+    /// Motion blur: sub-frames averaged per frame (1 = off).
+    pub motion_blur: u32,
+    /// Motion blur shutter: 0..1 of the time between two frames.
+    pub shutter: f32,
 }
 
 impl Default for ExportSettings {
@@ -105,7 +111,110 @@ impl Default for ExportSettings {
             output: PathBuf::from("loop.mp4"),
             ffmpeg: None,
             include_audio: true,
+            motion_blur: 1,
+            shutter: 0.5,
         }
+    }
+}
+
+/// Motion blur for exports: every frame is the average of `k` sub-frames
+/// spread over the shutter, around the frame's own moment. Averaging
+/// happens in linear light. Exact and loop-safe, since each sub-frame is
+/// just an ordinary moment of the loop.
+pub struct MotionBlur {
+    k: u32,
+    shutter: f32,
+    acc: Vec<f32>,
+    got: u32,
+}
+
+fn srgb_to_linear_table() -> &'static [f32; 256] {
+    static T: std::sync::OnceLock<[f32; 256]> = std::sync::OnceLock::new();
+    T.get_or_init(|| {
+        std::array::from_fn(|i| {
+            let c = i as f32 / 255.0;
+            if c <= 0.04045 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
+        })
+    })
+}
+
+fn linear_to_srgb8(c: f32) -> u8 {
+    let c = c.clamp(0.0, 1.0);
+    let s = if c <= 0.003_130_8 {
+        c * 12.92
+    } else {
+        1.055 * c.powf(1.0 / 2.4) - 0.055
+    };
+    (s * 255.0).round() as u8
+}
+
+impl MotionBlur {
+    pub fn new(subframes: u32, shutter: f32) -> MotionBlur {
+        MotionBlur {
+            k: subframes.clamp(1, 64),
+            shutter: shutter.clamp(0.0, 1.0),
+            acc: Vec::new(),
+            got: 0,
+        }
+    }
+
+    /// Sub-frames rendered per output frame.
+    pub fn subframes(&self) -> u32 {
+        self.k
+    }
+
+    /// Offset (in frames) of sub-frame `j` from its frame's moment.
+    pub fn offset(&self, j: u32) -> f64 {
+        if self.k <= 1 {
+            return 0.0;
+        }
+        (((j as f64 + 0.5) / self.k as f64) - 0.5) * self.shutter as f64
+    }
+
+    /// Add the next sub-frame (sRGB RGBA8); the finished frame comes back
+    /// after the last one.
+    pub fn add(&mut self, px: Vec<u8>) -> Option<Vec<u8>> {
+        if self.k <= 1 {
+            return Some(px);
+        }
+        if self.acc.len() != px.len() {
+            self.acc = vec![0.0; px.len()];
+            self.got = 0;
+        }
+        let lut = srgb_to_linear_table();
+        for (a, (i, v)) in self.acc.iter_mut().zip(px.iter().enumerate()) {
+            // Alpha is averaged as is.
+            *a += if i % 4 == 3 {
+                *v as f32 / 255.0
+            } else {
+                lut[*v as usize]
+            };
+        }
+        self.got += 1;
+        if self.got < self.k {
+            return None;
+        }
+        let n = self.k as f32;
+        let out = self
+            .acc
+            .iter()
+            .enumerate()
+            .map(|(i, a)| {
+                let v = a / n;
+                if i % 4 == 3 {
+                    (v * 255.0).round() as u8
+                } else {
+                    linear_to_srgb8(v)
+                }
+            })
+            .collect();
+        self.acc.iter_mut().for_each(|a| *a = 0.0);
+        self.got = 0;
+        Some(out)
     }
 }
 
@@ -145,7 +254,7 @@ pub fn find_ffmpeg(explicit: Option<&Path>) -> Option<PathBuf> {
     })
 }
 
-/// Decode an audio file and build loudness envelopes (100 samples/s).
+/// Decode an audio file and analyse it (bands, hits, tempo, pitch).
 pub fn analyze_audio(path: &Path) -> Result<AudioEnvelope> {
     analyze_audio_asset(&path.to_string_lossy())
 }
@@ -156,62 +265,225 @@ pub fn analyze_audio_asset(path: &str) -> Result<AudioEnvelope> {
     analyze_audio_bytes(bytes.to_vec()).with_context(|| format!("decoding {path}"))
 }
 
-/// Decode audio held in memory and build loudness envelopes.
+/// Decode audio held in memory and analyse it.
 pub fn analyze_audio_bytes(bytes: Vec<u8>) -> Result<AudioEnvelope> {
-    use rodio::Source;
-    let dec = rodio::Decoder::new(std::io::Cursor::new(bytes))?;
-    let channels = dec.channels().get() as usize;
-    let rate = dec.sample_rate().get() as f32;
-    let env_rate = 100.0;
-    let hop = ((rate / env_rate) as usize).max(1) * channels;
-    let mut level = Vec::new();
-    let mut bass = Vec::new();
-    let (mut acc, mut acc_low, mut n) = (0.0f32, 0.0f32, 0usize);
-    let mut low = 0.0f32;
-    // One-pole low-pass at ~150 Hz for the "kick" band.
-    let k = 1.0 - (-2.0 * std::f32::consts::PI * 150.0 / rate).exp();
-    let mut frame_sum = 0.0f32;
-    let mut ch = 0usize;
-    for s in dec {
-        acc += s * s;
-        frame_sum += s;
-        ch += 1;
-        if ch == channels {
-            let mono = frame_sum / channels as f32;
-            low += k * (mono - low);
-            acc_low += low * low;
-            frame_sum = 0.0;
-            ch = 0;
+    let mut d = Decoding::new(bytes)?;
+    while !d.step(usize::MAX) {}
+    Ok(ez_core::analysis::analyze(&d.finish()?, d.rate))
+}
+
+/// The music of a project: the analysed audio file and/or MIDI notes
+/// (MIDI replaces the detected hits and pitch). `None` without either.
+pub fn load_music(project: &ez_core::Project) -> Result<Option<AudioEnvelope>> {
+    Ok(MusicJob::new(project, None)?.run()?.music)
+}
+
+/// Audio decoding to mono, a slice at a time.
+struct Decoding {
+    dec: rodio::Decoder<std::io::Cursor<Vec<u8>>>,
+    channels: usize,
+    rate: f32,
+    /// Expected mono samples, when the file says.
+    expected: Option<usize>,
+    mono: Vec<f32>,
+    sum: f32,
+    ch: usize,
+}
+
+impl Decoding {
+    fn new(bytes: Vec<u8>) -> Result<Decoding> {
+        use rodio::Source;
+        let dec = rodio::Decoder::new(std::io::Cursor::new(bytes))?;
+        let channels = dec.channels().get() as usize;
+        let rate = dec.sample_rate().get() as f32;
+        let expected = dec
+            .total_duration()
+            .map(|d| (d.as_secs_f64() * rate as f64) as usize);
+        Ok(Decoding {
+            dec,
+            channels,
+            rate,
+            expected,
+            mono: Vec::with_capacity(expected.unwrap_or(0)),
+            sum: 0.0,
+            ch: 0,
+        })
+    }
+
+    /// Decode up to `max` mono samples; `true` at the end of the file.
+    fn step(&mut self, max: usize) -> bool {
+        let end = self.mono.len().saturating_add(max);
+        while self.mono.len() < end {
+            let Some(s) = self.dec.next() else {
+                return true;
+            };
+            self.sum += s;
+            self.ch += 1;
+            if self.ch == self.channels {
+                self.mono.push(self.sum / self.channels as f32);
+                self.sum = 0.0;
+                self.ch = 0;
+            }
         }
-        n += 1;
-        if n == hop {
-            level.push((acc / n as f32).sqrt());
-            bass.push((acc_low / (n / channels).max(1) as f32).sqrt());
-            acc = 0.0;
-            acc_low = 0.0;
-            n = 0;
+        false
+    }
+
+    fn progress(&self) -> f32 {
+        match self.expected {
+            Some(n) if n > 0 => (self.mono.len() as f32 / n as f32).min(1.0),
+            _ => 0.5,
         }
     }
-    if level.is_empty() {
-        bail!("the file contains no audio");
-    }
-    let norm = |v: &mut Vec<f32>| {
-        let mut sorted = v.clone();
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        let peak = sorted[(sorted.len() as f32 * 0.98) as usize].max(1e-6);
-        for x in v.iter_mut() {
-            *x = (*x / peak).min(1.0);
+
+    fn finish(&mut self) -> Result<Vec<f32>> {
+        if self.mono.is_empty() {
+            bail!("the file contains no audio");
         }
-    };
-    norm(&mut level);
-    norm(&mut bass);
-    let duration = level.len() as f32 / env_rate;
-    Ok(AudioEnvelope {
-        rate: env_rate,
-        level,
-        bass,
-        duration,
-    })
+        Ok(std::mem::take(&mut self.mono))
+    }
+}
+
+#[allow(clippy::large_enum_variant)] // one short-lived value
+enum Stage {
+    Done(Option<AudioEnvelope>),
+    Decoding(String, Box<Decoding>),
+    Analysing(Box<ez_core::analysis::Analysis>),
+}
+
+/// What [`MusicJob`] produces.
+pub struct LoadedMusic {
+    /// The analysed audio file alone (before MIDI), worth keeping so a
+    /// MIDI change doesn't re-analyse the song.
+    pub audio: Option<AudioEnvelope>,
+    /// What the project plays to: audio and/or MIDI.
+    pub music: Option<AudioEnvelope>,
+}
+
+/// Loads a project's music (decode, analyse, apply MIDI) in slices, so it
+/// can run on a thread or spread over frames in a browser.
+pub struct MusicJob {
+    stage: Stage,
+    midi: Option<(ez_core::midi::MidiData, f32)>,
+}
+
+impl MusicJob {
+    /// Reads the files and parses the MIDI. `cached` is the audio file's
+    /// analysis from an earlier [`LoadedMusic::audio`], if the file is
+    /// unchanged.
+    pub fn new(project: &ez_core::Project, cached: Option<AudioEnvelope>) -> Result<MusicJob> {
+        let stage = match (&project.audio, cached) {
+            (None, _) => Stage::Done(None),
+            (Some(_), Some(env)) => Stage::Done(Some(env)),
+            (Some(a), None) => {
+                let bytes = ez_core::store::read(a).with_context(|| format!("opening {a}"))?;
+                let d = Decoding::new(bytes.to_vec()).with_context(|| format!("decoding {a}"))?;
+                Stage::Decoding(a.clone(), Box::new(d))
+            }
+        };
+        let midi = match &project.music.midi {
+            Some(m) => {
+                let bytes = ez_core::store::read(m).with_context(|| format!("opening {m}"))?;
+                let midi = ez_core::midi::parse(&bytes).map_err(|e| anyhow::anyhow!("{m}: {e}"))?;
+                Some((midi, project.music.midi_offset))
+            }
+            None => None,
+        };
+        Ok(MusicJob { stage, midi })
+    }
+
+    /// Do a slice of work (about `units` analysis frames' worth); `true`
+    /// once [`MusicJob::finish`] has nothing left to do.
+    pub fn step(&mut self, units: usize) -> Result<bool> {
+        match &mut self.stage {
+            Stage::Done(_) => return Ok(true),
+            Stage::Decoding(path, d) => {
+                if d.step(units.saturating_mul(1024)) {
+                    let mono = d.finish().with_context(|| format!("decoding {path}"))?;
+                    self.stage =
+                        Stage::Analysing(Box::new(ez_core::analysis::Analysis::new(mono, d.rate)));
+                }
+            }
+            Stage::Analysing(a) => {
+                if a.step(units) {
+                    let Stage::Analysing(a) = std::mem::replace(&mut self.stage, Stage::Done(None))
+                    else {
+                        unreachable!()
+                    };
+                    self.stage = Stage::Done(Some(a.finish()));
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
+    }
+
+    /// 0..1 (decoding is the first fifth).
+    pub fn progress(&self) -> f32 {
+        match &self.stage {
+            Stage::Done(_) => 1.0,
+            Stage::Decoding(_, d) => d.progress() * 0.2,
+            Stage::Analysing(a) => 0.2 + a.progress() * 0.8,
+        }
+    }
+
+    /// Finish (doing any remaining work) and apply the MIDI.
+    pub fn run(mut self) -> Result<LoadedMusic> {
+        while !self.step(usize::MAX)? {}
+        let Stage::Done(audio) = self.stage else {
+            unreachable!()
+        };
+        let mut music = audio.clone();
+        if let Some((midi, offset)) = &self.midi {
+            match &mut music {
+                Some(e) => e.apply_midi(midi, *offset),
+                None => music = Some(AudioEnvelope::from_midi(midi)),
+            }
+        }
+        Ok(LoadedMusic { audio, music })
+    }
+}
+
+/// Frames of one export pass: one loop, or the whole song in full-track
+/// mode. Returns (frames, whether frames are loop phases).
+pub fn export_frames(
+    project: &ez_core::Project,
+    audio: Option<&AudioEnvelope>,
+    fps: f32,
+) -> (u32, bool) {
+    match (project.music.mode, audio) {
+        (ez_core::MusicMode::FullTrack, Some(a)) => {
+            (((a.duration * fps).round() as u32).max(1), false)
+        }
+        _ => (project.timing.frame_count(fps), true),
+    }
+}
+
+/// Evaluation context of frame `i` of an export pass.
+pub fn export_ctx(
+    project: &ez_core::Project,
+    audio: Option<&AudioEnvelope>,
+    fps: f32,
+    frames: u32,
+    looped: bool,
+    i: u32,
+) -> ez_core::EvalCtx {
+    export_ctx_at(project, audio, fps, frames, looped, i as f64)
+}
+
+/// [`export_ctx`] at a fractional frame (motion blur sub-frames).
+pub fn export_ctx_at(
+    project: &ez_core::Project,
+    audio: Option<&AudioEnvelope>,
+    fps: f32,
+    frames: u32,
+    looped: bool,
+    frame: f64,
+) -> ez_core::EvalCtx {
+    if looped {
+        project.ctx((frame / frames as f64).rem_euclid(1.0) as f32, audio)
+    } else {
+        project.ctx_at(frame.max(0.0) / fps as f64, audio)
+    }
 }
 
 /// Render the loop and write it out. `progress` is called after every frame;
@@ -225,8 +497,8 @@ pub fn export(
     cancel: &AtomicBool,
 ) -> Result<PathBuf> {
     let (w, h) = (settings.width.max(16) & !1, settings.height.max(16) & !1);
-    let frames = project.timing.frame_count(settings.fps);
-    let repeats = if settings.format == ExportFormat::PngSequence {
+    let (frames, looped) = export_frames(project, audio, settings.fps);
+    let repeats = if settings.format == ExportFormat::PngSequence || !looped {
         1
     } else {
         settings.repeats.max(1)
@@ -237,30 +509,71 @@ pub fn export(
     let mut renderer = Renderer::new(&gpu.device, &gpu.queue, 4);
     let target = renderer.create_target(w, h);
 
-    let render_frame = |renderer: &mut Renderer, i: u32| -> Vec<u8> {
-        let phase = (i % frames) as f32 / frames as f32;
-        let ctx = EvalCtx::new(&project.timing, phase, audio);
-        renderer.render(project, &ctx, &target);
-        renderer.read_pixels(&target)
+    let ctx_of = |frame: f64| -> EvalCtx {
+        export_ctx_at(project, audio, settings.fps, frames, looped, frame)
+    };
+    let blur = MotionBlur::new(settings.motion_blur, settings.shutter);
+    // Feedback trails need a loop of history before the first frame, so the
+    // file's end flows into its start.
+    let warmup = if looped && project.uses_feedback() {
+        frames
+    } else {
+        0
+    };
+    let ctx_of = |frame: f64| -> EvalCtx {
+        if frame < 0.0 {
+            return export_ctx_at(
+                project,
+                audio,
+                settings.fps,
+                frames,
+                looped,
+                frame + frames as f64,
+            );
+        }
+        ctx_of(frame)
     };
 
     match settings.format {
         ExportFormat::PngSequence => {
             let dir = &settings.output;
             std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
-            for i in 0..frames {
-                if cancel.load(Ordering::Relaxed) {
-                    bail!("export cancelled");
+            // PNG encoding runs on a writer thread while the GPU renders.
+            let (tx, rx) = std::sync::mpsc::sync_channel::<(u32, Vec<u8>)>(4);
+            let out_dir = dir.clone();
+            let writer = std::thread::spawn(move || -> Result<()> {
+                for (i, px) in rx {
+                    let path = out_dir.join(format!("frame_{i:05}.png"));
+                    image::save_buffer(&path, &px, w, h, image::ExtendedColorType::Rgba8)
+                        .with_context(|| format!("writing {}", path.display()))?;
                 }
-                let px = render_frame(&mut renderer, i);
-                let path = dir.join(format!("frame_{i:05}.png"));
-                image::save_buffer(&path, &px, w, h, image::ExtendedColorType::Rgba8)
-                    .with_context(|| format!("writing {}", path.display()))?;
-                progress(Progress {
-                    frame: i + 1,
-                    total,
-                });
-            }
+                Ok(())
+            });
+            let rendered = render_pipelined(
+                &mut renderer,
+                &target,
+                project,
+                frames,
+                ctx_of,
+                blur,
+                warmup,
+                cancel,
+                |i, px| {
+                    tx.send((i, px))
+                        .map_err(|_| anyhow::anyhow!("the PNG writer stopped"))?;
+                    progress(Progress {
+                        frame: i + 1,
+                        total,
+                    });
+                    Ok(())
+                },
+            );
+            drop(tx);
+            let written = writer
+                .join()
+                .map_err(|_| anyhow::anyhow!("the PNG writer crashed"))?;
+            rendered?;
+            written?;
             Ok(dir.clone())
         }
         fmt => {
@@ -280,7 +593,22 @@ pub fn export(
                 .args(["-r", &format!("{}", settings.fps)])
                 .args(["-i", "-"]);
             if let Some(a) = audio_path {
-                cmd.args(["-stream_loop", "-1", "-i", a]);
+                if looped {
+                    // The loop window of the song, repeated with the video.
+                    let sr = audio.map(|e| e.sample_rate).unwrap_or(44100).max(1);
+                    let start = project.music.offset.max(0.0);
+                    let len = project.timing.loop_seconds();
+                    cmd.args(["-i", a]).args([
+                        "-filter_complex",
+                        &format!(
+                            "[1:a]atrim=start={start}:duration={len},asetpts=PTS-STARTPTS,aloop=loop={}:size={}[aud]",
+                            repeats.saturating_sub(1),
+                            (len * sr as f32).round() as u64
+                        ),
+                    ]);
+                } else {
+                    cmd.args(["-i", a]);
+                }
             }
             match fmt {
                 ExportFormat::Mp4 => {
@@ -312,13 +640,15 @@ pub fn export(
                 ExportFormat::PngSequence => unreachable!(),
             }
             if audio_path.is_some() {
-                cmd.args(["-map", "0:v", "-map", "1:a", "-c:a"]);
+                let track = if looped { "[aud]" } else { "1:a" };
+                cmd.args(["-map", "0:v", "-map", track, "-c:a"]);
                 cmd.arg(if fmt == ExportFormat::WebM {
                     "libopus"
                 } else {
                     "aac"
                 });
                 cmd.args(["-t", &format!("{}", loop_secs * repeats as f32)]);
+                cmd.arg("-shortest");
             }
             cmd.arg(&settings.output);
             cmd.stdin(Stdio::piped())
@@ -329,39 +659,64 @@ pub fn export(
                 .with_context(|| format!("starting {}", ffmpeg.display()))?;
             let mut stdin = child.stdin.take().expect("piped stdin");
             // Frames are identical across repeats: render one loop, reuse it
-            // when it fits in memory (< 2 GiB), otherwise re-render.
+            // when it fits in memory (< 2 GiB), otherwise re-render. A writer
+            // thread feeds ffmpeg while the GPU renders the next frames.
             let frame_bytes = (w * h * 4) as u64;
             let cache_ok = repeats > 1 && frame_bytes * frames as u64 <= 2 << 30;
-            let mut cache: Vec<Vec<u8>> = Vec::new();
-            let mut result = Ok(());
-            for i in 0..total {
-                if cancel.load(Ordering::Relaxed) {
-                    result = Err(anyhow::anyhow!("export cancelled"));
-                    break;
+            let (tx, rx) = std::sync::mpsc::sync_channel::<Arc<Vec<u8>>>(4);
+            let writer = std::thread::spawn(move || -> Result<()> {
+                for px in rx {
+                    stdin
+                        .write_all(&px)
+                        .map_err(|e| anyhow::anyhow!("ffmpeg stopped accepting frames: {e}"))?;
                 }
-                let idx = (i % frames) as usize;
-                let px = if cache_ok && idx < cache.len() {
-                    None
-                } else {
-                    Some(render_frame(&mut renderer, i))
-                };
-                let data = match &px {
-                    Some(p) => p.as_slice(),
-                    None => cache[idx].as_slice(),
-                };
-                if let Err(e) = stdin.write_all(data) {
-                    result = Err(anyhow::anyhow!("ffmpeg stopped accepting frames: {e}"));
-                    break;
+                Ok(())
+            });
+            let mut cache: Vec<Arc<Vec<u8>>> = Vec::new();
+            let to_render = if cache_ok { frames } else { total };
+            let mut result = render_pipelined(
+                &mut renderer,
+                &target,
+                project,
+                to_render,
+                ctx_of,
+                blur,
+                warmup,
+                cancel,
+                |i, px| {
+                    let px = Arc::new(px);
+                    if cache_ok {
+                        cache.push(px.clone());
+                    }
+                    tx.send(px)
+                        .map_err(|_| anyhow::anyhow!("ffmpeg stopped accepting frames"))?;
+                    progress(Progress {
+                        frame: i + 1,
+                        total,
+                    });
+                    Ok(())
+                },
+            );
+            if cache_ok && result.is_ok() {
+                for i in frames..total {
+                    if cancel.load(Ordering::Relaxed) {
+                        result = Err(anyhow::anyhow!("export cancelled"));
+                        break;
+                    }
+                    if tx.send(cache[(i % frames) as usize].clone()).is_err() {
+                        break;
+                    }
+                    progress(Progress {
+                        frame: i + 1,
+                        total,
+                    });
                 }
-                if let (true, Some(p)) = (cache_ok, px) {
-                    cache.push(p);
-                }
-                progress(Progress {
-                    frame: i + 1,
-                    total,
-                });
             }
-            drop(stdin);
+            drop(tx);
+            let written = writer
+                .join()
+                .map_err(|_| anyhow::anyhow!("the ffmpeg writer crashed"))?;
+            let result = result.and(written);
             let out = child.wait_with_output()?;
             result?;
             if !out.status.success() {
@@ -373,6 +728,60 @@ pub fn export(
             Ok(settings.output.clone())
         }
     }
+}
+
+/// Renders frames `0..count` with up to three frames in flight on the GPU
+/// (frame n + 2 renders while frame n is copied back) and hands each one to
+/// `sink` in order.
+#[cfg(not(target_arch = "wasm32"))]
+#[allow(clippy::too_many_arguments)]
+fn render_pipelined(
+    renderer: &mut Renderer,
+    target: &ez_render::RenderTarget,
+    project: &Project,
+    count: u32,
+    ctx_of: impl Fn(f64) -> EvalCtx,
+    mut blur: MotionBlur,
+    warmup: u32,
+    cancel: &AtomicBool,
+    mut sink: impl FnMut(u32, Vec<u8>) -> Result<()>,
+) -> Result<()> {
+    const IN_FLIGHT: usize = 3;
+    // Warm-up frames (a whole loop before frame 0) only build history.
+    for i in 0..warmup {
+        renderer.render(project, &ctx_of(i as f64 - warmup as f64), target);
+    }
+    let offsets: Vec<f64> = (0..blur.subframes()).map(|j| blur.offset(j)).collect();
+    let mut pending = std::collections::VecDeque::with_capacity(IN_FLIGHT);
+    let mut finish_one = |renderer: &Renderer,
+                          pending: &mut std::collections::VecDeque<(u32, ez_render::Readback)>|
+     -> Result<()> {
+        if let Some((j, rb)) = pending.pop_front() {
+            renderer.wait_for(&rb);
+            let px = rb.take().context("reading back a frame failed")?;
+            if let Some(frame) = blur.add(px) {
+                sink(j, frame)?;
+            }
+        }
+        Ok(())
+    };
+    for i in 0..count {
+        if cancel.load(Ordering::Relaxed) {
+            bail!("export cancelled");
+        }
+        // Sub-frames come back in order and are averaged into frame i.
+        for offset in &offsets {
+            renderer.render(project, &ctx_of(i as f64 + offset), target);
+            pending.push_back((i, renderer.start_readback(target)));
+            if pending.len() >= IN_FLIGHT {
+                finish_one(renderer, &mut pending)?;
+            }
+        }
+    }
+    while !pending.is_empty() {
+        finish_one(renderer, &mut pending)?;
+    }
+    Ok(())
 }
 
 /// Render a single still frame to a PNG.
@@ -458,14 +867,131 @@ mod tests {
         // 1 s of 440 Hz tone with a 60 Hz "kick" in the second half.
         let path = tmp("tone.wav");
         let rate = 22050u32;
-        let mut data = Vec::new();
-        for i in 0..rate {
-            let t = i as f32 / rate as f32;
-            let mut s = (t * 440.0 * std::f32::consts::TAU).sin() * 0.3;
-            if t > 0.5 {
-                s += (t * 60.0 * std::f32::consts::TAU).sin() * 0.6;
+        let samples: Vec<f32> = (0..rate)
+            .map(|i| {
+                let t = i as f32 / rate as f32;
+                let mut s = (t * 440.0 * std::f32::consts::TAU).sin() * 0.3;
+                if t > 0.5 {
+                    s += (t * 60.0 * std::f32::consts::TAU).sin() * 0.6;
+                }
+                s
+            })
+            .collect();
+        write_wav(&path, &samples, rate);
+        let env = analyze_audio(&path).unwrap();
+        assert!((env.duration - 1.0).abs() < 0.05);
+        let (_, bass_early) = env.sample(0.25);
+        let (_, bass_late) = env.sample(0.75);
+        assert!(bass_late > bass_early * 2.0, "{bass_early} vs {bass_late}");
+    }
+
+    /// Full-track exports run through the whole song; loop-window exports
+    /// mux the window of the song, repeated.
+    #[test]
+    fn music_modes_export() {
+        if Gpu::headless().is_err() {
+            eprintln!("no GPU, skipping");
+            return;
+        }
+        let rate = 22050u32;
+        let samples: Vec<f32> = (0..rate * 3)
+            .map(|i| {
+                let t = i as f32 / rate as f32;
+                let bt = (t * 2.0).fract() / 2.0;
+                (std::f32::consts::TAU * 60.0 * bt).sin() * (-bt * 30.0).exp() * 0.8
+            })
+            .collect();
+        let wav = tmp("beat.wav");
+        write_wav(&wav, &samples, rate);
+        let mut p = presets::orbiting_solid();
+        p.timing.bpm = 240.0;
+        p.timing.loop_beats = 2; // 0.5 s
+        p.audio = Some(wav.to_string_lossy().to_string());
+        p.music.offset = 0.7;
+        let env = load_music(&p).unwrap().expect("music");
+        let cancel = AtomicBool::new(false);
+        let mut s = ExportSettings {
+            format: ExportFormat::PngSequence,
+            width: 64,
+            height: 36,
+            fps: 10.0,
+            output: tmp("fulltrack"),
+            ..Default::default()
+        };
+        p.music.mode = ez_core::MusicMode::FullTrack;
+        let _ = std::fs::remove_dir_all(&s.output);
+        export(&p, &s, Some(&env), |_| {}, &cancel).unwrap();
+        assert_eq!(std::fs::read_dir(&s.output).unwrap().count(), 30);
+        if find_ffmpeg(None).is_none() {
+            eprintln!("no ffmpeg, skipping video");
+            return;
+        }
+        p.music.mode = ez_core::MusicMode::LoopWindow;
+        s.format = ExportFormat::Mp4;
+        s.repeats = 3;
+        s.output = tmp("window.mp4");
+        export(&p, &s, Some(&env), |_| {}, &cancel).unwrap();
+        // The file has a video and an audio stream of 3 loops (1.5 s).
+        let probe = Command::new("ffprobe")
+            .args([
+                "-v",
+                "error",
+                "-show_entries",
+                "stream=codec_type,duration",
+                "-of",
+                "csv=p=0",
+            ])
+            .arg(&s.output)
+            .output();
+        if let Ok(out) = probe {
+            let text = String::from_utf8_lossy(&out.stdout).to_string();
+            assert!(text.contains("audio"), "no audio stream: {text}");
+            for line in text.lines() {
+                if let Some(d) = line.split(',').nth(1).and_then(|d| d.parse::<f32>().ok()) {
+                    assert!((d - 1.5).abs() < 0.15, "stream length {d}: {text}");
+                }
             }
-            data.extend_from_slice(&((s * 32767.0) as i16).to_le_bytes());
+        }
+    }
+
+    #[test]
+    fn music_job_in_slices_matches_and_caches() {
+        let rate = 22050;
+        let samples: Vec<f32> = (0..rate * 3)
+            .map(|i| {
+                let t = (i % (rate / 2)) as f32 / rate as f32;
+                (t * 60.0 * std::f32::consts::TAU * 10.0).sin() * (-t * 30.0).exp()
+            })
+            .collect();
+        let path = tmp("job.wav");
+        write_wav(&path, &samples, rate);
+        let mut project = presets::orbiting_solid();
+        project.audio = Some(path.to_string_lossy().to_string());
+        let whole = load_music(&project).unwrap().unwrap();
+
+        let mut job = MusicJob::new(&project, None).unwrap();
+        let (mut last, mut steps) = (0.0, 0);
+        while !job.step(10).unwrap() {
+            let p = job.progress();
+            assert!((last..=1.0).contains(&p), "{last} -> {p}");
+            last = p;
+            steps += 1;
+        }
+        assert!(steps > 20, "{steps}");
+        let loaded = job.run().unwrap();
+        assert_eq!(loaded.music.as_ref(), Some(&whole));
+
+        // A cached analysis skips the file entirely.
+        project.audio = Some("/nonexistent/song.wav".into());
+        let mut job = MusicJob::new(&project, loaded.audio).unwrap();
+        assert!(job.step(0).unwrap());
+        assert_eq!(job.run().unwrap().music, Some(whole));
+    }
+
+    fn write_wav(path: &Path, samples: &[f32], rate: u32) {
+        let mut data = Vec::new();
+        for s in samples {
+            data.extend_from_slice(&((s.clamp(-1.0, 1.0) * 32767.0) as i16).to_le_bytes());
         }
         let mut wav = Vec::new();
         wav.extend_from_slice(b"RIFF");
@@ -481,11 +1007,6 @@ mod tests {
         wav.extend_from_slice(b"data");
         wav.extend_from_slice(&(data.len() as u32).to_le_bytes());
         wav.extend_from_slice(&data);
-        std::fs::write(&path, wav).unwrap();
-        let env = analyze_audio(&path).unwrap();
-        assert!((env.duration - 1.0).abs() < 0.05);
-        let (_, bass_early) = env.sample(0.25);
-        let (_, bass_late) = env.sample(0.75);
-        assert!(bass_late > bass_early * 2.0, "{bass_early} vs {bass_late}");
+        std::fs::write(path, wav).unwrap();
     }
 }

@@ -44,7 +44,43 @@ pub const BUILTIN: &[(&str, &str)] = &[
     ("mosaic", "Random coloured mosaic tiles"),
     ("clouds", "Soft clouds on a blue sky"),
     ("matrix", "Falling green glyph rain"),
+    (
+        "sheet_explosion",
+        "Sprite sheet (4x4): a fireball bursting into smoke",
+    ),
+    (
+        "sheet_flame",
+        "Sprite sheet (4x4): a flickering flame, loops",
+    ),
+    (
+        "sheet_coin",
+        "Sprite sheet (4x4): a spinning pixel coin, loops",
+    ),
+    (
+        "sheet_sparkle",
+        "Sprite sheet (4x4): a twinkling star, loops",
+    ),
+    ("matcap_gold", "Material sphere: polished gold"),
+    (
+        "matcap_chrome",
+        "Material sphere: chrome reflecting sky and ground",
+    ),
+    ("matcap_plastic", "Material sphere: glossy red plastic"),
+    (
+        "matcap_candy",
+        "Material sphere: pink candy with a cyan rim",
+    ),
 ];
+
+/// A built-in material sphere (matcap) for lit logos.
+pub fn is_matcap(name: &str) -> bool {
+    name.starts_with("matcap_")
+}
+
+/// Columns and rows of a built-in sprite sheet.
+pub fn sheet_grid(name: &str) -> Option<(u32, u32)> {
+    name.starts_with("sheet_").then_some((4, 4))
+}
 
 pub fn is_builtin(name: &str) -> bool {
     BUILTIN.iter().any(|(n, _)| *n == name)
@@ -120,6 +156,9 @@ fn smooth(e0: f32, e1: f32, x: f32) -> f32 {
 /// Generate a built-in texture (sRGB RGBA8). Unknown names give a magenta
 /// checker so mistakes are visible.
 pub fn generate(name: &str) -> RgbaImage {
+    if sheet_grid(name).is_some() {
+        return sheet(name);
+    }
     let n = TEX_SIZE;
     let mut img = RgbaImage::new(n, n);
     for y in 0..n {
@@ -143,6 +182,9 @@ pub fn generate(name: &str) -> RgbaImage {
 }
 
 fn pixel(name: &str, x: u32, y: u32, u: f32, v: f32) -> [f32; 3] {
+    if is_matcap(name) {
+        return matcap(name, u, v);
+    }
     match name {
         "checker" => {
             let c = ((x / 32) + (y / 32)) % 2;
@@ -548,6 +590,59 @@ fn pixel(name: &str, x: u32, y: u32, u: f32, v: f32) -> [f32; 3] {
     }
 }
 
+/// A lit sphere seen straight on: each pixel is the colour of the surface
+/// facing that way. Outside the disc repeats its rim.
+fn matcap(name: &str, u: f32, v: f32) -> [f32; 3] {
+    let (x, y) = (u * 2.0 - 1.0, 1.0 - v * 2.0);
+    let r = (x * x + y * y).sqrt();
+    let k = if r > 0.995 { 0.995 / r } else { 1.0 };
+    let (x, y) = (x * k, y * k);
+    let z = (1.0 - x * x - y * y).max(0.0).sqrt();
+    // The view reflected off the surface, and a light up and to the left.
+    let (rx, ry, rz) = (2.0 * z * x, 2.0 * z * y, 2.0 * z * z - 1.0);
+    let l = {
+        let (lx, ly, lz) = (-0.5f32, 0.6f32, 0.62f32);
+        let n = (lx * lx + ly * ly + lz * lz).sqrt();
+        (lx / n, ly / n, lz / n)
+    };
+    let spec = |p: f32| {
+        let d = (rx * l.0 + ry * l.1 + rz * l.2).max(0.0);
+        d.powf(p)
+    };
+    let add =
+        |a: [f32; 3], b: [f32; 3], k: f32| [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k];
+    // Sky above the horizon, ground below, a bright line between.
+    let env = |sky_low: u32, sky_high: u32, ground_near: u32, ground_far: u32, line: u32| {
+        let c = if ry >= 0.0 {
+            mix(rgb(sky_low), rgb(sky_high), ry.powf(0.6))
+        } else {
+            mix(rgb(ground_near), rgb(ground_far), (-ry).powf(0.5))
+        };
+        add(c, rgb(line), (-(ry / 0.04).powi(2)).exp() * 0.8)
+    };
+    match name {
+        "matcap_gold" => {
+            let c = env(0xfff0b0, 0xc88a2a, 0x7a4410, 0x1a0c02, 0xfff6d8);
+            add(c, rgb(0xfff8e0), spec(40.0) * 1.2)
+        }
+        "matcap_chrome" => {
+            let c = env(0xe0f0ff, 0x3a6fd0, 0x4a3a30, 0x0a0a0c, 0xffffff);
+            add(c, [1.0; 3], spec(60.0) * 1.2)
+        }
+        "matcap_plastic" => {
+            let ndl = (x * l.0 + y * l.1 + z * l.2).max(0.0);
+            let c = mix(rgb(0x300408), rgb(0xe02434), ndl * 0.85 + 0.1);
+            add(c, [1.0; 3], spec(80.0) * 1.1)
+        }
+        _ => {
+            let c = mix(rgb(0xff5ac0), rgb(0x6a24e0), (1.0 - y) * 0.5);
+            let rim = (1.0 - z).powi(3);
+            let c = add(c, rgb(0x6ff6ff), rim * 1.2);
+            add(c, [1.0; 3], spec(90.0) * 1.3 + spec(8.0) * 0.15)
+        }
+    }
+}
+
 /// Downscale + palette-reduce + dither an image for a chunky retro look.
 pub fn retroize(img: &RgbaImage, p: &RetroProcess) -> RgbaImage {
     let mut img = img.clone();
@@ -581,6 +676,122 @@ pub fn palette_swatch(p: PaletteId) -> RgbaImage {
     })
 }
 
+/// A 4x4 sprite sheet with transparency: 16 frames of 64 px, left to
+/// right, top to bottom.
+fn sheet(name: &str) -> RgbaImage {
+    let n = TEX_SIZE;
+    let cell = n / 4;
+    let mut img = RgbaImage::new(n, n);
+    for y in 0..n {
+        for x in 0..n {
+            let frame = (y / cell) * 4 + x / cell;
+            let t = frame as f32 / 16.0;
+            // Position in the cell, -1..1, y up.
+            let px = ((x % cell) as f32 + 0.5) / cell as f32 * 2.0 - 1.0;
+            let py = 1.0 - ((y % cell) as f32 + 0.5) / cell as f32 * 2.0;
+            let (c, a) = sheet_pixel(name, frame, t, px, py);
+            img.put_pixel(
+                x,
+                y,
+                image::Rgba([
+                    (c[0].clamp(0.0, 1.0) * 255.0).round() as u8,
+                    (c[1].clamp(0.0, 1.0) * 255.0).round() as u8,
+                    (c[2].clamp(0.0, 1.0) * 255.0).round() as u8,
+                    (a.clamp(0.0, 1.0) * 255.0).round() as u8,
+                ]),
+            );
+        }
+    }
+    img
+}
+
+fn sheet_pixel(name: &str, frame: u32, t: f32, x: f32, y: f32) -> ([f32; 3], f32) {
+    let r = (x * x + y * y).sqrt();
+    let ang = y.atan2(x);
+    match name {
+        "sheet_explosion" => {
+            // A fireball grows, cools to smoke and thins out (plays once).
+            let t = frame as f32 / 15.0;
+            let radius = 0.25 + 0.65 * t.sqrt();
+            let turb = fbm(ang / TAU + 0.5, r * 0.5 + t * 0.3, 6, 3, 11) - 0.5;
+            let edge = radius * (1.0 + turb * 0.5);
+            let inside = smooth(edge, edge - 0.15, r);
+            let heat = (1.0 - t * 1.3).max(0.0) * (1.0 - r / edge.max(0.01)).max(0.0) * 1.6
+                + (1.0 - t * 2.5).max(0.0) * 0.6;
+            let col = ramp(
+                &[
+                    (0.0, 0x302826),
+                    (0.25, 0x6a3018),
+                    (0.5, 0xe05a10),
+                    (0.8, 0xffc040),
+                    (1.0, 0xfff8e0),
+                ],
+                heat + turb * 0.3,
+            );
+            (col, inside * (1.0 - smooth(0.6, 1.0, t)))
+        }
+        "sheet_flame" => {
+            // A teardrop licked by noise rising through it, one full noise
+            // period over the frames so the last one leads into the first.
+            let rise = fbm(x * 0.3 + 0.5, (y * 0.3 + 0.5) - t, 4, 3, 7) - 0.5;
+            let h = (y + 0.85) / 1.75;
+            let sway = x + rise * 0.6 * h.max(0.0);
+            let w = 0.6 * (h * 5.0).clamp(0.0, 1.0).sqrt() * (1.0 - h).max(0.0).powf(0.8);
+            if w < 1e-3 {
+                return ([0.0; 3], 0.0);
+            }
+            let body = smooth(w, w * 0.45, sway.abs() - rise * 0.15) * smooth(-0.02, 0.04, h);
+            let heat = body
+                * (1.0 - sway.abs() / w.max(1e-3)).max(0.0).sqrt()
+                * smooth(1.0, 0.15, h + rise * 0.4);
+            let col = ramp(
+                &[
+                    (0.0, 0xa01800),
+                    (0.35, 0xff5010),
+                    (0.7, 0xffc030),
+                    (1.0, 0xfffff0),
+                ],
+                heat * 1.2,
+            );
+            (col, body)
+        }
+        "sheet_coin" => {
+            // Chunky pixels: snap to a 16x16 grid inside the cell.
+            let (qx, qy) = (
+                ((x + 1.0) * 8.0).floor() / 8.0 - 1.0 + 1.0 / 16.0,
+                ((y + 1.0) * 8.0).floor() / 8.0 - 1.0 + 1.0 / 16.0,
+            );
+            let w = (TAU * t).cos();
+            let width = w.abs().max(0.12) * 0.8;
+            let ex = qx / width;
+            let d = (ex * ex + (qy / 0.8).powi(2)).sqrt();
+            let inside = if d <= 1.0 { 1.0 } else { 0.0 };
+            let face = if w >= 0.0 {
+                rgb(0xffd23c)
+            } else {
+                rgb(0xe0a020)
+            };
+            let col = if d > 0.8 {
+                rgb(0xa06000)
+            } else if (ex + 0.3).abs() < 0.2 && qy > -0.2 && qy < 0.45 {
+                // A shine stripe.
+                rgb(0xfff4b0)
+            } else {
+                face
+            };
+            (col, inside)
+        }
+        _ => {
+            // Sparkle: a four-pointed star pulsing once over the frames.
+            let pulse = 0.55 + 0.45 * (TAU * t).sin();
+            let arms = (1.0 - (x.abs() * y.abs()).sqrt() * 6.0).max(0.0) * smooth(pulse, 0.0, r);
+            let glow = (-r * r * 12.0 / pulse.max(0.1)).exp();
+            let a = (arms + glow).min(1.0);
+            (mix(rgb(0xa0c8ff), rgb(0xffffff), glow), a)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -593,6 +804,25 @@ mod tests {
             // Not a solid colour.
             let first = *img.get_pixel(0, 0);
             assert!(img.pixels().any(|p| *p != first), "{name} is flat");
+        }
+    }
+
+    #[test]
+    fn sprite_sheets_have_transparency_and_moving_frames() {
+        for (name, _) in BUILTIN.iter().filter(|(n, _)| sheet_grid(n).is_some()) {
+            let img = generate(name);
+            assert!(
+                img.pixels().any(|p| p[3] == 0),
+                "{name} has no clear pixels"
+            );
+            assert!(
+                img.pixels().any(|p| p[3] == 255),
+                "{name} has no solid pixels"
+            );
+            let frame = |k: u32| {
+                image::imageops::crop_imm(&img, (k % 4) * 64, (k / 4) * 64, 64, 64).to_image()
+            };
+            assert_ne!(frame(0), frame(5), "{name} doesn't move");
         }
     }
 

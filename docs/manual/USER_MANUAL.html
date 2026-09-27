@@ -161,6 +161,16 @@ pickers and menus. When you like it, you export an MP4, WebM, GIF or a folder of
   <div class="card"><img src="img/p_vector_valley.jpg"><div class="t">Vector Valley</div><div class="d">Wireframe landscape, laser fans, neon ribbon.</div></div>
   <div class="card"><img src="img/p_glitch_shrine.jpg"><div class="t">Glitch Shrine</div><div class="d">Glitching sponge, flashing gems, pulsing rose.</div></div>
   <div class="card"><img src="img/p_sponge_dive.jpg"><div class="t">Sponge Dive</div><div class="d">Menger sponge flight, breathing displaced orb.</div></div>
+  <div class="card"><img src="img/p_stormy_lake.jpg"><div class="t">Stormy Lake</div><div class="d">Rain, lightning and storm clouds over a lake.</div></div>
+  <div class="card"><img src="img/p_lava_world.jpg"><div class="t">Lava World</div><div class="d">Lava rivers in volcanic canyons, embers.</div></div>
+  <div class="card"><img src="img/p_sunbeam_peaks.jpg"><div class="t">Sunbeam Peaks</div><div class="d">Volumetric clouds, god rays, lens flare.</div></div>
+  <div class="card"><img src="img/p_aurora_tundra.jpg"><div class="t">Aurora Tundra</div><div class="d">Northern lights, frozen lake, snow.</div></div>
+  <div class="card"><img src="img/p_dune_sea.jpg"><div class="t">Dune Sea</div><div class="d">Sand dunes, sandstorm, a toxic oasis.</div></div>
+  <div class="card"><img src="img/p_club_spotlights.jpg"><div class="t">Club Spotlights</div><div class="d">Spotlight cones, light pools, mist.</div></div>
+  <div class="card"><img src="img/p_rainbow_falls.jpg"><div class="t">Rainbow Falls</div><div class="d">Day and night, a rainbow, a waterfall.</div></div>
+  <div class="card"><img src="img/p_sunken_temple.jpg"><div class="t">Sunken Temple</div><div class="d">Underwater caustics and bubbles.</div></div>
+  <div class="card"><img src="img/p_twister.jpg"><div class="t">Twister</div><div class="d">A tornado over wet, stormy plains.</div></div>
+  <div class="card"><img src="img/p_music_reactor.jpg"><div class="t">Music Reactor</div><div class="d">Load a song: equalizer, kick flashes, time warp.</div></div>
 </div>
 
 <h2>The one big idea: everything loops</h2>
@@ -259,7 +269,7 @@ program is <code>target/release/ez2demoscene</code> (<code>ez2demoscene.exe</cod
 <p>The layer list works like the layers in a paint program. Each row has a <b>visibility</b> tick box and the layer's
 name. Click a row to edit it. Under the list, the buttons <span class="ui">⬆ ⬇ ⧉ 🗑</span> move, duplicate or delete the
 selected layer, and <b>right-clicking</b> a layer shows the same options.</p>
-<figure><img src="img/addmenu.jpg" ><figcaption><span class="ui">+ Add</span> offers shapes, particles, backgrounds, a mirror floor and 3D model files.</figcaption></figure>
+<figure><img src="img/addmenu.jpg" ><figcaption><span class="ui">+ Add</span> offers shapes, particles, backgrounds, terrain, lasers, ribbons, weather, a mirror floor and 3D model files.</figcaption></figure>
 
 <h2>5.1 Backgrounds</h2>
 <p>A background fills the whole screen behind the other layers and follows the camera. Every background has three colours
@@ -278,8 +288,16 @@ selected layer, and <b>right-clicking</b> a layer shows the same options.</p>
   <tr><td>Raymarched sponge flight</td><td>Flying through an endless Menger sponge, a lattice of beams or a field of cubes. Heavy on phones: lower
   <span class="ui">Quality</span> if it stutters.</td></tr>
   <tr><td>Raymarched ring corridor</td><td>Flying through glowing rings, squares or triangles that alternate between colours B and C.</td></tr>
+  <tr><td>Volumetric clouds</td><td>A real sky: a gradient from colour B (horizon) to A (overhead), a sun in the light direction and
+  raymarched 3D clouds lit by it, glowing at the edges when you look towards the sun. Colour C tints the shadowed sides. The clouds
+  drift with <span class="ui">Motion / loop</span>. Pair it with <b>God rays</b> for sunbeams. Heavy on phones.</td></tr>
+  <tr><td>Aurora night sky</td><td>Stars and rippling northern-lights curtains that fade from colour B at the bottom to colour C at the top.
+  Colour A is the night sky.</td></tr>
 </table>
-<div class="tip"><b>Tip</b>You can stack two backgrounds, but the later one covers the earlier one. Usually one is enough.</div>
+<div class="tip"><b>Tip</b>You can stack two backgrounds, but the later one covers the earlier one (and only that one is drawn).
+Usually one is enough.</div>
+<p><span class="ui">Resolution</span> renders a background at half or quarter resolution and upscales it. For volumetric clouds and the
+raymarched styles this is 4× or 16× less work and hardly visible; new clouds, fractal and sponge backgrounds start at half.</p>
 <h3>Raymarching settings</h3>
 <p>The four raymarched backgrounds (tunnel, fractal, sponge, rings) get an extra <span class="ui">Raymarching</span> section. Only the settings
 that matter for the chosen style are shown, and all of them except Variant, Wall pattern, Roll and Quality can be animated with
@@ -297,6 +315,21 @@ that matter for the chosen style are shown, and all of them except Variant, Wall
   <tr><td>Quality</td><td colspan="4">Raymarch steps (fractal: iterations). 0 uses the default; lower it for phones.</td></tr>
 </table>
 <p>The tunnel also has a <span class="ui">Wall pattern</span> (XOR, Checker, Rings, Stripes) used when there is no wall texture.</p>
+<h3>Sky settings</h3>
+<p>The two skies share the same section, with their own meanings:</p>
+<table>
+  <tr><th style="width:22%">Setting</th><th>Volumetric clouds</th><th>Aurora night sky</th></tr>
+  <tr><td>Variant</td><td>Fluffy, Overcast, Storm (dark and heavy)</td><td>Curtains, Rings (around the zenith), Spiral</td></tr>
+  <tr><td>Size</td><td>Cloud scale</td><td>Height of the curtains</td></tr>
+  <tr><td>Twist</td><td>n/a</td><td>Sway: how much the curtains swing over the loop</td></tr>
+  <tr><td>Warp</td><td>Coverage: how much of the sky is cloudy</td><td>Ripples: the fine vertical rays</td></tr>
+  <tr><td>Bend</td><td>Thickness of the cloud layer</td><td>n/a</td></tr>
+  <tr><td>Glow</td><td>Sun glow around the sun and through the clouds</td><td>Brightness</td></tr>
+  <tr><td>Fog ×</td><td>Haze: how much distant clouds melt into the horizon</td><td>n/a</td></tr>
+  <tr><td>Quality</td><td>Raymarch steps (default 28)</td><td>n/a</td></tr>
+</table>
+<div class="tip"><b>Loops</b>Clouds can drift any distance and still loop: two copies of the cloud field, half a loop apart, cross-fade
+into each other, so the jump back at the end of the loop happens while it is invisible.</div>
 
 <h2>5.2 Mirror floor</h2>
 <figure><img src="img/mirror.jpg" ><figcaption>Mirror floor settings.</figcaption></figure>
@@ -331,12 +364,25 @@ that matter for the chosen style are shown, and all of them except Variant, Wall
   <tr><td>Star (Points, Inner radius), Gear (Teeth), Heart</td><td>Flat extruded logos and badges (<span class="ui">Depth</span> sets the thickness).</td></tr>
   <tr><td>Gem (Facets)</td><td>A brilliant-cut diamond. Lovely with <span class="ui">Glow where: Edges</span>.</td></tr>
   <tr><td>Menger sponge (Level 0–3)</td><td>The classic fractal cube. Level 3 has 8,000 cubes, so use it sparingly.</td></tr>
+  <tr><td>3D text</td><td>Solid letters for logos: type the text (several lines are fine), pick a font (Pixel gives chunky voxel
+  letters) or a TTF/OTF file, and set the <span class="ui">Depth</span>. They take every material, relief, glitch, deform and copies
+  option.</td></tr>
+  <tr><td>Raymarched shapes</td><td><b>Metaballs</b> (balls melting together as they orbit), <b>Gyroid</b> (a ball carved into a flowing
+  lattice), <b>Fractal bulb</b> (the Mandelbulb) and <b>Melting box</b> (two balls passing through a rounded box). They are worked
+  out per pixel, so they are perfectly smooth, cut into other shapes, floors and terrain correctly, cast and take sun shadows and use
+  the layer's colour, metal, roughness, rim, glow and colour ramp (with <span class="ui">Glow where</span> other than Whole, the creases
+  glow). <span class="ui">Motion</span> sets how many times their own movement repeats per loop (0 = still), and copies each get
+  their own variation. Textures, relief, deform and glitch don't apply. They cost per pixel they cover, so a few big ones or a dozen
+  small ones are fine; the <b>Liquid Metal</b> preset shows both.</td></tr>
   <tr><td>3D model file</td><td>Your own <code>.gltf</code>, <code>.glb</code> or <code>.obj</code>. It is centred and scaled to fit automatically, and
   uses the layer's material.</td></tr>
 </table>
 
 <h3>Copies (instancing)</h3>
-<p>One layer can show many copies of its shape. Pick a <span class="ui">Layout</span>:</p>
+<p>One layer can show many copies of its shape. Pick a <span class="ui">Layout</span>. On desktop and in WebGPU browsers the graphics
+card places the copies, variation included, so even big counts cost the processor almost nothing; in WebGL2 browsers the processor does
+the same maths and gets the same picture, just slower. (Copies on a shape's surface or on a terrain are placed by the processor
+everywhere, then finished on the graphics card.)</p>
 <table>
   <tr><th style="width:24%">Layout</th><th>Settings</th><th style="width:34%">Example</th></tr>
   <tr><td>Single</td><td>n/a</td><td>One hero object.</td></tr>
@@ -344,8 +390,18 @@ that matter for the chosen style are shown, and all of them except Variant, Wall
   <tr><td>Radial</td><td>Count, Radius. Copies face outward.</td><td>Panels around an arena, crystal skyline.</td></tr>
   <tr><td>Scatter</td><td>Count, Radius, Only surface, Seed</td><td>Floating debris, asteroid shells.</td></tr>
   <tr><td>Orbit swarm</td><td>Count, Radius, Spread, Orbits / loop, Seed</td><td>Debris orbiting a planet.</td></tr>
+  <tr><td>Big swarm</td><td>Form (Orbits, Cloud, Shell, Galaxy), Count up to 250,000, Radius, Spread, Turns / loop, Seed</td><td>Huge
+  swarms, placed by the graphics card on desktop and in WebGPU browsers (in WebGL2 browsers the processor places them, the same picture
+  but slower, so keep counts lower there). Use a simple shape such as a tetrahedron. The <b>Galaxy Swarm</b> preset has 40,000.</td></tr>
   <tr><td>Wall</td><td>Columns, Rows, Spacing, Curve</td><td>Orb walls, LED walls. Curve bends the wall into an arc.</td></tr>
   <tr><td>Spiral</td><td>Count, Radius, Height, Turns</td><td>Chandeliers, DNA helices.</td></tr>
+  <tr><td>Along a curve</td><td>Curve and Frequencies (the ribbon curves), Size, Count, Laps / loop, Face along</td><td>Beads riding a
+  neon ribbon (give both the same curve, size and position), trains, conga lines.</td></tr>
+  <tr><td>On a shape's surface</td><td>On shape, Shape size, Count, Seed, Stand up, Lift. Copies are spread evenly by area.</td><td>Spikes on a
+  crystal, moss on rocks. Set <span class="ui">Shape size</span> to the other layer's Size and put both layers in the same place.</td></tr>
+  <tr><td>On a terrain</td><td>Terrain (a Terrain layer), Count, Seed, Follow the slope, Lift</td><td>Trees, crystals, lamps and ruins
+  standing on the landscape. They ride along as it scrolls, follow its placement and shrink away at its edges where it wraps; on water
+  or lava they float.</td></tr>
 </table>
 <p><b>Variation</b> (appears when there are copies) adds life:</p>
 <ul>
@@ -356,6 +412,22 @@ that matter for the chosen style are shown, and all of them except Variant, Wall
   <li><span class="ui">Waves / loop</span> sets how many times those waves pass per loop, and <span class="ui">Wavelengths</span>
   sets how many waves fit across all copies.</li>
 </ul>
+<p><b>Colours across copies</b> (also when there are copies) spreads 2–4 colours over them: <span class="ui">Gradient</span> blends
+smoothly (back to the first colour at the end), <span class="ui">Steps</span> gives each copy one colour in turn.
+<span class="ui">Travel / loop</span> makes the colours run along the copies; <span class="ui">Colour the glow</span> tints the
+glow too.</p>
+
+<h3>Deform</h3>
+<p>Bends the shape itself, on every copy. All values have <span class="ui">~</span>, so they can move with the beat.</p>
+<table>
+  <tr><th style="width:24%">Setting</th><th>Meaning</th></tr>
+  <tr><td>Twist</td><td>Turns of twist from the bottom of the shape to its top.</td></tr>
+  <tr><td>Bend</td><td>Curves the shape into an arc (degrees from bottom to top).</td></tr>
+  <tr><td>Taper</td><td>Top wider (+) or narrower (−) than the bottom.</td></tr>
+  <tr><td>Wobble</td><td>Bumps flowing over the surface; <span class="ui">Bump size</span> and <span class="ui">Flow / loop</span> tune them.
+  Simple shapes need <span class="ui">Subdivide</span> (in Relief) for smooth bends and bumps.</td></tr>
+  <tr><td>Explode</td><td>Faces fly apart, clearest with flat shading. Try <span class="ui">~</span> → Exp fade out, once per beat.</td></tr>
+</table>
 
 <h3>Placement &amp; motion</h3>
 <table>
@@ -388,7 +460,11 @@ speakers and light panels are each built once and mirrored.</div>
   <tr><td>Warp stars</td><td>Streams towards the viewer (hyperspace). Add a <span class="ui">Trail</span> for streaks.</td></tr>
   <tr><td>Vortex</td><td>Spirals upwards like embers.</td></tr>
   <tr><td>Snow / glitter</td><td>Falls slowly and sparkles.</td></tr>
+  <tr><td>Tornado</td><td>Spirals up a swaying funnel that widens with height, with debris circling its foot. Use it with
+  <span class="ui">Smoke</span> for a dark twister, or bright blue for a water spout.</td></tr>
 </table>
+<p><span class="ui">Smoke</span> makes particles cover what is behind them instead of adding light, so they can be dark (smoke,
+dust, a tornado). <span class="ui">Brightness</span> then becomes <span class="ui">Opacity</span>.</p>
 <p><span class="ui">Count</span> is the number of particles. <span class="ui">Lives / loop</span> is how many times each particle is
 reborn in one loop, so higher means faster. <span class="ui">Area</span> is the size of the emitter.
 The look is controlled by <span class="ui">Sprite</span> (soft glow, pixel square, star, ring), <span class="ui">Size</span>, two colours
@@ -407,8 +483,28 @@ The look is controlled by <span class="ui">Sprite</span> (soft glow, pixel squar
   <tr><td>Line colour, Line glow, Ground colour</td><td>The look. Animate Line glow with a Pulse for beat flashes.</td></tr>
   <tr><td>Texture, Tiles, Texture on lines, Chunky pixels</td><td>Maps a texture onto the ground (and optionally the grid lines). It moves with the
   landscape; <span class="ui">Tiles</span> is how many times it repeats across the terrain, a whole number so the loop stays seamless.</td></tr>
-  <tr><td>Size, Grid cells</td><td>Its extent and resolution. More cells is smoother but slower.</td></tr>
+  <tr><td>Size, Grid cells</td><td>Its extent and resolution. More cells is smoother but slower. Grid lines sit on every cell.</td></tr>
+  <tr><td>Level of detail</td><td>Full resolution near the camera, gradually coarser further away, with no visible steps: a quarter
+  of the triangles. Raise <span class="ui">Grid cells</span> (up to 512) or <span class="ui">Size</span> for sharper or bigger
+  landscapes at the same cost. Distant ridges get slightly simpler.</td></tr>
+  <tr><td>Shape</td><td><b>Hills</b> (rolling), <b>Ridged mountains</b> (sharp crests), <b>Mesas</b> (flat terraces with cliffs), <b>Sand dunes</b>
+  (gentle on one side, steep on the other), <b>Canyons</b> (a plateau cut by winding gorges) and <b>Craters</b>.</td></tr>
+  <tr><td>Biome</td><td>Colours solid ground by height and steepness instead of one <span class="ui">Ground colour</span>:
+  <b>Alpine</b> (grass, rock, snowy peaks, sandy shores), <b>Desert</b> (sand and banded red cliffs), <b>Volcanic</b> (black basalt with
+  glowing cracks), <b>Arctic</b> (snow and blue ice), <b>Alien</b> (purple moss, teal crystal, glowing tips).</td></tr>
 </table>
+<h3>Water &amp; lava</h3>
+<p>A <span class="ui">Liquid</span> fills everything below its <span class="ui">Level</span> with a flat surface. The level is a fraction of the
+mountain height; animate it for tides or rising lava. Liquids also show up on wireframe terrain.</p>
+<table>
+  <tr><th style="width:18%">Liquid</th><th>Look</th><th style="width:30%">Shine / Glow, Ripples / Crust…</th></tr>
+  <tr><td>Water</td><td>Reflects the sky with a sun glint, is lighter in the shallows and has foam and wet sand at the shore.</td><td>Shine, Ripples</td></tr>
+  <tr><td>Lava</td><td>Glowing rivers under a dark, cracked crust that drifts and churns. It lights up the nearby rocks.</td><td>Glow, Crust</td></tr>
+  <tr><td>Toxic goo</td><td>Glowing green slime with popping bubbles.</td><td>Glow, Bubbles</td></tr>
+  <tr><td>Ice</td><td>A frozen, cracked, shiny surface that stays still.</td><td>Shine, Cracks</td></tr>
+</table>
+<p><span class="ui">Current / loop</span> makes the surface drift along the terrain a whole number of times per loop; the ripples and crust
+also turn gently once per bar. Both loop exactly.</p>
 <h2>5.7 Laser beams</h2>
 <p>Club-style beams shooting from the layer's position along its up axis. Turn the layer with <span class="ui">Rotation</span> to aim them,
 and use <span class="ui">Mirror X</span> symmetry for a pair of laser rigs.</p>
@@ -419,6 +515,9 @@ and use <span class="ui">Mirror X</span> symmetry for a pair of laser rigs.</p>
   <tr><td>Colour (first/last)</td><td>The beams blend from the first colour to the last.</td></tr>
   <tr><td>Sweep, Sweeps / loop</td><td>How far the beams swing, and how often per loop (for the cone, also how fast it turns).</td></tr>
   <tr><td>Beat strobe</td><td>Makes the beams flash on every beat and fade until the next one.</td></tr>
+  <tr><td>Style</td><td><b>Laser beams</b> or <b>Spotlight cones</b>: wide, hazy cones of light, brightest where you look through the
+  most haze. Set their <span class="ui">Cone angle</span>, and tick <span class="ui">Light pools</span> for bright spots where the cones hit the
+  ground (height 0). Point the layer down (Rotation x 180) to hang the lamps from a ceiling. Add some <b>Mist</b> for a club look.</td></tr>
 </table>
 <h2>5.8 Neon ribbon</h2>
 <p>A glowing tube along a closed curve, with pulses of light running along it. Choose a <span class="ui">Curve</span>
@@ -426,7 +525,178 @@ and use <span class="ui">Mirror X</span> symmetry for a pair of laser rigs.</p>
 <span class="ui">Laps / loop</span> (negative runs backwards), <span class="ui">Pulse length</span> and <span class="ui">Pulse glow</span>.
 Ribbons reflect in mirror floors and can take symmetry.</p>
 
-<div class="keep"><h2>5.9 Placing objects in the viewport</h2>
+<h2>5.9 Weather</h2>
+<p><span class="ui">+ Add → ☔ Weather</span> fills a box around the camera with rain, snow, embers, sand or fireflies. The box follows the
+camera, so the weather is everywhere you look. Its <span class="ui">Ground height</span> is where rain splashes and embers start.</p>
+<table>
+  <tr><th style="width:24%">Setting</th><th>Meaning</th></tr>
+  <tr><td>Kind</td><td><b>Rain</b> (streaks and splash rings), <b>Snow</b> (swaying flakes), <b>Rising embers</b> (flickering sparks),
+  <b>Sandstorm</b> (dust blown along the wind), <b>Fireflies</b> (wandering, blinking lights) or <b>None</b> (lightning only).</td></tr>
+  <tr><td>Amount, Size, Colour, Brightness</td><td>How many drops and how they look. Rain also has <span class="ui">Streak length</span> and
+  <span class="ui">Splashes</span>.</td></tr>
+  <tr><td>Falls / loop</td><td>How many times each drop falls per loop: higher is faster. It is a whole number, so the weather loops.</td></tr>
+  <tr><td>Wind, Wind direction</td><td>Slants the rain and snow. Animate Wind with a Sine for gusts.</td></tr>
+  <tr><td>Area, Height</td><td>The size of the box around the camera.</td></tr>
+  <tr><td>Wet ground / Snow cover</td><td>Rain makes every surface darker and glossier, with puddles on flat ground that mirror the sky and
+  ripple with rain rings. Snow settles on everything facing up. A snow cover can't really build up over a loop (it would have to jump back
+  at the end), but you can animate it, for example with a <b>Swell</b> so it builds up and melts away.</td></tr>
+  <tr><td>Lightning</td><td>Jagged bolts that strike in front of the camera and a flash that lights up the whole scene, clouds included.
+  <span class="ui">Chances / loop</span> and <span class="ui">Chance</span> decide how often; each strike flickers two or three times.</td></tr>
+</table>
+<div class="tip"><b>Performance</b>Weather drops cost about as much as particles. Volumetric clouds are the heavy part of a storm scene:
+lower their <span class="ui">Quality</span> on phones.</div>
+
+<h2>5.10 Waterfall</h2>
+<p><span class="ui">+ Add → 🌊 Waterfall</span> adds a curtain of <b>water</b>, <b>lava</b> or <b>toxic goo</b> that pours from the layer's
+position downwards and arcs out along its Z axis, with streaks running down it and foam, spray or smoke at its foot. Place it on the
+edge of a cliff: a terrain mesa, a shape or a wall of boulders (see the Rainbow Falls preset).</p>
+<table>
+  <tr><th style="width:24%">Setting</th><th>Meaning</th></tr>
+  <tr><td>Width, Height, Arc</td><td>The size of the curtain and how far it arcs out from the edge.</td></tr>
+  <tr><td>Flow / loop</td><td>How many times the streaks run down per loop (a whole number, so it loops).</td></tr>
+  <tr><td>Brightness / Glow</td><td>Water brightness, or the glow of lava and goo.</td></tr>
+  <tr><td>Foam &amp; mist / Smoke</td><td>Puffs at the foot (0 = none).</td></tr>
+</table>
+
+<h2>5.11 Text</h2>
+<p>Glowing letters in the scene, on a flat sign facing forward (tick <span class="ui">Face the camera</span> to keep them readable
+from any side). They stay sharp at any size. Add one from <span class="ui">+ Add → 🔤 Text</span>.</p>
+<table>
+  <tr><th style="width:24%">Style</th><th>What it does</th></tr>
+  <tr><td>Still</td><td>The text, centred. Several lines are fine.</td></tr>
+  <tr><td>Scroller</td><td>Runs across a <span class="ui">Window</span> a whole number of times per loop (<span class="ui">Runs / loop</span>;
+  negative runs the other way). Letters fade at the window's edges.</td></tr>
+  <tr><td>Sine scroller</td><td>A scroller riding a sine wave: <span class="ui">Wave height</span>, <span class="ui">Wave length</span> (letters per
+  wave) and <span class="ui">Wave rolls / loop</span>.</td></tr>
+  <tr><td>Typewriter</td><td>Letters appear one by one, <span class="ui">Letters / beat</span>, starting again with the loop.</td></tr>
+  <tr><td>Greetings list</td><td>One line at a time, fading in and out, a new line every <span class="ui">Beats / line</span> (4 = one per bar).</td></tr>
+</table>
+<p><b>Font &amp; look:</b> Pixel (chunky demoscene letters), Mono or Sans, or your own TTF/OTF file; size and spacing; a top and a
+bottom colour; <span class="ui">Glow</span> (brightness, above 1 it blooms; it has <span class="ui">~</span>); an outline; a drop shadow; and
+<span class="ui">Chrome</span>, which bevels the letters and reflects the sky like a 90s logo. The <b>Oldschool Intro</b> preset uses all three
+styles.</p>
+
+<h2>5.12 Sprites</h2>
+<p>Pictures in the scene, one per copy: glows, flames, sparkles, coins, a logo on a sign. Add them from
+<span class="ui">+ Add → 🖼 Sprites</span> (Glow dots, Flames, Explosion or Image plane).</p>
+<table>
+  <tr><th style="width:24%">Setting</th><th>What it does</th></tr>
+  <tr><td>Image</td><td>A built-in texture, one of your images, or none (a soft glowing dot). The built-in <b>sheet_…</b> images are
+  animated sprite sheets: explosion (plays once), flame, spinning coin and sparkle (these loop).</td></tr>
+  <tr><td>Facing</td><td><b>Face the camera</b> (always square on), <b>Upright</b> (stands up and only turns around, like trees or
+  flames) or <b>Fixed plane</b> (a flat picture you place and turn like any layer).</td></tr>
+  <tr><td>Blend</td><td><b>Alpha</b>: soft edges from the image's transparency (copies are drawn far to near). <b>Additive</b>: light adds up,
+  for glows and fire. <b>Cutout</b>: hard edges at half transparency, solid like a shape (best for pixel art).</td></tr>
+  <tr><td>Size, Opacity, Tint, Glow</td><td>Height (the width follows the picture), transparency, a colour multiplied in, and brightness
+  (above 1 it blooms). All but Tint have <span class="ui">~</span> and 🎵.</td></tr>
+  <tr><td>Animation</td><td>For a sprite sheet (frames in a grid, left to right, top to bottom): <span class="ui">Columns</span>,
+  <span class="ui">Rows</span>, <span class="ui">Frames</span> used (0 = all) and <span class="ui">Plays / loop</span>, a whole number so the
+  animation lines up with the loop. <span class="ui">Each copy starts on its own frame</span> keeps a crowd of flames from flickering in
+  step. Picking a built-in sheet sets the grid for you.</td></tr>
+  <tr><td>Copies</td><td>The same copy layouts and variation as shapes (grid, ring, scatter, orbit, on a curve, on a terrain…).</td></tr>
+</table>
+<p>The <b>Campfire Sprites</b> preset uses flames, sparkles and spinning pixel coins.</p>
+
+<h2>5.13 Electric arcs</h2>
+<p>Tesla-coil lightning, from <span class="ui">+ Add → ⚡ Electric arcs</span>. Each arc zigzags between its two ends, crawls while it
+lasts and takes a new shape at every strike.</p>
+<table>
+  <tr><th style="width:24%">Setting</th><th>What it does</th></tr>
+  <tr><td>Path</td><td><b>Between two points</b> (<span class="ui">From</span> and <span class="ui">To</span>, placed with the layer),
+  <b>To the nearest copies</b> of a shape or sprite layer (<span class="ui">Target</span>; from this layer's position to its
+  <span class="ui">Arcs</span> nearest copies, so they jump as the copies move) or <b>Copy to copy</b> (from each copy of the target to the
+  next, round the ring).</td></tr>
+  <tr><td>Strikes / loop</td><td>How many new shapes per loop, a whole number so the loop closes.</td></tr>
+  <tr><td>Jaggedness, Crawl, Fade</td><td>How far the arc zigzags; how far the zigzag slides during a strike; how much each strike dims before
+  the next (0 = steady).</td></tr>
+  <tr><td>Branches, Width, Colour, Glow, Seed</td><td>Side forks, thickness, colour, brightness (<span class="ui">~</span> and 🎵: flash it on the
+  kick) and a different set of zigzags.</td></tr>
+</table>
+<p>The <b>Tesla Swarm</b> preset strikes the nearest debris from the core and runs arcs round a ring of coils.</p>
+
+<h2>5.14 Logos</h2>
+<p>A logo or title laid flat on the screen, over the whole scene: it stays the same size and in the same place whatever the camera does.
+Add one from <span class="ui">+ Add → 🏷 Logo</span> (Title, Chrome logo, Gold logo, Corner tag or Image logo). It is drawn before the post effects, so
+bloom, god rays, feedback trails, scanlines and the colour grade apply to it, but depth of field never blurs it.</p>
+<table>
+  <tr><th style="width:24%">Setting</th><th>What it does</th></tr>
+  <tr><td>Made of</td><td><b>Text</b> (one or more lines, any built-in font or your own TTF/OTF) or an <b>Image</b>. For an image,
+  <span class="ui">Shape from</span> picks which parts are the logo: its <b>Transparency</b>, its <b>Bright parts</b> (a logo on black) or its
+  <b>Dark parts</b> (a logo on white). Empty margins are cut off, so the size is the logo's own.</td></tr>
+  <tr><td>Attach to, Place</td><td>Like the reference points in a photo editor. <span class="ui">Attach to</span> is <b>The screen</b> or another
+  logo layer. Click a square of the <span class="ui">Place</span> grid to snap there: on the screen the logo goes inside that corner, edge
+  or the middle, a small margin in; against another logo it goes outside that side (the bottom square puts it underneath, the top right
+  one at its top right corner, the middle one on top of it), with a small gap. An attached logo follows the other one wherever it moves,
+  turns or grows. If the other logo is renamed or deleted, the logo goes back to the screen.</td></tr>
+  <tr><td>Offset across, Offset up</td><td>Where the logo sits from that point, as fractions of the screen's width and height (right and up
+  are positive). <span class="ui">Measured from</span> is the point the offsets start from (on the screen, changing it keeps the logo in
+  place) and <span class="ui">Anchor</span> the point of the logo that sits there, which it also turns around.</td></tr>
+  <tr><td>Size, Turn, Opacity</td><td>Height as a fraction of the screen height (the width follows), a turn in degrees, and transparency.</td></tr>
+  <tr><td>Colours</td><td><b>Gradient</b> (top and bottom colour) or <b>Image colours</b> (the picture's own colours times a
+  <span class="ui">Tint</span>; for text, the tint).</td></tr>
+  <tr><td>Glow, Outline, Drop shadow, Chrome</td><td>The same looks as text: brightness (above 1 it glows), an outline ring, a shadow down and to
+  the right, and a shiny bevel reflecting the sky.</td></tr>
+  <tr><td>Bevel</td><td>Under <span class="ui">Lighting</span>: gives the flat logo a relief lit by a light on the screen. <b>Round</b> edges,
+  <b>Chiselled</b> (straight slopes, like cut metal), <b>Stepped</b> (terraces; set the <span class="ui">Steps</span>) or <b>Pillow</b> (the whole
+  logo bulges). <span class="ui">Bevel width</span> is how far in from the edge it reaches, <span class="ui">Depth</span> how steep it is.</td></tr>
+  <tr><td>Light</td><td><span class="ui">Light from</span> is the direction on the screen in degrees (0 from the right, 90 from above);
+  <span class="ui">↻ Circle the light</span> sends it round once per loop, and 🎵 can swing it on the beat. <span class="ui">Light height</span>: low
+  lights rake across the bevel. <span class="ui">Shading</span> is how much the light darkens and brightens the colour,
+  <span class="ui">Shine</span> and <span class="ui">Gloss</span> the highlights.</td></tr>
+  <tr><td>Material</td><td>A picture of a lit sphere (a <i>matcap</i>): each part of the bevel takes the colour of the sphere where it faces the
+  same way. Built in: <b>matcap_gold</b>, <b>matcap_chrome</b>, <b>matcap_plastic</b> and <b>matcap_candy</b>, or import your own picture of a
+  sphere. It works without a bevel too, but only shows its middle colour.</td></tr>
+  <tr><td>Glint</td><td>A bright band sweeping across the logo, a whole number of <span class="ui">Sweeps / loop</span> (4 = every bar of a
+  16-beat loop), with its width, direction and colour.</td></tr>
+  <tr><td>Rings &amp; outlines</td><td><span class="ui">Rings</span>: glowing lines following the logo's shape, rippling outward a whole number
+  of times per loop (negative: inward), fading with the <span class="ui">Reach</span>; optionally inside the letters too.
+  <span class="ui">Stacked outlines</span>: solid outlines one outside the other, shading from the inner to the outer colour, like an 80s
+  logo.</td></tr>
+  <tr><td>Extrude</td><td>Fake 3D: the logo repeated behind itself in a direction, fading darker, without any mesh.</td></tr>
+  <tr><td>Dissolve</td><td>Burns the logo away (0 whole, 1 gone) in patches, or from the edges inward, with a glowing burn front. Animate
+  <span class="ui">Dissolve</span> with <span class="ui">~</span> to burn it in or out.</td></tr>
+  <tr><td>Reveal</td><td>How the logo appears as <span class="ui">Shown</span> goes from 0 to 1: <b>Grow from the middle</b> (the letters
+  thicken from their middle lines), <b>Edges first</b> (outlines, then filling inward), a <b>Wipe</b> in any direction or a
+  <b>Circle</b> opening from the middle, with a soft edge.</td></tr>
+  <tr><td>Morph</td><td>Melts the logo into another text (same font) or image: 0 is this logo, 1 the other. The shapes blend through their
+  outlines, so a quick change reads best; a <span class="ui">~</span> sine with an amplitude above 0.5 holds each end and switches
+  quickly.</td></tr>
+  <tr><td>Copper bars</td><td>Amiga-style colour bars scrolling through the letters: two alternating colours, bright in the middle of each
+  bar, a whole number of <span class="ui">Scrolls / loop</span>.</td></tr>
+  <tr><td>Wobble</td><td><span class="ui">Sway</span> moves each row sideways and <span class="ui">Bob</span> each column up and down along a
+  sine wave, rolling a whole number of times per loop: a rubber logo.</td></tr>
+  <tr><td>Glitch</td><td>Horizontal slices jump sideways with a colour split, with new jumps a set number of times per loop. Link
+  <span class="ui">Glitch</span> to the kick with 🎵, or give it an Exp fade out on every beat.</td></tr>
+  <tr><td>Chromatic split</td><td>Red and blue pulled apart in a direction, like a misaligned CRT.</td></tr>
+  <tr><td>Pixel blocks</td><td>Under <span class="ui">Retro looks</span>: the logo in solid blocks (their size in logo heights). Animate it,
+  for example an Exp fade out once per loop, to pixelate the logo in.</td></tr>
+  <tr><td>Palette</td><td>Only the colours of a retro machine (the same palettes as the post effect), with ordered
+  <span class="ui">Dither</span>. <span class="ui">By brightness</span> uses the palette as a dark-to-light ramp, and
+  <span class="ui">Cycles / loop</span> rotates the colours, like old palette-cycling animations.</td></tr>
+  <tr><td>Halftone</td><td>Printed dots, as big as the colour is bright, at a spacing and screen angle.</td></tr>
+  <tr><td>Scanlines, Phosphor stripes, Line glow</td><td>A CRT look on the logo only: dark gaps between lines, red-green-blue stripes and
+  brighter lines that bloom.</td></tr>
+  <tr><td>Moiré</td><td>Two fine line patterns turning opposite ways over the letters, beating into shifting ripples.</td></tr>
+  <tr><td>Glass</td><td>Under <span class="ui">Glass, rays &amp; echoes</span>: letters of glass. The scene behind shows through, bent by
+  the letters' edges (their bevel, or a rounded edge without one), with <span class="ui">Dispersion</span> splitting the colours and a
+  tint; the edges catch the light.</td></tr>
+  <tr><td>Rays</td><td>Light streaming out from the middle of the logo, a <span class="ui">Length</span> and a
+  <span class="ui">Threshold</span>. With <span class="ui">Shadow</span> the rays are the light <i>behind</i> the logo, with the logo's
+  shadow cut out of them: put it over something bright. Up to four logos can have rays.</td></tr>
+  <tr><td>Echoes</td><td>Fading copies of the logo where it was a moment ago, drawn behind it: set how many, the time between them (a
+  fraction of the loop) and how quickly they fade. They show when the logo moves, turns or changes.</td></tr>
+</table>
+<p>Every number has <span class="ui">~</span> and 🎵: pulse the glow on the kick, sway the turn, slide the logo in. With the logo selected, the
+viewport shows one handle at its anchor: drag it with <span class="ui">Move</span> to change the offsets, with <span class="ui">Scale</span> to size it
+and with <span class="ui">Rotate</span> to turn it (<kbd>Ctrl</kbd> snaps). The <b>Sunset Title</b> preset has a bevelled chrome title pulsing on
+every beat, with a glint on every bar, and a pixel tag in the corner. <b>Logo Morph</b> melts one word into another over Neon Arena,
+extruded, with stacked outlines and rings on every beat. <b>Copper Logo</b> has copper bars, a sway and a glitch on every beat over the
+Retro Tunnel. <b>C64 Title</b> pixelates in each loop in cycling C64 colours under scanlines. <b>Glass Galaxy</b> has
+glass letters bending a galaxy, casting shadow rays through its light, with echoes as they sway.</p>
+<div class="tip"><b>Tip</b>The logo's shape is worked out once when you type or pick an image (it becomes a distance field, which keeps the
+edges sharp at any size and gives outlines, glows and bevels for free), so the first frame after a change can take a moment.</div>
+
+<div class="keep"><h2>5.15 Placing objects in the viewport</h2>
 <figure><img src="img/gizmo.jpg"><figcaption>The Dodecahedron is selected: the Move handles appear on it, and the ground grid is on.</figcaption></figure></div>
 <ul>
   <li><b>Select</b> a shape or particle layer by clicking it in the viewport, or in the layer list.</li>
@@ -606,16 +876,33 @@ so two layers can blink in turn.</p>
 <table>
   <tr><th style="width:24%">Setting</th><th>Meaning</th></tr>
   <tr><td>Motion</td><td><b>Orbit</b> circles the target <span class="ui">Turns per loop</span> times. <b>Pendulum</b> swings back and forth by
-  <span class="ui">Swing</span> degrees. <b>Static</b> stays put, though its values can still be animated.</td></tr>
+  <span class="ui">Swing</span> degrees. <b>Static</b> stays put, though its values can still be animated. <b>Path</b> flies
+  through your own points (see <i>Camera paths</i> below).</td></tr>
   <tr><td>Look at</td><td>The point the camera aims at.</td></tr>
   <tr><td>Distance, Height</td><td>How far away and how high the camera is. Both are animatable.</td></tr>
   <tr><td>Start angle</td><td>Which side the camera starts from.</td></tr>
   <tr><td>Field of view</td><td>Zoom lens: 20–35 for a telephoto look, 60–90 for wide and dramatic.</td></tr>
   <tr><td>Roll</td><td>Tilts the horizon. Animate it for a dizzy rave feel.</td></tr>
   <tr><td>Beat shake</td><td>A small camera kick on every beat.</td></tr>
+  <tr><td>Punch-in</td><td>With a song loaded, the camera zooms in on every kick (or snare, hi-hat, any hit, note) and eases back.</td></tr>
 </table>
 <div class="tip"><b>Mouse</b>Dragging in the viewport changes <span class="ui">Start angle</span> and <span class="ui">Height</span>. Scrolling changes
-<span class="ui">Distance</span>.</div>
+<span class="ui">Distance</span>. A Path camera flies by itself, so dragging does nothing then.</div>
+<h2>Camera paths</h2>
+<p>Pick <span class="ui">Motion → Path</span> and the camera flies a smooth closed loop through your points, at an even speed,
+<span class="ui">Laps / loop</span> times per loop. Each point has a position (<span class="ui">Eye</span>), a <span class="ui">Look at</span>
+point, a field of view and a roll, and the camera blends between them. With the Camera selected, the viewport shows the flight as a
+yellow line with numbered points.</p>
+<ul>
+  <li><b>Adding shots:</b> switch to <span class="ui">Static</span>, frame the shot by dragging and scrolling in the viewport, then press
+  <span class="ui">📍 Add this view to the path</span>. Repeat, then switch back to <span class="ui">Path</span>.</li>
+  <li><b>Changing a shot:</b> press 👁 on a point to look from it (the camera switches to Static there), adjust it in the viewport, then
+  press ⟳ on that point to store the new view. ⬆ ⬇ reorder points, 🗑 removes one.</li>
+  <li><span class="ui">Linger</span> slows the camera down at every point: 0 is an even glide, 1 holds each shot for a moment.</li>
+  <li><span class="ui">Cut on hits</span>: with a song loaded, the camera cuts to the next point on every kick (or snare, hi-hat…) and
+  <span class="ui">Drift</span>s a little towards the following one. The cuts restart with the loop, so the video still loops. Without
+  music the camera just flies.</li>
+</ul>
 <h2>Light &amp; fog</h2>
 <ul>
   <li><span class="ui">Fog colour</span> / <span class="ui">Fog density</span>: distant things fade into this colour. The fog colour is also the
@@ -623,7 +910,44 @@ so two layers can blink in turn.</p>
   <li><span class="ui">Sky light</span> / <span class="ui">Ground light</span> / <span class="ui">Ambient</span>: soft light from above and below.
   The sky colour is also what glossy surfaces reflect, which gives black gloss its highlights.</li>
   <li><span class="ui">Sun colour</span>, <span class="ui">Sun strength</span>, <span class="ui">Sun direction</span>: the main light.</li>
+  <li><span class="ui">Sun shadows</span>: shapes and terrain cast shadows from the sun (the moon at night) onto shapes, terrain,
+  water and the mirror floor. <span class="ui">Darkness</span>, <span class="ui">Softness</span> and <span class="ui">Distance</span>
+  (how far around the camera's target shadows reach: smaller is sharper). In dark neon scenes shadows are subtle, because most light
+  comes from glow, not the sun.</li>
+  <li><span class="ui">Contact shadows</span>: soft dark patches under shapes standing on a mirror floor, so they don't look like they
+  float.</li>
+  <li><span class="ui">Mist (height fog)</span>: fog that is thick near the ground and thins out higher up, so it pools in valleys
+  and over water. <span class="ui">Base height</span> is where it is densest, <span class="ui">Thickness</span> how high it reaches.
+  It also hides the horizon of the background.</li>
+  <li><span class="ui">Underwater caustics</span>: the rippling web of light you see at the bottom of a pool, on every surface.
+  <span class="ui">Only below</span> limits it to things under a water line.</li>
+  <li><span class="ui">Rainbow</span>: a rainbow (with a faint second bow) opposite the sun. Like a real one, it needs the sun fairly
+  low: with the sun high above, the bow sinks below the horizon.</li>
+  <li><span class="ui">Day &amp; night cycle</span>: the sun rises, crosses the sky and sets a whole number of times per loop. The light,
+  fog and sky turn warm at sunrise and sunset; at night the sky darkens, stars come out, the moon rises opposite the sun and moonlight takes
+  over. <span class="ui">Sun direction</span> sets where the sun is at noon. Clouds, god rays and reflections all follow the sun.</li>
 </ul>
+
+<h2>Colour scheme</h2>
+<p><span class="ui">🎨 Colour scheme</span> (left panel) brings every colour of the project into harmony with one <b>key colour</b>. Each
+colour keeps its <i>lightness</i>, so darks stay dark and glows stay bright, while its hue moves to the nearest of the scheme's hues. The
+work happens in a perceptual colour space (OKLCH), so a colour's brightness doesn't change when its hue does. Your own colours are kept: turn the scheme off and
+they're back. Pictures (textures, sprites, imported images) keep their own colours; the <b>Retro palette</b> post effect is the way
+to force those into a palette.</p>
+<table>
+  <tr><th style="width:24%">Setting</th><th>What it does</th></tr>
+  <tr><td>Key colour, Harmony</td><td>The colour everything goes with, and which hues go with it: <b>One hue</b>, <b>Neighbours</b> (30°
+  either side), <b>Opposites</b>, <b>Split opposites</b>, a <b>Triad</b> or a <b>Square</b>. The swatches show the scheme's hues.</td></tr>
+  <tr><td>Hue pull</td><td>How far colours move toward the scheme: 0 changes nothing, 1 puts every hue on it.</td></tr>
+  <tr><td>Saturation match</td><td>0 keeps each colour's own saturation; 1 makes them all as saturated as the key.</td></tr>
+  <tr><td>Turn</td><td>Degrees added to the key's hue. Animate it (<span class="ui">↻ Turn once per loop</span>) and the whole scene goes
+  round the colour wheel together.</td></tr>
+  <tr><td>Sky, fog, sun and rays too</td><td>Whether the environment follows the scheme.</td></tr>
+</table>
+<p>Near-greys (black floors, white letters) are left alone. A layer whose colours mean something, like fire, can tick
+<span class="ui">Keep own colours</span> at the top of its settings (shown while a scheme is on). With a scheme on,
+<span class="ui">🎲 Randomize</span> picks a new key colour (and sometimes a new harmony) instead of rotating each layer. The
+<b>Colour Wheel Arena</b> preset is Neon Arena under a triad that turns once per loop.</p>
 
 <!-- ===================================================== 9 -->
 <h1 id="post"><span class="num">9</span>Post effects</h1>
@@ -634,6 +958,19 @@ so two layers can blink in turn.</p>
   <tr><td>Mirror split</td><td>Mirrors one half of the picture onto the other (left → right, top → bottom, or quad). This is instant symmetry.</td></tr>
   <tr><td>Bloom / glow</td><td>Bright things spill light. Intensity sets the strength, Threshold how bright something must be to glow, and Spread
   how wide the halo is.</td></tr>
+  <tr><td>God rays &amp; lens flare</td><td>Shafts of light streaming from the sun (or from the picture centre, for "light at the end of the tunnel").
+  Bright sky near the light is smeared towards it, so clouds, mountains and shapes in front cast streaks of shadow. Length, Threshold and
+  Tint shape the rays; <span class="ui">Lens flare</span> adds ghosts and a streak when you look into the light, and fades when the sun is hidden.</td></tr>
+  <tr><td>Depth of field</td><td>A camera lens blur: things nearer or further than the focus go soft, with round bokeh. <span class="ui">Auto
+  focus</span> keeps the point the camera looks at sharp (or set a <span class="ui">Focus</span> distance); <span class="ui">Blur</span> sets how
+  soft it gets. Both have <span class="ui">~</span> and 🎵, so the focus can pull or the blur can breathe on the kick.</td></tr>
+  <tr><td>Feedback trails</td><td>Each frame keeps a fading copy of the previous ones, so moving things leave echoes. <span class="ui">Trail length</span>
+  (with <span class="ui">~</span> and 🎵) sets how long they linger; <span class="ui">Zoom / second</span> makes the echoes fly out (above 1) or fall in,
+  <span class="ui">Turn / second</span> spins them and <span class="ui">Colour drift</span> changes their hue as they fade. The speeds are per second, so they
+  look the same at any frame rate. The preview builds trails as it plays and starts fresh after a jump; exports render one loop first
+  (not saved), so frame 0 already has its trails and the loop closes seamlessly.</td></tr>
+  <tr><td>Heat haze</td><td>The picture shimmers as if seen through rising hot air: above hot, bright things (lava, fire, the sun), near
+  the bottom of the picture (hot ground) or everywhere. <span class="ui">Rises / loop</span> sets its speed.</td></tr>
   <tr><td>Chromatic aberration</td><td>An RGB colour split towards the edges, like a cheap lens. Pulse it on the beat.</td></tr>
   <tr><td>Pixelate</td><td>Fat pixels (the size is measured at 1080p, so previews match exports).</td></tr>
   <tr><td>Retro palette</td><td>Reduces the image to a classic computer palette with ordered (Bayer) dithering.</td></tr>
@@ -663,22 +1000,86 @@ so two layers can blink in turn.</p>
 <p>Because every animation is counted per loop, <b>changing the BPM speeds the whole scene up or slows it down</b>, and it
 stays in sync.</p>
 <h2>Adding music</h2>
-<p>Use <span class="ui">Load music…</span> or drop an MP3, WAV, OGG, FLAC, M4A or AAC file onto the window. Then:</p>
+<p>Use <span class="ui">Load music…</span> or drop an MP3, WAV, OGG, FLAC, M4A or AAC file onto the window. The song is
+<b>analysed</b> once when it loads: loudness, kick, bass, mids, highs and brightness curves; the <b>hits</b> (kicks, snares and claps,
+hi-hats, any onset, new notes); a 16-band spectrum; the melody's note; and the <b>tempo</b>. The timeline shows the loudness, with
+kicks as red ticks and snares as yellow ones. The <span class="ui">Meters</span> show every source live.
+The analysis runs in the background (<span class="ui">Analysing music… 42%</span> in the viewport bar), so you can keep
+editing; music-driven settings start reacting when it finishes, and exports wait for it. Changing only the MIDI file or its
+offset reuses the analysis instead of starting again.</p>
+
+<h2>Loop a part of the song, or the whole song</h2>
 <ul>
-  <li>The music plays with the loop and restarts at the loop point. Scrubbing the timeline seeks the music.</li>
-  <li>Its loudness is drawn in the timeline, and brighter bars mean more bass.</li>
-  <li>Any animated value can follow the music with the <span class="ui">♪</span> amount in its <span class="ui">~</span> panel.</li>
-  <li><span class="ui">Detect tempo from length</span> sets the BPM so the whole track fits the loop length. This is useful for music written as a loop.</li>
-  <li>MP4 and WebM exports include the music (you can turn this off in the export dialog).</li>
+  <li><b>Loop a part of the song</b> (default): the loop reacts to a window of the song as long as the loop, starting at
+  <span class="ui">Starts at</span>. The window is treated as a circle: the last moments fade into its start, and a hit near the end
+  keeps ringing after the loop point, so the loop stays seamless. Video exports contain exactly that window of the song, repeated.
+  <span class="ui">Use song tempo</span> sets the BPM to the detected tempo and snaps the window onto a bar;
+  <span class="ui">Snap to bar</span> only snaps; <span class="ui">Fit whole song</span> makes the whole track one loop.</li>
+  <li><b>Whole song</b>: the preview and exports run from the start to the end of the song (repeats don't apply); loop animations keep
+  cycling underneath.</li>
 </ul>
-<div class="note"><b>Tip for musicians</b>Set the BPM to your track's tempo and the loop length to its bar count × 4. The visuals then
+
+<h2>Making values react: the 🎵 row</h2>
+<p>Every <span class="ui">~</span> panel has a <span class="ui">🎵</span> row under the rhythm settings. Pick a source and an amount:</p>
+<table>
+  <tr><th style="width:26%">Source</th><th>What happens</th></tr>
+  <tr><td>Follow: Loudness, Kick, Bass, Mids, Highs, Brightness</td><td>The value rises with that part of the sound. Tick
+  <span class="ui">smooth</span> for a calmer curve and use <span class="ui">ignore below</span> to react only to the loud parts.</td></tr>
+  <tr><td>Follow: Melody pitch</td><td>The melody's note from C (0) to B (11/12). On <b>Hue shift</b> with amount 1, each note gets its own
+  colour.</td></tr>
+  <tr><td>Each kick / snare / hi-hat / hit / new note</td><td>Plays a <b>shape</b> (a beat fade, e.g. Exp fade out) of the chosen
+  <b>length in beats</b> on every hit, scaled by how hard it hit. Flashes on the song's real kicks rather than on the metronome.</td></tr>
+</table>
+<p>A negative amount pulls the value down instead (e.g. the camera distance on each kick, for a punch-in). The curve preview shows the
+result with the music.</p>
+
+<h2>Time warp</h2>
+<p><span class="ui">Time warp</span> makes motion (spins, orbits, camera moves, scrolling, clouds, LFOs) run faster while the chosen source
+is strong, so the scene surges on every kick or on the loud parts. The warped time is rescaled so a full loop still ends exactly where it
+started, so the loop stays seamless. Beat fades, strobes, blinks and shakes stay on the real beat. A negative amount slows motion down on hits.</p>
+
+<h2>Equalizer copies</h2>
+<p>Shapes with copies have an <span class="ui">Equalizer</span> setting (under Copies → variation): each copy grows upwards and glows with one
+frequency band, low notes first. 16 copies in a row or an arc make a classic spectrum display (see the <b>Music Reactor</b> preset).</p>
+
+<h2>MIDI notes</h2>
+<p><span class="ui">Load MIDI notes…</span> (or drop a .mid file) takes the hits and the melody from a MIDI file instead of guessing them
+from the audio: drums on channel 10 give exact kicks, snares and hats, other channels give new notes and the melody pitch, with their
+velocities. <span class="ui">MIDI offset</span> lines the notes up with the audio. A MIDI file works without an audio file too.</p>
+
+<h2>Live input</h2>
+<p><span class="ui">Live input (microphone / line-in)</span> makes the preview react to what the microphone hears, for VJ sets. Every
+source works live, and so does time warp. Live input is not repeatable, so exports always use the music file.</p>
+<div class="note"><b>Tip for musicians</b>Load your track, press <span class="ui">Use song tempo</span>, pick a strong section with
+<span class="ui">Starts at</span>, then link the glow of your shapes to <b>Each kick</b>. Export with the music included and the visuals
 land exactly on your beats.</div>
+
+<h2>Scenes &amp; timeline</h2>
+<p>One project can hold several <b>scenes</b>, each with its own layers, camera, light and post effects, and play them one after
+another on a <b>timeline</b>. Open <span class="ui">🎬 Scenes &amp; timeline</span> on the left and press
+<span class="ui">Start a timeline</span>: your scene becomes the first clip.</p>
+<ul>
+  <li><b>Scenes:</b> <span class="ui">+ Empty scene</span> or <span class="ui">+ Copy of this scene</span>, then <span class="ui">✏ edit</span> to work on
+  one; every panel (layers, camera, light, effects, nodes) now edits that scene. Each scene has its <span class="ui">Own loop</span>, which keeps
+  looping inside its clips.</li>
+  <li><b>Clips:</b> pick the scene and the length in beats, reorder with ⬆ ⬇. Each clip comes in with a transition over its first beats:
+  <b>Cut</b>, <b>Crossfade</b>, <b>Wipe</b> (with an angle), <b>Iris</b>, <b>Flash</b> (to white and back), <b>Glitch</b> (blocks of the new scene
+  pop in) or <b>Cut on kick</b> (with a song: the cut lands on the first kick).</li>
+  <li>The whole timeline is the loop (the Timing panel shows its length), so exports play every clip and loop seamlessly: the first clip's
+  transition comes in from the last one.</li>
+  <li>Above the preview, <span class="ui">This scene</span> shows only the scene you are editing and <span class="ui">🎬 Timeline</span> plays
+  everything. The move/rotate handles only show for the scene being edited.</li>
+  <li>With a song loaded, <span class="ui">🎵 Clips from the song's sections</span> finds where the music changes (drops, breakdowns, new
+  parts) and makes one clip per part, taking turns through your scenes; the loop becomes the whole song from its start.</li>
+  <li><span class="ui">Stop the timeline</span> goes back to one looping scene; the other scenes are kept.</li>
+</ul>
+<p>The <b>Scene Tour</b> preset chains three scenes with glitch, wipe and iris transitions.</p>
 
 <!-- ===================================================== 11 -->
 <h1 id="random"><span class="num">11</span>Randomize, Surprise me &amp; undo</h1>
 <ul>
-  <li><span class="ui">🎲 Randomize</span> shuffles the current scene: one harmonious hue rotation of all colours, new shapes and layouts,
-  new motion and a few post-effect changes. Every click gives a new variation.</li>
+  <li><span class="ui">🎲 Randomize</span> shuffles the current scene: one harmonious hue rotation of all colours (with a colour scheme on, a
+  new key colour instead), new shapes and layouts, new motion and a few post-effect changes. Every click gives a new variation.</li>
   <li><span class="ui">⚙</span> opens the <b>Randomizer</b> settings. Choose what may change (Colours, Shapes &amp; layouts, Motion, Post
   effects), how strongly, and the <b>seed</b>. The same seed always gives the same result.</li>
   <li><span class="ui">Surprise me</span> picks a random preset and randomizes it strongly.</li>
@@ -731,6 +1132,13 @@ through <b>modifiers</b> into an <b>Output</b>. Everything connected to Output i
   <tr><td>Mirror</td><td>Adds a mirrored copy of every incoming layer, across the X, Y or Z plane at a chosen position.</td></tr>
   <tr><td>Strobe</td><td>Sets the Blink / strobe of every incoming layer (chapter 7).</td></tr>
   <tr><td>Colour / material</td><td>Sets the glow colour, multiplies the glow, and for shapes can set a texture, a neon wireframe look and a glitch.</td></tr>
+  <tr><td>Deform</td><td>Sets the Deform of every incoming shape.</td></tr>
+  <tr><td>Colours across copies</td><td>Sets the colours across the copies of every incoming shape.</td></tr>
+  <tr><td>Along a curve</td><td>Lays the copies along a curve. Wire a <b>ribbon</b> layer into its second input
+  (<span class="ui">ribbon</span>) and they follow that ribbon exactly, wherever it is.</td></tr>
+  <tr><td>On a surface</td><td>Scatters the copies over the shape layer wired into <span class="ui">surface</span>, following its placement.</td></tr>
+  <tr><td>On a terrain</td><td>Stands the copies on the terrain wired into <span class="ui">terrain</span>.</td></tr>
+  <tr><td>Drive</td><td>Sets one setting of every incoming layer from a signal (see <i>Signals</i> below).</td></tr>
   <tr><td>Merge</td><td>Combines up to 4 streams.</td></tr>
   <tr><td>Output</td><td>Up to 8 inputs. Everything here is drawn.</td></tr>
 </table>
@@ -741,6 +1149,35 @@ right-click a node to <span class="ui">Duplicate</span> or <span class="ui">Dele
 the graph's result into ordinary layers and returns to Simple mode.</p>
 <figure><img src="img/nodes.jpg" ><figcaption>Nodes mode: the viewport on top, the graph below, the inspector on the right.</figcaption></figure>
 
+<h2>Signals: wire any setting to a wave, a beat or the music</h2>
+<p>Besides layers, wires can carry <b>signals</b>: one number that changes over the loop. Signal pins are <b style="color:#3cb35a">green</b>
+(outputs are squares). A signal node shows a small graph of its value over the whole loop, with the current moment marked in pink.
+Add them from the right-click menu under <span class="ui">Signal</span>.</p>
+<table>
+  <tr><th style="width:22%">Signal node</th><th>What it does</th></tr>
+  <tr><td>Wave / music</td><td>Any animation: a wave with whole cycles per loop, a fade on every beat, random steps, or a link to the music
+  (follow the kick, bass or melody, or react to hits). It uses the same <span class="ui">~</span> and 🎵 controls as every other value.</td></tr>
+  <tr><td>Math</td><td>A + B, A − B, A × B, A ÷ B, the smaller or larger one, or A &gt; B / A &lt; B (1 or 0). Unconnected inputs use the
+  numbers typed in the node.</td></tr>
+  <tr><td>Remap</td><td>Maps one range to another, e.g. −1…1 to 0.7…1.35. <span class="ui">stay in range</span> clamps.</td></tr>
+  <tr><td>Quantize</td><td>Rounds to steps (4 steps per 1 → 0, 0.25, 0.5…).</td></tr>
+  <tr><td>Smooth</td><td>Averages over a few beats around each moment. Great on random steps. Music links have their own smoothing
+  (the 🎵 row), which works better for them.</td></tr>
+  <tr><td>Mix</td><td>Blends A to B by T.</td></tr>
+  <tr><td>Sequence</td><td>Steps through your list of values, one every N beats, starting over with the loop. <span class="ui">glide</span>
+  slides from each value to the next.</td></tr>
+  <tr><td>Hit counter</td><td>Counts kicks (or snares, hats, any hit, notes) since the start of the loop: 0, 1, 2… up to
+  <span class="ui">count to</span> − 1, then starts again. Through a Remap (0…3 → 0…1) it steps a setting on every kick.</td></tr>
+</table>
+<p>A <b>Drive</b> node puts a signal to work. Wire layers into its first input and a signal into the second, then pick the
+<b>setting</b> from the list: <code>kind.…</code> are the layer's own settings (for a shape, <code>kind.material.emissive</code> is its glow),
+<code>transform.…</code> its placement, and <code>.0 .1 .2</code> are x, y, z (or red, green, blue). Choose how the signal is used:
+<span class="ui">set to</span> replaces the value, <span class="ui">add</span> adds to it (the setting keeps its own animation), and
+<span class="ui">multiply by</span> scales it. Chain Drive nodes to drive several settings.</p>
+<p>Signals are worked out from the loop position and the music at that moment, so graphs always loop seamlessly. The
+<b>Signal Flow</b> preset shows a stepped glow Sequence and a smoothed random size on the centrepiece. <span class="ui">Bake to layers</span>
+drops the Drive nodes (settings keep their own values).</p>
+
 <!-- ===================================================== 13 -->
 <h1 id="export"><span class="num">13</span>Exporting your loop</h1>
 <figure><img src="img/export.jpg" ><figcaption>The export dialog (<kbd>Ctrl</kbd>+<kbd>E</kbd>).</figcaption></figure>
@@ -750,6 +1187,9 @@ the graph's result into ordinary layers and returns to Simple mode.</p>
   <b>PNG sequence</b> writes one PNG per frame into a folder and needs no ffmpeg; it is ideal for video editors and VJ software.</td></tr>
   <tr><td>Size</td><td>Type a size or use <span class="ui">Presets</span>: 720p, 1080p, 1440p, 4K, Square, Vertical (phone), GIF small, Retro 4:3.</td></tr>
   <tr><td>Frame rate</td><td>24, 25, 30, 50 or 60 fps. The dialog shows how many frames one loop needs.</td></tr>
+  <tr><td>Motion blur</td><td>Averages 4, 8 or 16 in-between moments per frame for smooth, film-like motion (fast spins and flying debris
+  smear instead of stepping). <span class="ui">Shutter</span> sets how much of the time between frames is blurred. The export takes that many
+  times longer, and the video still loops perfectly.</td></tr>
   <tr><td>Repeat loop</td><td>Makes the file longer by repeating the loop. Useful for platforms that don't loop videos.</td></tr>
   <tr><td>Music</td><td>Include the music track (MP4/WebM only).</td></tr>
   <tr><td>File / Folder</td><td>Where to save. Use <span class="ui">Browse…</span>.</td></tr>
@@ -768,6 +1208,7 @@ film grain, which makes GIFs much larger.</div>
 ez2demoscene --export friend_scene.ez2pack loop.mp4   # packs work too
 ez2demoscene --render "Neon Arena" still.png --phase 0.25 --size 1920x1080
 ez2demoscene --export "Gold Kaleido Room" loop.mp4 --size 1920x1080 --fps 60 --repeats 4
+ez2demoscene --export "Orbiting Solid" smooth.mp4 --fps 30 --motion-blur 8 --shutter 0.5
 ez2demoscene --export my.ez2.json frames/          # PNG sequence into a folder
 ez2demoscene --write-presets my_presets/           # presets as editable project files
 ez2demoscene --write-textures my_textures/         # the retro texture pack as PNGs</pre>
@@ -911,6 +1352,30 @@ the app goes back to <b>Automatic</b> by itself.</p>
   <li>Post: Pixelate 3, Retro palette EGA with dithering 0.7, CRT monitor, and Beat flash 0.15.</li>
 </ol>
 
+<h2>Stormy lake</h2>
+<ol>
+  <li>Background <b>Volumetric clouds</b>, variant <b>Storm</b>, with grey-blue colours. Fog colour dark grey-blue, Sun strength 0.7.</li>
+  <li>Add <b>Terrain</b>: Solid, Shape <b>Ridged mountains</b>, Biome <b>Alpine</b>, Valley 0.45, and Liquid <b>Water</b> at Level 0.12.</li>
+  <li>Add <b>Weather → Rain</b> with Falls / loop 14 and a Sine on Wind for gusts. Tick <b>Lightning</b>.</li>
+  <li>Post: lower Saturation to 0.8 and add a little Film grain.</li>
+</ol>
+<h2>Lava world</h2>
+<ol>
+  <li>Background <b>Volumetric clouds</b> (Overcast) in dark reds, with the sun low in front of the camera.</li>
+  <li>Add <b>Terrain</b>: Shape <b>Canyons</b>, Biome <b>Volcanic</b>, Liquid <b>Lava</b> at Level 0.3, Current / loop 2.
+  Give the lava Glow a slow Sine.</li>
+  <li>Add <b>Weather → Rising embers</b> with a strong Brightness so they bloom.</li>
+  <li>Post: <b>God rays</b> with a warm tint, and Bloom.</li>
+</ol>
+
+<h2>Sunken temple (underwater)</h2>
+<ol>
+  <li>Background <b>Gradient sky</b> from light blue (top) to deep blue. Fog colour deep blue, Fog density 0.04.</li>
+  <li>Turn on <b>Underwater caustics</b> (Amount 1.6, pale blue).</li>
+  <li>Add a <b>Mirror floor</b> with Reflection 0.05 and a sandy colour, pillars (Cylinder, Radial copies) and a glowing gem.</li>
+  <li>Add <b>Fountain</b> particles with the Ring sprite as bubbles, and <b>God rays</b> with a low threshold.</li>
+</ol>
+
 <!-- ===================================================== 15 -->
 <h1 id="reference"><span class="num">17</span>Reference</h1>
 <h2>Keyboard &amp; mouse</h2>
@@ -935,7 +1400,8 @@ the app goes back to <b>Automatic</b> by itself.</p>
 <b>Hover it</b> to see the frame time, triangle and particle counts, whether the mirror floor is drawing the scene a second
 time, and the <b>five most expensive layers</b>. A <span style="color:#e08a1e">⚠</span> next to a layer in the list marks a
 heavy layer. Hover it for details. The usual fixes are fewer copies, less sphere detail, fewer particles or a shorter trail. You can also
-lower the preview quality, which only affects the preview and never your exports.</p>
+lower the preview quality, which only affects the preview and never your exports. Volumetric clouds and the raymarched
+backgrounds are the heaviest layers; their <span class="ui">Quality</span> setting trades detail for speed.</p>
 <h2>Troubleshooting</h2>
 <table>
   <tr><th style="width:36%">Problem</th><th>Solution</th></tr>

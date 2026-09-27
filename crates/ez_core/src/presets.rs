@@ -61,11 +61,984 @@ pub fn all() -> Vec<Preset> {
             project: sponge_dive(),
         },
         Preset {
+            name: "Stormy Lake",
+            description: "Rain, lightning and storm clouds over a mountain lake.",
+            project: stormy_lake(),
+        },
+        Preset {
+            name: "Lava World",
+            description: "Glowing lava rivers in volcanic canyons, embers and god rays.",
+            project: lava_world(),
+        },
+        Preset {
+            name: "Sunbeam Peaks",
+            description: "Volumetric clouds, sunbeams and lens flare over alpine peaks.",
+            project: sunbeam_peaks(),
+        },
+        Preset {
+            name: "Aurora Tundra",
+            description: "Northern lights over a frozen lake, gently falling snow.",
+            project: aurora_tundra(),
+        },
+        Preset {
+            name: "Dune Sea",
+            description: "Sand dunes under a hazy sun, a sandstorm and a toxic oasis.",
+            project: dune_sea(),
+        },
+        Preset {
+            name: "Club Spotlights",
+            description:
+                "Sweeping spotlight cones in a hazy club, pools of light on a mirror floor.",
+            project: club_spotlights(),
+        },
+        Preset {
+            name: "Rainbow Falls",
+            description:
+                "A day passes over a waterfall valley: rainbow, valley mist, stars at night.",
+            project: rainbow_falls(),
+        },
+        Preset {
+            name: "Sunken Temple",
+            description: "Underwater ruins with rippling caustics, sunbeams and rising bubbles.",
+            project: sunken_temple(),
+        },
+        Preset {
+            name: "Twister",
+            description: "A tornado crossing wet, stormy plains with lightning and puddles.",
+            project: twister(),
+        },
+        Preset {
+            name: "Music Reactor",
+            description:
+                "Load a song: an equalizer wall, kick flashes, melody colours and time warp.",
+            project: music_reactor(),
+        },
+        Preset {
+            name: "Signal Flow",
+            description:
+                "Node graph: a sequence and a smoothed random walk drive the glow and size.",
+            project: signal_flow(),
+        },
+        Preset {
+            name: "Crystal Garden",
+            description: "Twisted crystals standing on a scrolling tundra, beads riding a halo, colours travelling along.",
+            project: crystal_garden(),
+        },
+        Preset {
+            name: "Oldschool Intro",
+            description: "Chrome logo, sine scroller and greetings over the XOR tunnel.",
+            project: oldschool_intro(),
+        },
+        Preset {
+            name: "Scene Tour",
+            description: "A timeline of three scenes: wipe, iris and glitch transitions, looping as one.",
+            project: scene_tour(),
+        },
+        Preset {
+            name: "Liquid Metal",
+            description: "Chrome metaballs melting together, orbited by gyroid lattice balls, all raymarched.",
+            project: liquid_metal(),
+        },
+        Preset {
+            name: "Campfire Sprites",
+            description: "Sprite-sheet flames round a fire, twinkling sparkles and a ring of spinning pixel coins under the aurora.",
+            project: campfire_sprites(),
+        },
+        Preset {
+            name: "Tesla Swarm",
+            description: "Orbiting Solid wired up: lightning arcs jump from the core to the nearest debris and around a ring of coils.",
+            project: tesla_swarm(),
+        },
+        Preset {
+            name: "Galaxy Swarm",
+            description: "40,000 glowing shards in a turning spiral galaxy, placed by the graphics card.",
+            project: galaxy_swarm(),
+        },
+        Preset {
+            name: "Sunset Title",
+            description: "Synth Sunset with a title card: a bevelled chrome logo pulsing to the beat with a glint on every bar, and a pixel tag in the corner.",
+            project: sunset_title(),
+        },
+        Preset {
+            name: "Logo Morph",
+            description: "Neon Arena with a logo that melts from one word into another and back, extruded, stacked in outlines, with rings rippling out on the beat.",
+            project: logo_morph(),
+        },
+        Preset {
+            name: "Copper Logo",
+            description: "Retro Tunnel with an Amiga logo: copper bars scrolling through the letters, a sine sway, and slices glitching on the kick.",
+            project: copper_logo(),
+        },
+        Preset {
+            name: "C64 Title",
+            description: "Vector Valley with a title in C64 colours cycling by brightness, pixelating in every loop, under scanlines.",
+            project: c64_title(),
+        },
+        Preset {
+            name: "Glass Galaxy",
+            description: "Galaxy Swarm behind a glass logo that bends the stars, casting shadow rays through their light, with echoes as it sways.",
+            project: glass_galaxy(),
+        },
+        Preset {
+            name: "Colour Wheel Arena",
+            description: "Neon Arena under a colour scheme: every colour follows three hues of one key colour, turning round the colour wheel once per loop.",
+            project: colour_wheel_arena(),
+        },
+        Preset {
             name: "Empty",
             description: "A blank stage with a floor and a sky.",
             project: empty(),
         },
     ]
+}
+
+/// Orbiting Solid rebuilt as a node graph whose signals drive the
+/// centrepiece: a stepped glow sequence and a smoothed random scale.
+pub fn signal_flow() -> Project {
+    use crate::graph::{Graph, NodeKind};
+    use crate::signal::{DriveMode, SignalNode};
+    let mut p = orbiting_solid();
+    p.name = "Signal Flow".into();
+    let mut g = Graph::default();
+    let out = g.add(NodeKind::Output, [980.0, 240.0]);
+    let mut y = 20.0;
+    // One output pin per layer keeps their order.
+    for (pin, l) in p.layers.iter().enumerate() {
+        let src = g.add(NodeKind::Source { layer: l.clone() }, [40.0, y]);
+        y += 105.0;
+        if l.name != "Dodecahedron" {
+            g.connect(src, 0, out, pin);
+            continue;
+        }
+        let glow = g.add(
+            NodeKind::Drive {
+                path: "kind.material.emissive".into(),
+                mode: DriveMode::Replace,
+            },
+            [380.0, 640.0],
+        );
+        let size = g.add(
+            NodeKind::Drive {
+                path: "transform.scale".into(),
+                mode: DriveMode::Multiply,
+            },
+            [680.0, 640.0],
+        );
+        let seq = g.add(
+            NodeKind::Signal {
+                sig: SignalNode::Sequence {
+                    values: vec![0.1, 1.6, 0.4, 2.4],
+                    beats: 2,
+                    glide: false,
+                },
+            },
+            [40.0, 700.0],
+        );
+        let walk = g.add(
+            NodeKind::Signal {
+                sig: SignalNode::Wave {
+                    param: Param::new(0.0).osc(Wave::Random, 1.0, 8),
+                },
+            },
+            [40.0, 980.0],
+        );
+        let smooth = g.add(
+            NodeKind::Signal {
+                sig: SignalNode::Smooth { beats: 2.0 },
+            },
+            [380.0, 980.0],
+        );
+        let remap = g.add(
+            NodeKind::Signal {
+                sig: SignalNode::Remap {
+                    in_min: -1.0,
+                    in_max: 1.0,
+                    out_min: 0.7,
+                    out_max: 1.35,
+                    clamp: true,
+                },
+            },
+            [680.0, 980.0],
+        );
+        g.connect(src, 0, glow, 0);
+        g.connect(seq, 0, glow, 1);
+        g.connect(glow, 0, size, 0);
+        g.connect(walk, 0, smooth, 0);
+        g.connect(smooth, 0, remap, 0);
+        g.connect(remap, 0, size, 1);
+        g.connect(size, 0, out, pin);
+    }
+    p.layers = g.compile();
+    p.graph = Some(g);
+    p.use_graph = true;
+    p
+}
+
+/// Aurora Tundra with the layout and shape tools: twisted crystals stand
+/// on the terrain, beads ride a glowing halo, colours travel along both.
+pub fn crystal_garden() -> Project {
+    let mut p = aurora_tundra();
+    p.name = "Crystal Garden".into();
+    // Fly a loop around the halo, lingering a little at each view.
+    let point = |eye: [f32; 3], target: [f32; 3], roll: f32, fov: f32| PathPoint {
+        eye,
+        target,
+        roll,
+        fov,
+    };
+    p.camera.mode = CameraMode::Path;
+    p.camera.path = CameraPath {
+        points: vec![
+            point([0.0, 4.0, 2.0], [0.0, 4.5, -20.0], 0.0, 65.0),
+            point([14.0, 6.5, -12.0], [0.0, 4.0, -22.0], -8.0, 60.0),
+            point([6.0, 11.0, -36.0], [0.0, 4.0, -20.0], 0.0, 55.0),
+            point([-13.0, 3.5, -24.0], [2.0, 5.0, -18.0], 10.0, 70.0),
+        ],
+        laps: 1,
+        ease: 0.4,
+        cut_on: None,
+        drift: 0.2,
+    };
+    p.layers.retain(|l| l.name != "Rocks");
+    p.layers.push(
+        Layer::new(
+            "Crystals",
+            LayerKind::Mesh(MeshLayer {
+                source: MeshSource::Primitive(Primitive::Cone { segments: 6 }),
+                subdivide: 2,
+                instancer: Instancer::OnTerrain {
+                    terrain: "Ice".into(),
+                    count: 90,
+                    seed: 5,
+                    align: true,
+                    lift: 1.2,
+                    ground: None,
+                },
+                variation: Variation {
+                    scale: 0.5,
+                    seed: 3,
+                    ..Default::default()
+                },
+                deform: Deform {
+                    twist: Param::new(0.6).osc(Wave::Sine, 0.25, 1),
+                    taper: Param::new(-0.3),
+                    ..Default::default()
+                },
+                ramp: ColorRamp {
+                    enabled: true,
+                    colors: vec![hex(0x40ffd0), hex(0x7a5cff), hex(0xff4fd8)],
+                    mode: RampMode::Gradient,
+                    cycles: 1,
+                    glow: true,
+                },
+                material: Material {
+                    base_color: hex(0x102030),
+                    metallic: Param::new(0.3),
+                    roughness: Param::new(0.2),
+                    flat_shading: true,
+                    emissive: Param::new(0.8).osc(Wave::Pulse, 0.6, 16),
+                    rim: Param::new(0.6),
+                    ..Default::default()
+                },
+            }),
+        )
+        .scaled(2.4)
+        .stretched([0.5, 1.8, 0.5]),
+    );
+    p.layers.push(
+        Layer::new(
+            "Halo",
+            LayerKind::Ribbon(Ribbon {
+                curve: RibbonCurve::Wave,
+                freq: [4, 1, 1],
+                thickness: 0.02,
+                color: hex(0x7a5cff),
+                glow: Param::new(0.6),
+                pulses: 2,
+                pulse_speed: 1,
+                pulse_length: Param::new(0.05),
+                pulse_glow: Param::new(6.0),
+            }),
+        )
+        .at([0.0, 5.0, -20.0])
+        .scaled(7.0),
+    );
+    p.layers.push(
+        Layer::new(
+            "Beads",
+            LayerKind::Mesh(MeshLayer {
+                source: MeshSource::Primitive(Primitive::Sphere { detail: 2 }),
+                instancer: Instancer::Curve {
+                    curve: RibbonCurve::Wave,
+                    freq: [4, 1, 1],
+                    size: 7.0,
+                    count: 32,
+                    laps: 1,
+                    align: true,
+                },
+                ramp: ColorRamp {
+                    enabled: true,
+                    colors: vec![hex(0xffffff), hex(0x40ffd0), hex(0xff4fd8)],
+                    mode: RampMode::Steps,
+                    cycles: -2,
+                    glow: true,
+                },
+                material: Material {
+                    emissive: Param::new(2.5),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+        )
+        .at([0.0, 5.0, -20.0])
+        .scaled(0.18),
+    );
+    p
+}
+
+/// Retro Tunnel dressed as a 90s intro: a chrome logo, a sine scroller
+/// and a greetings list.
+pub fn oldschool_intro() -> Project {
+    let mut p = retro_tunnel();
+    p.name = "Oldschool Intro".into();
+    let mut logo = Layer::new(
+        "Logo",
+        LayerKind::Text(TextLayer {
+            text: "EZ2DEMOSCENE".into(),
+            font: TextFont::Sans,
+            size: 1.1,
+            color_top: hex(0xffffff),
+            color_bottom: hex(0x55ffff),
+            glow: Param::new(1.1).osc(Wave::Pulse, 0.6, 16),
+            outline: 0.5,
+            outline_color: hex(0x000040),
+            shadow: 0.8,
+            chrome: 0.9,
+            ..Default::default()
+        }),
+    )
+    .at([0.0, 2.5, 0.0]);
+    logo.transform.bob = Param::new(0.0).osc(Wave::Sine, 0.15, 2);
+    p.layers.push(logo);
+    p.layers.push(
+        Layer::new(
+            "Scroller",
+            LayerKind::Text(TextLayer {
+                text: "WELCOME TO THE LOOP ... NOTHING HERE EVER ENDS ... PRESS EXPORT AND SHARE IT ... ".into(),
+                font: TextFont::Pixel,
+                style: TextStyle::SineScroller,
+                size: 0.65,
+                width: 11.0,
+                speed: 1,
+                wave: Param::new(0.45),
+                wavelength: 9.0,
+                wave_cycles: 2,
+                color_top: hex(0xffff55),
+                color_bottom: hex(0xff55ff),
+                glow: Param::new(1.8),
+                shadow: 0.7,
+                ..Default::default()
+            }),
+        )
+        .at([0.0, -2.6, 0.5]),
+    );
+    p.layers.push(
+        Layer::new(
+            "Greetings",
+            LayerKind::Text(TextLayer {
+                text: "GREETINGS TO\nALL DEMOSCENERS\nPIXEL PUSHERS\nAND LOOP LOVERS".into(),
+                font: TextFont::Mono,
+                style: TextStyle::Greetings,
+                size: 0.38,
+                beats_per_line: 4,
+                color_top: hex(0x55ff55),
+                color_bottom: hex(0x55ff55),
+                glow: Param::new(1.5),
+                ..Default::default()
+            }),
+        )
+        .at([0.0, -0.95, 1.5]),
+    );
+    p
+}
+
+/// Raymarched objects: a chrome metaball blob over a mirror, orbited by
+/// small gyroid balls, casting sun shadows.
+pub fn liquid_metal() -> Project {
+    let mut p = orbiting_solid();
+    p.name = "Liquid Metal".into();
+    p.camera.target = [0.0, 1.4, 0.0];
+    p.environment.shadows.enabled = true;
+    p.environment.light_dir = [-0.4, 1.0, 0.5];
+    p.layers
+        .retain(|l| matches!(l.kind, LayerKind::Backdrop(_)));
+    p.layers.push(Layer::new(
+        "Floor",
+        LayerKind::Mirror(MirrorFloor {
+            base_color: hex(0x10141c),
+            ..Default::default()
+        }),
+    ));
+    p.layers.push(
+        Layer::new(
+            "Blob",
+            LayerKind::Mesh(MeshLayer {
+                source: MeshSource::Sdf {
+                    form: SdfShape::Metaballs {
+                        balls: 6,
+                        blend: 0.4,
+                    },
+                    cycles: 1,
+                },
+                ..mesh(
+                    Primitive::Cube,
+                    Material {
+                        base_color: hex(0xd8e4f0),
+                        metallic: Param::new(1.0),
+                        roughness: Param::new(0.12),
+                        rim: Param::new(0.5),
+                        ..Default::default()
+                    },
+                )
+            }),
+        )
+        .scaled(1.9)
+        .at([0.0, 1.5, 0.0])
+        .spin([0, 1, 0]),
+    );
+    p.layers.push(
+        Layer::new(
+            "Lattice moons",
+            LayerKind::Mesh(MeshLayer {
+                source: MeshSource::Sdf {
+                    form: SdfShape::Gyroid {
+                        scale: 7.0,
+                        thickness: 0.1,
+                    },
+                    cycles: 2,
+                },
+                instancer: Instancer::Orbit {
+                    count: 6,
+                    radius: 3.0,
+                    spread: 0.4,
+                    speed: 1,
+                    seed: 5,
+                },
+                ..mesh(
+                    Primitive::Cube,
+                    Material {
+                        base_color: hex(0xff9040),
+                        metallic: Param::new(0.6),
+                        roughness: Param::new(0.25),
+                        emissive_color: hex(0xff6010),
+                        emissive_mode: EmissiveMode::Edges,
+                        emissive: Param::new(1.5).osc(Wave::ExpOut, 1.0, 8),
+                        ..Default::default()
+                    },
+                )
+            }),
+        )
+        .scaled(0.55)
+        .at([0.0, 1.5, 0.0]),
+    );
+    p
+}
+
+/// Sprites: flames and sparkles playing built-in sprite sheets, and pixel
+/// coins spinning in a ring.
+pub fn campfire_sprites() -> Project {
+    let mut p = empty();
+    p.name = "Campfire Sprites".into();
+    p.timing.bpm = 96.0;
+    p.camera.distance = Param::new(7.5);
+    p.camera.height = Param::new(2.2).osc(Wave::Sine, 0.6, 1);
+    p.camera.target = [0.0, 1.2, 0.0];
+    p.camera.mode = CameraMode::Orbit;
+    p.environment.fog_color = hex(0x060a14);
+    p.environment.ambient = Param::new(0.25);
+    p.post.bloom.enabled = true;
+    p.layers = vec![
+        sky(
+            BackdropKind::Aurora,
+            0x040814,
+            0x20ff80,
+            0x8040ff,
+            RaySettings::default(),
+        ),
+        Layer::new(
+            "Floor",
+            LayerKind::Mirror(MirrorFloor {
+                base_color: hex(0x101418),
+                reflectivity: Param::new(0.3),
+                ..Default::default()
+            }),
+        ),
+        Layer::new(
+            "Fire",
+            LayerKind::Sprite(SpriteLayer {
+                image: Some("sheet_flame".into()),
+                columns: 4,
+                rows: 4,
+                cycles: 8,
+                facing: SpriteFacing::Upright,
+                blend: SpriteBlend::Additive,
+                size: Param::new(2.4).osc(Wave::ExpOut, 0.4, 16),
+                glow: Param::new(1.6),
+                ..Default::default()
+            }),
+        )
+        .at([0.0, 1.15, 0.0]),
+        Layer::new(
+            "Torches",
+            LayerKind::Sprite(SpriteLayer {
+                image: Some("sheet_flame".into()),
+                columns: 4,
+                rows: 4,
+                cycles: 8,
+                random_start: true,
+                facing: SpriteFacing::Upright,
+                blend: SpriteBlend::Additive,
+                size: Param::new(0.8),
+                glow: Param::new(1.3),
+                instancer: Instancer::Radial {
+                    count: 8,
+                    radius: 3.0,
+                },
+                ..Default::default()
+            }),
+        )
+        .at([0.0, 0.4, 0.0]),
+        Layer::new(
+            "Sparkles",
+            LayerKind::Sprite(SpriteLayer {
+                image: Some("sheet_sparkle".into()),
+                columns: 4,
+                rows: 4,
+                cycles: 4,
+                random_start: true,
+                blend: SpriteBlend::Additive,
+                size: Param::new(0.35),
+                tint: hex(0xffd080),
+                glow: Param::new(2.0),
+                instancer: Instancer::Orbit {
+                    count: 50,
+                    radius: 2.2,
+                    spread: 1.2,
+                    speed: 1,
+                    seed: 4,
+                },
+                ..Default::default()
+            }),
+        )
+        .at([0.0, 2.0, 0.0]),
+        Layer::new(
+            "Coins",
+            LayerKind::Sprite(SpriteLayer {
+                image: Some("sheet_coin".into()),
+                columns: 4,
+                rows: 4,
+                cycles: 4,
+                random_start: true,
+                facing: SpriteFacing::Upright,
+                blend: SpriteBlend::Cutout,
+                pixelated: true,
+                size: Param::new(0.5),
+                glow: Param::new(1.2),
+                instancer: Instancer::Radial {
+                    count: 12,
+                    radius: 4.2,
+                },
+                ..Default::default()
+            }),
+        )
+        .at([0.0, 1.0, 0.0])
+        .spin([0, 1, 0]),
+    ];
+    p
+}
+
+/// Electric arcs: from the centrepiece to the nearest orbiting debris
+/// (they jump as the debris moves), and copy to copy around a ring.
+pub fn tesla_swarm() -> Project {
+    let mut p = orbiting_solid();
+    p.name = "Tesla Swarm".into();
+    p.post.bloom.enabled = true;
+    p.layers.push(Layer::new(
+        "Core arcs",
+        LayerKind::Arcs(ArcLayer {
+            path: ArcPath::Nearest {
+                target: "Debris swarm".into(),
+                count: 6,
+            },
+            strikes: 16,
+            jag: Param::new(0.18),
+            crawl: 1.5,
+            width: Param::new(0.1),
+            color: hex(0x80b0ff),
+            glow: Param::new(2.5).osc(Wave::ExpOut, 1.5, 8),
+            ..Default::default()
+        }),
+    ));
+    p.layers.push(
+        Layer::new(
+            "Coils",
+            LayerKind::Mesh(MeshLayer {
+                instancer: Instancer::Radial {
+                    count: 10,
+                    radius: 4.5,
+                },
+                ..mesh(
+                    Primitive::Sphere { detail: 2 },
+                    Material {
+                        base_color: hex(0x303848),
+                        metallic: Param::new(1.0),
+                        roughness: Param::new(0.2),
+                        emissive_color: hex(0xa060ff),
+                        emissive: Param::new(0.6),
+                        ..Default::default()
+                    },
+                )
+            }),
+        )
+        .scaled(0.18)
+        .at([0.0, -1.2, 0.0])
+        .spin([0, 1, 0]),
+    );
+    p.layers.push(Layer::new(
+        "Ring arcs",
+        LayerKind::Arcs(ArcLayer {
+            path: ArcPath::Chain {
+                target: "Coils".into(),
+            },
+            strikes: 32,
+            jag: Param::new(0.12),
+            branches: false,
+            width: Param::new(0.05),
+            color: hex(0xc080ff),
+            glow: Param::new(1.8),
+            seed: 7,
+            ..Default::default()
+        }),
+    ));
+    p
+}
+
+/// A big swarm: a spiral galaxy of shards (compute shader on desktop and
+/// WebGPU, CPU fallback elsewhere).
+pub fn galaxy_swarm() -> Project {
+    let mut p = orbiting_solid();
+    p.name = "Galaxy Swarm".into();
+    p.post.bloom.enabled = true;
+    p.camera.distance = Param::new(11.0).osc(Wave::Sine, 1.5, 1);
+    p.camera.height = Param::new(4.0).osc(Wave::Sine, 1.5, 1);
+    p.layers
+        .retain(|l| matches!(l.kind, LayerKind::Backdrop(_)));
+    p.layers.push(
+        Layer::new(
+            "Galaxy",
+            LayerKind::Mesh(MeshLayer {
+                instancer: Instancer::Swarm {
+                    form: SwarmForm::Galaxy,
+                    count: 40_000,
+                    radius: 7.0,
+                    spread: 1.5,
+                    speed: 1,
+                    seed: 2,
+                },
+                variation: Variation {
+                    scale: 0.6,
+                    rotation: 90.0,
+                    ..Default::default()
+                },
+                ramp: ColorRamp {
+                    enabled: true,
+                    colors: vec![hex(0x80c0ff), hex(0xff60d0), hex(0xffe0a0)],
+                    cycles: 1,
+                    ..Default::default()
+                },
+                ..mesh(
+                    Primitive::Tetrahedron,
+                    Material {
+                        base_color: hex(0x202030),
+                        emissive_color: hex(0xffffff),
+                        emissive: Param::new(0.5).osc(Wave::ExpOut, 0.4, 8),
+                        ..Default::default()
+                    },
+                )
+            }),
+        )
+        .scaled(0.03),
+    );
+    p.layers.push(
+        Layer::new(
+            "Core",
+            LayerKind::Mesh(mesh(
+                Primitive::Sphere { detail: 3 },
+                Material {
+                    base_color: hex(0xfff0d0),
+                    emissive_color: hex(0xffe0b0),
+                    emissive: Param::new(1.5),
+                    ..Default::default()
+                },
+            )),
+        )
+        .scaled(0.5),
+    );
+    p
+}
+
+/// Logos on the screen over Synth Sunset: a chrome title that pulses on
+/// every beat and sways, and a small pixel tag in the corner.
+pub fn sunset_title() -> Project {
+    let mut p = synth_sunset();
+    p.name = "Sunset Title".into();
+    p.layers.push(Layer::new(
+        "Title",
+        LayerKind::Logo(LogoLayer {
+            text: "EZ2DEMOSCENE".into(),
+            font: TextFont::Sans,
+            y: Param::new(0.8).osc(Wave::Sine, 0.015, 2),
+            size: Param::new(0.12),
+            rotation: Param::new(0.0).osc(Wave::Sine, 2.5, 1),
+            color_top: hex(0xffffff),
+            color_bottom: hex(0x30d8ff),
+            glow: Param::new(1.3).osc(Wave::ExpOut, 0.9, 16),
+            outline: Param::new(0.6),
+            outline_color: hex(0x10002a),
+            shadow: Param::new(1.0),
+            chrome: Param::new(0.45),
+            bevel: LogoBevel::Round,
+            bevel_width: Param::new(0.5),
+            light_angle: Param::new(120.0),
+            glint: Param::new(1.2),
+            glint_cycles: 4,
+            ..Default::default()
+        }),
+    ));
+    p.layers.push(Layer::new(
+        "Tag",
+        LayerKind::Logo(LogoLayer {
+            text: "LOOP 4EVER".into(),
+            font: TextFont::Pixel,
+            x: Param::new(0.97),
+            y: Param::new(0.05),
+            anchor: LogoAnchor::BottomRight,
+            size: Param::new(0.055),
+            color_top: hex(0xffff80),
+            color_bottom: hex(0xff8040),
+            glow: Param::new(1.4),
+            shadow: Param::new(0.9),
+            ..Default::default()
+        }),
+    ));
+    p
+}
+
+/// Distance-field logo effects over Neon Arena: a morph between two words
+/// (held, then quick: the wave overshoots and is clamped), an extrusion,
+/// stacked outlines and rings on every beat.
+pub fn logo_morph() -> Project {
+    let mut p = neon_arena();
+    p.name = "Logo Morph".into();
+    p.layers.push(Layer::new(
+        "Logo",
+        LayerKind::Logo(LogoLayer {
+            text: "EZ2".into(),
+            font: TextFont::Sans,
+            size: Param::new(0.3),
+            color_top: hex(0xffffff),
+            color_bottom: hex(0xffd23c),
+            glow: Param::new(1.2),
+            bevel: LogoBevel::Round,
+            bevel_width: Param::new(0.6),
+            morph: Param::new(0.5).osc(Wave::Sine, 1.5, 1),
+            morph_text: "LOOP".into(),
+            extrude: Param::new(0.12),
+            extrude_angle: -55.0,
+            extrude_color: hex(0xc03000),
+            stack: 2,
+            stack_width: Param::new(0.025),
+            stack_color_a: hex(0x101010),
+            stack_color_b: hex(0xff2bd6),
+            contours: Param::new(0.0).osc(Wave::ExpOut, 1.2, 16),
+            contour_cycles: 16,
+            contour_spacing: 0.1,
+            contour_reach: 0.3,
+            contour_color: hex(0x40e0ff),
+            ..Default::default()
+        }),
+    ));
+    p
+}
+
+/// Rasters on a logo over the Retro Tunnel: copper bars, a sine sway and
+/// a raster glitch on every beat.
+pub fn copper_logo() -> Project {
+    let mut p = retro_tunnel();
+    p.name = "Copper Logo".into();
+    p.layers.push(Layer::new(
+        "Logo",
+        LayerKind::Logo(LogoLayer {
+            text: "AMIGA".into(),
+            font: TextFont::Pixel,
+            y: Param::new(0.62),
+            size: Param::new(0.28),
+            outline: Param::new(0.3),
+            outline_color: hex(0x000000),
+            shadow: Param::new(1.0),
+            copper: Param::new(1.0),
+            copper_bars: 4.0,
+            copper_cycles: 2,
+            copper_a: hex(0xff4020),
+            copper_b: hex(0x20c0ff),
+            wobble_x: Param::new(0.05),
+            wobble_waves: 1.0,
+            wobble_cycles: 2,
+            glitch: Param::new(0.0).osc(Wave::ExpOut, 0.12, 16),
+            glitch_chance: 0.35,
+            glitch_split: 0.03,
+            ..Default::default()
+        }),
+    ));
+    p
+}
+
+/// Retro looks on a logo over Vector Valley: a C64 palette ramp cycling,
+/// a pixelate-in at the start of every loop and scanlines.
+pub fn c64_title() -> Project {
+    use crate::palette::PaletteId;
+    let mut p = vector_valley();
+    p.name = "C64 Title".into();
+    p.layers.push(Layer::new(
+        "Title",
+        LayerKind::Logo(LogoLayer {
+            text: "READY.".into(),
+            font: TextFont::Pixel,
+            attach_point: LogoAnchor::Top,
+            anchor: LogoAnchor::Top,
+            x: Param::new(0.0),
+            y: Param::new(-0.1),
+            size: Param::new(0.22),
+            copper: Param::new(1.0),
+            copper_bars: 2.0,
+            copper_cycles: 1,
+            copper_a: hex(0xffffff),
+            copper_b: hex(0x202020),
+            palette: Some(PaletteId::C64),
+            palette_by_brightness: true,
+            palette_cycles: 2,
+            dither: 0.6,
+            pixelate: Param::new(0.0).osc(Wave::ExpOut, 0.12, 1),
+            scanlines: Param::new(0.5),
+            scanline_count: 24.0,
+            crt_glow: Param::new(0.4),
+            shadow: Param::new(0.8),
+            ..Default::default()
+        }),
+    ));
+    p
+}
+
+/// A logo meeting the scene over Galaxy Swarm: glass letters bending the
+/// swarm, shadow rays through its light and echoes of a gentle sway.
+pub fn glass_galaxy() -> Project {
+    let mut p = galaxy_swarm();
+    p.name = "Glass Galaxy".into();
+    p.layers.push(Layer::new(
+        "Logo",
+        LayerKind::Logo(LogoLayer {
+            text: "GALAXY".into(),
+            font: TextFont::Sans,
+            attach_point: LogoAnchor::Centre,
+            x: Param::new(0.0).osc(Wave::Sine, 0.04, 1),
+            y: Param::new(0.0).osc(Wave::Sine, 0.03, 2),
+            size: Param::new(0.24),
+            bevel: LogoBevel::Round,
+            bevel_width: Param::new(0.8),
+            shine: Param::new(1.2),
+            glass: Param::new(1.0),
+            refraction: 0.12,
+            dispersion: 0.35,
+            glass_tint: hex(0xd8ecff),
+            rays: Param::new(1.2),
+            rays_shadow: true,
+            rays_threshold: 0.3,
+            rays_length: 0.7,
+            rays_tint: hex(0xbfd8ff),
+            echoes: 3,
+            echo_spacing: 0.015,
+            echo_fade: 0.5,
+            ..Default::default()
+        }),
+    ));
+    p
+}
+
+/// Neon Arena recoloured by a colour scheme: a triad of hues from one key
+/// colour that turns once per loop, the lights and darks as they were.
+pub fn colour_wheel_arena() -> Project {
+    let mut p = neon_arena();
+    p.name = "Colour Wheel Arena".into();
+    p.color_scheme = ColorScheme {
+        enabled: true,
+        key: hex(0x20c0ff),
+        key_turn: Param::new(0.0).osc(Wave::Saw, 180.0, 1),
+        harmony: Harmony::Triadic,
+        hue_pull: 1.0,
+        chroma_match: 0.4,
+        environment: true,
+    };
+    p
+}
+
+/// Three presets as scenes on one timeline, each coming in with its own
+/// transition.
+pub fn scene_tour() -> Project {
+    use crate::sequence::{Clip, Scene, Transition, TransitionKind};
+    let mut p = synth_sunset();
+    p.name = "Scene Tour".into();
+    p.timing.bpm = 120.0;
+    p.sequence.scene_name = "Sunset".into();
+    p.start_sequence();
+    let mut clips = vec![Clip {
+        scene: p.sequence.scene_id,
+        beats: 8,
+        transition: Transition {
+            kind: TransitionKind::Glitch,
+            beats: 2.0,
+            angle: 0.0,
+        },
+    }];
+    for (name, other, kind) in [
+        ("Tunnel", retro_tunnel(), TransitionKind::Wipe),
+        ("Kaleidoscope", plasma_kaleido(), TransitionKind::Iris),
+    ] {
+        let id = p.sequence.next_id();
+        p.sequence.scenes.push(Scene {
+            id,
+            name: name.into(),
+            loop_beats: 8,
+            camera: other.camera,
+            environment: other.environment,
+            layers: other.layers,
+            post: other.post,
+            graph: None,
+            use_graph: false,
+        });
+        clips.push(Clip {
+            scene: id,
+            beats: 8,
+            transition: Transition {
+                kind,
+                beats: 2.0,
+                angle: 20.0,
+            },
+        });
+    }
+    p.sequence.scene_beats = 8;
+    p.sequence.clips = clips;
+    p.sync_sequence_length();
+    p
 }
 
 pub fn by_name(name: &str) -> Option<Project> {
@@ -116,6 +1089,7 @@ pub fn empty() -> Project {
             Layer::new(
                 "Sky",
                 LayerKind::Backdrop(Backdrop {
+                    resolution: BgResolution::Full,
                     kind: BackdropKind::Gradient,
                     ..Default::default()
                 }),
@@ -161,11 +1135,13 @@ pub fn neon_arena() -> Project {
             light_color: hex(0xffe0e0),
             light_intensity: Param::new(1.2),
             ambient: Param::new(0.15),
+            ..Default::default()
         },
         layers: vec![
             Layer::new(
                 "Red nebula",
                 LayerKind::Backdrop(Backdrop {
+                    resolution: BgResolution::Full,
                     kind: BackdropKind::Nebula,
                     color_a: hex(0x020001),
                     color_b: hex(0x4a0404),
@@ -334,6 +1310,7 @@ pub fn neon_arena() -> Project {
                     trail_spacing: Param::new(0.006),
                     sprite: Sprite::Glow,
                     seed: 5,
+                    smoke: false,
                 }),
             ),
         ],
@@ -394,11 +1371,13 @@ pub fn gold_room() -> Project {
             light_color: hex(0xffe8b0),
             light_intensity: Param::new(1.8),
             ambient: Param::new(0.45),
+            ..Default::default()
         },
         layers: vec![
             Layer::new(
                 "Warm glow",
                 LayerKind::Backdrop(Backdrop {
+                    resolution: BgResolution::Full,
                     kind: BackdropKind::Gradient,
                     color_a: hex(0x3a2000),
                     color_b: hex(0xc08a30),
@@ -570,6 +1549,7 @@ pub fn gold_room() -> Project {
                     trail_spacing: Param::new(0.01),
                     sprite: Sprite::Star,
                     seed: 9,
+                    smoke: false,
                 }),
             )
             .at([0.0, 4.0, -3.0]),
@@ -622,11 +1602,13 @@ pub fn orbiting_solid() -> Project {
             light_color: hex(0xe0f0ff),
             light_intensity: Param::new(2.2),
             ambient: Param::new(0.15),
+            ..Default::default()
         },
         layers: vec![
             Layer::new(
                 "Deep space",
                 LayerKind::Backdrop(Backdrop {
+                    resolution: BgResolution::Full,
                     kind: BackdropKind::Starfield,
                     color_a: hex(0x000003),
                     color_b: hex(0x061530),
@@ -742,6 +1724,7 @@ pub fn orbiting_solid() -> Project {
                     trail_spacing: Param::new(0.004),
                     sprite: Sprite::Glow,
                     seed: 3,
+                    smoke: false,
                 }),
             )
             .rotated([15.0, 0.0, 0.0]),
@@ -793,6 +1776,7 @@ pub fn retro_tunnel() -> Project {
             Layer::new(
                 "XOR tunnel",
                 LayerKind::Backdrop(Backdrop {
+                    resolution: BgResolution::Full,
                     kind: BackdropKind::Tunnel,
                     color_a: hex(0x000000),
                     color_b: hex(0x2040ff),
@@ -840,6 +1824,7 @@ pub fn retro_tunnel() -> Project {
                     trail_spacing: Param::new(0.01),
                     sprite: Sprite::Square,
                     seed: 1,
+                    smoke: false,
                 }),
             ),
         ],
@@ -902,6 +1887,7 @@ pub fn plasma_kaleido() -> Project {
             Layer::new(
                 "Plasma",
                 LayerKind::Backdrop(Backdrop {
+                    resolution: BgResolution::Full,
                     kind: BackdropKind::Plasma,
                     color_a: hex(0x10003a),
                     color_b: hex(0xff2090),
@@ -1003,11 +1989,13 @@ pub fn synth_sunset() -> Project {
             light_color: hex(0xff80c0),
             light_intensity: Param::new(1.5),
             ambient: Param::new(0.3),
+            ..Default::default()
         },
         layers: vec![
             Layer::new(
                 "Sunset",
                 LayerKind::Backdrop(Backdrop {
+                    resolution: BgResolution::Full,
                     kind: BackdropKind::SynthGrid,
                     color_a: hex(0x0a0020),
                     color_b: hex(0xff3080),
@@ -1127,11 +2115,13 @@ pub fn vector_valley() -> Project {
             light_color: hex(0xc080ff),
             light_intensity: Param::new(1.2),
             ambient: Param::new(0.3),
+            ..Default::default()
         },
         layers: vec![
             Layer::new(
                 "Stars",
                 LayerKind::Backdrop(Backdrop {
+                    resolution: BgResolution::Full,
                     kind: BackdropKind::Starfield,
                     color_a: hex(0x02000a),
                     color_b: hex(0x301060),
@@ -1237,11 +2227,13 @@ pub fn glitch_shrine() -> Project {
             light_color: hex(0xffffff),
             light_intensity: Param::new(1.3),
             ambient: Param::new(0.25),
+            ..Default::default()
         },
         layers: vec![
             Layer::new(
                 "Nebula",
                 LayerKind::Backdrop(Backdrop {
+                    resolution: BgResolution::Full,
                     kind: BackdropKind::Nebula,
                     color_a: hex(0x020008),
                     color_b: hex(0x3010a0),
@@ -1399,11 +2391,13 @@ pub fn sponge_dive() -> Project {
             light_color: hex(0xffe0c0),
             light_intensity: Param::new(1.6),
             ambient: Param::new(0.35),
+            ..Default::default()
         },
         layers: vec![
             Layer::new(
                 "Sponge",
                 LayerKind::Backdrop(Backdrop {
+                    resolution: BgResolution::Full,
                     kind: BackdropKind::Sponge,
                     color_a: hex(0x05030a),
                     color_b: hex(0x1c1030),
@@ -1493,6 +2487,1270 @@ impl Layer {
     pub fn bobbing(mut self, bob: Param) -> Self {
         self.transform.bob = bob;
         self
+    }
+}
+
+fn sky(kind: BackdropKind, a: u32, b: u32, c: u32, ray: RaySettings) -> Layer {
+    Layer::new(
+        "Sky",
+        LayerKind::Backdrop(Backdrop {
+            // Soft clouds look the same at half resolution, 4× cheaper.
+            resolution: if kind == BackdropKind::Clouds {
+                BgResolution::Half
+            } else {
+                BgResolution::Full
+            },
+            kind,
+            color_a: hex(a),
+            color_b: hex(b),
+            color_c: hex(c),
+            speed: 1,
+            intensity: Param::new(1.0),
+            detail: Param::new(1.0),
+            texture: None,
+            ray,
+        }),
+    )
+}
+
+pub fn stormy_lake() -> Project {
+    Project {
+        name: "Stormy Lake".into(),
+        timing: crate::Timing {
+            bpm: 90.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Pendulum,
+            swing: Param::new(12.0),
+            target: [0.0, 2.0, -20.0],
+            distance: Param::new(22.0),
+            height: Param::new(3.0),
+            fov: Param::new(60.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0x1a2028),
+            fog_density: Param::new(0.018),
+            sky_color: hex(0x4a5868),
+            ground_color: hex(0x101418),
+            light_dir: [0.3, 0.5, -1.0],
+            light_color: hex(0xb0c0d0),
+            light_intensity: Param::new(0.7),
+            ambient: Param::new(0.6),
+            ..Default::default()
+        },
+        layers: vec![
+            sky(
+                BackdropKind::Clouds,
+                0x2a3440,
+                0x3c4855,
+                0x303a48,
+                RaySettings {
+                    variant: 2,
+                    size: Param::new(1.2),
+                    warp: Param::new(1.1),
+                    bend: Param::new(1.4),
+                    glow: Param::new(0.3),
+                    fog: Param::new(1.0),
+                    ..Default::default()
+                },
+            ),
+            Layer::new(
+                "Mountains",
+                LayerKind::Terrain(Terrain {
+                    size: 120.0,
+                    cells: 128,
+                    lod: true,
+                    height: Param::new(12.0),
+                    hills: 4,
+                    roughness: Param::new(0.5),
+                    scroll: 1,
+                    valley: Param::new(0.45),
+                    style: TerrainStyle::Solid,
+                    seed: 21,
+                    shape: TerrainShape::Mountains,
+                    biome: Biome::Alpine,
+                    liquid: Liquid {
+                        kind: LiquidKind::Water,
+                        level: Param::new(0.12),
+                        color: hex(0x0a2028),
+                        glow: Param::new(0.5),
+                        waves: Param::new(1.5),
+                        flow: 1,
+                    },
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, 0.0, -40.0]),
+            Layer::new(
+                "Rain",
+                LayerKind::Weather(Weather {
+                    count: 9000,
+                    area: 20.0,
+                    height: 16.0,
+                    falls: 14,
+                    wind: Param::new(12.0).osc(Wave::Sine, 6.0, 2),
+                    intensity: Param::new(0.5),
+                    lightning: Lightning {
+                        enabled: true,
+                        per_loop: 4,
+                        chance: 0.6,
+                        seed: 11,
+                        distance: 45.0,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, 1.5, 0.0]),
+        ],
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                intensity: Param::new(0.7),
+                threshold: Param::new(1.0),
+                radius: Param::new(0.7),
+            },
+            grade: Grade {
+                saturation: Param::new(0.8),
+                vignette: Param::new(0.5),
+                grain: Param::new(0.04),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+pub fn lava_world() -> Project {
+    Project {
+        name: "Lava World".into(),
+        timing: crate::Timing {
+            bpm: 100.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Pendulum,
+            swing: Param::new(10.0),
+            target: [0.0, 2.0, -18.0],
+            distance: Param::new(20.0),
+            height: Param::new(9.0),
+            fov: Param::new(60.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0x2a0c06),
+            fog_density: Param::new(0.02),
+            sky_color: hex(0x803020),
+            ground_color: hex(0x401008),
+            light_dir: [0.0, 0.25, -1.0],
+            light_color: hex(0xffa060),
+            light_intensity: Param::new(1.1),
+            ambient: Param::new(0.35),
+            ..Default::default()
+        },
+        layers: vec![
+            sky(
+                BackdropKind::Clouds,
+                0x301010,
+                0x803818,
+                0x401410,
+                RaySettings {
+                    variant: 1,
+                    size: Param::new(1.0),
+                    warp: Param::new(0.95),
+                    bend: Param::new(1.0),
+                    glow: Param::new(1.5),
+                    fog: Param::new(1.2),
+                    ..Default::default()
+                },
+            ),
+            Layer::new(
+                "Canyons",
+                LayerKind::Terrain(Terrain {
+                    size: 110.0,
+                    cells: 128,
+                    lod: true,
+                    height: Param::new(7.0),
+                    hills: 3,
+                    roughness: Param::new(0.6),
+                    scroll: 1,
+                    valley: Param::new(0.0),
+                    style: TerrainStyle::Solid,
+                    seed: 5,
+                    shape: TerrainShape::Canyons,
+                    biome: Biome::Volcanic,
+                    liquid: Liquid {
+                        kind: LiquidKind::Lava,
+                        level: Param::new(0.3),
+                        color: hex(0xff4a08),
+                        glow: Param::new(1.4).osc(Wave::Sine, 0.3, 4),
+                        waves: Param::new(1.0),
+                        flow: 2,
+                    },
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, -2.0, -40.0]),
+            Layer::new(
+                "Embers",
+                LayerKind::Weather(Weather {
+                    kind: Precipitation::Embers,
+                    count: 1500,
+                    area: 16.0,
+                    height: 10.0,
+                    falls: 3,
+                    wind: Param::new(15.0),
+                    wind_dir: 90.0,
+                    size: Param::new(0.07),
+                    color: hex(0xff8030),
+                    intensity: Param::new(3.0),
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, -1.0, 0.0]),
+        ],
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                intensity: Param::new(1.0),
+                threshold: Param::new(1.0),
+                radius: Param::new(0.8),
+            },
+            rays: GodRays {
+                enabled: true,
+                intensity: Param::new(1.2),
+                length: Param::new(0.8),
+                threshold: Param::new(0.6),
+                tint: hex(0xffc080),
+                ..Default::default()
+            },
+            haze: HeatHaze {
+                enabled: true,
+                amount: Param::new(1.5),
+                ..Default::default()
+            },
+            grade: Grade {
+                vignette: Param::new(0.6),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+pub fn sunbeam_peaks() -> Project {
+    Project {
+        name: "Sunbeam Peaks".into(),
+        timing: crate::Timing {
+            bpm: 110.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Pendulum,
+            swing: Param::new(15.0),
+            target: [0.0, 5.0, -20.0],
+            distance: Param::new(24.0),
+            height: Param::new(4.0),
+            fov: Param::new(60.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0x9fb6d0),
+            fog_density: Param::new(0.012),
+            sky_color: hex(0x7fa6d8),
+            ground_color: hex(0x3a3020),
+            light_dir: [0.35, 0.3, -1.0],
+            light_color: hex(0xfff0d0),
+            light_intensity: Param::new(1.6),
+            ambient: Param::new(0.5),
+            shadows: Shadows {
+                enabled: true,
+                distance: 60.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        layers: vec![
+            sky(
+                BackdropKind::Clouds,
+                0x3a70c0,
+                0xb8cce0,
+                0x8090a8,
+                RaySettings {
+                    variant: 0,
+                    size: Param::new(1.0),
+                    warp: Param::new(1.0),
+                    bend: Param::new(1.0),
+                    glow: Param::new(1.2),
+                    fog: Param::new(1.0),
+                    ..Default::default()
+                },
+            ),
+            Layer::new(
+                "Peaks",
+                LayerKind::Terrain(Terrain {
+                    size: 140.0,
+                    cells: 128,
+                    lod: true,
+                    height: Param::new(16.0),
+                    hills: 4,
+                    roughness: Param::new(0.55),
+                    scroll: 1,
+                    valley: Param::new(0.4),
+                    style: TerrainStyle::Solid,
+                    seed: 42,
+                    shape: TerrainShape::Mountains,
+                    biome: Biome::Alpine,
+                    liquid: Liquid {
+                        kind: LiquidKind::Water,
+                        level: Param::new(0.1),
+                        color: hex(0x0c3848),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, 0.0, -45.0]),
+            Layer::new(
+                "Crystal",
+                LayerKind::Mesh(mesh(
+                    Primitive::Octahedron,
+                    Material {
+                        base_color: hex(0x101820),
+                        metallic: Param::new(0.9),
+                        roughness: Param::new(0.1),
+                        emissive: Param::new(0.6),
+                        emissive_color: hex(0x80d0ff),
+                        emissive_mode: EmissiveMode::Edges,
+                        ..Default::default()
+                    },
+                )),
+            )
+            .scaled(1.6)
+            .at([0.0, 5.0, -12.0])
+            .spin([0, 1, 0]),
+        ],
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                intensity: Param::new(0.6),
+                threshold: Param::new(1.2),
+                radius: Param::new(0.7),
+            },
+            rays: GodRays {
+                enabled: true,
+                intensity: Param::new(1.0),
+                length: Param::new(0.7),
+                threshold: Param::new(0.8),
+                flare: Param::new(0.8),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+pub fn aurora_tundra() -> Project {
+    Project {
+        name: "Aurora Tundra".into(),
+        timing: crate::Timing {
+            bpm: 80.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Pendulum,
+            swing: Param::new(20.0),
+            target: [0.0, 4.0, -20.0],
+            distance: Param::new(20.0),
+            height: Param::new(1.0),
+            fov: Param::new(65.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0x060c18),
+            fog_density: Param::new(0.012),
+            sky_color: hex(0x305870),
+            ground_color: hex(0x081018),
+            light_dir: [-0.3, 0.6, -1.0],
+            light_color: hex(0x60ffb0),
+            light_intensity: Param::new(0.5),
+            ambient: Param::new(0.6),
+            ..Default::default()
+        },
+        layers: vec![
+            sky(
+                BackdropKind::Aurora,
+                0x040814,
+                0x20ff80,
+                0x8040ff,
+                RaySettings {
+                    size: Param::new(1.0),
+                    twist: Param::new(1.2),
+                    warp: Param::new(1.0),
+                    glow: Param::new(1.0),
+                    ..Default::default()
+                },
+            ),
+            Layer::new(
+                "Ice",
+                LayerKind::Terrain(Terrain {
+                    size: 120.0,
+                    cells: 112,
+                    lod: true,
+                    height: Param::new(10.0),
+                    hills: 4,
+                    roughness: Param::new(0.5),
+                    scroll: 1,
+                    valley: Param::new(0.5),
+                    style: TerrainStyle::Solid,
+                    seed: 11,
+                    shape: TerrainShape::Mountains,
+                    biome: Biome::Arctic,
+                    liquid: Liquid {
+                        kind: LiquidKind::Ice,
+                        level: Param::new(0.15),
+                        color: hex(0x7ab0d0),
+                        glow: Param::new(1.0),
+                        waves: Param::new(1.0),
+                        flow: 0,
+                    },
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, -1.0, -40.0]),
+            Layer::new(
+                "Snow",
+                LayerKind::Weather(Weather {
+                    kind: Precipitation::Snow,
+                    count: 5000,
+                    area: 16.0,
+                    height: 12.0,
+                    falls: 2,
+                    wind: Param::new(20.0),
+                    size: Param::new(0.06),
+                    color: hex(0xe8f0ff),
+                    intensity: Param::new(0.9),
+                    ground: Param::new(0.55),
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, -1.0, 0.0]),
+            Layer::new(
+                "Rocks",
+                LayerKind::Mesh(MeshLayer {
+                    source: MeshSource::Primitive(Primitive::Dodecahedron),
+                    material: Material {
+                        base_color: hex(0x303640),
+                        roughness: Param::new(0.6),
+                        flat_shading: true,
+                        ..Default::default()
+                    },
+                    instancer: Instancer::Scatter {
+                        count: 7,
+                        radius: 9.0,
+                        shell: false,
+                        seed: 4,
+                    },
+                    variation: Variation {
+                        seed: 2,
+                        rotation: 30.0,
+                        scale: 0.5,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, -0.6, -9.0])
+            .stretched([1.3, 0.6, 1.0])
+            .scaled(2.2),
+        ],
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                intensity: Param::new(0.9),
+                threshold: Param::new(0.6),
+                radius: Param::new(0.8),
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+pub fn dune_sea() -> Project {
+    Project {
+        name: "Dune Sea".into(),
+        timing: crate::Timing {
+            bpm: 105.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Pendulum,
+            swing: Param::new(10.0),
+            target: [0.0, 1.5, -20.0],
+            distance: Param::new(20.0),
+            height: Param::new(3.0),
+            fov: Param::new(60.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0xc09868),
+            fog_density: Param::new(0.02),
+            sky_color: hex(0xd0b090),
+            ground_color: hex(0x6a4828),
+            light_dir: [-0.2, 0.35, -1.0],
+            light_color: hex(0xffe0b0),
+            light_intensity: Param::new(1.5),
+            ambient: Param::new(0.5),
+            ..Default::default()
+        },
+        layers: vec![
+            sky(
+                BackdropKind::Clouds,
+                0x5a88b8,
+                0xe0c090,
+                0xc09070,
+                RaySettings {
+                    variant: 1,
+                    warp: Param::new(0.75),
+                    bend: Param::new(0.6),
+                    glow: Param::new(1.5),
+                    fog: Param::new(1.5),
+                    ..Default::default()
+                },
+            ),
+            Layer::new(
+                "Dunes",
+                LayerKind::Terrain(Terrain {
+                    size: 110.0,
+                    cells: 128,
+                    height: Param::new(6.0),
+                    hills: 3,
+                    roughness: Param::new(0.4),
+                    scroll: 1,
+                    valley: Param::new(0.0),
+                    style: TerrainStyle::Solid,
+                    seed: 9,
+                    shape: TerrainShape::Dunes,
+                    biome: Biome::Desert,
+                    liquid: Liquid {
+                        kind: LiquidKind::Toxic,
+                        level: Param::new(0.08),
+                        color: hex(0x30ff40),
+                        glow: Param::new(1.2),
+                        waves: Param::new(1.0),
+                        flow: 1,
+                    },
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, -0.5, -40.0]),
+            Layer::new(
+                "Sandstorm",
+                LayerKind::Weather(Weather {
+                    kind: Precipitation::Dust,
+                    count: 2500,
+                    area: 18.0,
+                    height: 8.0,
+                    falls: 3,
+                    wind_dir: 180.0,
+                    size: Param::new(0.6),
+                    color: hex(0xd0a070),
+                    intensity: Param::new(0.12),
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, -0.5, 0.0]),
+        ],
+        post: PostStack {
+            rays: GodRays {
+                enabled: true,
+                intensity: Param::new(0.8),
+                length: Param::new(0.6),
+                threshold: Param::new(0.9),
+                tint: hex(0xffe0b0),
+                flare: Param::new(0.4),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+pub fn club_spotlights() -> Project {
+    let spot =
+        |name: &str, x: f32, color_a: u32, color_b: u32, pattern: LaserPattern, seed: u32| {
+            Layer::new(
+                name,
+                LayerKind::Lasers(Lasers {
+                    count: 4,
+                    pattern,
+                    spread: Param::new(60.0),
+                    length: Param::new(16.0),
+                    color_a: hex(color_a),
+                    color_b: hex(color_b),
+                    intensity: Param::new(2.5),
+                    sweep: Param::new(30.0),
+                    sweep_cycles: 2,
+                    strobe: Param::new(0.3),
+                    seed,
+                    style: BeamStyle::Spotlight,
+                    cone: ConeAngle(Param::new(16.0)),
+                    pools: true,
+                    ..Default::default()
+                }),
+            )
+            .at([x, 9.0, -2.0])
+            .rotated([180.0, 0.0, 0.0])
+        };
+    Project {
+        name: "Club Spotlights".into(),
+        timing: crate::Timing {
+            bpm: 126.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Pendulum,
+            swing: Param::new(25.0),
+            target: [0.0, 3.0, 0.0],
+            distance: Param::new(16.0),
+            height: Param::new(3.5),
+            fov: Param::new(60.0),
+            beat_shake: Param::new(0.05),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0x06040c),
+            fog_density: Param::new(0.02),
+            sky_color: hex(0x302050),
+            ground_color: hex(0x050508),
+            light_intensity: Param::new(0.4),
+            ambient: Param::new(0.15),
+            height_fog: HeightFog {
+                density: Param::new(0.06),
+                height: 0.0,
+                falloff: 2.5,
+            },
+            shadows: Shadows {
+                contact: 0.7,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        layers: vec![
+            sky(
+                BackdropKind::Gradient,
+                0x020104,
+                0x100818,
+                0x201030,
+                RaySettings::default(),
+            ),
+            Layer::new(
+                "Floor",
+                LayerKind::Mirror(MirrorFloor {
+                    base_color: hex(0x050508),
+                    reflectivity: Param::new(0.5),
+                    blur: Param::new(0.3),
+                    ..Default::default()
+                }),
+            ),
+            spot(
+                "Spots left",
+                -6.0,
+                0xff3080,
+                0x8040ff,
+                LaserPattern::Cone,
+                1,
+            ),
+            spot(
+                "Spots right",
+                6.0,
+                0x30c0ff,
+                0x40ffb0,
+                LaserPattern::Cone,
+                2,
+            ),
+            spot(
+                "Spots middle",
+                0.0,
+                0xffe0a0,
+                0xffffff,
+                LaserPattern::Fan,
+                3,
+            ),
+            Layer::new(
+                "Speakers",
+                LayerKind::Mesh(MeshLayer {
+                    source: MeshSource::Primitive(Primitive::RoundedCube { radius: 0.1 }),
+                    material: Material {
+                        base_color: hex(0x101014),
+                        metallic: Param::new(0.6),
+                        roughness: Param::new(0.25),
+                        texture: Some("speaker".into()),
+                        emissive: Param::new(0.6).osc(Wave::Pulse, 2.0, 16),
+                        emissive_color: hex(0xff3080),
+                        emissive_mode: EmissiveMode::Edges,
+                        ..Default::default()
+                    },
+                    instancer: Instancer::Grid {
+                        counts: [1, 2, 1],
+                        spacing: [1.0, 1.7, 1.0],
+                    },
+                    ..Default::default()
+                }),
+            )
+            .at([7.0, 0.8, -4.0])
+            .scaled(1.6)
+            .sym(Symmetry::MirrorX),
+        ],
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                intensity: Param::new(1.0),
+                threshold: Param::new(0.9),
+                radius: Param::new(0.8),
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+pub fn rainbow_falls() -> Project {
+    Project {
+        name: "Rainbow Falls".into(),
+        timing: crate::Timing {
+            bpm: 90.0,
+            loop_beats: 32,
+        },
+        camera: Camera {
+            mode: CameraMode::Pendulum,
+            swing: Param::new(12.0),
+            target: [0.0, 4.0, -18.0],
+            distance: Param::new(22.0),
+            height: Param::new(3.0),
+            fov: Param::new(60.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0xa8c0d8),
+            fog_density: Param::new(0.01),
+            sky_color: hex(0x80a8e0),
+            ground_color: hex(0x384028),
+            light_dir: [0.0, 0.5, 1.0],
+            light_color: hex(0xfff4e0),
+            light_intensity: Param::new(1.5),
+            ambient: Param::new(0.55),
+            height_fog: HeightFog {
+                density: Param::new(0.03),
+                height: 0.0,
+                falloff: 1.5,
+            },
+            rainbow: Param::new(1.0),
+            day_cycle: DayCycle {
+                enabled: true,
+                cycles: 1,
+                start: 0.35,
+                noon_height: 45.0,
+                ..Default::default()
+            },
+            shadows: Shadows {
+                enabled: true,
+                distance: 50.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        layers: vec![
+            sky(
+                BackdropKind::Clouds,
+                0x3c78c8,
+                0xb8d0e8,
+                0x8898b0,
+                RaySettings {
+                    variant: 0,
+                    warp: Param::new(0.85),
+                    bend: Param::new(0.8),
+                    glow: Param::new(1.0),
+                    ..Default::default()
+                },
+            ),
+            Layer::new(
+                "Valley",
+                LayerKind::Terrain(Terrain {
+                    size: 120.0,
+                    cells: 112,
+                    lod: true,
+                    height: Param::new(14.0),
+                    hills: 3,
+                    roughness: Param::new(0.5),
+                    scroll: 0,
+                    valley: Param::new(0.5),
+                    style: TerrainStyle::Solid,
+                    seed: 8,
+                    shape: TerrainShape::Mesas,
+                    biome: Biome::Alpine,
+                    liquid: Liquid {
+                        kind: LiquidKind::Water,
+                        level: Param::new(0.08),
+                        color: hex(0x0c3848),
+                        waves: Param::new(0.8),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, -1.0, -40.0]),
+            Layer::new(
+                "Waterfall",
+                LayerKind::Falls(Falls {
+                    width: 4.0,
+                    height: 8.0,
+                    push: 1.2,
+                    flow: 8,
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, 7.4, -22.6]),
+            Layer::new(
+                "Cliff",
+                LayerKind::Mesh(MeshLayer {
+                    source: MeshSource::Primitive(Primitive::Dodecahedron),
+                    material: Material {
+                        base_color: hex(0x4a463c),
+                        roughness: Param::new(0.9),
+                        flat_shading: true,
+                        texture: Some("noise".into()),
+                        ..Default::default()
+                    },
+                    instancer: Instancer::Wall {
+                        cols: 13,
+                        rows: 3,
+                        spacing: 2.6,
+                        curve: 0.0,
+                    },
+                    variation: Variation {
+                        seed: 5,
+                        rotation: 60.0,
+                        scale: 0.3,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, -0.2, -26.8])
+            .scaled(3.6),
+        ],
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                intensity: Param::new(0.5),
+                threshold: Param::new(1.2),
+                radius: Param::new(0.7),
+            },
+            rays: GodRays {
+                enabled: true,
+                intensity: Param::new(0.8),
+                threshold: Param::new(0.9),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+pub fn sunken_temple() -> Project {
+    Project {
+        name: "Sunken Temple".into(),
+        timing: crate::Timing {
+            bpm: 84.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Orbit,
+            target: [0.0, 2.0, 0.0],
+            distance: Param::new(13.0),
+            height: Param::new(2.0),
+            orbit_turns: 1,
+            fov: Param::new(60.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0x03263a),
+            fog_density: Param::new(0.04),
+            sky_color: hex(0x2080b0),
+            ground_color: hex(0x06202a),
+            light_dir: [0.5, 1.0, 0.3],
+            light_color: hex(0xa0e0ff),
+            light_intensity: Param::new(1.2),
+            ambient: Param::new(0.5),
+            caustics: Caustics {
+                amount: Param::new(1.6),
+                scale: 1.2,
+                speed: 2,
+                color: hex(0x90e0ff),
+                below: 100.0,
+            },
+            shadows: Shadows {
+                enabled: true,
+                strength: 0.7,
+                distance: 25.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        layers: vec![
+            sky(
+                BackdropKind::Gradient,
+                0x2a90c0,
+                0x021624,
+                0x60c0e0,
+                RaySettings::default(),
+            ),
+            Layer::new(
+                "Sea floor",
+                LayerKind::Mirror(MirrorFloor {
+                    size: 60.0,
+                    base_color: hex(0x405848),
+                    reflectivity: Param::new(0.05),
+                    texture: Some("tech_panel".into()),
+                    texture_scale: 0.5,
+                    ..Default::default()
+                }),
+            ),
+            Layer::new(
+                "Pillars",
+                LayerKind::Mesh(MeshLayer {
+                    source: MeshSource::Primitive(Primitive::Cylinder { segments: 12 }),
+                    material: Material {
+                        base_color: hex(0x8a9a90),
+                        roughness: Param::new(0.8),
+                        flat_shading: true,
+                        ..Default::default()
+                    },
+                    instancer: Instancer::Radial {
+                        count: 8,
+                        radius: 6.0,
+                    },
+                    variation: Variation {
+                        seed: 3,
+                        rotation: 6.0,
+                        scale: 0.3,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, 2.5, 0.0])
+            .stretched([0.6, 5.0, 0.6]),
+            Layer::new(
+                "Idol",
+                LayerKind::Mesh(mesh(
+                    Primitive::Gem { facets: 8 },
+                    Material {
+                        base_color: hex(0x302010),
+                        metallic: Param::new(0.9),
+                        roughness: Param::new(0.25),
+                        emissive: Param::new(1.2).osc(Wave::Sine, 0.6, 4),
+                        emissive_color: hex(0xffc040),
+                        emissive_mode: EmissiveMode::Edges,
+                        flat_shading: true,
+                        ..Default::default()
+                    },
+                )),
+            )
+            .scaled(1.3)
+            .at([0.0, 1.6, 0.0])
+            .spin([0, 1, 0]),
+            Layer::new(
+                "Bubbles",
+                LayerKind::Particles(ParticleLayer {
+                    emitter: Emitter::Fountain,
+                    count: 300,
+                    lifetimes: 2,
+                    size: Param::new(0.06),
+                    speed: Param::new(1.0),
+                    radius: Param::new(4.0),
+                    color_a: hex(0xc0f0ff),
+                    color_b: hex(0x60a0c0),
+                    intensity: Param::new(0.8),
+                    sprite: Sprite::Ring,
+                    ..Default::default()
+                }),
+            ),
+        ],
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                intensity: Param::new(0.8),
+                threshold: Param::new(0.8),
+                radius: Param::new(0.8),
+            },
+            rays: GodRays {
+                enabled: true,
+                intensity: Param::new(1.2),
+                length: Param::new(0.9),
+                threshold: Param::new(0.25),
+                tint: hex(0xa0e8ff),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+pub fn twister() -> Project {
+    Project {
+        name: "Twister".into(),
+        timing: crate::Timing {
+            bpm: 100.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Pendulum,
+            swing: Param::new(10.0),
+            target: [0.0, 5.0, -20.0],
+            distance: Param::new(22.0),
+            height: Param::new(-1.0),
+            fov: Param::new(62.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0x3a4038),
+            fog_density: Param::new(0.015),
+            sky_color: hex(0x6a7468),
+            ground_color: hex(0x202418),
+            light_dir: [0.3, 0.6, -1.0],
+            light_color: hex(0xd0d8c0),
+            light_intensity: Param::new(0.8),
+            ambient: Param::new(0.6),
+            ..Default::default()
+        },
+        layers: vec![
+            sky(
+                BackdropKind::Clouds,
+                0x40483e,
+                0x707a68,
+                0x383e36,
+                RaySettings {
+                    variant: 2,
+                    warp: Param::new(1.0),
+                    bend: Param::new(1.2),
+                    glow: Param::new(0.4),
+                    ..Default::default()
+                },
+            ),
+            Layer::new(
+                "Plains",
+                LayerKind::Terrain(Terrain {
+                    size: 120.0,
+                    cells: 96,
+                    lod: true,
+                    height: Param::new(3.0),
+                    hills: 3,
+                    roughness: Param::new(0.4),
+                    scroll: 1,
+                    valley: Param::new(0.0),
+                    style: TerrainStyle::Solid,
+                    fill_color: hex(0x3a4a20),
+                    seed: 4,
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, -1.0, -40.0]),
+            Layer::new(
+                "Tornado",
+                LayerKind::Particles(ParticleLayer {
+                    emitter: Emitter::Tornado,
+                    count: 6000,
+                    lifetimes: 2,
+                    size: Param::new(0.9),
+                    speed: Param::new(1.0),
+                    radius: Param::new(4.5),
+                    color_a: hex(0x2a2a26),
+                    color_b: hex(0x4a4a44),
+                    intensity: Param::new(0.35),
+                    smoke: true,
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, -0.5, -28.0]),
+            Layer::new(
+                "Rain",
+                LayerKind::Weather(Weather {
+                    count: 5000,
+                    falls: 12,
+                    wind: Param::new(25.0),
+                    wind_dir: 0.0,
+                    intensity: Param::new(0.35),
+                    ground: Param::new(0.9),
+                    lightning: Lightning {
+                        enabled: true,
+                        per_loop: 4,
+                        chance: 0.6,
+                        seed: 9,
+                        distance: 50.0,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, -1.0, 0.0]),
+        ],
+        post: PostStack {
+            grade: Grade {
+                saturation: Param::new(0.7),
+                vignette: Param::new(0.6),
+                grain: Param::new(0.03),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+pub fn music_reactor() -> Project {
+    use crate::music::{AudioSource, MusicSettings, TimeWarp};
+    Project {
+        name: "Music Reactor".into(),
+        timing: crate::Timing {
+            bpm: 124.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Orbit,
+            target: [0.0, 2.5, 0.0],
+            distance: Param::new(14.0).with_music(AudioSource::KickHit, -1.2),
+            height: Param::new(3.0),
+            orbit_turns: 1,
+            fov: Param::new(60.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0x05030a),
+            fog_density: Param::new(0.02),
+            sky_color: hex(0x402060),
+            ground_color: hex(0x050505),
+            light_intensity: Param::new(1.0),
+            ambient: Param::new(0.2),
+            shadows: Shadows {
+                contact: 0.6,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        layers: vec![
+            sky(
+                BackdropKind::Nebula,
+                0x040208,
+                0x201040,
+                0xff3080,
+                RaySettings::default(),
+            ),
+            Layer::new(
+                "Floor",
+                LayerKind::Mirror(MirrorFloor {
+                    reflectivity: Param::new(0.5),
+                    grid: Param::new(0.4).with_music(AudioSource::KickHit, 2.0),
+                    grid_color: hex(0xff3080),
+                    ..Default::default()
+                }),
+            ),
+            Layer::new(
+                "Equalizer",
+                LayerKind::Mesh(MeshLayer {
+                    source: MeshSource::Primitive(Primitive::Cube),
+                    material: Material {
+                        base_color: hex(0x08080c),
+                        metallic: Param::new(0.8),
+                        roughness: Param::new(0.2),
+                        emissive: Param::new(0.8),
+                        emissive_color: hex(0x30c0ff),
+                        emissive_mode: EmissiveMode::Edges,
+                        flat_shading: true,
+                        hue_shift: Param::new(0.0).with_music(AudioSource::Pitch, 1.0),
+                        ..Default::default()
+                    },
+                    instancer: Instancer::Wall {
+                        cols: 16,
+                        rows: 1,
+                        spacing: 1.1,
+                        curve: 120.0,
+                    },
+                    variation: Variation {
+                        spectrum: 3.0,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, 0.5, -3.0]),
+            Layer::new(
+                "Core",
+                LayerKind::Mesh(mesh(
+                    Primitive::Icosahedron,
+                    Material {
+                        base_color: hex(0x101018),
+                        metallic: Param::new(0.9),
+                        roughness: Param::new(0.15),
+                        emissive: Param::new(0.3).with_music(AudioSource::KickHit, 4.0),
+                        emissive_color: hex(0xff3080),
+                        emissive_mode: EmissiveMode::Edges,
+                        flat_shading: true,
+                        ..Default::default()
+                    },
+                )),
+            )
+            .scaled(1.4)
+            .at([0.0, 2.5, 0.0])
+            .spin([1, 2, 0]),
+            Layer::new(
+                "Sparks",
+                LayerKind::Particles(ParticleLayer {
+                    emitter: Emitter::Burst,
+                    count: 600,
+                    lifetimes: 4,
+                    size: Param::new(0.05),
+                    speed: Param::new(1.0),
+                    radius: Param::new(4.0),
+                    color_a: hex(0xffe0a0),
+                    color_b: hex(0xff3080),
+                    intensity: Param::new(0.5).with_music(AudioSource::SnareHit, 4.0),
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, 2.5, 0.0]),
+        ],
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                intensity: Param::new(1.0),
+                threshold: Param::new(0.8),
+                radius: Param::new(0.8),
+            },
+            chroma: Chroma {
+                enabled: true,
+                amount: Param::new(0.0).with_music(AudioSource::KickHit, 0.012),
+            },
+            ..Default::default()
+        },
+        music: MusicSettings {
+            warp: TimeWarp {
+                source: AudioSource::Kick,
+                amount: 1.5,
+            },
+            ..Default::default()
+        },
+        ..Default::default()
     }
 }
 

@@ -14,6 +14,11 @@ fn is_default<T: Default + PartialEq>(v: &T) -> bool {
     *v == T::default()
 }
 
+/// A parameter that is 0 and not animated (e.g. a switched-off effect).
+fn is_off(p: &Param) -> bool {
+    p.base == 0.0 && !p.is_animated()
+}
+
 /// 2: asset paths may be relative to the project file.
 pub const PROJECT_VERSION: u32 = 2;
 
@@ -32,9 +37,19 @@ pub struct Project {
     pub textures: Vec<UserTexture>,
     /// Optional music file played with the loop and used for modulation.
     pub audio: Option<String>,
+    /// Which part of the song the loop uses, MIDI notes and time warp.
+    #[serde(skip_serializing_if = "is_default")]
+    pub music: crate::music::MusicSettings,
     /// When `Some` and `use_graph` is set, layers come from the node graph.
     pub graph: Option<Graph>,
     pub use_graph: bool,
+    /// Other scenes and the timeline playing them (inactive by default).
+    #[serde(skip_serializing_if = "is_default")]
+    pub sequence: crate::sequence::Sequence,
+    /// Every colour brought into harmony with one key colour (off by
+    /// default).
+    #[serde(skip_serializing_if = "is_default")]
+    pub color_scheme: ColorScheme,
 }
 
 impl Default for Project {
@@ -49,13 +64,52 @@ impl Default for Project {
             post: PostStack::default(),
             textures: Vec::new(),
             audio: None,
+            music: Default::default(),
             graph: None,
             use_graph: false,
+            sequence: Default::default(),
+            color_scheme: ColorScheme::default(),
         }
     }
 }
 
 impl Project {
+    /// Evaluation context at a loop phase (loop-window mode).
+    pub fn ctx(&self, phase: f32, audio: Option<&crate::AudioEnvelope>) -> crate::EvalCtx {
+        crate::EvalCtx::with_music(&self.timing, &self.music, phase, audio)
+    }
+
+    /// Evaluation context `seconds` after playback started: wraps around
+    /// the loop, or runs through the song in full-track mode.
+    pub fn ctx_at(&self, seconds: f64, audio: Option<&crate::AudioEnvelope>) -> crate::EvalCtx {
+        match (self.music.mode, audio) {
+            (crate::MusicMode::FullTrack, Some(a)) => {
+                crate::EvalCtx::song(&self.timing, &self.music, seconds as f32, Some(a))
+            }
+            _ => self.ctx(self.timing.phase_at(seconds), audio),
+        }
+    }
+
+    /// Length of one playback cycle: the loop, or the whole song in
+    /// full-track mode.
+    pub fn play_seconds(&self, audio: Option<&crate::AudioEnvelope>) -> f64 {
+        match (self.music.mode, audio) {
+            (crate::MusicMode::FullTrack, Some(a)) => a.duration.max(0.1) as f64,
+            _ => self.timing.loop_seconds() as f64,
+        }
+    }
+
+    /// Where the song should be playing `seconds` after playback started.
+    pub fn song_seconds(&self, seconds: f64) -> f32 {
+        match self.music.mode {
+            crate::MusicMode::FullTrack => seconds as f32,
+            crate::MusicMode::LoopWindow => {
+                self.music.offset.max(0.0)
+                    + self.timing.phase_at(seconds) * self.timing.loop_seconds()
+            }
+        }
+    }
+
     pub fn to_json(&self) -> String {
         serde_json::to_string_pretty(self).expect("project serialises")
     }
@@ -64,11 +118,48 @@ impl Project {
         serde_json::from_str(s)
     }
 
-    /// Layers to render: either the plain layer list or the compiled graph.
-    pub fn scene_layers(&self) -> Cow<'_, [Layer]> {
-        match (&self.graph, self.use_graph) {
-            (Some(g), true) => Cow::Owned(g.compile()),
-            _ => Cow::Borrowed(&self.layers),
+    /// Layers to render at `ctx`: either the plain layer list or the
+    /// compiled graph (with its Drive nodes applied).
+    pub fn scene_layers(&self, ctx: &crate::EvalCtx) -> Cow<'_, [Layer]> {
+        let mut layers = match (&self.graph, self.use_graph) {
+            (Some(g), true) => Cow::Owned(g.compile_at(ctx)),
+            _ => Cow::Borrowed(&self.layers[..]),
+        };
+        link_terrains(&mut layers);
+        // The colour scheme, worked out on copies (the stored colours stay).
+        if let Some(h) = self.color_scheme.harmoniser(ctx) {
+            for l in layers.to_mut().iter_mut().filter(|l| !l.keep_colors) {
+                l.kind.for_each_color_mut(|c| *c = h.apply(*c));
+            }
+        }
+        layers
+    }
+
+    /// The environment as drawn: in the colour scheme when it covers it.
+    pub fn scene_environment(&self, ctx: &crate::EvalCtx) -> Cow<'_, Environment> {
+        match self.environment_harmoniser(ctx) {
+            Some(h) => {
+                let mut env = self.environment.clone();
+                env.for_each_color_mut(|c| *c = h.apply(*c));
+                Cow::Owned(env)
+            }
+            None => Cow::Borrowed(&self.environment),
+        }
+    }
+
+    /// A colour of the environment or the post effects as drawn.
+    pub fn scene_color(&self, c: Rgb, ctx: &crate::EvalCtx) -> Rgb {
+        match self.environment_harmoniser(ctx) {
+            Some(h) => h.apply(c),
+            None => c,
+        }
+    }
+
+    fn environment_harmoniser(&self, ctx: &crate::EvalCtx) -> Option<crate::color::Harmoniser> {
+        if self.color_scheme.environment {
+            self.color_scheme.harmoniser(ctx)
+        } else {
+            None
         }
     }
 
@@ -89,15 +180,94 @@ pub enum CameraMode {
     Pendulum,
     /// Fixed position; distance/height params can still breathe.
     Static,
+    /// Flies through the points of `path`.
+    Path,
 }
 
 impl CameraMode {
-    pub const ALL: [CameraMode; 3] = [CameraMode::Orbit, CameraMode::Pendulum, CameraMode::Static];
+    pub const ALL: [CameraMode; 4] = [
+        CameraMode::Orbit,
+        CameraMode::Pendulum,
+        CameraMode::Static,
+        CameraMode::Path,
+    ];
     pub fn label(self) -> &'static str {
         match self {
             CameraMode::Orbit => "Orbit",
             CameraMode::Pendulum => "Pendulum",
             CameraMode::Static => "Static",
+            CameraMode::Path => "Path",
+        }
+    }
+}
+
+/// One stop of a camera path.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PathPoint {
+    pub eye: [f32; 3],
+    /// Where the camera looks.
+    pub target: [f32; 3],
+    /// Degrees.
+    pub roll: f32,
+    /// Vertical field of view in degrees.
+    pub fov: f32,
+}
+
+impl Default for PathPoint {
+    fn default() -> Self {
+        PathPoint {
+            eye: [0.0, 2.0, 10.0],
+            target: [0.0, 0.0, 0.0],
+            roll: 0.0,
+            fov: 55.0,
+        }
+    }
+}
+
+/// A closed flight through points, travelled a whole number of times per
+/// loop at an even speed.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CameraPath {
+    pub points: Vec<PathPoint>,
+    /// Trips around the path per loop.
+    pub laps: u32,
+    /// 0 = constant speed, 1 = slow down and linger at every point.
+    pub ease: f32,
+    /// Jump to the next point on every hit of this kind (with music);
+    /// without music the camera flies as usual.
+    pub cut_on: Option<crate::audio::HitKind>,
+    /// After a cut, how far the camera drifts towards the next point
+    /// during one beat (0..1).
+    pub drift: f32,
+}
+
+impl Default for CameraPath {
+    fn default() -> Self {
+        CameraPath {
+            points: vec![
+                PathPoint {
+                    eye: [0.0, 2.0, 10.0],
+                    ..Default::default()
+                },
+                PathPoint {
+                    eye: [10.0, 4.0, 0.0],
+                    ..Default::default()
+                },
+                PathPoint {
+                    eye: [0.0, 1.0, -10.0],
+                    ..Default::default()
+                },
+                PathPoint {
+                    eye: [-10.0, 5.0, 0.0],
+                    ..Default::default()
+                },
+            ],
+            laps: 1,
+            ease: 0.0,
+            cut_on: None,
+            drift: 0.2,
         }
     }
 }
@@ -120,6 +290,14 @@ pub struct Camera {
     pub roll: Param,
     /// Camera shake on every beat (0 = none).
     pub beat_shake: Param,
+    /// Zoom in on every hit of `punch_on` (0 = none, 1 = strong).
+    #[serde(skip_serializing_if = "is_default")]
+    pub punch: f32,
+    #[serde(skip_serializing_if = "is_default")]
+    pub punch_on: crate::audio::HitKind,
+    /// Points for the Path mode.
+    #[serde(skip_serializing_if = "is_default")]
+    pub path: CameraPath,
 }
 
 impl Default for Camera {
@@ -135,6 +313,9 @@ impl Default for Camera {
             fov: Param::new(55.0),
             roll: Param::new(0.0),
             beat_shake: Param::new(0.0),
+            punch: 0.0,
+            punch_on: crate::audio::HitKind::Kick,
+            path: CameraPath::default(),
         }
     }
 }
@@ -151,6 +332,359 @@ pub struct Environment {
     pub light_color: Rgb,
     pub light_intensity: Param,
     pub ambient: Param,
+    /// Mist that is thick near the ground and thins out higher up.
+    #[serde(skip_serializing_if = "is_default")]
+    pub height_fog: HeightFog,
+    /// Rippling underwater light patterns on surfaces.
+    #[serde(skip_serializing_if = "is_default")]
+    pub caustics: Caustics,
+    /// Rainbow opposite the sun (0 = none).
+    #[serde(skip_serializing_if = "is_off")]
+    pub rainbow: Param,
+    /// The sun travels across the sky; night falls with stars and a moon.
+    #[serde(skip_serializing_if = "is_default")]
+    pub day_cycle: DayCycle,
+    /// Shadows cast by the sun, and soft contact shadows on floors.
+    #[serde(skip_serializing_if = "is_default")]
+    pub shadows: Shadows,
+}
+
+/// How a colour scheme's hues sit around its key colour.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum Harmony {
+    /// The key hue only.
+    Mono,
+    /// The key and its neighbours (30° either side).
+    Analogous,
+    /// The key and the opposite hue.
+    #[default]
+    Complementary,
+    /// The key and the two hues beside its opposite.
+    Split,
+    /// Three hues evenly around the wheel.
+    Triadic,
+    /// Four hues: two opposite pairs.
+    Tetradic,
+}
+
+impl Harmony {
+    pub const ALL: [Harmony; 6] = [
+        Harmony::Mono,
+        Harmony::Analogous,
+        Harmony::Complementary,
+        Harmony::Split,
+        Harmony::Triadic,
+        Harmony::Tetradic,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Harmony::Mono => "One hue",
+            Harmony::Analogous => "Neighbours",
+            Harmony::Complementary => "Opposites",
+            Harmony::Split => "Split opposites",
+            Harmony::Triadic => "Triad",
+            Harmony::Tetradic => "Square",
+        }
+    }
+
+    /// Hues of the scheme relative to the key, in degrees.
+    pub fn offsets(self) -> &'static [f32] {
+        match self {
+            Harmony::Mono => &[0.0],
+            Harmony::Analogous => &[-30.0, 0.0, 30.0],
+            Harmony::Complementary => &[0.0, 180.0],
+            Harmony::Split => &[0.0, 150.0, 210.0],
+            Harmony::Triadic => &[0.0, 120.0, 240.0],
+            Harmony::Tetradic => &[0.0, 90.0, 180.0, 270.0],
+        }
+    }
+}
+
+/// A colour scheme: every colour setting keeps its lightness while its
+/// hue is pulled toward the scheme's hues, worked out when drawing (the
+/// stored colours never change). Pictures (textures, sprites) keep their
+/// own colours.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ColorScheme {
+    pub enabled: bool,
+    /// The colour everything harmonises with.
+    pub key: Rgb,
+    /// Degrees added to the key's hue (animate it to turn the scheme).
+    pub key_turn: Param,
+    pub harmony: Harmony,
+    /// 0 = colours unchanged, 1 = every hue on the scheme.
+    pub hue_pull: f32,
+    /// 0 = colours keep their saturation, 1 = all take the key's.
+    pub chroma_match: f32,
+    /// The sky, fog, sun and god rays too.
+    pub environment: bool,
+}
+
+impl Default for ColorScheme {
+    fn default() -> Self {
+        ColorScheme {
+            enabled: false,
+            key: hex(0xff2bd6),
+            key_turn: Param::new(0.0),
+            harmony: Harmony::Complementary,
+            hue_pull: 1.0,
+            chroma_match: 0.0,
+            environment: true,
+        }
+    }
+}
+
+impl ColorScheme {
+    /// The scheme at this moment, or `None` when it is off.
+    pub fn harmoniser(&self, ctx: &crate::EvalCtx) -> Option<crate::color::Harmoniser> {
+        self.enabled.then(|| {
+            let offsets: Vec<f32> = self
+                .harmony
+                .offsets()
+                .iter()
+                .map(|d| d.to_radians())
+                .collect();
+            crate::color::Harmoniser::new(
+                self.key,
+                self.key_turn.eval(ctx).to_radians(),
+                &offsets,
+                self.hue_pull,
+                self.chroma_match,
+            )
+        })
+    }
+}
+
+impl Environment {
+    /// Every colour setting of the environment.
+    pub fn for_each_color_mut(&mut self, mut f: impl FnMut(&mut Rgb)) {
+        f(&mut self.fog_color);
+        f(&mut self.sky_color);
+        f(&mut self.ground_color);
+        f(&mut self.light_color);
+        f(&mut self.caustics.color);
+        f(&mut self.day_cycle.sunset_color);
+        f(&mut self.day_cycle.night_color);
+        f(&mut self.day_cycle.moon_color);
+    }
+}
+
+/// Sun shadows (a shadow map around the camera's target) and contact
+/// shadows under shapes standing on a mirror floor.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Shadows {
+    pub enabled: bool,
+    /// How dark shadows are (0..1).
+    pub strength: f32,
+    /// Blur of the shadow edge.
+    pub softness: f32,
+    /// Radius around the camera's target that gets shadows.
+    pub distance: f32,
+    /// Soft dark patches under shapes on a mirror floor (0 = none).
+    pub contact: f32,
+}
+
+impl Default for Shadows {
+    fn default() -> Self {
+        Shadows {
+            enabled: false,
+            strength: 0.85,
+            softness: 1.5,
+            distance: 40.0,
+            contact: 0.0,
+        }
+    }
+}
+
+/// Fog that pools in valleys: `density` at `height`, halving every
+/// `falloff` × 0.7 units above it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HeightFog {
+    pub density: Param,
+    pub height: f32,
+    pub falloff: f32,
+}
+
+impl Default for HeightFog {
+    fn default() -> Self {
+        HeightFog {
+            density: Param::new(0.0),
+            height: 0.0,
+            falloff: 2.0,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Caustics {
+    pub amount: Param,
+    /// Size of the pattern.
+    pub scale: f32,
+    /// Ripple cycles per loop.
+    pub speed: i32,
+    pub color: Rgb,
+    /// Caustics only below this height (fading out just above it).
+    pub below: f32,
+}
+
+impl Default for Caustics {
+    fn default() -> Self {
+        Caustics {
+            amount: Param::new(0.0),
+            scale: 1.0,
+            speed: 1,
+            color: hex(0x80d0ff),
+            below: 100.0,
+        }
+    }
+}
+
+/// Day and night: the sun turns around the sky `cycles` times per loop.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DayCycle {
+    pub enabled: bool,
+    /// Whole days per loop.
+    pub cycles: i32,
+    /// Time of day at the start of the loop (0 midnight, 0.25 sunrise,
+    /// 0.5 noon, 0.75 sunset).
+    pub start: f32,
+    /// Height of the sun at noon in degrees.
+    pub noon_height: f32,
+    pub sunset_color: Rgb,
+    pub night_color: Rgb,
+    pub moon_color: Rgb,
+}
+
+impl Default for DayCycle {
+    fn default() -> Self {
+        DayCycle {
+            enabled: false,
+            cycles: 1,
+            start: 0.3,
+            noon_height: 60.0,
+            sunset_color: hex(0xff7a40),
+            night_color: hex(0x060a1c),
+            moon_color: hex(0x8098d0),
+        }
+    }
+}
+
+/// The environment's lighting at one moment (after the day cycle).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EnvState {
+    pub fog_color: Rgb,
+    pub fog_density: f32,
+    pub sky_color: Rgb,
+    pub ground_color: Rgb,
+    /// Unit vector towards the main light (the sun, or the moon at night).
+    pub light_dir: [f32; 3],
+    pub light_color: Rgb,
+    pub light_intensity: f32,
+    pub ambient: f32,
+    /// Unit vector towards the sun (also below the horizon).
+    pub sun_dir: [f32; 3],
+    /// 0 in daylight .. 1 at night.
+    pub night: f32,
+    /// 0 .. 1 around sunrise and sunset.
+    pub dusk: f32,
+}
+
+fn norm3(v: [f32; 3]) -> [f32; 3] {
+    let l = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    if l < 1e-6 {
+        [0.0, 1.0, 0.0]
+    } else {
+        [v[0] / l, v[1] / l, v[2] / l]
+    }
+}
+
+fn smooth(e0: f32, e1: f32, x: f32) -> f32 {
+    let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+impl Environment {
+    /// Lighting at `ctx`, with the day cycle applied.
+    pub fn eval(&self, ctx: &crate::EvalCtx) -> EnvState {
+        use crate::color::lerp;
+        let ld = norm3(self.light_dir);
+        let mut st = EnvState {
+            fog_color: self.fog_color,
+            fog_density: self.fog_density.eval(ctx).max(0.0),
+            sky_color: self.sky_color,
+            ground_color: self.ground_color,
+            light_dir: ld,
+            light_color: self.light_color,
+            light_intensity: self.light_intensity.eval(ctx),
+            ambient: self.ambient.eval(ctx),
+            sun_dir: ld,
+            night: 0.0,
+            dusk: 0.0,
+        };
+        let d = &self.day_cycle;
+        if !d.enabled {
+            return st;
+        }
+        // The sun rises opposite its noon side... on a tilted great circle
+        // facing the light direction's azimuth. Whole days per loop.
+        let t = (d.start + ctx.phase * d.cycles as f32).rem_euclid(1.0);
+        let a = std::f32::consts::TAU * (t - 0.25);
+        let mut south = [ld[0], 0.0, ld[2]];
+        if south[0].abs() + south[2].abs() < 1e-4 {
+            south = [0.0, 0.0, -1.0];
+        }
+        let south = norm3(south);
+        let east = [-south[2], 0.0, south[0]];
+        let noon = d.noon_height.clamp(5.0, 90.0).to_radians();
+        let up = [south[0] * noon.cos(), noon.sin(), south[2] * noon.cos()];
+        let sun = norm3([
+            east[0] * a.cos() + up[0] * a.sin(),
+            east[1] * a.cos() + up[1] * a.sin(),
+            east[2] * a.cos() + up[2] * a.sin(),
+        ]);
+        let day = smooth(-0.12, 0.12, sun[1]);
+        let dusk = (-(sun[1] / 0.18).powi(2)).exp();
+        let night = 1.0 - day;
+        let warm = smooth(0.0, 0.45, sun[1]);
+        let sun_col = lerp(d.sunset_color, self.light_color, warm);
+        st.sun_dir = sun;
+        st.night = night;
+        st.dusk = dusk;
+        if sun[1] > -0.05 {
+            st.light_dir = [sun[0], sun[1].max(0.02), sun[2]];
+            st.light_dir = norm3(st.light_dir);
+            st.light_color = sun_col;
+            st.light_intensity *= smooth(-0.05, 0.1, sun[1]).max(0.15);
+        } else {
+            // Moonlight from the other side.
+            st.light_dir = norm3([-sun[0], (-sun[1]).max(0.05), -sun[2]]);
+            st.light_color = d.moon_color;
+            st.light_intensity *= 0.5;
+        }
+        let tint = |c: Rgb| {
+            let c = lerp(
+                c,
+                crate::color::scale(lerp(c, d.sunset_color, 0.6), 0.9),
+                dusk * 0.8,
+            );
+            lerp(c, d.night_color, night * 0.92)
+        };
+        st.fog_color = tint(self.fog_color);
+        st.sky_color = tint(self.sky_color);
+        st.ground_color = lerp(
+            self.ground_color,
+            crate::color::scale(self.ground_color, 0.3),
+            night,
+        );
+        st.ambient *= 1.0 - night * 0.55;
+        st
+    }
 }
 
 impl Default for Environment {
@@ -164,6 +698,11 @@ impl Default for Environment {
             light_color: [1.0, 1.0, 1.0],
             light_intensity: Param::new(1.5),
             ambient: Param::new(0.3),
+            height_fog: HeightFog::default(),
+            caustics: Caustics::default(),
+            rainbow: Param::new(0.0),
+            day_cycle: DayCycle::default(),
+            shadows: Shadows::default(),
         }
     }
 }
@@ -181,6 +720,9 @@ pub struct Layer {
     /// Blinking / flashing over the loop.
     #[serde(skip_serializing_if = "is_default")]
     pub blink: Blink,
+    /// Left out of the project's colour scheme (fire stays orange).
+    #[serde(skip_serializing_if = "is_default")]
+    pub keep_colors: bool,
     pub kind: LayerKind,
 }
 
@@ -192,6 +734,7 @@ impl Default for Layer {
             transform: Transform::default(),
             symmetry: Symmetry::None,
             blink: Blink::default(),
+            keep_colors: false,
             kind: LayerKind::Mesh(MeshLayer::default()),
         }
     }
@@ -328,12 +871,19 @@ impl Layer {
             LayerKind::Terrain(_) => "Terrain",
             LayerKind::Lasers(_) => "Laser beams",
             LayerKind::Ribbon(_) => "Neon ribbon",
+            LayerKind::Weather(_) => "Weather",
+            LayerKind::Falls(_) => "Waterfall",
+            LayerKind::Text(_) => "Text",
+            LayerKind::Sprite(_) => "Sprites",
+            LayerKind::Arcs(_) => "Electric arcs",
+            LayerKind::Logo(_) => "Logo",
         }
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
+#[allow(clippy::large_enum_variant)] // a scene has a handful of layers
 pub enum LayerKind {
     Mesh(MeshLayer),
     Particles(ParticleLayer),
@@ -342,6 +892,99 @@ pub enum LayerKind {
     Terrain(Terrain),
     Lasers(Lasers),
     Ribbon(Ribbon),
+    Weather(Weather),
+    Falls(Falls),
+    Text(TextLayer),
+    Sprite(SpriteLayer),
+    Arcs(ArcLayer),
+    Logo(LogoLayer),
+}
+
+impl LayerKind {
+    /// The copies of a shape or sprite layer.
+    pub fn instancer_mut(&mut self) -> Option<&mut Instancer> {
+        match self {
+            LayerKind::Mesh(m) => Some(&mut m.instancer),
+            LayerKind::Sprite(s) => Some(&mut s.instancer),
+            _ => None,
+        }
+    }
+
+    /// Every colour setting of the layer (pictures aside).
+    pub fn for_each_color_mut(&mut self, mut f: impl FnMut(&mut Rgb)) {
+        match self {
+            LayerKind::Mesh(m) => {
+                f(&mut m.material.base_color);
+                f(&mut m.material.emissive_color);
+                m.ramp.colors.iter_mut().for_each(&mut f);
+            }
+            LayerKind::Particles(p) => {
+                f(&mut p.color_a);
+                f(&mut p.color_b);
+            }
+            LayerKind::Backdrop(b) => {
+                f(&mut b.color_a);
+                f(&mut b.color_b);
+                f(&mut b.color_c);
+            }
+            LayerKind::Mirror(m) => {
+                f(&mut m.base_color);
+                f(&mut m.tint);
+                f(&mut m.grid_color);
+            }
+            LayerKind::Terrain(t) => {
+                f(&mut t.line_color);
+                f(&mut t.fill_color);
+                f(&mut t.liquid.color);
+            }
+            LayerKind::Lasers(z) => {
+                f(&mut z.color_a);
+                f(&mut z.color_b);
+            }
+            LayerKind::Ribbon(r) => f(&mut r.color),
+            LayerKind::Weather(w) => {
+                f(&mut w.color);
+                f(&mut w.lightning.color);
+            }
+            LayerKind::Falls(fl) => f(&mut fl.color),
+            LayerKind::Text(t) => {
+                f(&mut t.color_top);
+                f(&mut t.color_bottom);
+                f(&mut t.outline_color);
+            }
+            LayerKind::Sprite(sp) => f(&mut sp.tint),
+            LayerKind::Arcs(a) => f(&mut a.color),
+            LayerKind::Logo(g) => {
+                for c in [
+                    &mut g.tint,
+                    &mut g.color_top,
+                    &mut g.color_bottom,
+                    &mut g.outline_color,
+                    &mut g.light_color,
+                    &mut g.glint_color,
+                    &mut g.contour_color,
+                    &mut g.stack_color_a,
+                    &mut g.stack_color_b,
+                    &mut g.extrude_color,
+                    &mut g.burn_color,
+                    &mut g.copper_a,
+                    &mut g.copper_b,
+                    &mut g.glass_tint,
+                    &mut g.rays_tint,
+                ] {
+                    f(c);
+                }
+            }
+        }
+    }
+
+    pub fn instancer(&self) -> Option<&Instancer> {
+        match self {
+            LayerKind::Mesh(m) => Some(&m.instancer),
+            LayerKind::Sprite(s) => Some(&s.instancer),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -444,6 +1087,40 @@ impl Symmetry {
     }
 }
 
+/// Fill in the terrain of copies placed "on a terrain" from the terrain
+/// layer they name.
+fn link_terrains(layers: &mut Cow<'_, [Layer]>) {
+    let wants = |l: &Layer| {
+        matches!(l.kind.instancer(),
+            Some(Instancer::OnTerrain { ground: None, terrain, .. }) if !terrain.is_empty())
+    };
+    if !layers.iter().any(wants) {
+        return;
+    }
+    let terrains: Vec<(String, Terrain, Transform)> = layers
+        .iter()
+        .filter_map(|l| match &l.kind {
+            LayerKind::Terrain(t) => Some((l.name.clone(), t.clone(), l.transform.clone())),
+            _ => None,
+        })
+        .collect();
+    for l in layers.to_mut().iter_mut() {
+        {
+            if let Some(Instancer::OnTerrain {
+                terrain, ground, ..
+            }) = l.kind.instancer_mut()
+            {
+                if ground.is_none() {
+                    *ground = terrains
+                        .iter()
+                        .find(|(n, _, _)| n == terrain)
+                        .map(|(_, t, tr)| Box::new((t.clone(), tr.clone())));
+                }
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Mesh layer
 
@@ -458,6 +1135,12 @@ pub struct MeshLayer {
     /// (needed for smooth displacement).
     #[serde(skip_serializing_if = "is_default")]
     pub subdivide: u32,
+    /// Twist, bend, taper, wobble and explode the shape.
+    #[serde(skip_serializing_if = "is_default")]
+    pub deform: Deform,
+    /// Colours spread across the copies (and cycling through them).
+    #[serde(skip_serializing_if = "is_default")]
+    pub ramp: ColorRamp,
 }
 
 impl Default for MeshLayer {
@@ -468,7 +1151,103 @@ impl Default for MeshLayer {
             instancer: Instancer::Single,
             variation: Variation::default(),
             subdivide: 0,
+            deform: Deform::default(),
+            ramp: ColorRamp::default(),
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum RampMode {
+    /// Smooth blend from colour to colour (back to the first at the end).
+    #[default]
+    Gradient,
+    /// Each copy takes one of the colours, in turn.
+    Steps,
+}
+
+/// Colours across the copies of a shape: copy 0 at the start of the ramp,
+/// the last copy near its end. It can cycle along the copies a whole
+/// number of times per loop.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ColorRamp {
+    pub enabled: bool,
+    /// 2 to 4 colours.
+    pub colors: Vec<Rgb>,
+    pub mode: RampMode,
+    /// Times the colours travel along all the copies per loop.
+    pub cycles: i32,
+    /// Also colour the glow (keeping its strength).
+    pub glow: bool,
+}
+
+impl Default for ColorRamp {
+    fn default() -> Self {
+        ColorRamp {
+            enabled: false,
+            colors: vec![hex(0xff2bd6), hex(0x00e5ff), hex(0xffd000)],
+            mode: RampMode::Gradient,
+            cycles: 1,
+            glow: true,
+        }
+    }
+}
+
+/// Shape deformations, applied on the GPU to every copy (in the shape's
+/// own space, where it fits in a unit sphere; y is "up the shape").
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Deform {
+    /// Turns of twist from the bottom to the top.
+    pub twist: Param,
+    /// Bend from the bottom to the top, in degrees.
+    pub bend: Param,
+    /// Top wider (+) or narrower (−) than the bottom.
+    pub taper: Param,
+    /// Bumpy wobble along the surface.
+    pub noise: Param,
+    /// Size of the wobble bumps (higher = smaller bumps).
+    pub noise_scale: f32,
+    /// Times the wobble flows around per loop.
+    pub noise_speed: i32,
+    /// Faces fly apart (clearest with flat shading).
+    pub explode: Param,
+}
+
+impl Default for Deform {
+    fn default() -> Self {
+        Deform {
+            twist: Param::new(0.0),
+            bend: Param::new(0.0),
+            taper: Param::new(0.0),
+            noise: Param::new(0.0),
+            noise_scale: 2.0,
+            noise_speed: 1,
+            explode: Param::new(0.0),
+        }
+    }
+}
+
+impl Deform {
+    pub fn is_active(&self) -> bool {
+        [
+            &self.twist,
+            &self.bend,
+            &self.taper,
+            &self.noise,
+            &self.explode,
+        ]
+        .iter()
+        .any(|p| p.base != 0.0 || p.is_animated())
+    }
+
+    /// How far outside its unit sphere the deformed shape can reach, as a
+    /// radius multiplier (for culling), at `ctx`.
+    pub fn reach(&self, ctx: &crate::EvalCtx) -> f32 {
+        let taper = self.taper.eval(ctx).abs();
+        let bend = self.bend.eval(ctx).abs().to_radians();
+        1.0 + taper + bend * 0.5 + self.noise.eval(ctx).abs() + self.explode.eval(ctx).abs() * 1.5
     }
 }
 
@@ -480,6 +1259,85 @@ pub enum MeshSource {
     File {
         path: String,
     },
+    /// A raymarched distance-field object: drawn inside its box (it fits
+    /// the unit sphere like the built-in shapes), so it intersects other
+    /// shapes, casts and takes shadows and gets the usual material.
+    Sdf {
+        form: SdfShape,
+        /// Whole cycles of its built-in motion per loop (0 = still).
+        cycles: i32,
+    },
+    /// 3D letters: the text extruded (one line per line).
+    Text {
+        text: String,
+        font: TextFont,
+        /// A TTF/OTF file used instead of `font`.
+        font_file: Option<String>,
+        /// Thickness, in letter heights.
+        depth: f32,
+    },
+}
+
+/// Raymarched distance-field shapes (see `sdf.wgsl`).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum SdfShape {
+    /// Balls that melt into each other as they orbit.
+    Metaballs { balls: u32, blend: f32 },
+    /// A ball carved into a gyroid lattice that flows through it.
+    Gyroid { scale: f32, thickness: f32 },
+    /// The Mandelbulb fractal; its power breathes when it moves.
+    Bulb { power: f32 },
+    /// A rounded box with a ball passing through it, melted together.
+    SoftBox { blend: f32, round: f32 },
+}
+
+impl SdfShape {
+    pub fn all_defaults() -> [SdfShape; 4] {
+        [
+            SdfShape::Metaballs {
+                balls: 5,
+                blend: 0.35,
+            },
+            SdfShape::Gyroid {
+                scale: 8.0,
+                thickness: 0.08,
+            },
+            SdfShape::Bulb { power: 8.0 },
+            SdfShape::SoftBox {
+                blend: 0.25,
+                round: 0.08,
+            },
+        ]
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            SdfShape::Metaballs { .. } => "Metaballs",
+            SdfShape::Gyroid { .. } => "Gyroid",
+            SdfShape::Bulb { .. } => "Fractal bulb",
+            SdfShape::SoftBox { .. } => "Melting box",
+        }
+    }
+
+    pub fn index(&self) -> u32 {
+        match self {
+            SdfShape::Metaballs { .. } => 0,
+            SdfShape::Gyroid { .. } => 1,
+            SdfShape::Bulb { .. } => 2,
+            SdfShape::SoftBox { .. } => 3,
+        }
+    }
+
+    /// Settings as the shader reads them.
+    pub fn params(&self) -> [f32; 3] {
+        match *self {
+            SdfShape::Metaballs { balls, blend } => [balls.clamp(1, 8) as f32, blend.max(0.0), 0.0],
+            SdfShape::Gyroid { scale, thickness } => [scale.max(0.5), thickness.max(0.005), 0.0],
+            SdfShape::Bulb { power } => [power.clamp(2.0, 16.0), 0.0, 0.0],
+            SdfShape::SoftBox { blend, round } => [blend.max(0.0), round.clamp(0.0, 0.5), 0.0],
+        }
+    }
 }
 
 /// Built-in procedural meshes.
@@ -689,6 +1547,18 @@ impl Primitive {
 #[serde(tag = "type")]
 pub enum Instancer {
     Single,
+    /// A huge swarm (up to 250,000 copies), computed on the graphics card
+    /// where it can (desktop, WebGPU): every copy is a function of its
+    /// number, so the fallback on the CPU gives the same picture.
+    Swarm {
+        form: SwarmForm,
+        count: u32,
+        radius: f32,
+        spread: f32,
+        /// Whole turns per loop.
+        speed: i32,
+        seed: u32,
+    },
     Grid {
         counts: [u32; 3],
         spacing: [f32; 3],
@@ -729,6 +1599,45 @@ pub enum Instancer {
         height: f32,
         turns: f32,
     },
+    /// Copies travelling along a closed curve (the neon ribbon's shapes).
+    Curve {
+        curve: RibbonCurve,
+        freq: [u32; 3],
+        /// Size of the curve (1 = a ribbon layer of the same scale).
+        size: f32,
+        count: u32,
+        /// Whole trips around the curve per loop (0 = still).
+        laps: i32,
+        /// Turn each copy to face along the curve.
+        align: bool,
+    },
+    /// Copies scattered over the surface of a shape (evenly by area).
+    Surface {
+        shape: MeshSource,
+        /// Size of that shape (1 = a shape layer of scale 1).
+        size: f32,
+        count: u32,
+        seed: u32,
+        /// Stand each copy up along the surface.
+        align: bool,
+        /// Push copies out from the surface.
+        lift: f32,
+    },
+    /// Copies standing on a terrain layer (by name), riding along as it
+    /// scrolls.
+    OnTerrain {
+        /// Name of the terrain layer.
+        terrain: String,
+        count: u32,
+        seed: u32,
+        /// Tilt copies with the slope.
+        align: bool,
+        /// Lift copies off the ground.
+        lift: f32,
+        /// The terrain and its placement, filled in before rendering.
+        #[serde(skip)]
+        ground: Option<Box<(Terrain, Transform)>>,
+    },
 }
 
 impl Instancer {
@@ -739,8 +1648,12 @@ impl Instancer {
             Instancer::Radial { .. } => "Radial",
             Instancer::Scatter { .. } => "Scatter",
             Instancer::Orbit { .. } => "Orbit swarm",
+            Instancer::Swarm { .. } => "Big swarm",
             Instancer::Wall { .. } => "Wall",
             Instancer::Spiral { .. } => "Spiral",
+            Instancer::Curve { .. } => "Along a curve",
+            Instancer::Surface { .. } => "On a shape's surface",
+            Instancer::OnTerrain { .. } => "On a terrain",
         }
     }
 
@@ -768,6 +1681,14 @@ impl Instancer {
                 speed: 1,
                 seed: 1,
             },
+            Instancer::Swarm {
+                form: SwarmForm::Orbit,
+                count: 20_000,
+                radius: 5.0,
+                spread: 2.0,
+                speed: 1,
+                seed: 1,
+            },
             Instancer::Wall {
                 cols: 12,
                 rows: 4,
@@ -779,6 +1700,30 @@ impl Instancer {
                 radius: 3.0,
                 height: 6.0,
                 turns: 3.0,
+            },
+            Instancer::Curve {
+                curve: RibbonCurve::Knot,
+                freq: [2, 3, 5],
+                size: 4.0,
+                count: 24,
+                laps: 1,
+                align: true,
+            },
+            Instancer::Surface {
+                shape: MeshSource::Primitive(Primitive::Sphere { detail: 3 }),
+                size: 3.0,
+                count: 80,
+                seed: 1,
+                align: true,
+                lift: 0.0,
+            },
+            Instancer::OnTerrain {
+                terrain: String::new(),
+                count: 60,
+                seed: 1,
+                align: false,
+                lift: 0.0,
+                ground: None,
             },
         ]
     }
@@ -805,6 +1750,10 @@ pub struct Variation {
     pub ripple_spread: f32,
     /// Travelling emissive wave (lights chasing along the instances).
     pub chase: f32,
+    /// Equalizer: copy i grows upwards and glows with frequency band i of
+    /// the music (low notes first).
+    #[serde(skip_serializing_if = "is_default")]
+    pub spectrum: f32,
 }
 
 impl Default for Variation {
@@ -819,6 +1768,7 @@ impl Default for Variation {
             ripple_cycles: 1,
             ripple_spread: 1.0,
             chase: 0.0,
+            spectrum: 0.0,
         }
     }
 }
@@ -1031,10 +1981,12 @@ pub enum Emitter {
     Vortex,
     /// Falls slowly like snow / glitter.
     Snow,
+    /// A twisting funnel (tornado / water spout) with debris at its foot.
+    Tornado,
 }
 
 impl Emitter {
-    pub const ALL: [Emitter; 7] = [
+    pub const ALL: [Emitter; 8] = [
         Emitter::Burst,
         Emitter::Sphere,
         Emitter::Ring,
@@ -1042,6 +1994,7 @@ impl Emitter {
         Emitter::Warp,
         Emitter::Vortex,
         Emitter::Snow,
+        Emitter::Tornado,
     ];
     pub fn label(self) -> &'static str {
         match self {
@@ -1052,6 +2005,7 @@ impl Emitter {
             Emitter::Warp => "Warp stars",
             Emitter::Vortex => "Vortex",
             Emitter::Snow => "Snow / glitter",
+            Emitter::Tornado => "Tornado",
         }
     }
     pub fn index(self) -> u32 {
@@ -1102,6 +2056,10 @@ pub struct ParticleLayer {
     pub trail_spacing: Param,
     pub sprite: Sprite,
     pub seed: u32,
+    /// Smoke: particles cover what is behind them (and can be dark)
+    /// instead of adding light. Brightness becomes opacity.
+    #[serde(skip_serializing_if = "is_default")]
+    pub smoke: bool,
 }
 
 impl Default for ParticleLayer {
@@ -1120,6 +2078,7 @@ impl Default for ParticleLayer {
             trail_spacing: Param::new(0.01),
             sprite: Sprite::Glow,
             seed: 1,
+            smoke: false,
         }
     }
 }
@@ -1141,10 +2100,14 @@ pub enum BackdropKind {
     Sponge,
     /// Flight through a corridor of glowing rings.
     Rings,
+    /// Sky with raymarched volumetric clouds and a sun.
+    Clouds,
+    /// Night sky with rippling aurora curtains.
+    Aurora,
 }
 
 impl BackdropKind {
-    pub const ALL: [BackdropKind; 9] = [
+    pub const ALL: [BackdropKind; 11] = [
         BackdropKind::Gradient,
         BackdropKind::Nebula,
         BackdropKind::Starfield,
@@ -1154,6 +2117,8 @@ impl BackdropKind {
         BackdropKind::SynthGrid,
         BackdropKind::Sponge,
         BackdropKind::Rings,
+        BackdropKind::Clouds,
+        BackdropKind::Aurora,
     ];
     pub fn label(self) -> &'static str {
         match self {
@@ -1166,7 +2131,20 @@ impl BackdropKind {
             BackdropKind::SynthGrid => "Synthwave sun & grid",
             BackdropKind::Sponge => "Raymarched sponge flight",
             BackdropKind::Rings => "Raymarched ring corridor",
+            BackdropKind::Clouds => "Volumetric clouds",
+            BackdropKind::Aurora => "Aurora night sky",
         }
+    }
+
+    /// Kinds that fly through raymarched space (the view can roll).
+    pub fn is_flight(self) -> bool {
+        matches!(
+            self,
+            BackdropKind::Tunnel
+                | BackdropKind::Fractal
+                | BackdropKind::Sponge
+                | BackdropKind::Rings
+        )
     }
     pub fn index(self) -> u32 {
         BackdropKind::ALL
@@ -1193,6 +2171,41 @@ pub struct Backdrop {
     /// Settings of the raymarched kinds (tunnel, fractal, sponge, rings).
     #[serde(skip_serializing_if = "is_default")]
     pub ray: RaySettings,
+    /// Render at a lower resolution and upscale (much faster for the
+    /// raymarched kinds and clouds, slightly softer).
+    #[serde(skip_serializing_if = "is_default")]
+    pub resolution: BgResolution,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum BgResolution {
+    #[default]
+    Full,
+    Half,
+    Quarter,
+}
+
+impl BgResolution {
+    pub const ALL: [BgResolution; 3] = [
+        BgResolution::Full,
+        BgResolution::Half,
+        BgResolution::Quarter,
+    ];
+    pub fn label(self) -> &'static str {
+        match self {
+            BgResolution::Full => "Full",
+            BgResolution::Half => "Half (4× faster)",
+            BgResolution::Quarter => "Quarter (16× faster)",
+        }
+    }
+    /// Pixel size divisor.
+    pub fn divisor(self) -> u32 {
+        match self {
+            BgResolution::Full => 1,
+            BgResolution::Half => 2,
+            BgResolution::Quarter => 4,
+        }
+    }
 }
 
 /// Settings shared by the raymarched backgrounds. What each one does
@@ -1248,6 +2261,8 @@ impl RaySettings {
             BackdropKind::Fractal => &["Kaliset", "Crystal", "Nebula"],
             BackdropKind::Sponge => &["Menger sponge", "Beam lattice", "Cube field"],
             BackdropKind::Rings => &["Rings", "Squares", "Triangles"],
+            BackdropKind::Clouds => &["Fluffy", "Overcast", "Storm"],
+            BackdropKind::Aurora => &["Curtains", "Rings", "Spiral"],
             _ => &[],
         }
     }
@@ -1284,6 +2299,20 @@ impl RaySettings {
                 Some("Path bend ×"),
                 Some("Glow"),
             ],
+            BackdropKind::Clouds => [
+                Some("Cloud scale ×"),
+                None,
+                Some("Coverage ×"),
+                Some("Thickness ×"),
+                Some("Sun glow"),
+            ],
+            BackdropKind::Aurora => [
+                Some("Height ×"),
+                Some("Sway"),
+                Some("Ripples ×"),
+                None,
+                Some("Brightness"),
+            ],
             _ => [None; 5],
         }
     }
@@ -1301,6 +2330,7 @@ impl Default for Backdrop {
             detail: Param::new(1.0),
             texture: None,
             ray: RaySettings::default(),
+            resolution: BgResolution::Full,
         }
     }
 }
@@ -1362,6 +2392,121 @@ pub struct PostStack {
     pub palette: PaletteFx,
     pub crt: Crt,
     pub grade: Grade,
+    /// Light shafts streaming from the sun, plus lens flare.
+    #[serde(skip_serializing_if = "is_default")]
+    pub rays: GodRays,
+    /// Shimmering heat distortion.
+    #[serde(skip_serializing_if = "is_default")]
+    pub haze: HeatHaze,
+    /// Blur what is nearer or further than the focus.
+    #[serde(skip_serializing_if = "is_default")]
+    pub dof: DepthOfField,
+    /// Trails: the previous frames linger, zooming, turning and changing
+    /// colour.
+    #[serde(skip_serializing_if = "is_default")]
+    pub feedback: Feedback,
+}
+
+/// Video feedback trails.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Feedback {
+    pub enabled: bool,
+    /// How long trails last (0 = none, 1 = very long).
+    pub length: Param,
+    /// Zoom per second (1 = none, above 1 trails fly outwards).
+    pub zoom: f32,
+    /// Turn per second, in degrees.
+    pub turn: f32,
+    /// Hue change per second, in turns.
+    pub hue: f32,
+}
+
+impl Default for Feedback {
+    fn default() -> Self {
+        Feedback {
+            enabled: false,
+            length: Param::new(0.6),
+            zoom: 1.2,
+            turn: 0.0,
+            hue: 0.0,
+        }
+    }
+}
+
+/// Camera-lens blur away from a focus distance.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DepthOfField {
+    pub enabled: bool,
+    /// Focus on the point the camera looks at (else on `focus`).
+    pub auto_focus: bool,
+    /// Focus distance in world units (animatable).
+    pub focus: Param,
+    /// How strong the blur gets (0..1, animatable).
+    pub blur: Param,
+}
+
+impl Default for DepthOfField {
+    fn default() -> Self {
+        DepthOfField {
+            enabled: false,
+            auto_focus: true,
+            focus: Param::new(10.0),
+            blur: Param::new(0.5),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum HazeRegion {
+    /// Above bright, hot things (lava, fire, the sun).
+    #[default]
+    HotSpots,
+    /// Strongest at the bottom of the picture (hot ground).
+    Ground,
+    /// Everywhere.
+    Everywhere,
+}
+
+impl HazeRegion {
+    pub const ALL: [HazeRegion; 3] = [
+        HazeRegion::HotSpots,
+        HazeRegion::Ground,
+        HazeRegion::Everywhere,
+    ];
+    pub fn label(self) -> &'static str {
+        match self {
+            HazeRegion::HotSpots => "Above hot spots",
+            HazeRegion::Ground => "Near the ground",
+            HazeRegion::Everywhere => "Everywhere",
+        }
+    }
+}
+
+/// Heat shimmer: the picture wobbles as if seen through rising hot air.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HeatHaze {
+    pub enabled: bool,
+    pub region: HazeRegion,
+    pub amount: Param,
+    /// Size of the ripples.
+    pub scale: f32,
+    /// Times the shimmer rises through the picture per loop.
+    pub speed: i32,
+}
+
+impl Default for HeatHaze {
+    fn default() -> Self {
+        HeatHaze {
+            enabled: false,
+            region: HazeRegion::HotSpots,
+            amount: Param::new(1.0),
+            scale: 1.0,
+            speed: 4,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1381,6 +2526,57 @@ impl Default for Bloom {
             intensity: Param::new(0.8),
             threshold: Param::new(0.8),
             radius: Param::new(0.7),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum RaySource {
+    /// From the sun (the light direction).
+    #[default]
+    Sun,
+    /// From the middle of the picture (light at the end of a tunnel).
+    Centre,
+}
+
+impl RaySource {
+    pub const ALL: [RaySource; 2] = [RaySource::Sun, RaySource::Centre];
+    pub fn label(self) -> &'static str {
+        match self {
+            RaySource::Sun => "Sun",
+            RaySource::Centre => "Picture centre",
+        }
+    }
+}
+
+/// Screen-space light shafts ("god rays"): bright parts of the picture near
+/// the light are smeared towards it, so anything dark in front casts
+/// streaks of shadow through the haze.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GodRays {
+    pub enabled: bool,
+    pub source: RaySource,
+    pub intensity: Param,
+    /// Length of the shafts (0..1).
+    pub length: Param,
+    /// Brightness above which the picture casts rays.
+    pub threshold: Param,
+    pub tint: Rgb,
+    /// Lens flare ghosts and halo (0 = none).
+    pub flare: Param,
+}
+
+impl Default for GodRays {
+    fn default() -> Self {
+        GodRays {
+            enabled: false,
+            source: RaySource::Sun,
+            intensity: Param::new(1.0),
+            length: Param::new(0.7),
+            threshold: Param::new(0.5),
+            tint: [1.0, 0.95, 0.85],
+            flare: Param::new(0.0),
         }
     }
 }
@@ -1585,6 +2781,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn lod_grading_spans_the_terrain() {
+        for (cells, drawn) in [(128u32, 64u32), (512, 256), (64, 64)] {
+            for focus in [0.0f32, 0.2, 0.5, 0.93, 1.0] {
+                let (k, s0) = lod_grading(cells, drawn, focus);
+                let at = |i: f32| lod_position(i, cells, focus, k, s0);
+                assert!(at(0.0).abs() < 1e-4, "{cells} {focus}: {}", at(0.0));
+                assert!(
+                    (at(drawn as f32) - 1.0).abs() < 1e-4,
+                    "{}",
+                    at(drawn as f32)
+                );
+                let mut last = -1.0;
+                for i in 0..=drawn {
+                    let t = at(i as f32);
+                    assert!(t >= last, "not monotonic at {i}");
+                    last = t;
+                }
+                // Full resolution next to the focus.
+                let near = (at(s0 + 0.5) - at(s0 - 0.5)) * cells as f32;
+                if focus > 0.01 && focus < 0.99 {
+                    assert!((near - 1.0).abs() < 0.05, "{cells} {focus}: {near}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn default_project_roundtrip() {
         let p = Project::default();
         let back = Project::from_json(&p.to_json()).unwrap();
@@ -1647,6 +2870,11 @@ pub struct Terrain {
     pub size: f32,
     /// Grid cells along each side.
     pub cells: u32,
+    /// Level of detail: `cells` is the resolution near the camera and the
+    /// grid gets gradually coarser away from it (a quarter of the
+    /// triangles).
+    #[serde(skip_serializing_if = "is_default")]
+    pub lod: bool,
     /// Mountain height (animatable).
     pub height: Param,
     /// Hills across the terrain (whole number, keeps it tileable).
@@ -1671,6 +2899,71 @@ pub struct Terrain {
     pub texture_lines: bool,
     /// Nearest-neighbour sampling for chunky pixels.
     pub pixelated: bool,
+    /// Kind of landscape.
+    #[serde(skip_serializing_if = "is_default")]
+    pub shape: TerrainShape,
+    /// Colours by height and slope (snowy peaks, sandy shores…).
+    #[serde(skip_serializing_if = "is_default")]
+    pub biome: Biome,
+    /// Water, lava… filling the low ground.
+    #[serde(skip_serializing_if = "is_default")]
+    pub liquid: Liquid,
+}
+
+impl Terrain {
+    /// Highest `cells`: 256, or 512 with level of detail.
+    pub fn max_cells(&self) -> u32 {
+        if self.lod {
+            512
+        } else {
+            256
+        }
+    }
+
+    /// Grid cells along each side actually drawn.
+    pub fn drawn_cells(&self) -> u32 {
+        let cells = self.cells.clamp(4, self.max_cells());
+        if self.lod {
+            (cells / 2).max(4)
+        } else {
+            cells
+        }
+    }
+}
+
+/// Graded grid for terrain level of detail, along one axis: `drawn` grid
+/// lines spread over 0..1 so the spacing is `1 / cells` at `focus` and
+/// grows linearly with distance from it (`1 + k·d` times). Returns `k` and
+/// the (fractional) grid index that lands on the focus. `k` = 0 is uniform.
+pub fn lod_grading(cells: u32, drawn: u32, focus: f32) -> (f32, f32) {
+    let (n, m, c) = (cells as f64, drawn as f64, focus.clamp(0.0, 1.0) as f64);
+    if drawn >= cells {
+        return (0.0, (c * m) as f32);
+    }
+    let total = |k: f64| n / k * ((1.0 + k * c).ln() + (1.0 + k * (1.0 - c)).ln());
+    // total() falls from n (k -> 0) towards 0: bisect for total(k) = m.
+    let (mut lo, mut hi) = (1e-6f64, 1e6f64);
+    for _ in 0..100 {
+        let mid = (lo * hi).sqrt();
+        if total(mid) > m {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    let k = (lo * hi).sqrt();
+    (k as f32, (n / k * (1.0 + k * c).ln()) as f32)
+}
+
+/// Where grid line `i` of a [`lod_grading`] lands (0..1).
+pub fn lod_position(i: f32, cells: u32, focus: f32, k: f32, s0: f32) -> f32 {
+    let x = i - s0;
+    let d = if k < 1e-4 {
+        x.abs() / cells as f32
+    } else {
+        ((x.abs() * k / cells as f32).exp() - 1.0) / k
+    };
+    (focus + x.signum() * d).clamp(0.0, 1.0)
 }
 
 impl Default for Terrain {
@@ -1678,6 +2971,7 @@ impl Default for Terrain {
         Terrain {
             size: 60.0,
             cells: 64,
+            lod: false,
             height: Param::new(4.0),
             hills: 4,
             roughness: Param::new(0.5),
@@ -1692,6 +2986,170 @@ impl Default for Terrain {
             tiles: 8,
             texture_lines: false,
             pixelated: false,
+            shape: TerrainShape::Hills,
+            biome: Biome::Plain,
+            liquid: Liquid::default(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum TerrainShape {
+    /// Rolling hills.
+    #[default]
+    Hills,
+    /// Sharp ridged mountains.
+    Mountains,
+    /// Flat-topped mesas in steps.
+    Mesas,
+    /// Wind-blown sand dunes.
+    Dunes,
+    /// Deep winding canyons in a plateau.
+    Canyons,
+    /// Round craters, like the moon.
+    Craters,
+}
+
+impl TerrainShape {
+    pub const ALL: [TerrainShape; 6] = [
+        TerrainShape::Hills,
+        TerrainShape::Mountains,
+        TerrainShape::Mesas,
+        TerrainShape::Dunes,
+        TerrainShape::Canyons,
+        TerrainShape::Craters,
+    ];
+    pub fn label(self) -> &'static str {
+        match self {
+            TerrainShape::Hills => "Hills",
+            TerrainShape::Mountains => "Ridged mountains",
+            TerrainShape::Mesas => "Mesas (terraces)",
+            TerrainShape::Dunes => "Sand dunes",
+            TerrainShape::Canyons => "Canyons",
+            TerrainShape::Craters => "Craters",
+        }
+    }
+    pub fn index(self) -> u32 {
+        TerrainShape::ALL
+            .iter()
+            .position(|t| *t == self)
+            .unwrap_or(0) as u32
+    }
+}
+
+/// Height and slope based colouring of solid terrain.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum Biome {
+    /// One ground colour.
+    #[default]
+    Plain,
+    /// Grass, rock and snowy peaks.
+    Alpine,
+    /// Sand and red rock.
+    Desert,
+    /// Black basalt with glowing cracks.
+    Volcanic,
+    /// Snow and blue ice.
+    Arctic,
+    /// Purple moss and teal crystal.
+    Alien,
+}
+
+impl Biome {
+    pub const ALL: [Biome; 6] = [
+        Biome::Plain,
+        Biome::Alpine,
+        Biome::Desert,
+        Biome::Volcanic,
+        Biome::Arctic,
+        Biome::Alien,
+    ];
+    pub fn label(self) -> &'static str {
+        match self {
+            Biome::Plain => "Plain (ground colour)",
+            Biome::Alpine => "Alpine",
+            Biome::Desert => "Desert",
+            Biome::Volcanic => "Volcanic",
+            Biome::Arctic => "Arctic",
+            Biome::Alien => "Alien",
+        }
+    }
+    pub fn index(self) -> u32 {
+        Biome::ALL.iter().position(|t| *t == self).unwrap_or(0) as u32
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum LiquidKind {
+    #[default]
+    None,
+    /// Reflective water with ripples, foam and a sun glint.
+    Water,
+    /// Glowing, slowly churning lava with a dark crust.
+    Lava,
+    /// Radioactive green goo with bubbles.
+    Toxic,
+    /// Frozen, cracked ice.
+    Ice,
+}
+
+impl LiquidKind {
+    pub const ALL: [LiquidKind; 5] = [
+        LiquidKind::None,
+        LiquidKind::Water,
+        LiquidKind::Lava,
+        LiquidKind::Toxic,
+        LiquidKind::Ice,
+    ];
+    pub fn label(self) -> &'static str {
+        match self {
+            LiquidKind::None => "None",
+            LiquidKind::Water => "Water",
+            LiquidKind::Lava => "Lava",
+            LiquidKind::Toxic => "Toxic goo",
+            LiquidKind::Ice => "Ice",
+        }
+    }
+    pub fn index(self) -> u32 {
+        LiquidKind::ALL.iter().position(|t| *t == self).unwrap_or(0) as u32
+    }
+    /// A good colour to start from.
+    pub fn default_color(self) -> Rgb {
+        match self {
+            LiquidKind::None | LiquidKind::Water => hex(0x0b3d5c),
+            LiquidKind::Lava => hex(0xff5a10),
+            LiquidKind::Toxic => hex(0x40ff30),
+            LiquidKind::Ice => hex(0x9fd8f0),
+        }
+    }
+}
+
+/// A liquid filling the terrain up to `level`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Liquid {
+    pub kind: LiquidKind,
+    /// Surface height as a fraction of the mountain height (animatable:
+    /// tides, rising lava).
+    pub level: Param,
+    pub color: Rgb,
+    /// Glow of lava / goo, shine of water and ice.
+    pub glow: Param,
+    /// Size of waves, ripples and crust (0 = still).
+    pub waves: Param,
+    /// Current: whole drifts of the surface pattern per loop.
+    pub flow: i32,
+}
+
+impl Default for Liquid {
+    fn default() -> Self {
+        Liquid {
+            kind: LiquidKind::None,
+            level: Param::new(0.25),
+            color: hex(0x0b3d5c),
+            glow: Param::new(1.0),
+            waves: Param::new(1.0),
+            flow: 1,
         }
     }
 }
@@ -1749,6 +3207,43 @@ pub struct Lasers {
     /// Flash on every beat (0 = steady, 1 = full strobe).
     pub strobe: Param,
     pub seed: u32,
+    /// Thin laser beams or wide, hazy spotlight cones.
+    #[serde(skip_serializing_if = "is_default")]
+    pub style: BeamStyle,
+    /// Spotlights: opening of each cone in degrees.
+    #[serde(skip_serializing_if = "is_default")]
+    pub cone: ConeAngle,
+    /// Spotlights: pools of light where the cones hit the ground (y = 0).
+    #[serde(skip_serializing_if = "is_default")]
+    pub pools: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum BeamStyle {
+    #[default]
+    Laser,
+    Spotlight,
+}
+
+impl BeamStyle {
+    pub const ALL: [BeamStyle; 2] = [BeamStyle::Laser, BeamStyle::Spotlight];
+    pub fn label(self) -> &'static str {
+        match self {
+            BeamStyle::Laser => "Laser beams",
+            BeamStyle::Spotlight => "Spotlight cones",
+        }
+    }
+}
+
+/// Opening angle of spotlight cones (degrees, animatable).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ConeAngle(pub Param);
+
+impl Default for ConeAngle {
+    fn default() -> Self {
+        ConeAngle(Param::new(18.0))
+    }
 }
 
 impl Default for Lasers {
@@ -1766,6 +3261,9 @@ impl Default for Lasers {
             sweep_cycles: 1,
             strobe: Param::new(0.0),
             seed: 1,
+            style: BeamStyle::Laser,
+            cone: ConeAngle::default(),
+            pools: false,
         }
     }
 }
@@ -1805,6 +3303,940 @@ impl RibbonCurve {
             RibbonCurve::Rose => "Rose",
         }
     }
+
+    /// Point at `t` (0..1 around the closed curve), fitting a unit sphere.
+    pub fn point(self, freq: [u32; 3], t: f32) -> [f32; 3] {
+        use std::f32::consts::{PI, TAU};
+        let [a, b, c] = freq.map(|f| f.clamp(1, 16) as f32);
+        let x = t * TAU;
+        match self {
+            RibbonCurve::Lissajous => [
+                (a * x + 0.5 * PI).sin(),
+                (b * x).sin() * 0.6,
+                (c * x + 0.25 * PI).sin(),
+            ],
+            RibbonCurve::Knot => {
+                let rr = 0.62 + 0.28 * (b * x).cos();
+                [rr * (a * x).cos(), 0.28 * (b * x).sin(), rr * (a * x).sin()]
+            }
+            RibbonCurve::Infinity => [x.sin(), 0.15 * (a * x).sin(), x.sin() * x.cos()],
+            RibbonCurve::Wave => [x.cos(), 0.3 * (a * x).sin(), x.sin()],
+            RibbonCurve::Rose => {
+                let rr = (a * x).cos();
+                [rr * x.cos(), 0.1 * (b * x).sin(), rr * x.sin()]
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub enum TextFont {
+    /// Chunky pixel letters, demoscene style.
+    #[default]
+    Pixel,
+    /// Clean monospaced letters (Hack).
+    Mono,
+    /// Light rounded letters (Ubuntu Light).
+    Sans,
+}
+
+impl TextFont {
+    pub const ALL: [TextFont; 3] = [TextFont::Pixel, TextFont::Mono, TextFont::Sans];
+    pub fn label(self) -> &'static str {
+        match self {
+            TextFont::Pixel => "Pixel",
+            TextFont::Mono => "Mono",
+            TextFont::Sans => "Sans",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum TextStyle {
+    /// Still text, centred.
+    #[default]
+    Static,
+    /// Runs across a window a whole number of times per loop.
+    Scroller,
+    /// A scroller whose letters ride a sine wave.
+    SineScroller,
+    /// Letters appear one by one on the beat.
+    Typewriter,
+    /// One line at a time, a new line every few beats.
+    Greetings,
+}
+
+impl TextStyle {
+    pub const ALL: [TextStyle; 5] = [
+        TextStyle::Static,
+        TextStyle::Scroller,
+        TextStyle::SineScroller,
+        TextStyle::Typewriter,
+        TextStyle::Greetings,
+    ];
+    pub fn label(self) -> &'static str {
+        match self {
+            TextStyle::Static => "Still",
+            TextStyle::Scroller => "Scroller",
+            TextStyle::SineScroller => "Sine scroller",
+            TextStyle::Typewriter => "Typewriter",
+            TextStyle::Greetings => "Greetings list",
+        }
+    }
+}
+
+/// Where electric arcs run.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "mode")]
+pub enum ArcPath {
+    /// One arc between two points (layer space).
+    Points { from: [f32; 3], to: [f32; 3] },
+    /// From the layer's position to the nearest copies of another shape
+    /// or sprite layer: the arcs jump as the copies move.
+    Nearest { target: String, count: u32 },
+    /// From each copy of another layer to the next, round the ring.
+    Chain { target: String },
+}
+
+impl ArcPath {
+    pub fn label(&self) -> &'static str {
+        match self {
+            ArcPath::Points { .. } => "Between two points",
+            ArcPath::Nearest { .. } => "To the nearest copies",
+            ArcPath::Chain { .. } => "Copy to copy",
+        }
+    }
+
+    pub fn target(&self) -> Option<&str> {
+        match self {
+            ArcPath::Points { .. } => None,
+            ArcPath::Nearest { target, .. } | ArcPath::Chain { target } => Some(target),
+        }
+    }
+}
+
+/// Tesla-coil lightning: jagged arcs that crawl and re-strike a whole
+/// number of times per loop.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ArcLayer {
+    pub path: ArcPath,
+    /// New shapes per loop (whole, so the loop closes).
+    pub strikes: u32,
+    /// How far the arc zigzags, relative to its length.
+    pub jag: Param,
+    /// How fast the zigzag crawls along a strike.
+    pub crawl: f32,
+    /// Side branches.
+    pub branches: bool,
+    pub width: Param,
+    pub color: Rgb,
+    pub glow: Param,
+    /// How much each strike fades before the next (0 = steady).
+    pub fade: f32,
+    pub seed: u32,
+}
+
+impl Default for ArcLayer {
+    fn default() -> Self {
+        ArcLayer {
+            path: ArcPath::Points {
+                from: [-2.0, 0.0, 0.0],
+                to: [2.0, 0.0, 0.0],
+            },
+            strikes: 16,
+            jag: Param::new(0.15),
+            crawl: 1.0,
+            branches: true,
+            width: Param::new(0.08),
+            color: [0.55, 0.7, 1.0],
+            glow: Param::new(2.0),
+            fade: 0.6,
+            seed: 1,
+        }
+    }
+}
+
+/// Most copies in a swarm.
+pub const SWARM_MAX: u32 = 250_000;
+
+/// Layouts of a big swarm.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum SwarmForm {
+    /// Each copy on its own tilted circle (like Orbit).
+    #[default]
+    Orbit,
+    /// Filling a ball that turns, each copy bobbing.
+    Cloud,
+    /// On the surface of a ball that turns.
+    Shell,
+    /// A spiral galaxy: three arms, the middle turning faster.
+    Galaxy,
+}
+
+impl SwarmForm {
+    pub const ALL: [SwarmForm; 4] = [
+        SwarmForm::Orbit,
+        SwarmForm::Cloud,
+        SwarmForm::Shell,
+        SwarmForm::Galaxy,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SwarmForm::Orbit => "Orbits",
+            SwarmForm::Cloud => "Cloud",
+            SwarmForm::Shell => "Shell",
+            SwarmForm::Galaxy => "Galaxy",
+        }
+    }
+
+    pub fn index(self) -> u32 {
+        match self {
+            SwarmForm::Orbit => 0,
+            SwarmForm::Cloud => 1,
+            SwarmForm::Shell => 2,
+            SwarmForm::Galaxy => 3,
+        }
+    }
+}
+
+/// How sprites turn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum SpriteFacing {
+    /// Always square on to the camera.
+    #[default]
+    Camera,
+    /// Stand upright and turn around the vertical axis only (trees, people).
+    Upright,
+    /// A plane in the scene facing +z, turned with the layer and the copies.
+    Fixed,
+}
+
+impl SpriteFacing {
+    pub const ALL: [SpriteFacing; 3] = [
+        SpriteFacing::Camera,
+        SpriteFacing::Upright,
+        SpriteFacing::Fixed,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SpriteFacing::Camera => "Face the camera",
+            SpriteFacing::Upright => "Upright",
+            SpriteFacing::Fixed => "Fixed plane",
+        }
+    }
+}
+
+/// How sprites mix with what is behind them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum SpriteBlend {
+    /// Soft edges from the image's alpha (copies drawn back to front).
+    #[default]
+    Alpha,
+    /// Light adds up: glows, flares, fire.
+    Additive,
+    /// Hard edges at half alpha; solid, so no sorting is needed.
+    Cutout,
+}
+
+impl SpriteBlend {
+    pub const ALL: [SpriteBlend; 3] = [
+        SpriteBlend::Alpha,
+        SpriteBlend::Additive,
+        SpriteBlend::Cutout,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SpriteBlend::Alpha => "Alpha",
+            SpriteBlend::Additive => "Additive (glow)",
+            SpriteBlend::Cutout => "Cutout",
+        }
+    }
+}
+
+/// What a logo is made of.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum LogoSource {
+    /// A line (or a few lines) of text in a font.
+    #[default]
+    Text,
+    /// An image; its shape comes from `LogoLayer::mask`.
+    Image,
+}
+
+impl LogoSource {
+    pub const ALL: [LogoSource; 2] = [LogoSource::Text, LogoSource::Image];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            LogoSource::Text => "Text",
+            LogoSource::Image => "Image",
+        }
+    }
+}
+
+/// Which parts of a logo image are the logo.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum LogoMask {
+    /// The image's transparency.
+    #[default]
+    Alpha,
+    /// Bright parts (a logo on black).
+    Bright,
+    /// Dark parts (a logo on white).
+    Dark,
+}
+
+impl LogoMask {
+    pub const ALL: [LogoMask; 3] = [LogoMask::Alpha, LogoMask::Bright, LogoMask::Dark];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            LogoMask::Alpha => "Transparency",
+            LogoMask::Bright => "Bright parts",
+            LogoMask::Dark => "Dark parts",
+        }
+    }
+}
+
+/// Where a logo's colour comes from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum LogoColors {
+    /// The image's own colours times the tint (text: the tint).
+    Image,
+    /// Top to bottom gradient.
+    #[default]
+    Gradient,
+}
+
+impl LogoColors {
+    pub const ALL: [LogoColors; 2] = [LogoColors::Image, LogoColors::Gradient];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            LogoColors::Image => "Image colours",
+            LogoColors::Gradient => "Gradient",
+        }
+    }
+}
+
+/// The shape of a logo's bevel, from the edge inward.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum LogoBevel {
+    /// Flat: no lighting.
+    #[default]
+    Off,
+    /// A rounded edge (a quarter circle).
+    Round,
+    /// A straight slope, like cut metal.
+    Chiselled,
+    /// Terraces.
+    Stepped,
+    /// The whole logo bulges like a cushion.
+    Pillow,
+}
+
+impl LogoBevel {
+    pub const ALL: [LogoBevel; 5] = [
+        LogoBevel::Off,
+        LogoBevel::Round,
+        LogoBevel::Chiselled,
+        LogoBevel::Stepped,
+        LogoBevel::Pillow,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            LogoBevel::Off => "Flat",
+            LogoBevel::Round => "Round",
+            LogoBevel::Chiselled => "Chiselled",
+            LogoBevel::Stepped => "Stepped",
+            LogoBevel::Pillow => "Pillow",
+        }
+    }
+
+    pub fn index(self) -> u32 {
+        LogoBevel::ALL.iter().position(|b| *b == self).unwrap_or(0) as u32
+    }
+}
+
+/// How a logo appears as its reveal goes from 0 to 1.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum LogoReveal {
+    /// The letters grow outward from their middle lines.
+    #[default]
+    Grow,
+    /// Outlines first, then they fill inward.
+    Edges,
+    /// A straight wipe across, in a direction.
+    Wipe,
+    /// A circle opening from the middle.
+    Radial,
+}
+
+impl LogoReveal {
+    pub const ALL: [LogoReveal; 4] = [
+        LogoReveal::Grow,
+        LogoReveal::Edges,
+        LogoReveal::Wipe,
+        LogoReveal::Radial,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            LogoReveal::Grow => "Grow from the middle",
+            LogoReveal::Edges => "Edges first",
+            LogoReveal::Wipe => "Wipe",
+            LogoReveal::Radial => "Circle",
+        }
+    }
+
+    pub fn index(self) -> u32 {
+        LogoReveal::ALL.iter().position(|r| *r == self).unwrap_or(0) as u32
+    }
+}
+
+/// The point of the logo that sits at its position (and that it turns
+/// around).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum LogoAnchor {
+    TopLeft,
+    Top,
+    TopRight,
+    Left,
+    #[default]
+    Centre,
+    Right,
+    BottomLeft,
+    Bottom,
+    BottomRight,
+}
+
+impl LogoAnchor {
+    pub const ALL: [LogoAnchor; 9] = [
+        LogoAnchor::TopLeft,
+        LogoAnchor::Top,
+        LogoAnchor::TopRight,
+        LogoAnchor::Left,
+        LogoAnchor::Centre,
+        LogoAnchor::Right,
+        LogoAnchor::BottomLeft,
+        LogoAnchor::Bottom,
+        LogoAnchor::BottomRight,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            LogoAnchor::TopLeft => "Top left",
+            LogoAnchor::Top => "Top",
+            LogoAnchor::TopRight => "Top right",
+            LogoAnchor::Left => "Left",
+            LogoAnchor::Centre => "Centre",
+            LogoAnchor::Right => "Right",
+            LogoAnchor::BottomLeft => "Bottom left",
+            LogoAnchor::Bottom => "Bottom",
+            LogoAnchor::BottomRight => "Bottom right",
+        }
+    }
+
+    /// The point in the same place on the opposite side (Top ↔ Bottom,
+    /// Left ↔ Right).
+    pub fn opposite(self) -> LogoAnchor {
+        let [x, y] = self.point();
+        LogoAnchor::at(1.0 - x, 1.0 - y)
+    }
+
+    /// The anchor at (0, 0.5 or 1 from the left, from the bottom).
+    pub fn at(x: f32, y: f32) -> LogoAnchor {
+        let col = (x * 2.0).round().clamp(0.0, 2.0) as usize;
+        let row = 2 - (y * 2.0).round().clamp(0.0, 2.0) as usize;
+        LogoAnchor::ALL[row * 3 + col]
+    }
+
+    /// The anchor inside the logo (0..1 from the left, 0..1 from the bottom).
+    pub fn point(self) -> [f32; 2] {
+        let i = LogoAnchor::ALL.iter().position(|a| *a == self).unwrap_or(4);
+        [(i % 3) as f32 * 0.5, 1.0 - (i / 3) as f32 * 0.5]
+    }
+}
+
+/// A logo or title drawn flat on the screen over the scene (before the
+/// post effects, so bloom, rays and trails apply). Its shape is a signed
+/// distance field baked from the text or image, which gives outlines,
+/// glows, shadows and bevels at any size.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LogoLayer {
+    pub source: LogoSource,
+    pub text: String,
+    pub font: TextFont,
+    /// A TTF/OTF file used instead of `font`.
+    pub font_file: Option<String>,
+    /// A texture (built-in or added to the project).
+    pub image: Option<String>,
+    pub mask: LogoMask,
+    /// Another logo layer (by name) this one is placed against; empty:
+    /// the screen.
+    pub attach_to: String,
+    /// The point of the screen (or of that logo) the position is measured
+    /// from. Bottom left (the default) makes the position absolute.
+    pub attach_point: LogoAnchor,
+    /// Position of the anchor from the attach point, as fractions of the
+    /// screen's width and height (to the right, up).
+    pub x: Param,
+    pub y: Param,
+    pub anchor: LogoAnchor,
+    /// Height as a fraction of the screen height; the width follows.
+    pub size: Param,
+    /// Degrees, anticlockwise, around the anchor.
+    pub rotation: Param,
+    pub opacity: Param,
+    pub colors: LogoColors,
+    /// Multiplies the image colours.
+    pub tint: Rgb,
+    pub color_top: Rgb,
+    pub color_bottom: Rgb,
+    /// Brightness; above 1 it glows.
+    pub glow: Param,
+    /// Outline width (0 = none, 1 = thick).
+    pub outline: Param,
+    pub outline_color: Rgb,
+    /// Drop shadow strength.
+    pub shadow: Param,
+    /// Chrome: a shiny bevel reflecting the sky.
+    pub chrome: Param,
+    /// Relief lit by a light on the screen.
+    pub bevel: LogoBevel,
+    /// How far in from the edge the bevel reaches (1 = a fifth of the
+    /// logo's shorter side; Pillow always spans the whole logo).
+    pub bevel_width: Param,
+    /// How steep the bevel is.
+    pub bevel_depth: Param,
+    /// Terraces of the Stepped bevel.
+    pub steps: u32,
+    /// Where the light comes from on the screen, in degrees (0 = from the
+    /// right, 90 = from above).
+    pub light_angle: Param,
+    /// How high the light is above the logo, in degrees.
+    pub light_height: Param,
+    pub light_color: Rgb,
+    /// How much the light shades the logo (0 = flat colour).
+    pub lighting: Param,
+    /// Highlights.
+    pub shine: Param,
+    /// Small, sharp highlights (1) or broad ones (0).
+    pub gloss: f32,
+    /// A material from a picture of a lit sphere (built-in or yours),
+    /// looked up by the bevel's slope.
+    pub matcap: Option<String>,
+    pub matcap_amount: Param,
+    /// A bright band sweeping across the logo.
+    pub glint: Param,
+    /// Sweeps per loop.
+    pub glint_cycles: i32,
+    /// Band width (fraction of the logo's height).
+    pub glint_width: f32,
+    /// Direction the band travels, in degrees (0 = to the right).
+    pub glint_angle: f32,
+    pub glint_color: Rgb,
+    // Distance-field effects. Distances are in logo heights.
+    /// Rings rippling out from the edges (brightness; 0 = none).
+    pub contours: Param,
+    /// Distance between rings.
+    pub contour_spacing: f32,
+    /// Rings passing per loop (negative = inward).
+    pub contour_cycles: i32,
+    /// How far out they fade.
+    pub contour_reach: f32,
+    /// Line thickness (fraction of the spacing).
+    pub contour_width: f32,
+    pub contour_color: Rgb,
+    /// Rings inside the letters too.
+    pub contour_inside: bool,
+    /// Solid outlines stacked around the logo (0 = none).
+    pub stack: u32,
+    pub stack_width: Param,
+    /// Space between them.
+    pub stack_gap: f32,
+    /// Colours of the first and last outline.
+    pub stack_color_a: Rgb,
+    pub stack_color_b: Rgb,
+    /// Fake 3D depth behind the logo, its length (0 = none).
+    pub extrude: Param,
+    /// Direction it goes, in degrees (0 = to the right, -90 = down).
+    pub extrude_angle: f32,
+    pub extrude_color: Rgb,
+    /// Burning away: 0 = whole, 1 = gone.
+    pub dissolve: Param,
+    /// Size of the burnt patches (patches per logo height).
+    pub dissolve_scale: f32,
+    /// 0: patches anywhere; 1: eaten from the edges inward.
+    pub dissolve_edges: f32,
+    /// Width of the glowing burn front.
+    pub burn_width: f32,
+    pub burn_color: Rgb,
+    pub dissolve_seed: u32,
+    /// How the logo appears as `reveal_amount` goes from 0 to 1.
+    pub reveal: LogoReveal,
+    /// 1 = fully shown.
+    pub reveal_amount: Param,
+    /// Wipe direction, in degrees (0 = left to right).
+    pub reveal_angle: f32,
+    /// Softness of a wipe's or circle's edge.
+    pub reveal_soft: f32,
+    /// Blend towards a second logo: 0 = this one, 1 = the other.
+    pub morph: Param,
+    pub morph_source: LogoSource,
+    pub morph_text: String,
+    pub morph_image: Option<String>,
+    // Rasters and distortion.
+    /// Copper bars scrolling through the letters (0 = none, 1 = all bars).
+    pub copper: Param,
+    /// Bars per logo height.
+    pub copper_bars: f32,
+    /// Pairs of bars scrolling past per loop (negative = upward).
+    pub copper_cycles: i32,
+    /// The two alternating bar colours.
+    pub copper_a: Rgb,
+    pub copper_b: Rgb,
+    /// Rows swaying sideways (logo heights).
+    pub wobble_x: Param,
+    /// Columns bobbing up and down (logo heights).
+    pub wobble_y: Param,
+    /// Waves per logo height.
+    pub wobble_waves: f32,
+    /// Times the waves roll past per loop.
+    pub wobble_cycles: i32,
+    /// Horizontal slices jumping sideways (largest jump, logo heights).
+    pub glitch: Param,
+    /// Slices per logo height.
+    pub glitch_slices: f32,
+    /// Share of the slices that jump.
+    pub glitch_chance: f32,
+    /// New jumps per loop (16 = every beat of a 16-beat loop).
+    pub glitch_per_loop: u32,
+    /// Colour split of a jumping slice (logo heights).
+    pub glitch_split: f32,
+    /// Red and blue pulled apart (logo heights).
+    pub chroma: Param,
+    /// Direction red moves, in degrees.
+    pub chroma_angle: f32,
+    // Retro looks.
+    /// Blocks (logo heights; 0 = sharp). Animate it to pixelate in or out.
+    pub pixelate: Param,
+    /// Only colours of a retro palette.
+    pub palette: Option<PaletteId>,
+    /// Ordered (Bayer) dither between palette colours (0..1).
+    pub dither: f32,
+    /// Pick by brightness along the palette sorted dark to light, instead of
+    /// the nearest colour.
+    pub palette_by_brightness: bool,
+    /// Palette colours rotating, whole turns per loop.
+    pub palette_cycles: i32,
+    /// Halftone dots (0 = none, 1 = only dots).
+    pub halftone: Param,
+    /// Dot spacing (logo heights).
+    pub halftone_size: f32,
+    /// Screen angle in degrees.
+    pub halftone_angle: f32,
+    /// Dark gaps between scanlines (0..1).
+    pub scanlines: Param,
+    /// Scanlines per logo height.
+    pub scanline_count: f32,
+    /// Red, green and blue phosphor stripes (0..1).
+    pub crt_mask: f32,
+    /// Extra brightness in the lines (above 0 they bloom).
+    pub crt_glow: Param,
+    /// Two turning line patterns beating against each other (0..1).
+    pub moire: Param,
+    /// Lines per logo height.
+    pub moire_lines: f32,
+    /// Turns per loop (the two patterns turn opposite ways).
+    pub moire_cycles: i32,
+    // The logo meets the scene.
+    /// Glass letters: the scene behind them, bent (0 = none, 1 = all glass).
+    pub glass: Param,
+    /// How far the glass bends the scene (logo heights).
+    pub refraction: f32,
+    /// Colours bent by different amounts (0..1 of the bend).
+    pub dispersion: f32,
+    pub glass_tint: Rgb,
+    /// Light rays streaming out from the logo (0 = none).
+    pub rays: Param,
+    /// Length of the rays (0..1).
+    pub rays_length: f32,
+    /// Only light brighter than this streams.
+    pub rays_threshold: f32,
+    /// Rays of the light behind the logo, with the logo's shadow cut out of
+    /// them, instead of the logo's own light.
+    pub rays_shadow: bool,
+    pub rays_tint: Rgb,
+    /// Fading copies of the logo where it was a moment ago (0 = none).
+    pub echoes: u32,
+    /// Time between copies (fraction of the loop).
+    pub echo_spacing: f32,
+    /// Each copy's opacity relative to the one after it.
+    pub echo_fade: f32,
+}
+
+impl Default for LogoLayer {
+    fn default() -> Self {
+        LogoLayer {
+            source: LogoSource::Text,
+            text: "EZ2DEMOSCENE".into(),
+            font: TextFont::Mono,
+            font_file: None,
+            image: None,
+            mask: LogoMask::Alpha,
+            attach_to: String::new(),
+            attach_point: LogoAnchor::BottomLeft,
+            x: Param::new(0.5),
+            y: Param::new(0.5),
+            anchor: LogoAnchor::Centre,
+            size: Param::new(0.2),
+            rotation: Param::new(0.0),
+            opacity: Param::new(1.0),
+            colors: LogoColors::Gradient,
+            tint: [1.0, 1.0, 1.0],
+            color_top: hex(0xffffff),
+            color_bottom: hex(0x2bd6ff),
+            glow: Param::new(1.0),
+            outline: Param::new(0.0),
+            outline_color: hex(0x000000),
+            shadow: Param::new(0.0),
+            chrome: Param::new(0.0),
+            bevel: LogoBevel::Off,
+            bevel_width: Param::new(0.4),
+            bevel_depth: Param::new(1.0),
+            steps: 3,
+            light_angle: Param::new(120.0),
+            light_height: Param::new(40.0),
+            light_color: [1.0, 1.0, 1.0],
+            lighting: Param::new(1.0),
+            shine: Param::new(0.5),
+            gloss: 0.6,
+            matcap: None,
+            matcap_amount: Param::new(1.0),
+            glint: Param::new(0.0),
+            glint_cycles: 1,
+            glint_width: 0.12,
+            glint_angle: 20.0,
+            glint_color: [1.0, 1.0, 1.0],
+            contours: Param::new(0.0),
+            contour_spacing: 0.08,
+            contour_cycles: 2,
+            contour_reach: 0.5,
+            contour_width: 0.15,
+            contour_color: hex(0x40e0ff),
+            contour_inside: false,
+            stack: 0,
+            stack_width: Param::new(0.03),
+            stack_gap: 0.0,
+            stack_color_a: hex(0xff2bd6),
+            stack_color_b: hex(0x2040ff),
+            extrude: Param::new(0.0),
+            extrude_angle: -60.0,
+            extrude_color: hex(0x6020a0),
+            dissolve: Param::new(0.0),
+            dissolve_scale: 6.0,
+            dissolve_edges: 0.3,
+            burn_width: 0.08,
+            burn_color: hex(0xff7020),
+            dissolve_seed: 1,
+            reveal: LogoReveal::Grow,
+            reveal_amount: Param::new(1.0),
+            reveal_angle: 0.0,
+            reveal_soft: 0.1,
+            morph: Param::new(0.0),
+            morph_source: LogoSource::Text,
+            morph_text: "LOOP".into(),
+            morph_image: None,
+            copper: Param::new(0.0),
+            copper_bars: 3.0,
+            copper_cycles: 1,
+            copper_a: hex(0xff3040),
+            copper_b: hex(0x3060ff),
+            wobble_x: Param::new(0.0),
+            wobble_y: Param::new(0.0),
+            wobble_waves: 1.5,
+            wobble_cycles: 1,
+            glitch: Param::new(0.0),
+            glitch_slices: 12.0,
+            glitch_chance: 0.3,
+            glitch_per_loop: 16,
+            glitch_split: 0.02,
+            chroma: Param::new(0.0),
+            chroma_angle: 0.0,
+            pixelate: Param::new(0.0),
+            palette: None,
+            dither: 0.5,
+            palette_by_brightness: false,
+            palette_cycles: 0,
+            halftone: Param::new(0.0),
+            halftone_size: 0.04,
+            halftone_angle: 45.0,
+            scanlines: Param::new(0.0),
+            scanline_count: 40.0,
+            crt_mask: 0.0,
+            crt_glow: Param::new(0.0),
+            moire: Param::new(0.0),
+            moire_lines: 30.0,
+            moire_cycles: 1,
+            glass: Param::new(0.0),
+            refraction: 0.08,
+            dispersion: 0.2,
+            glass_tint: [1.0, 1.0, 1.0],
+            rays: Param::new(0.0),
+            rays_length: 0.5,
+            rays_threshold: 0.0,
+            rays_shadow: false,
+            rays_tint: [1.0, 1.0, 1.0],
+            echoes: 0,
+            echo_spacing: 0.02,
+            echo_fade: 0.6,
+        }
+    }
+}
+
+/// Images in the scene: billboards or planes, one per copy, optionally
+/// playing a sprite sheet in step with the loop.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SpriteLayer {
+    /// A texture (built-in or added to the project); none draws a soft
+    /// glowing dot.
+    pub image: Option<String>,
+    /// Sprite sheet: frames in a grid, read left to right, top to bottom.
+    pub columns: u32,
+    pub rows: u32,
+    /// Frames used (0 = the whole grid).
+    pub frames: u32,
+    /// Whole passes through the frames per loop (0 = first frame only).
+    pub cycles: i32,
+    /// Each copy starts at a different frame.
+    pub random_start: bool,
+    pub facing: SpriteFacing,
+    pub blend: SpriteBlend,
+    /// Height of a sprite; the width follows the frame's shape.
+    pub size: Param,
+    pub opacity: Param,
+    /// Multiplies the image colour.
+    pub tint: [f32; 3],
+    /// Brightness (above 1 blooms).
+    pub glow: Param,
+    /// Nearest-neighbour sampling for pixel art.
+    pub pixelated: bool,
+    pub instancer: Instancer,
+    pub variation: Variation,
+}
+
+impl Default for SpriteLayer {
+    fn default() -> Self {
+        SpriteLayer {
+            image: None,
+            columns: 1,
+            rows: 1,
+            frames: 0,
+            cycles: 1,
+            random_start: false,
+            facing: SpriteFacing::Camera,
+            blend: SpriteBlend::Alpha,
+            size: Param::new(1.0),
+            opacity: Param::new(1.0),
+            tint: [1.0, 1.0, 1.0],
+            glow: Param::new(1.0),
+            pixelated: false,
+            instancer: Instancer::Single,
+            variation: Variation::default(),
+        }
+    }
+}
+
+impl SpriteLayer {
+    /// Frames played (at least one).
+    pub fn frame_count(&self) -> u32 {
+        let grid = self.columns.max(1) * self.rows.max(1);
+        if self.frames == 0 {
+            grid
+        } else {
+            self.frames.min(grid)
+        }
+    }
+}
+
+/// Glowing letters in the scene (a flat sign facing +z; place and turn it
+/// like any layer).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TextLayer {
+    /// One line per line for Greetings; Scrollers run it as one line.
+    pub text: String,
+    pub font: TextFont,
+    /// A TTF/OTF file used instead of `font`.
+    pub font_file: Option<String>,
+    pub style: TextStyle,
+    /// Letter height in world units.
+    pub size: f32,
+    /// Extra space between letters (fraction of the size).
+    pub spacing: f32,
+    /// Width of the scroller window in world units.
+    pub width: f32,
+    /// Times the scroller runs past per loop (negative = the other way).
+    pub speed: i32,
+    /// Sine scroller: wave height (fraction of the size).
+    pub wave: Param,
+    /// Letters per wave.
+    pub wavelength: f32,
+    /// Times the wave rolls per loop.
+    pub wave_cycles: i32,
+    /// Typewriter: letters per beat.
+    pub letters_per_beat: u32,
+    /// Greetings: beats per line.
+    pub beats_per_line: u32,
+    /// Colour at the top and bottom of the letters.
+    pub color_top: Rgb,
+    pub color_bottom: Rgb,
+    pub glow: Param,
+    /// Outline width (0 = none, 1 = thick).
+    pub outline: f32,
+    pub outline_color: Rgb,
+    /// Drop shadow strength.
+    pub shadow: f32,
+    /// Chrome: shiny bevelled letters reflecting the sky.
+    pub chrome: f32,
+    /// Always turn the text towards the camera.
+    pub face_camera: bool,
+}
+
+impl Default for TextLayer {
+    fn default() -> Self {
+        TextLayer {
+            text: "EZ2DEMOSCENE".into(),
+            font: TextFont::Pixel,
+            font_file: None,
+            style: TextStyle::Static,
+            size: 1.0,
+            spacing: 0.0,
+            width: 12.0,
+            speed: 1,
+            wave: Param::new(0.4),
+            wavelength: 8.0,
+            wave_cycles: 2,
+            letters_per_beat: 2,
+            beats_per_line: 4,
+            color_top: hex(0xffffff),
+            color_bottom: hex(0xff2bd6),
+            glow: Param::new(1.0),
+            outline: 0.0,
+            outline_color: hex(0x000000),
+            shadow: 0.0,
+            chrome: 0.0,
+            face_camera: false,
+        }
+    }
 }
 
 /// A glowing tube along a closed curve with light pulses running along it.
@@ -1840,5 +4272,429 @@ impl Default for Ribbon {
             pulse_length: Param::new(0.08),
             pulse_glow: Param::new(6.0),
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Weather
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum Precipitation {
+    /// Streaks of rain with splashes on the ground.
+    #[default]
+    Rain,
+    /// Slowly swaying snowflakes.
+    Snow,
+    /// Glowing embers rising from the ground.
+    Embers,
+    /// A sandstorm: dust blown sideways.
+    Dust,
+    /// Fireflies wandering and blinking.
+    Fireflies,
+    /// No particles (lightning only).
+    None,
+}
+
+impl Precipitation {
+    pub const ALL: [Precipitation; 6] = [
+        Precipitation::Rain,
+        Precipitation::Snow,
+        Precipitation::Embers,
+        Precipitation::Dust,
+        Precipitation::Fireflies,
+        Precipitation::None,
+    ];
+    pub fn label(self) -> &'static str {
+        match self {
+            Precipitation::Rain => "Rain",
+            Precipitation::Snow => "Snow",
+            Precipitation::Embers => "Rising embers",
+            Precipitation::Dust => "Sandstorm",
+            Precipitation::Fireflies => "Fireflies",
+            Precipitation::None => "None (lightning only)",
+        }
+    }
+    pub fn index(self) -> u32 {
+        Precipitation::ALL
+            .iter()
+            .position(|t| *t == self)
+            .unwrap_or(0) as u32
+    }
+    /// Colour and falls per loop that suit the kind.
+    pub fn defaults(self) -> (Rgb, u32, f32) {
+        match self {
+            Precipitation::Rain => (hex(0x8fa8c8), 12, 0.05),
+            Precipitation::Snow => (hex(0xf0f4ff), 2, 0.12),
+            Precipitation::Embers => (hex(0xff7020), 3, 0.08),
+            Precipitation::Dust => (hex(0xc09060), 4, 0.6),
+            Precipitation::Fireflies => (hex(0xc0ff60), 1, 0.1),
+            Precipitation::None => (hex(0xffffff), 1, 0.1),
+        }
+    }
+}
+
+/// Rain, snow, embers or dust filling a box that follows the camera, with
+/// optional lightning. Every drop falls a whole number of times per loop.
+/// The layer's height (position Y) is the ground where drops splash.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Weather {
+    pub kind: Precipitation,
+    pub count: u32,
+    /// Half width of the box around the camera.
+    pub area: f32,
+    /// Height of the top of the box above the ground.
+    pub height: f32,
+    /// Times each drop falls (or rises) per loop.
+    pub falls: u32,
+    /// Sideways push in degrees of tilt (animatable: gusts).
+    pub wind: Param,
+    /// Wind direction in degrees around the vertical axis.
+    pub wind_dir: f32,
+    /// Size of drops / flakes (animatable).
+    pub size: Param,
+    /// Rain streak length multiplier.
+    pub streak: f32,
+    pub color: Rgb,
+    pub intensity: Param,
+    /// Splash rings where rain hits the ground (0 = none).
+    pub splashes: Param,
+    pub seed: u32,
+    pub lightning: Lightning,
+    /// Rain wets the ground (darker, glossy, puddles); snow covers
+    /// upward-facing surfaces. Animate it to build up and melt.
+    pub ground: Param,
+}
+
+impl Default for Weather {
+    fn default() -> Self {
+        Weather {
+            kind: Precipitation::Rain,
+            count: 6000,
+            area: 18.0,
+            height: 14.0,
+            falls: 12,
+            wind: Param::new(10.0),
+            wind_dir: 30.0,
+            size: Param::new(0.05),
+            streak: 1.0,
+            color: hex(0x8fa8c8),
+            intensity: Param::new(0.6),
+            splashes: Param::new(0.6),
+            seed: 1,
+            lightning: Lightning::default(),
+            ground: Param::new(0.6),
+        }
+    }
+}
+
+/// Lightning strikes: a jagged bolt and a flash that lights up the scene.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Lightning {
+    pub enabled: bool,
+    /// Moments per loop when a strike may happen.
+    pub per_loop: u32,
+    /// Chance of a strike at each moment.
+    pub chance: f32,
+    /// Brightness of the flash lighting up the scene.
+    pub flash: Param,
+    pub color: Rgb,
+    /// Distance of the bolts from the camera.
+    pub distance: f32,
+    pub seed: u32,
+}
+
+impl Default for Lightning {
+    fn default() -> Self {
+        Lightning {
+            enabled: false,
+            per_loop: 8,
+            chance: 0.35,
+            flash: Param::new(1.5),
+            color: hex(0xc8d8ff),
+            distance: 30.0,
+            seed: 7,
+        }
+    }
+}
+
+impl Lightning {
+    /// The strike visible at `phase`: (brightness 0..1, strike number,
+    /// time since it started as a fraction of a slot). Loop-safe: slots
+    /// wrap with the loop.
+    pub fn strike(&self, phase: f32) -> Option<(f32, u32, f32)> {
+        if !self.enabled {
+            return None;
+        }
+        let n = self.per_loop.max(1) as f32;
+        let x = phase.rem_euclid(1.0) * n;
+        let slot = (x.floor() as u32) % self.per_loop.max(1);
+        let r = crate::rng::hash_u32(
+            slot.wrapping_mul(0x9e37_79b9) ^ self.seed.wrapping_mul(0x85eb_ca6b),
+        );
+        let roll = (r >> 8) as f32 / (1u32 << 24) as f32;
+        if roll >= self.chance.clamp(0.0, 1.0) {
+            return None;
+        }
+        // Each strike starts somewhere in the first half of its slot and
+        // flickers two or three times before fading.
+        let start = ((r & 0xff) as f32 / 255.0) * 0.5;
+        let t = x.fract() - start;
+        if t < 0.0 {
+            return None;
+        }
+        let flicker = if t < 0.03 {
+            1.0
+        } else if t < 0.05 {
+            0.25
+        } else if t < 0.09 {
+            0.9
+        } else {
+            (-(t - 0.09) * 20.0).exp()
+        };
+        let b = flicker.clamp(0.0, 1.0);
+        (b > 0.003).then_some((b, slot, t))
+    }
+
+    /// Brightness of the lightning flash at `phase` (0 = none).
+    pub fn flash_at(&self, phase: f32) -> f32 {
+        self.strike(phase).map(|s| s.0).unwrap_or(0.0)
+    }
+}
+
+#[cfg(test)]
+mod weather_tests {
+    use super::*;
+
+    #[test]
+    fn lightning_loops_and_strikes() {
+        let l = Lightning {
+            enabled: true,
+            chance: 1.0,
+            ..Default::default()
+        };
+        assert_eq!(l.flash_at(0.0), l.flash_at(1.0));
+        let lit = (0..1000)
+            .filter(|i| l.flash_at(*i as f32 / 1000.0) > 0.5)
+            .count();
+        assert!(lit > 0, "no strike");
+        assert!(lit < 500, "always lit");
+        let off = Lightning::default();
+        assert_eq!(off.flash_at(0.3), 0.0);
+    }
+
+    #[test]
+    fn new_features_round_trip() {
+        let mut p = Project::default();
+        let mut t = Terrain::default();
+        t.liquid.kind = LiquidKind::Lava;
+        t.shape = TerrainShape::Canyons;
+        t.biome = Biome::Volcanic;
+        p.layers.push(Layer::new("t", LayerKind::Terrain(t)));
+        p.layers
+            .push(Layer::new("w", LayerKind::Weather(Weather::default())));
+        p.post.rays.enabled = true;
+        let back = Project::from_json(&p.to_json()).unwrap();
+        assert_eq!(p, back);
+        // Defaults are not written.
+        let plain = Project::default().to_json();
+        assert!(!plain.contains("rays"));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Waterfall
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum FallKind {
+    #[default]
+    Water,
+    Lava,
+    Toxic,
+}
+
+impl FallKind {
+    pub const ALL: [FallKind; 3] = [FallKind::Water, FallKind::Lava, FallKind::Toxic];
+    pub fn label(self) -> &'static str {
+        match self {
+            FallKind::Water => "Water",
+            FallKind::Lava => "Lava",
+            FallKind::Toxic => "Toxic goo",
+        }
+    }
+    pub fn index(self) -> u32 {
+        FallKind::ALL.iter().position(|t| *t == self).unwrap_or(0) as u32
+    }
+    pub fn default_color(self) -> Rgb {
+        match self {
+            FallKind::Water => hex(0xb8dcf0),
+            FallKind::Lava => hex(0xff5a10),
+            FallKind::Toxic => hex(0x40ff30),
+        }
+    }
+}
+
+/// A curtain of water (or lava) pouring over an edge, from the layer's
+/// position downwards and away along its +Z axis, with foam or smoke at
+/// the foot. Streaks scroll a whole number of times per loop.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Falls {
+    pub kind: FallKind,
+    pub width: f32,
+    pub height: f32,
+    /// How far the curtain arcs out from the edge.
+    pub push: f32,
+    pub color: Rgb,
+    /// Glow of lava / goo, brightness of water.
+    pub glow: Param,
+    /// Times the streaks run down per loop.
+    pub flow: u32,
+    /// Foam, spray and mist at the foot (0 = none).
+    pub foam: Param,
+    pub seed: u32,
+}
+
+impl Default for Falls {
+    fn default() -> Self {
+        Falls {
+            kind: FallKind::Water,
+            width: 4.0,
+            height: 8.0,
+            push: 1.0,
+            color: FallKind::Water.default_color(),
+            glow: Param::new(1.0),
+            flow: 4,
+            foam: Param::new(1.0),
+            seed: 1,
+        }
+    }
+}
+
+#[cfg(test)]
+mod env_tests {
+    use super::*;
+
+    #[test]
+    fn day_cycle_loops_and_has_night() {
+        let mut e = Environment::default();
+        e.day_cycle.enabled = true;
+        e.day_cycle.cycles = 2;
+        let a = e.eval(&crate::EvalCtx::at(0.0));
+        let b = e.eval(&crate::EvalCtx::at(1.0));
+        assert!((a.sun_dir[1] - b.sun_dir[1]).abs() < 1e-4);
+        let ys: Vec<f32> = (0..100)
+            .map(|i| e.eval(&crate::EvalCtx::at(i as f32 / 100.0)).sun_dir[1])
+            .collect();
+        assert!(ys.iter().any(|y| *y > 0.5), "no noon");
+        assert!(ys.iter().any(|y| *y < -0.5), "no midnight");
+        // Without the cycle nothing changes.
+        let plain = Environment::default().eval(&crate::EvalCtx::at(0.4));
+        assert_eq!(plain.night, 0.0);
+        assert_eq!(plain.fog_color, Environment::default().fog_color);
+    }
+}
+
+#[cfg(test)]
+mod logo_anchor_tests {
+    use super::LogoAnchor;
+
+    #[test]
+    fn anchors_round_trip_and_mirror() {
+        for a in LogoAnchor::ALL {
+            let [x, y] = a.point();
+            assert_eq!(LogoAnchor::at(x, y), a);
+            assert_eq!(a.opposite().opposite(), a);
+        }
+        assert_eq!(LogoAnchor::Bottom.opposite(), LogoAnchor::Top);
+        assert_eq!(LogoAnchor::TopLeft.opposite(), LogoAnchor::BottomRight);
+        assert_eq!(LogoAnchor::Centre.opposite(), LogoAnchor::Centre);
+    }
+}
+
+#[cfg(test)]
+mod color_scheme_tests {
+    use super::*;
+    use crate::color::to_oklch;
+
+    fn layers() -> Vec<Layer> {
+        [
+            LayerKind::Mesh(MeshLayer::default()),
+            LayerKind::Particles(ParticleLayer::default()),
+            LayerKind::Backdrop(Backdrop::default()),
+            LayerKind::Mirror(MirrorFloor::default()),
+            LayerKind::Terrain(Terrain::default()),
+            LayerKind::Lasers(Lasers::default()),
+            LayerKind::Ribbon(Ribbon::default()),
+            LayerKind::Weather(Weather::default()),
+            LayerKind::Falls(Falls::default()),
+            LayerKind::Text(TextLayer::default()),
+            LayerKind::Sprite(SpriteLayer::default()),
+            LayerKind::Arcs(ArcLayer::default()),
+            LayerKind::Logo(LogoLayer::default()),
+        ]
+        .into_iter()
+        .map(|k| Layer::new("L", k))
+        .collect()
+    }
+
+    /// The visitor reaches real, distinct colour fields: a colour written
+    /// through it shows up that many times in the saved layer.
+    #[test]
+    fn visitor_reaches_every_color_once() {
+        let mark = [0.123_456_78f32, 0.234_567_8, 0.345_678_9];
+        for mut l in layers() {
+            let mut n = 0;
+            l.kind.for_each_color_mut(|c| {
+                *c = mark;
+                n += 1;
+            });
+            let json = serde_json::to_string(&l).unwrap();
+            let found = json.matches("0.12345678").count();
+            assert!(n > 0, "{}: no colours", l.type_label());
+            assert_eq!(found, n, "{}: {n} visited, {found} saved", l.type_label());
+        }
+        let mut env = Environment::default();
+        let mut n = 0;
+        env.for_each_color_mut(|_| n += 1);
+        assert_eq!(n, 8);
+    }
+
+    #[test]
+    fn scheme_recolours_only_when_on_and_not_kept_layers() {
+        let mut p = Project {
+            layers: layers(),
+            ..Default::default()
+        };
+        let ctx = p.ctx(0.3, None);
+        // Off: the very same layers.
+        assert!(matches!(p.scene_layers(&ctx), Cow::Borrowed(_)));
+        p.color_scheme.enabled = true;
+        p.color_scheme.key = crate::color::hex(0x2060ff);
+        p.color_scheme.harmony = Harmony::Mono;
+        p.layers[0].keep_colors = true;
+        let drawn = p.scene_layers(&ctx);
+        assert_eq!(drawn[0], p.layers[0], "a kept layer changed");
+        let mut changed = 0;
+        for (a, b) in p.layers.iter().zip(drawn.iter()).skip(1) {
+            let (mut ca, mut cb) = (a.clone(), b.clone());
+            let mut va = Vec::new();
+            let mut vb = Vec::new();
+            ca.kind.for_each_color_mut(|c| va.push(*c));
+            cb.kind.for_each_color_mut(|c| vb.push(*c));
+            for (x, y) in va.iter().zip(&vb) {
+                // Lightness kept, colourful ones moved.
+                assert!((to_oklch(*x)[0] - to_oklch(*y)[0]).abs() < 5e-3);
+                if x != y {
+                    changed += 1;
+                }
+            }
+        }
+        assert!(changed > 5, "only {changed} colours changed");
+        // The environment follows unless told not to.
+        assert_ne!(*p.scene_environment(&ctx), p.environment);
+        p.color_scheme.environment = false;
+        assert!(matches!(p.scene_environment(&ctx), Cow::Borrowed(_)));
     }
 }

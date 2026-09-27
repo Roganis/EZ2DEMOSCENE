@@ -24,7 +24,9 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     synthwave sun & grid, and four raymarched ones with their own
     settings: tunnel (5 shapes, wall patterns, twist, light rings),
     fractal (3 formulas, fold, zoom), Menger sponge flight (sponge, beam
-    lattice, cube field) and a ring corridor.
+    lattice, cube field) and a ring corridor. Plus two skies:
+    **volumetric clouds** (raymarched, sun-lit, fluffy / overcast / storm)
+    and an **aurora** night sky.
   - Mirror floor: real planar reflections, blur, a glowing neon grid and
     LED textures.
   - Shapes: 25 built-ins (platonic solids, crystals, shards, beveled tech
@@ -39,7 +41,69 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     glitter, with trails. They are fully deterministic on the GPU, so
     scrubbing and exports are exact.
   - Terrain: an endless wireframe or solid (optionally textured) landscape
-    that scrolls past and repeats exactly every loop.
+    that scrolls past and repeats exactly every loop. Six shapes (hills,
+    ridged mountains, mesas, dunes, canyons, craters), biomes that colour
+    it by height and slope (alpine, desert, volcanic, arctic, alien), and
+    **water, lava, toxic goo or ice** filling the low ground, with
+    ripples, sun glints, foam, a churning crust or bubbles. Level of
+    detail keeps full resolution near the camera with a quarter of the
+    triangles.
+  - Text: still text, scrollers, sine scrollers, typewriters and greetings
+    lists, in a crisp pixel font, Mono, Sans or your own TTF/OTF, with
+    gradients, glow, outline, drop shadow and chrome (signed-distance
+    atlas). Shapes can also be **3D text**: extruded logos (voxel letters
+    with the pixel font) with every material option.
+    **Raymarched shapes** (metaballs, gyroid, fractal bulb, melting box)
+    are drawn per pixel inside a box: smooth, depth-correct against
+    everything else, with sun shadows and the usual material.
+  - **Sprites**: billboards, upright or fixed image planes with alpha,
+    additive or cutout blending and any copy layout; sprite sheets play a
+    whole number of times per loop (built-in explosion, flame, coin and
+    sparkle sheets).
+  - **Copies on the GPU**: every copy layout (grid, ring, scatter, orbit,
+    wall, spiral, curve, big swarms of up to 250,000 in orbits, a cloud,
+    a shell or a spiral galaxy) is placed with its variation by a compute
+    shader on desktop and WebGPU; WebGL2 runs the same maths on the CPU.
+  - **Logos**: text or an image laid flat on the screen (snapped to a
+    part of the screen or against another logo, which it then follows,
+    like a photo editor's reference points; size and turn animatable),
+    drawn before the post effects
+    but after depth of field. The shape is baked into a signed distance
+    field, so outlines, glow, drop shadows and a chrome bevel work on any
+    image, at any size. Bevels (round, chiselled, stepped, pillow) lit by
+    a light that can circle or follow the beat, material spheres
+    (matcaps: gold, chrome, plastic, candy or your own) and a glint
+    sweeping across a whole number of times per loop. Distance-field
+    effects: rings rippling out from the edges, stacked outlines, a fake
+    extrusion, dissolving with a burning edge, reveals (grow, edges first,
+    wipe, circle) and morphing into another text or image. Rasters and
+    distortion: copper bars, sine sway and bob, raster glitch slices and
+    chromatic split. Retro looks: pixel blocks (animatable, to pixelate
+    in), retro palettes with ordered dither and palette cycling, halftone
+    dots, scanlines with phosphor stripes, and moiré. Logos meet the
+    scene: glass letters bending what is behind them, god rays from the
+    logo (or its shadow in the light behind), and echo trails.
+  - **Electric arcs**: tesla lightning between two points, to the nearest
+    copies of a shape (jumping as they move) or copy to copy, crawling and
+    re-striking a whole number of times per loop.
+  - Weather: rain with splashes, snow, rising embers, a sandstorm or
+    fireflies in a box that follows the camera, and **lightning** bolts
+    whose flash lights up the scene. Rain wets every surface (gloss,
+    puddles with ripples); snow settles on everything facing up.
+  - Waterfalls of water, lava or goo, with foam, spray or smoke.
+  - Laser beams or hazy **spotlight cones** with pools of light.
+  - Particles can be smoke instead of glow, and there is a tornado
+    emitter.
+  - **Colour scheme**: one key colour and a harmony rule (one hue,
+    neighbours, opposites, split, triad, square) that every colour of the
+    project follows. Each keeps its lightness (worked out in OKLCH) while its
+    hue moves to the scheme; stored colours stay, layers can opt out, and
+    the scheme can turn round the colour wheel a whole number of times
+    per loop.
+  - **Sun shadows** (soft shadow map) and contact shadows on floors.
+  - Atmosphere: **mist** pooling in valleys, underwater **caustics**, a
+    **rainbow**, and a **day & night cycle** with sunsets, stars and a
+    moon.
   - Laser beams: fans, rotating cones or scattered beams that sweep and
     strobe on the beat.
   - Neon ribbons: glowing tubes along Lissajous, knot, figure-eight, wave
@@ -58,7 +122,10 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   bars, Sierpinski, Tron grid, Truchet, the C64 10 PRINT maze, Matrix rain,
   CRT phosphors…). Imported images can be *retro-ized*: downscaled,
   palette-reduced and dithered.
-- **Post FX.** Bloom, kaleidoscope, mirror split, chromatic aberration,
+- **Post FX.** Bloom, **god rays** (light shafts from the sun or the
+  picture centre) with lens flare, **heat haze**, **depth of field**
+  (auto focus, round bokeh), **feedback trails** (zoom/turn/hue-drifting
+  echoes that still loop exactly), kaleidoscope, mirror split, chromatic aberration,
   pixelation, palette reduction with Bayer dithering (EGA, CGA, C64, Game
   Boy, PICO-8, Amiga copper, ZX Spectrum, VGA cube, phosphor), CRT
   scanlines/curvature/VHS wobble, grading, vignette, grain and beat flash.
@@ -68,9 +135,28 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   (sample & hold, smooth random, drunken walk). The ♩ menu syncs it to
   every beat, bar or loop, a live graph previews the curve, and it can
   follow the **music**. Layers can also **shake** on the beat.
-- **Music.** Drop in an MP3/WAV/OGG/FLAC. It plays in sync with the loop,
-  and its loudness and kick envelopes can drive any value. It is also muxed
-  into video exports.
+- **Scenes & timeline.** Several scenes (each with its own layers, camera,
+  light and effects) played by a timeline of clips with transitions:
+  crossfade, wipe, iris, flash, glitch or a cut on the next kick. The
+  whole timeline is the loop; each scene keeps looping inside its clips.
+  With a song, clips can follow its sections (drops, breakdowns).
+- **Camera.** Orbit, pendulum, static or a **path**: a smooth closed
+  flight through your own shots (position, look-at, field of view, roll)
+  at an even speed, with optional lingering, cuts to the next shot on
+  every kick, and a punch-in zoom on hits. The viewport draws the flight.
+- **Music.** Drop in an MP3/WAV/OGG/FLAC. It is analysed once: loudness,
+  kick, bass, mids, highs and brightness, hits (kicks, snares, hats,
+  onsets, notes), a 16-band spectrum, the melody's note and the tempo.
+  The analysis runs in the background, so the editor never freezes.
+  - Any value can **follow** a source or play a fade **on each hit** (the
+    🎵 row of its `~` panel), e.g. glow on every kick, hue from the melody.
+  - **Time warp** makes motion surge with the music while the loop still
+    ends where it started.
+  - **Equalizer** copies grow with the spectrum bands.
+  - Loop a window of the song (seamless, snapped to the detected tempo) or
+    run through the **whole song**; video exports mux the matching audio.
+  - **MIDI files** give exact drum hits and melody; **live input**
+    (microphone / line-in) drives the preview for VJ sets.
 - **Randomize / Surprise me.** Seeded, harmonious mutations (one global hue
   rotation, bounded counts, loop-safe motion), and every change can be
   undone.
@@ -79,6 +165,18 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   Colour/material, Merge) into Output. The
   graph compiles to the same layer list the simple mode uses, and *Bake to
   layers* brings it back into simple mode.
+  - **Shape and layout nodes:** Deform (twist, bend, taper, wobble,
+    explode, in the vertex shader), Colours across copies (gradient or
+    steps, travelling along them), and layouts that take a second
+    *reference* input: Along a curve (follow a ribbon), On a surface
+    (spread evenly over another shape) and On a terrain (stand on the
+    landscape, riding its scroll; the height field is ported to the CPU).
+    All of these are in Simple mode too.
+  - **Signals:** green wires carry a number that changes over the loop.
+    Wave/music, Math, Remap, Quantize, Smooth, Mix, Sequence and Hit
+    counter nodes (each with a live graph of its value) feed **Drive**
+    nodes, which set any setting of the layers flowing through them
+    (replace, add or multiply). Loop-safe by construction.
 - **Project files.** Readable `.ez2.json` files. Static values are saved as
   plain numbers, and assets inside the project folder are stored with
   relative paths, so projects can be moved.
@@ -100,9 +198,11 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
 - **Web app:** <https://roganis.github.io/ez2demoscene/>. Runs in Chrome, Edge or
   Firefox on desktop and in Chrome on Android. It can be installed as a PWA and
   works offline after the first visit.
-- **Android APK:** built by `.github/workflows/android.yml`. Every push has a debug APK
-  as a workflow artifact, and tagged releases attach it (plus a signed release APK
-  when the signing secrets are set).
+- **Android APK:** built by `.github/workflows/android.yml` on every push.
+  - Newest build of `main`: the [`android-latest`](https://github.com/roganis/ez2demoscene/releases/tag/android-latest) prerelease.
+  - Newest build of a work branch: the [`android-preview`](https://github.com/roganis/ez2demoscene/releases/tag/android-preview) prerelease.
+  - Every run also keeps the APK as a workflow artifact, and tagged releases attach it
+    (plus a signed release APK when the signing secrets are set).
 
 Tagged releases (`v*`) are built for Windows, Linux and macOS by
 `.github/workflows/release.yml`. The Windows and Linux archives include
@@ -149,6 +249,7 @@ Shortcuts: `Space` play/pause · `Ctrl+S` save · `Ctrl+O` open · `Ctrl+E` expo
 ez2demoscene --list-presets
 ez2demoscene --render "Neon Arena" still.png --phase 0.25 --size 1920x1080
 ez2demoscene --export "Gold Kaleido Room" loop.mp4 --size 1920x1080 --fps 60 --repeats 4
+ez2demoscene --export "Orbiting Solid" smooth.mp4 --fps 30 --motion-blur 8   # film-like motion blur
 ez2demoscene --export my.ez2.json frames/        # PNG sequence
 ez2demoscene --write-presets assets/presets
 ez2demoscene --write-textures assets/textures
@@ -176,6 +277,16 @@ ez2demoscene --write-textures assets/textures
   number of lives. Its position is an analytic function of `(id, age)`, so
   there is no simulation state.
 - Noise-based backgrounds move on closed circles through noise space.
+- The day cycle, caustics, heat haze, waterfall streaks and rain ripples
+  all move a whole number of times per loop.
+- Weather drops fall a whole number of times per loop, and lightning
+  strikes are picked from time slots that wrap with the loop. Liquid
+  currents drift a whole number of terrain lengths per loop.
+- Music in a loop window is sampled as a circle (curves fade into the
+  window's start, hits ring on past the loop point); time warp is
+  rescaled to end each loop exactly where it began.
+- Volumetric clouds can drift any distance: two copies of the cloud field,
+  half a loop apart, cross-fade, so each one jumps back while invisible.
 - Film grain and VHS noise are hashed from a frame id that wraps with the loop.
 - The exporter renders frames at `i / N` for `i` in `0..N`, so the first
   frame is never duplicated at the end.

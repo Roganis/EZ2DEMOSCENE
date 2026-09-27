@@ -3,11 +3,12 @@ use crate::mesh::{primitive, MeshData, Vertex};
 use crate::texgen;
 use bytemuck::{Pod, Zeroable};
 use ez_core::eval::{
-    instances_are_static, layer_matrix, mesh_instances, symmetry_matrices, Instance,
+    copies_with, instances_are_static, layer_frame, layer_matrix, layer_scale, mesh_instances_with,
+    symmetry_matrices, Instance,
 };
 use ez_core::palette::PaletteId;
 use ez_core::*;
-use glam::{Mat4, Vec3, Vec4};
+use glam::{Mat4, Vec2, Vec3, Vec4};
 use image::RgbaImage;
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -22,9 +23,16 @@ pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 /// Format of the final image: sRGB-encoded bytes (read back as-is for
 /// export; decoded to linear when sampled for display).
 pub const OUTPUT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+/// The same image for on-screen display: gamma-encoded bytes in a plain
+/// UNORM texture, which is what egui expects of user textures.
+pub const DISPLAY_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 const DRAW_SLOT: u64 = 256;
+/// A logo's effect settings: three draw slots read as one.
+const LOGO_FX_SIZE: u64 = 3 * DRAW_SLOT;
 const POST_SLOT: u64 = 512;
+/// Distance to the camera for depth of field.
+const DOF_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R16Float;
 const POST_SLOTS: u64 = 32;
 const BLOOM_LEVELS: usize = 5;
 
@@ -35,6 +43,9 @@ const SLOT_WARP: u32 = 2;
 const SLOT_BLOOM_DOWN: u32 = 3; // .. +BLOOM_LEVELS
 const SLOT_BLOOM_UP: u32 = 8; // .. +BLOOM_LEVELS
 const SLOT_FINAL: u32 = 14;
+const SLOT_RAYS: u32 = 15;
+const SLOT_RAYS_ADD: u32 = 16;
+const SLOT_FEEDBACK: u32 = 17;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -54,6 +65,28 @@ struct GlobalsRaw {
     light_color: [f32; 4],
     clip: [f32; 4],
     audio: [f32; 4],
+    hfog: [f32; 4],
+    caus: [f32; 4],
+    caus_col: [f32; 4],
+    extra: [f32; 4],
+    sun: [f32; 4],
+    shadow_vp: [[f32; 4]; 4],
+    shadow: [f32; 4],
+}
+
+/// Size of the sun shadow map.
+const SHADOW_SIZE: u32 = 2048;
+
+/// Per-frame lighting inputs gathered from the layers (weather) on top of
+/// the environment.
+#[derive(Clone, Copy, Default)]
+struct FrameEnv {
+    /// Lightning flash brightness and colour.
+    lightning: (f32, [f32; 3]),
+    /// Ground wetness from rain (0..1).
+    wet: f32,
+    /// Snow cover (0..1).
+    snow: f32,
 }
 
 #[repr(C)]
@@ -70,6 +103,31 @@ struct GpuMesh {
     vbuf: wgpu::Buffer,
     ibuf: wgpu::Buffer,
     count: u32,
+    /// Distance of the farthest vertex from the origin (for culling).
+    radius: f32,
+}
+
+fn blocks_refl_on(blocks: &[Block], slot: u32) -> bool {
+    blocks[slot as usize][0][3] > 0.5
+}
+
+/// The six planes of a view-projection matrix (xyz normal, w distance),
+/// pointing inwards.
+fn frustum_planes(vp: Mat4) -> [Vec4; 6] {
+    let r = [vp.row(0), vp.row(1), vp.row(2), vp.row(3)];
+    let n = |p: Vec4| p / p.truncate().length().max(1e-9);
+    [
+        n(r[3] + r[0]),
+        n(r[3] - r[0]),
+        n(r[3] + r[1]),
+        n(r[3] - r[1]),
+        n(r[2]),
+        n(r[3] - r[2]),
+    ]
+}
+
+fn sphere_visible(planes: &[Vec4; 6], c: Vec3, r: f32) -> bool {
+    planes.iter().all(|p| p.truncate().dot(c) + p.w >= -r)
 }
 
 struct GpuTexture {
@@ -82,6 +140,14 @@ enum Cmd {
     Backdrop {
         slot: u32,
         tex: String,
+        /// Resolution divisor (1 full, 2 half, 4 quarter).
+        res: u32,
+        /// [`BackdropKind::index`], which picks the specialised pipeline.
+        kind: i32,
+    },
+    /// Upscale the low-resolution background of the target (divisor).
+    BackdropUp {
+        res: u32,
     },
     Mesh {
         slot: u32,
@@ -91,6 +157,12 @@ enum Cmd {
         pixelated: bool,
         first: u32,
         count: u32,
+        /// A raymarched object in its box proxy (`sdf.wgsl`).
+        sdf: bool,
+        /// Instances made by the copies compute pass (in `SwarmGpu::out`).
+        gpu: bool,
+        /// Where GPU-placed copies can be (for culling; none = always drawn).
+        bounds: Option<(Vec3, f32)>,
     },
     Particles {
         slot: u32,
@@ -106,7 +178,200 @@ enum Cmd {
         slot: u32,
         beams: u32,
     },
+    Weather {
+        slot: u32,
+        instances: u32,
+    },
+    /// Night, stars, moon and rainbow over the backgrounds.
+    SkyFx,
+    Spots {
+        slot: u32,
+        beams: u32,
+        pools: bool,
+    },
+    Falls {
+        slot: u32,
+        puffs: u32,
+    },
+    /// Letters `first..first + count` of the instance buffer, drawn with
+    /// the font atlas `font`.
+    Text {
+        slot: u32,
+        font: String,
+        first: u32,
+        count: u32,
+    },
+    /// Electric arcs: `count` arcs of `segments` quads each.
+    Arcs {
+        slot: u32,
+        segments: u32,
+        first: u32,
+        count: u32,
+    },
+    Sprite {
+        slot: u32,
+        tex: String,
+        pixelated: bool,
+        blend: SpriteBlend,
+        first: u32,
+        count: u32,
+    },
+    /// A logo flat on the screen, drawn after the scene (see `logo.wgsl`):
+    /// its blocks at `slot` and `slot + 1`, its texture, the logo it morphs
+    /// into and its material sphere.
+    Logo {
+        slot: u32,
+        tex: String,
+        morph: String,
+        matcap: String,
+        /// Needs the picture behind it (glass).
+        glass: bool,
+    },
+    /// Contact shadows under the copies `first..first + count` of a mesh.
+    Contact {
+        slot: u32,
+        first: u32,
+        count: u32,
+        /// The copies are in the compute pass's buffer.
+        gpu: bool,
+    },
 }
+
+/// Place logo `i` (see `Renderer::place_logos`): measured from the screen
+/// or from a point of the logo it is attached to, placed first. A missing
+/// target or a loop of attachments falls back to the screen.
+#[allow(clippy::too_many_arguments)]
+fn place_logo(
+    i: usize,
+    layers: &[Layer],
+    fits: &[Option<LogoFit>],
+    ctx: &EvalCtx,
+    w: f32,
+    h: f32,
+    out: &mut [Option<Vec2>],
+    state: &mut [u8],
+) {
+    if state[i] != 0 {
+        return;
+    }
+    state[i] = 1;
+    let (LayerKind::Logo(g), Some(_)) = (&layers[i].kind, &fits[i]) else {
+        state[i] = 2;
+        return;
+    };
+    let [px, py] = g.attach_point.point();
+    let screen = Vec2::new(px * w, py * h);
+    let target = (!g.attach_to.is_empty())
+        .then(|| {
+            layers.iter().enumerate().position(|(j, l)| {
+                j != i && l.enabled && l.name == g.attach_to && matches!(l.kind, LayerKind::Logo(_))
+            })
+        })
+        .flatten();
+    let origin = match target {
+        // Not while it is being placed itself (a loop).
+        Some(j) if state[j] != 1 => {
+            place_logo(j, layers, fits, ctx, w, h, out, state);
+            match (&layers[j].kind, out[j], &fits[j]) {
+                (LayerKind::Logo(t), Some(at), Some(fit)) => {
+                    let th = t.size.eval(ctx).max(0.0) * h;
+                    let size = Vec2::new(th * fit.aspect, th);
+                    let [ax, ay] = t.anchor.point();
+                    let local = (Vec2::new(px, py) - Vec2::new(ax, ay)) * size;
+                    let a = t.rotation.eval(ctx).to_radians();
+                    at + Vec2::new(
+                        local.x * a.cos() - local.y * a.sin(),
+                        local.x * a.sin() + local.y * a.cos(),
+                    )
+                }
+                _ => screen,
+            }
+        }
+        _ => screen,
+    };
+    out[i] = Some(origin + Vec2::new(g.x.eval(ctx) * w, g.y.eval(ctx) * h));
+    state[i] = 2;
+}
+
+/// Texture key of a logo's coarse far field.
+fn far_key(logo: &str) -> String {
+    format!("{logo}:far")
+}
+
+/// Texture keys of a logo's bind group: the logo, the logo it morphs
+/// into, its material sphere.
+type LogoKey = (String, String, String);
+
+/// One logo draw: its four blocks, bind group key and fit.
+type LogoDraw = ([Block; 4], LogoKey, LogoFit);
+
+/// Rays streaming from a logo, drawn after the logos.
+struct LogoRays {
+    /// The logo's first block and textures.
+    slot: u32,
+    key: LogoKey,
+    /// Middle of the logo (post-pass coordinates: 0..1, y down).
+    centre: [f32; 2],
+    strength: f32,
+    length: f32,
+    threshold: f32,
+    tint: [f32; 3],
+    /// From the light behind the logo, the logo cutting a shadow out.
+    shadow: bool,
+}
+
+/// A target's logo rays source picture and its post bind group.
+struct LogoRaysSource {
+    tex: wgpu::Texture,
+    view: wgpu::TextureView,
+    bg: wgpu::BindGroup,
+    size: (u32, u32),
+    /// Frame it was last used.
+    used: u64,
+}
+
+/// Post slots for logo rays (one logo each).
+const SLOT_LOGO_RAYS: u32 = 18;
+const LOGO_RAYS_MAX: usize = 4;
+
+/// How a baked logo texture maps onto the screen.
+#[derive(Clone, Copy, Debug)]
+struct LogoFit {
+    width: u32,
+    height: u32,
+    /// Width over height of the shape.
+    aspect: f32,
+    /// Padding around the shape (fraction of its width and height).
+    pad: [f32; 2],
+    /// Distance field spread in texels.
+    spread: f32,
+    /// The field at the logo's thickest point.
+    max_field: f32,
+    /// Far field: origin (texels), cell size, size (cells).
+    far: [f32; 5],
+}
+
+impl LogoFit {
+    /// Logo heights per unit of the field (0.5 per spread).
+    fn heights_per_field(&self) -> f32 {
+        let ch = self.height as f32 / (1.0 + 2.0 * self.pad[1]);
+        2.0 * self.spread / ch.max(1.0)
+    }
+
+    /// Texels across the shape's height.
+    fn content_height(&self) -> f32 {
+        self.height as f32 / (1.0 + 2.0 * self.pad[1])
+    }
+}
+
+/// Vertices of one spotlight cone (see spots.wgsl).
+const SPOT_VERTICES: u32 = 24 * 6;
+/// Vertices of a waterfall curtain (see falls.wgsl).
+const FALL_VERTICES: u32 = 12 * 40 * 6;
+const FALL_PUFFS: u32 = 48;
+
+/// Instances of one lightning bolt (main channel + branch), see weather.wgsl.
+const BOLT_SEGMENTS: u32 = 28 + 14;
 
 /// Rendering cost of one layer in the last frame.
 #[derive(Clone, Debug, Default)]
@@ -147,6 +412,8 @@ fn backdrop_load(kind: BackdropKind) -> f32 {
         BackdropKind::Gradient => 0.05,
         BackdropKind::Sponge => 1.2,
         BackdropKind::Rings => 0.5,
+        BackdropKind::Clouds => 1.2,
+        BackdropKind::Aurora => 0.4,
     }
 }
 
@@ -159,11 +426,384 @@ fn layer_hash(layer: &Layer) -> u64 {
 }
 
 struct ScenePipes {
-    backdrop: wgpu::RenderPipeline,
+    /// MSAA samples (picks the matching background pipeline).
+    samples: u32,
     mesh: wgpu::RenderPipeline,
     particles: wgpu::RenderPipeline,
     terrain: wgpu::RenderPipeline,
     lasers: wgpu::RenderPipeline,
+    weather: wgpu::RenderPipeline,
+    sky_mul: wgpu::RenderPipeline,
+    sky_add: wgpu::RenderPipeline,
+    spots: wgpu::RenderPipeline,
+    falls: wgpu::RenderPipeline,
+    text: wgpu::RenderPipeline,
+    sdf: wgpu::RenderPipeline,
+    /// Sprites: alpha, additive, cutout.
+    sprite: [wgpu::RenderPipeline; 3],
+    arcs: wgpu::RenderPipeline,
+}
+
+/// Copies of shapes placed by a compute shader (`copies.wgsl`) straight
+/// into a vertex buffer; absent where there are no compute shaders (WebGL2).
+struct SwarmGpu {
+    pipe: wgpu::ComputePipeline,
+    bgl: wgpu::BindGroupLayout,
+    params: wgpu::Buffer,
+    params_cap: u64,
+    out: wgpu::Buffer,
+    out_cap: u64,
+    /// Copies placed on the CPU (surfaces, terrains), as matrices.
+    locals: wgpu::Buffer,
+    locals_cap: u64,
+    bg: wgpu::BindGroup,
+}
+
+/// A layout as the compute shader reads it (see `copies.wgsl`).
+struct GpuLayout {
+    layout: u32,
+    count: u32,
+    seed: u32,
+    /// radius, spread, speed (swarms and orbits)
+    shape: [f32; 3],
+    lay_u: [u32; 4],
+    lay_f: [f32; 4],
+    /// How far copies can be from the layer's origin (none = unknown).
+    reach: Option<f32>,
+}
+
+/// Parameters for placing a layout's copies on the GPU. Copies on a surface
+/// or a terrain are placed on the CPU and appended to `locals`.
+fn gpu_layout(
+    inst: &Instancer,
+    ctx: &EvalCtx,
+    surface: Option<&[ez_core::eval::SurfacePoint]>,
+    locals: &mut Vec<[[f32; 4]; 4]>,
+) -> GpuLayout {
+    let count = ez_core::eval::layout_count(inst, surface);
+    let mut g = GpuLayout {
+        layout: 10,
+        count,
+        seed: 0,
+        shape: [0.0; 3],
+        lay_u: [0; 4],
+        lay_f: [0.0; 4],
+        reach: Some(0.0),
+    };
+    match *inst {
+        Instancer::Single => {}
+        Instancer::Grid { counts, spacing } => {
+            let c = counts.map(|v| v.clamp(1, 64));
+            g.layout = 4;
+            g.lay_u = [c[0], c[1], c[2], 0];
+            g.lay_f = [spacing[0], spacing[1], spacing[2], 0.0];
+            let half = Vec3::new(
+                (c[0] - 1) as f32 * spacing[0],
+                (c[1] - 1) as f32 * spacing[1],
+                (c[2] - 1) as f32 * spacing[2],
+            ) * 0.5;
+            g.reach = Some(half.length());
+        }
+        Instancer::Radial { radius, .. } => {
+            g.layout = 5;
+            g.lay_f[0] = radius;
+            g.reach = Some(radius.abs());
+        }
+        Instancer::Wall {
+            cols,
+            rows,
+            spacing,
+            curve,
+        } => {
+            let (cols, rows) = (cols.clamp(1, 128), rows.clamp(1, 128));
+            let width = (cols.max(2) - 1) as f32 * spacing;
+            g.layout = 6;
+            g.lay_u = [cols, rows, 0, 0];
+            g.lay_f = [spacing, curve.to_radians(), width, 0.0];
+            g.reach = Some(width * 0.5 + rows as f32 * spacing.abs() + width * 0.5);
+        }
+        Instancer::Spiral {
+            radius,
+            height,
+            turns,
+            ..
+        } => {
+            g.layout = 7;
+            g.lay_f = [radius, height, turns, 0.0];
+            g.reach = Some(radius.abs() + height.abs() * 0.5);
+        }
+        Instancer::Scatter {
+            radius,
+            shell,
+            seed,
+            ..
+        } => {
+            g.layout = 8;
+            g.seed = seed;
+            g.lay_u[0] = shell as u32;
+            g.lay_f[0] = radius;
+            g.reach = Some(radius.abs());
+        }
+        Instancer::Orbit {
+            radius,
+            spread,
+            speed,
+            seed,
+            ..
+        } => {
+            g.layout = SwarmForm::Orbit.index();
+            g.seed = seed;
+            g.shape = [radius, spread, speed as f32];
+            g.reach = Some(radius.abs() + spread.abs() * 1.5);
+        }
+        Instancer::Swarm {
+            form,
+            radius,
+            spread,
+            speed,
+            seed,
+            ..
+        } => {
+            g.layout = form.index();
+            g.seed = seed;
+            g.shape = [radius, spread, speed as f32];
+            g.reach = Some(radius.abs() + spread.abs() * 1.5);
+        }
+        Instancer::Curve {
+            curve,
+            freq,
+            size,
+            laps,
+            align,
+            ..
+        } => {
+            g.layout = 9;
+            let [a, b, c] = freq.map(|f| f.clamp(1, 16));
+            let kind = match curve {
+                RibbonCurve::Lissajous => 0,
+                RibbonCurve::Knot => 1,
+                RibbonCurve::Infinity => 2,
+                RibbonCurve::Wave => 3,
+                RibbonCurve::Rose => 4,
+            };
+            g.lay_u = [kind, a, b, c];
+            g.lay_f = [size, laps as f32, if align { 1.0 } else { 0.0 }, 0.0];
+            g.reach = Some(size.abs() * 1.6);
+        }
+        Instancer::Surface { size, lift, .. } => {
+            g.layout = 11;
+            g.lay_u[0] = locals.len() as u32;
+            locals.extend(
+                ez_core::eval::instancer_locals(inst, ctx, surface)
+                    .iter()
+                    .map(|m| m4(*m)),
+            );
+            g.reach = Some(size.abs() * 1.2 + lift.abs());
+        }
+        Instancer::OnTerrain { .. } => {
+            g.layout = 11;
+            g.lay_u[0] = locals.len() as u32;
+            let placed = ez_core::eval::instancer_locals(inst, ctx, surface);
+            g.count = placed.len() as u32;
+            locals.extend(placed.iter().map(|m| m4(*m)));
+            // Somewhere on the landscape: always drawn.
+            g.reach = None;
+        }
+    }
+    g
+}
+
+/// One dispatch: a layer's copies seen through one symmetry copy.
+struct SwarmJob {
+    params: SwarmParams,
+    count: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct SwarmParams {
+    frame: [[f32; 4]; 4],
+    size: [f32; 4],
+    shape: [f32; 4],
+    ints: [u32; 4],
+    lay_u: [u32; 4],
+    lay_f: [f32; 4],
+    var_a: [f32; 4],
+    var_b: [f32; 4],
+    var_c: [u32; 4],
+    var_d: [f32; 4],
+    bands: [[f32; 4]; 4],
+}
+
+/// Uniform slot per swarm dispatch (dynamic offsets are 256-aligned).
+const SWARM_SLOT: u64 = 512;
+
+impl SwarmGpu {
+    fn new(device: &wgpu::Device) -> Option<SwarmGpu> {
+        if device.limits().max_compute_workgroups_per_dimension == 0 {
+            return None;
+        }
+        let module = shader(device, "copies", include_str!("shaders/copies.wgsl"), false);
+        let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("swarm"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: true,
+                        min_binding_size: wgpu::BufferSize::new(
+                            std::mem::size_of::<SwarmParams>() as u64
+                        ),
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("swarm"),
+            bind_group_layouts: &[Some(&bgl)],
+            immediate_size: 0,
+        });
+        let pipe = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("swarm"),
+            layout: Some(&layout),
+            module: &module,
+            entry_point: Some("cs_main"),
+            compilation_options: Default::default(),
+            cache: None,
+        });
+        let (params_cap, out_cap, locals_cap) = (4, 1024, 64);
+        let params = Self::make_params(device, params_cap);
+        let out = Self::make_out(device, out_cap);
+        let locals = Self::make_locals(device, locals_cap);
+        let bg = Self::make_bg(device, &bgl, &params, &out, &locals);
+        Some(SwarmGpu {
+            pipe,
+            bgl,
+            params,
+            params_cap,
+            out,
+            out_cap,
+            locals,
+            locals_cap,
+            bg,
+        })
+    }
+
+    fn make_params(device: &wgpu::Device, cap: u64) -> wgpu::Buffer {
+        device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("swarm params"),
+            size: cap * SWARM_SLOT,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        })
+    }
+
+    fn make_out(device: &wgpu::Device, cap: u64) -> wgpu::Buffer {
+        device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("swarm instances"),
+            size: cap * std::mem::size_of::<InstanceRaw>() as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        })
+    }
+
+    fn make_locals(device: &wgpu::Device, cap: u64) -> wgpu::Buffer {
+        device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("copies placed on the CPU"),
+            size: cap * 64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        })
+    }
+
+    fn make_bg(
+        device: &wgpu::Device,
+        bgl: &wgpu::BindGroupLayout,
+        params: &wgpu::Buffer,
+        out: &wgpu::Buffer,
+        locals: &wgpu::Buffer,
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("swarm"),
+            layout: bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: params,
+                        offset: 0,
+                        size: wgpu::BufferSize::new(std::mem::size_of::<SwarmParams>() as u64),
+                    }),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: out.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: locals.as_entire_binding(),
+                },
+            ],
+        })
+    }
+
+    /// Room for `jobs` dispatches writing `instances` copies in total, and
+    /// `locals` copies placed on the CPU.
+    fn reserve(&mut self, device: &wgpu::Device, jobs: u64, instances: u64, locals: u64) {
+        let mut changed = false;
+        if locals > self.locals_cap {
+            self.locals_cap = locals.next_power_of_two();
+            self.locals = Self::make_locals(device, self.locals_cap);
+            changed = true;
+        }
+        if jobs > self.params_cap {
+            self.params_cap = jobs.next_power_of_two();
+            self.params = Self::make_params(device, self.params_cap);
+            changed = true;
+        }
+        if instances > self.out_cap {
+            self.out_cap = instances.next_power_of_two();
+            self.out = Self::make_out(device, self.out_cap);
+            changed = true;
+        }
+        if changed {
+            self.bg = Self::make_bg(device, &self.bgl, &self.params, &self.out, &self.locals);
+        }
+    }
+}
+
+/// Where a target's feedback history is and what the last step was.
+#[derive(Clone, Copy)]
+struct FeedbackState {
+    /// History texture the last step read from, and the one it wrote.
+    read: usize,
+    write: usize,
+    phase: f32,
+    dt: f32,
+    fresh: bool,
 }
 
 pub struct Renderer {
@@ -178,8 +818,27 @@ pub struct Renderer {
     bgl_floor: wgpu::BindGroupLayout,
     bgl_post: wgpu::BindGroupLayout,
 
-    globals_buf: [wgpu::Buffer; 2],
-    globals_bg: [wgpu::BindGroup; 2],
+    globals_buf: [wgpu::Buffer; 3],
+    globals_bg: [wgpu::BindGroup; 3],
+    shadow_mesh_pipe: wgpu::RenderPipeline,
+    shadow_sdf_pipe: wgpu::RenderPipeline,
+    swarm: Option<SwarmGpu>,
+    contact_pipe: wgpu::RenderPipeline,
+    /// Background pipelines specialised per kind, built when first used:
+    /// (kind, samples, low resolution).
+    bg_pipes: HashMap<(i32, u32, bool), wgpu::RenderPipeline>,
+    bg_module: wgpu::ShaderModule,
+    scene_layout: wgpu::PipelineLayout,
+    /// Upscale of the low-resolution background.
+    bg_up_pipe: wgpu::RenderPipeline,
+    shadow_terrain_pipe: wgpu::RenderPipeline,
+    /// Depth of field: distance-to-camera passes for meshes and terrain.
+    dof_mesh_pipe: wgpu::RenderPipeline,
+    dof_sdf_pipe: wgpu::RenderPipeline,
+    dof_terrain_pipe: wgpu::RenderPipeline,
+    dof_floor_pipe: wgpu::RenderPipeline,
+    shadow_view: wgpu::TextureView,
+    shadow_bg: wgpu::BindGroup,
     bgl_draw: wgpu::BindGroupLayout,
     draw_buf: wgpu::Buffer,
     draw_cap: u64,
@@ -196,6 +855,8 @@ pub struct Renderer {
     bloom_down_pipe: wgpu::RenderPipeline,
     bloom_up_pipe: wgpu::RenderPipeline,
     final_pipe: wgpu::RenderPipeline,
+    rays_pipe: wgpu::RenderPipeline,
+    rays_add_pipe: wgpu::RenderPipeline,
 
     sampler_repeat: wgpu::Sampler,
     sampler_nearest: wgpu::Sampler,
@@ -211,6 +872,34 @@ pub struct Renderer {
     /// Instances of layers that don't animate, keyed by layer hash, with
     /// the frame number they were last used.
     instance_cache: HashMap<u64, (u64, Vec<InstanceRaw>)>,
+    /// Scene transitions: the two pictures, and the mixing pass.
+    seq_targets: Option<SeqTargets>,
+    feedback_pipe: wgpu::RenderPipeline,
+    /// Feedback history per target: (history to read next, last phase).
+    feedback: HashMap<u64, FeedbackState>,
+    compose_pipe: wgpu::RenderPipeline,
+    compose_buf: wgpu::Buffer,
+    /// Font atlases by texture key.
+    fonts: HashMap<String, std::sync::Arc<crate::text::FontAtlas>>,
+    logo_pipe: wgpu::RenderPipeline,
+    bgl_logo: wgpu::BindGroupLayout,
+    /// The picture behind the logos (for glass and shadow rays), at least
+    /// as big as the target being drawn: texture, view, size.
+    logo_backdrop: (wgpu::Texture, wgpu::TextureView, u32, u32),
+    /// Logos drawn as a rays source cutting their shadow out.
+    logo_shadow_pipe: wgpu::RenderPipeline,
+    /// Logo rays' source pictures by target, made when first needed.
+    logo_rays_src: HashMap<u64, LogoRaysSource>,
+    /// Logo effect settings (two slots of the draw buffer).
+    bgl_logo_fx: wgpu::BindGroupLayout,
+    logo_fx_bg: wgpu::BindGroup,
+    /// Logo texture bind groups by (logo, morph target, material sphere).
+    logo_bgs: HashMap<LogoKey, wgpu::BindGroup>,
+    /// Baked logos by texture key, with the frame they were last drawn
+    /// (`None`: nothing to draw).
+    logos: HashMap<String, (u64, Option<LogoFit>)>,
+    /// Points on shape surfaces for Instancer::Surface: (mesh, count, seed).
+    surface_cache: HashMap<(String, u32, u32), std::sync::Arc<Vec<ez_core::eval::SurfacePoint>>>,
     frame_no: u64,
     /// Instance data currently in `inst_buf` (skip identical uploads).
     uploaded: Vec<InstanceRaw>,
@@ -219,6 +908,15 @@ pub struct Renderer {
 }
 
 /// All size-dependent GPU resources for one output image.
+/// Two pictures for scene transitions and their compositing inputs.
+struct SeqTargets {
+    width: u32,
+    height: u32,
+    a: RenderTarget,
+    b: RenderTarget,
+    bind: wgpu::BindGroup,
+}
+
 pub struct RenderTarget {
     id: u64,
     pub width: u32,
@@ -235,7 +933,9 @@ pub struct RenderTarget {
     refl_size: (u32, u32),
     pub output: wgpu::Texture,
     pub output_view: wgpu::TextureView,
-    /// sRGB view of the output, for displaying it (e.g. in egui).
+    /// The same picture as gamma-encoded UNORM, for displaying it in egui
+    /// (which treats texture values as gamma, not linear).
+    pub display: wgpu::Texture,
     pub display_view: wgpu::TextureView,
     bg_blur_h: wgpu::BindGroup,
     bg_blur_v: wgpu::BindGroup,
@@ -243,6 +943,20 @@ pub struct RenderTarget {
     bg_bloom_down: Vec<wgpu::BindGroup>,
     bg_bloom_up: Vec<wgpu::BindGroup>,
     bg_final: wgpu::BindGroup,
+    /// Low-resolution backgrounds: (divisor, view, bind group for sampling).
+    bg_low: Vec<(u32, wgpu::TextureView, wgpu::BindGroup)>,
+    bg_rays: wgpu::BindGroup,
+    bg_rays_add: wgpu::BindGroup,
+    rays: wgpu::TextureView,
+    /// Depth of field: distance to the camera (half resolution) and its
+    /// depth buffer.
+    dof_dist: wgpu::TextureView,
+    dof_z: wgpu::TextureView,
+    /// Feedback trails: the post image as a texture (to copy into), the
+    /// two history images and their bind groups (reading history `i`).
+    hdr2_tex: wgpu::Texture,
+    fb: [(wgpu::Texture, wgpu::TextureView); 2],
+    bg_fb: [wgpu::BindGroup; 2],
 }
 
 fn m4(m: Mat4) -> [[f32; 4]; 4] {
@@ -345,6 +1059,20 @@ fn make_pipeline(device: &wgpu::Device, d: PipeDesc) -> wgpu::RenderPipeline {
     })
 }
 
+/// Multiplies what is already there by the shader's colour.
+const MULTIPLY: wgpu::BlendState = wgpu::BlendState {
+    color: wgpu::BlendComponent {
+        src_factor: wgpu::BlendFactor::Zero,
+        dst_factor: wgpu::BlendFactor::Src,
+        operation: wgpu::BlendOperation::Add,
+    },
+    alpha: wgpu::BlendComponent {
+        src_factor: wgpu::BlendFactor::Zero,
+        dst_factor: wgpu::BlendFactor::One,
+        operation: wgpu::BlendOperation::Add,
+    },
+};
+
 const ADDITIVE: wgpu::BlendState = wgpu::BlendState {
     color: wgpu::BlendComponent {
         src_factor: wgpu::BlendFactor::One,
@@ -424,19 +1152,36 @@ impl Renderer {
             ],
         });
 
-        let globals_buf = [0, 1].map(|i| {
+        let bgl_shadow = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("shadow"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
+                    count: None,
+                },
+            ],
+        });
+        let globals_buf = [0, 1, 2].map(|i| {
             device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some(if i == 0 {
-                    "globals main"
-                } else {
-                    "globals refl"
-                }),
+                label: Some(["globals main", "globals refl", "globals sun"][i]),
                 size: globals_size,
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             })
         });
-        let globals_bg = [0, 1].map(|i| {
+        let globals_bg = [0, 1, 2].map(|i| {
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("globals"),
                 layout: &bgl_globals,
@@ -468,6 +1213,27 @@ impl Renderer {
             bind_group_layouts: &[Some(&bgl_globals), Some(&bgl_draw), Some(&bgl_mesh_tex)],
             immediate_size: 0,
         });
+        // Lit surfaces also read the sun shadow map (group 3).
+        let mesh_lit_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("mesh lit"),
+            bind_group_layouts: &[
+                Some(&bgl_globals),
+                Some(&bgl_draw),
+                Some(&bgl_mesh_tex),
+                Some(&bgl_shadow),
+            ],
+            immediate_size: 0,
+        });
+        let terrain_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("terrain"),
+            bind_group_layouts: &[
+                Some(&bgl_globals),
+                Some(&bgl_draw),
+                Some(&bgl_tex),
+                Some(&bgl_shadow),
+            ],
+            immediate_size: 0,
+        });
         let particle_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("particles"),
             bind_group_layouts: &[Some(&bgl_globals), Some(&bgl_draw)],
@@ -475,7 +1241,12 @@ impl Renderer {
         });
         let floor_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("floor"),
-            bind_group_layouts: &[Some(&bgl_globals), Some(&bgl_draw), Some(&bgl_floor)],
+            bind_group_layouts: &[
+                Some(&bgl_globals),
+                Some(&bgl_draw),
+                Some(&bgl_floor),
+                Some(&bgl_shadow),
+            ],
             immediate_size: 0,
         });
         let post_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -504,7 +1275,27 @@ impl Renderer {
             include_str!("shaders/terrain.wgsl"),
             true,
         );
-        let sh_lasers = shader(device, "lasers", include_str!("shaders/lasers.wgsl"), true);
+        let beams = include_str!("shaders/beams.wgsl");
+        let sh_lasers = shader(
+            device,
+            "lasers",
+            &format!("{beams}\n{}", include_str!("shaders/lasers.wgsl")),
+            true,
+        );
+        let sh_spots = shader(
+            device,
+            "spots",
+            &format!("{beams}\n{}", include_str!("shaders/spots.wgsl")),
+            true,
+        );
+        let sh_skyfx = shader(device, "sky fx", include_str!("shaders/skyfx.wgsl"), true);
+        let sh_falls = shader(device, "falls", include_str!("shaders/falls.wgsl"), true);
+        let sh_weather = shader(
+            device,
+            "weather",
+            include_str!("shaders/weather.wgsl"),
+            true,
+        );
         let sh_post = shader(device, "post", include_str!("shaders/post.wgsl"), false);
 
         let vertex_layout = wgpu::VertexBufferLayout {
@@ -517,20 +1308,131 @@ impl Renderer {
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &wgpu::vertex_attr_array![4 => Float32x4, 5 => Float32x4, 6 => Float32x4, 7 => Float32x4, 8 => Float32x4],
         };
-        let mesh_buffers = [Some(vertex_layout), Some(instance_layout)];
+        let mesh_buffers = [Some(vertex_layout), Some(instance_layout.clone())];
+        // Letters: one instance each, the quad comes from the vertex index.
+        let glyph_buffers = [Some(instance_layout)];
+        let sh_text = shader(device, "text", include_str!("shaders/text.wgsl"), true);
+        let sh_sdf = shader(device, "sdf", include_str!("shaders/sdf.wgsl"), true);
+        let sh_sprite = shader(device, "sprite", include_str!("shaders/sprite.wgsl"), true);
+        let sh_arcs = shader(device, "arcs", include_str!("shaders/arcs.wgsl"), true);
+        let sh_logo = shader(device, "logo", include_str!("shaders/logo.wgsl"), true);
+        // Logos go on the picture after depth of field (no depth, no MSAA:
+        // the distance field antialiases).
+        // The logo, the logo it morphs into and the material sphere, then
+        // a second block of settings.
+        let bgl_logo = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("logo tex"),
+            entries: &[
+                tex_entry(0),
+                tex_entry(1),
+                tex_entry(2),
+                sampler_entry(3),
+                tex_entry(4),
+                tex_entry(5),
+                tex_entry(6),
+            ],
+        });
+        let bgl_logo_fx = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("logo effects"),
+            entries: &[uniform_entry(0, true, LOGO_FX_SIZE)],
+        });
+        let logo_fx_bg = Self::make_draw_bg_sized(device, &bgl_logo_fx, &draw_buf, LOGO_FX_SIZE);
+        let logo_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("logo"),
+            bind_group_layouts: &[
+                Some(&bgl_globals),
+                Some(&bgl_draw),
+                Some(&bgl_logo),
+                Some(&bgl_logo_fx),
+            ],
+            immediate_size: 0,
+        });
+        // A logo cutting its shadow out of the light behind it:
+        // picture × (1 - coverage).
+        let logo_shadow_pipe = make_pipeline(
+            device,
+            PipeDesc {
+                label: "logo shadow",
+                layout: &logo_layout,
+                module: &sh_logo,
+                fs: "fs_main",
+                buffers: &[],
+                format: HDR_FORMAT,
+                samples: 1,
+                depth: None,
+                blend: Some(wgpu::BlendState {
+                    color: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::Zero,
+                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                    alpha: wgpu::BlendComponent::OVER,
+                }),
+            },
+        );
+        let logo_pipe = make_pipeline(
+            device,
+            PipeDesc {
+                label: "logo",
+                layout: &logo_layout,
+                module: &sh_logo,
+                fs: "fs_main",
+                buffers: &[],
+                format: HDR_FORMAT,
+                samples: 1,
+                depth: None,
+                blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+            },
+        );
 
         let scene_pipes = |samples: u32| ScenePipes {
-            backdrop: make_pipeline(
+            samples,
+            arcs: make_pipeline(
                 device,
                 PipeDesc {
-                    label: "backdrop",
-                    layout: &scene_layout,
-                    module: &sh_backdrop,
+                    label: "arcs",
+                    layout: &particle_layout,
+                    module: &sh_arcs,
                     fs: "fs_main",
-                    buffers: &[],
+                    buffers: &glyph_buffers,
                     format: HDR_FORMAT,
                     samples,
-                    depth: Some((false, wgpu::CompareFunction::Always)),
+                    depth: Some((false, wgpu::CompareFunction::Less)),
+                    blend: Some(ADDITIVE),
+                },
+            ),
+            sprite: [
+                (Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING), false),
+                (Some(ADDITIVE), false),
+                (None, true),
+            ]
+            .map(|(blend, write)| {
+                make_pipeline(
+                    device,
+                    PipeDesc {
+                        label: "sprite",
+                        layout: &scene_layout,
+                        module: &sh_sprite,
+                        fs: "fs_main",
+                        buffers: &glyph_buffers,
+                        format: HDR_FORMAT,
+                        samples,
+                        depth: Some((write, wgpu::CompareFunction::Less)),
+                        blend,
+                    },
+                )
+            }),
+            sdf: make_pipeline(
+                device,
+                PipeDesc {
+                    label: "sdf",
+                    layout: &mesh_lit_layout,
+                    module: &sh_sdf,
+                    fs: "fs_main",
+                    buffers: &mesh_buffers,
+                    format: HDR_FORMAT,
+                    samples,
+                    depth: Some((true, wgpu::CompareFunction::Less)),
                     blend: None,
                 },
             ),
@@ -538,7 +1440,7 @@ impl Renderer {
                 device,
                 PipeDesc {
                     label: "mesh",
-                    layout: &mesh_layout,
+                    layout: &mesh_lit_layout,
                     module: &sh_mesh,
                     fs: "fs_main",
                     buffers: &mesh_buffers,
@@ -559,14 +1461,16 @@ impl Renderer {
                     format: HDR_FORMAT,
                     samples,
                     depth: Some((false, wgpu::CompareFunction::Less)),
-                    blend: Some(ADDITIVE),
+                    // Glowing particles output alpha 0 (pure addition);
+                    // smoke outputs its coverage.
+                    blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                 },
             ),
             terrain: make_pipeline(
                 device,
                 PipeDesc {
                     label: "terrain",
-                    layout: &scene_layout,
+                    layout: &terrain_layout,
                     module: &sh_terrain,
                     fs: "fs_main",
                     buffers: &[],
@@ -590,7 +1494,290 @@ impl Renderer {
                     blend: Some(ADDITIVE),
                 },
             ),
+            weather: make_pipeline(
+                device,
+                PipeDesc {
+                    label: "weather",
+                    layout: &particle_layout,
+                    module: &sh_weather,
+                    fs: "fs_main",
+                    buffers: &[],
+                    format: HDR_FORMAT,
+                    samples,
+                    depth: Some((false, wgpu::CompareFunction::Less)),
+                    blend: Some(ADDITIVE),
+                },
+            ),
+            sky_mul: make_pipeline(
+                device,
+                PipeDesc {
+                    label: "sky fx mul",
+                    layout: &particle_layout,
+                    module: &sh_skyfx,
+                    fs: "fs_mul",
+                    buffers: &[],
+                    format: HDR_FORMAT,
+                    samples,
+                    depth: Some((false, wgpu::CompareFunction::Always)),
+                    blend: Some(MULTIPLY),
+                },
+            ),
+            sky_add: make_pipeline(
+                device,
+                PipeDesc {
+                    label: "sky fx add",
+                    layout: &particle_layout,
+                    module: &sh_skyfx,
+                    fs: "fs_add",
+                    buffers: &[],
+                    format: HDR_FORMAT,
+                    samples,
+                    depth: Some((false, wgpu::CompareFunction::Always)),
+                    blend: Some(ADDITIVE),
+                },
+            ),
+            spots: make_pipeline(
+                device,
+                PipeDesc {
+                    label: "spots",
+                    layout: &particle_layout,
+                    module: &sh_spots,
+                    fs: "fs_main",
+                    buffers: &[],
+                    format: HDR_FORMAT,
+                    samples,
+                    depth: Some((false, wgpu::CompareFunction::Less)),
+                    blend: Some(ADDITIVE),
+                },
+            ),
+            falls: make_pipeline(
+                device,
+                PipeDesc {
+                    label: "falls",
+                    layout: &particle_layout,
+                    module: &sh_falls,
+                    fs: "fs_main",
+                    buffers: &[],
+                    format: HDR_FORMAT,
+                    samples,
+                    depth: Some((false, wgpu::CompareFunction::Less)),
+                    blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                },
+            ),
+            text: make_pipeline(
+                device,
+                PipeDesc {
+                    label: "text",
+                    layout: &scene_layout,
+                    module: &sh_text,
+                    fs: "fs_main",
+                    buffers: &glyph_buffers,
+                    format: HDR_FORMAT,
+                    samples,
+                    depth: Some((false, wgpu::CompareFunction::Less)),
+                    blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                },
+            ),
         };
+        // Depth-only passes from the sun (vertex stage only).
+        let depth_pipe = |label: &str,
+                          layout: &wgpu::PipelineLayout,
+                          module: &wgpu::ShaderModule,
+                          buffers: &[Option<wgpu::VertexBufferLayout>]| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(layout),
+                vertex: wgpu::VertexState {
+                    module,
+                    entry_point: Some("vs_main"),
+                    compilation_options: Default::default(),
+                    buffers,
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    cull_mode: None,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DEPTH_FORMAT,
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(wgpu::CompareFunction::Less),
+                    stencil: Default::default(),
+                    bias: wgpu::DepthBiasState {
+                        constant: 2,
+                        slope_scale: 2.0,
+                        clamp: 0.0,
+                    },
+                }),
+                multisample: Default::default(),
+                fragment: None,
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let sh_contact = shader(
+            device,
+            "contact",
+            include_str!("shaders/contact.wgsl"),
+            true,
+        );
+        let contact_instances = [Some(wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<InstanceRaw>() as u64,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &wgpu::vertex_attr_array![4 => Float32x4, 5 => Float32x4, 6 => Float32x4, 7 => Float32x4, 8 => Float32x4],
+        })];
+        let contact_pipe = make_pipeline(
+            device,
+            PipeDesc {
+                label: "contact shadows",
+                layout: &particle_layout,
+                module: &sh_contact,
+                fs: "fs_main",
+                buffers: &contact_instances,
+                format: HDR_FORMAT,
+                samples: msaa,
+                depth: Some((false, wgpu::CompareFunction::Less)),
+                blend: Some(MULTIPLY),
+            },
+        );
+        let sh_bgup = shader(
+            device,
+            "bg upscale",
+            include_str!("shaders/bgup.wgsl"),
+            true,
+        );
+        let bg_up_pipe = make_pipeline(
+            device,
+            PipeDesc {
+                label: "bg upscale",
+                layout: &scene_layout,
+                module: &sh_bgup,
+                fs: "fs_main",
+                buffers: &[],
+                format: HDR_FORMAT,
+                samples: msaa,
+                depth: Some((false, wgpu::CompareFunction::Always)),
+                blend: None,
+            },
+        );
+        let shadow_mesh_pipe = depth_pipe("shadow mesh", &mesh_layout, &sh_mesh, &mesh_buffers);
+        let shadow_terrain_pipe = depth_pipe("shadow terrain", &scene_layout, &sh_terrain, &[]);
+        // Raymarched objects write their own depth from the fragment stage.
+        let shadow_sdf_pipe = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("shadow sdf"),
+            layout: Some(&mesh_layout),
+            vertex: wgpu::VertexState {
+                module: &sh_sdf,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &mesh_buffers,
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: Default::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &sh_sdf,
+                entry_point: Some("fs_shadow"),
+                compilation_options: Default::default(),
+                targets: &[],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
+        let dof_pipe = |label: &str,
+                        layout: &wgpu::PipelineLayout,
+                        module: &wgpu::ShaderModule,
+                        buffers: &[Option<wgpu::VertexBufferLayout>]| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(layout),
+                vertex: wgpu::VertexState {
+                    module,
+                    entry_point: Some("vs_main"),
+                    compilation_options: Default::default(),
+                    buffers,
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    cull_mode: None,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DEPTH_FORMAT,
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(wgpu::CompareFunction::Less),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: Default::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module,
+                    entry_point: Some("fs_depth"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: DOF_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let dof_mesh_pipe = dof_pipe("dof mesh", &mesh_layout, &sh_mesh, &mesh_buffers);
+        let dof_sdf_pipe = dof_pipe("dof sdf", &mesh_layout, &sh_sdf, &mesh_buffers);
+        let dof_terrain_pipe = dof_pipe("dof terrain", &scene_layout, &sh_terrain, &[]);
+        let dof_floor_pipe = dof_pipe("dof floor", &particle_layout, &sh_floor, &[]);
+        let shadow_view = device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("sun shadow map"),
+                size: wgpu::Extent3d {
+                    width: SHADOW_SIZE,
+                    height: SHADOW_SIZE,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: DEPTH_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+            .create_view(&Default::default());
+        let shadow_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("shadow"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            compare: Some(wgpu::CompareFunction::LessEqual),
+            ..Default::default()
+        });
+        let shadow_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("shadow"),
+            layout: &bgl_shadow,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&shadow_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&shadow_sampler),
+                },
+            ],
+        });
         let main_pipes = scene_pipes(msaa);
         let refl_pipes = scene_pipes(1);
         let floor_pipe = make_pipeline(
@@ -627,7 +1814,80 @@ impl Renderer {
         let warp_pipe = post_pipe("warp", "fs_warp", HDR_FORMAT, None);
         let bloom_down_pipe = post_pipe("bloom down", "fs_bloom_down", HDR_FORMAT, None);
         let bloom_up_pipe = post_pipe("bloom up", "fs_bloom_up", HDR_FORMAT, Some(ADDITIVE));
-        let final_pipe = post_pipe("final", "fs_final", OUTPUT_FORMAT, None);
+        // The final pass writes the export image and the display image.
+        let final_pipe = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("final"),
+            layout: Some(&post_layout),
+            vertex: wgpu::VertexState {
+                module: &sh_post,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            primitive: Default::default(),
+            depth_stencil: None,
+            multisample: Default::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &sh_post,
+                entry_point: Some("fs_final"),
+                compilation_options: Default::default(),
+                targets: &[
+                    Some(wgpu::ColorTargetState {
+                        format: OUTPUT_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                    Some(wgpu::ColorTargetState {
+                        format: DISPLAY_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                ],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
+        let compose_pipe = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("compose"),
+            layout: Some(&post_layout),
+            vertex: wgpu::VertexState {
+                module: &sh_post,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            primitive: Default::default(),
+            depth_stencil: None,
+            multisample: Default::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &sh_post,
+                entry_point: Some("fs_compose"),
+                compilation_options: Default::default(),
+                targets: &[
+                    Some(wgpu::ColorTargetState {
+                        format: OUTPUT_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                    Some(wgpu::ColorTargetState {
+                        format: DISPLAY_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                ],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
+        let compose_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("compose params"),
+            size: POST_SLOT,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let rays_pipe = post_pipe("god rays", "fs_rays", HDR_FORMAT, None);
+        let feedback_pipe = post_pipe("feedback", "fs_feedback", HDR_FORMAT, None);
+        let rays_add_pipe = post_pipe("god rays add", "fs_rays_add", HDR_FORMAT, Some(ADDITIVE));
 
         let sampler = |addr, filter| {
             device.create_sampler(&wgpu::SamplerDescriptor {
@@ -665,6 +1925,21 @@ impl Renderer {
             bgl_post,
             globals_buf,
             globals_bg,
+            shadow_mesh_pipe,
+            shadow_sdf_pipe,
+            swarm: SwarmGpu::new(device),
+            contact_pipe,
+            bg_pipes: HashMap::new(),
+            bg_module: sh_backdrop,
+            scene_layout,
+            bg_up_pipe,
+            shadow_terrain_pipe,
+            dof_mesh_pipe,
+            dof_sdf_pipe,
+            dof_terrain_pipe,
+            dof_floor_pipe,
+            shadow_view,
+            shadow_bg,
             bgl_draw,
             draw_buf,
             draw_cap,
@@ -680,6 +1955,8 @@ impl Renderer {
             bloom_down_pipe,
             bloom_up_pipe,
             final_pipe,
+            rays_pipe,
+            rays_add_pipe,
             sampler_repeat,
             sampler_nearest,
             sampler_clamp,
@@ -689,6 +1966,22 @@ impl Renderer {
             mesh_tex_bgs: HashMap::new(),
             errors: HashMap::new(),
             instance_cache: HashMap::new(),
+            seq_targets: None,
+            feedback_pipe,
+            feedback: HashMap::new(),
+            compose_pipe,
+            compose_buf,
+            fonts: HashMap::new(),
+            logo_pipe,
+            logo_fx_bg,
+            bgl_logo_fx,
+            logo_backdrop: Self::make_logo_backdrop(device, 1, 1),
+            logo_shadow_pipe,
+            logo_rays_src: HashMap::new(),
+            bgl_logo,
+            logo_bgs: HashMap::new(),
+            logos: HashMap::new(),
+            surface_cache: HashMap::new(),
             frame_no: 0,
             uploaded: Vec::new(),
             floor_bg_cache: None,
@@ -717,6 +2010,16 @@ impl Renderer {
         layout: &wgpu::BindGroupLayout,
         buf: &wgpu::Buffer,
     ) -> wgpu::BindGroup {
+        Self::make_draw_bg_sized(device, layout, buf, DRAW_SLOT)
+    }
+
+    /// The draw buffer seen `size` bytes at a time (several slots).
+    fn make_draw_bg_sized(
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+        buf: &wgpu::Buffer,
+        size: u64,
+    ) -> wgpu::BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("draw"),
             layout,
@@ -725,10 +2028,28 @@ impl Renderer {
                 resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                     buffer: buf,
                     offset: 0,
-                    size: wgpu::BufferSize::new(DRAW_SLOT),
+                    size: wgpu::BufferSize::new(size),
                 }),
             }],
         })
+    }
+
+    /// Whether big swarms are placed by a compute shader here.
+    pub fn gpu_swarms(&self) -> bool {
+        self.swarm.is_some()
+    }
+
+    /// Place big swarms on the CPU instead (as on WebGL2), e.g. to compare.
+    pub fn disable_gpu_swarms(&mut self) {
+        self.swarm = None;
+    }
+
+    /// Buffer holding a mesh command's instances.
+    fn mesh_instances(&self, gpu: bool) -> &wgpu::Buffer {
+        match (&self.swarm, gpu) {
+            (Some(sw), true) => &sw.out,
+            _ => &self.inst_buf,
+        }
     }
 
     fn make_inst_buf(device: &wgpu::Device, cap: u64) -> wgpu::Buffer {
@@ -744,6 +2065,12 @@ impl Renderer {
     // Assets
 
     fn upload_texture(&mut self, key: String, img: &RgbaImage) {
+        self.upload_texture_as(key, img, wgpu::TextureFormat::Rgba8UnormSrgb)
+    }
+
+    /// Upload with mipmaps in `format` (Rgba8Unorm for data such as
+    /// distance fields).
+    fn upload_texture_as(&mut self, key: String, img: &RgbaImage, format: wgpu::TextureFormat) {
         let (w, h) = img.dimensions();
         let mips = (32 - w.max(h).max(1).leading_zeros()).max(1);
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
@@ -756,7 +2083,7 @@ impl Renderer {
             mip_level_count: mips,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -793,6 +2120,8 @@ impl Renderer {
         }
         let view = texture.create_view(&Default::default());
         self.tex_bgs.retain(|(k, _), _| *k != key);
+        self.logo_bgs
+            .retain(|(a, b, c), _| *a != key && *b != key && *c != key);
         self.mesh_tex_bgs
             .retain(|(k, r, _), _| *k != key && *r != key);
         self.textures.insert(
@@ -802,6 +2131,625 @@ impl Renderer {
                 view,
             },
         );
+    }
+
+    /// Upload float RGBA pixels (as half floats) with mipmaps.
+    fn upload_float_texture(&mut self, key: String, w: u32, h: u32, px: &[[f32; 4]]) {
+        let levels = crate::logo::mips(w, h, px);
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some(&key),
+            size: wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: levels.len() as u32,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba16Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        for (mip, (lw, lh, level)) in levels.iter().enumerate() {
+            let bytes: Vec<u8> = level
+                .iter()
+                .flatten()
+                .flat_map(|c| crate::logo::f16_bits(*c).to_le_bytes())
+                .collect();
+            self.queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &texture,
+                    mip_level: mip as u32,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &bytes,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(8 * lw),
+                    rows_per_image: Some(*lh),
+                },
+                wgpu::Extent3d {
+                    width: *lw,
+                    height: *lh,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
+        let view = texture.create_view(&Default::default());
+        self.tex_bgs.retain(|(k, _), _| *k != key);
+        self.logo_bgs
+            .retain(|(a, b, c), _| *a != key && *b != key && *c != key);
+        self.textures.insert(
+            key,
+            GpuTexture {
+                _texture: texture,
+                view,
+            },
+        );
+    }
+
+    /// A logo layer's baked texture, uploaded, and how it fits; `None` when
+    /// there is nothing to draw (no text, no image, an empty mask).
+    fn logo_texture(&mut self, project: &Project, g: &LogoLayer) -> Option<(String, LogoFit)> {
+        let key = match g.source {
+            LogoSource::Text => format!("__logo:text:{:?}:{:?}:{}", g.font, g.font_file, g.text),
+            LogoSource::Image => {
+                format!("__logo:image:{}:{:?}", self.image_id(project, g)?, g.mask)
+            }
+        };
+        let frame = self.frame_no;
+        if let Some((used, fit)) = self.logos.get_mut(&key) {
+            *used = frame;
+            return fit.map(|f| (key, f));
+        }
+        // Problems are shown per font file and per image, not per bake
+        // (which changes with every letter typed).
+        let bake = match g.source {
+            LogoSource::Text => {
+                let bytes = g.font_file.as_ref().and_then(|path| {
+                    let err_key = format!("__font:file:{path}");
+                    let name = ez_core::store::file_name(path);
+                    match ez_core::store::read(path) {
+                        Ok(b) if skrifa::FontRef::new(&b).is_ok() => {
+                            self.errors.remove(&err_key);
+                            Some(b)
+                        }
+                        Ok(_) => {
+                            self.errors
+                                .insert(err_key, format!("Font {name}: not a font"));
+                            None
+                        }
+                        Err(e) => {
+                            self.errors.insert(err_key, format!("Font {name}: {e}"));
+                            None
+                        }
+                    }
+                });
+                crate::logo::bake_text(&g.text, g.font, bytes.as_deref())
+            }
+            LogoSource::Image => {
+                let name = g.image.as_deref().unwrap_or_default();
+                let err_key = format!("__logo:image:{}", self.image_id(project, g)?);
+                match self.load_image(project, name) {
+                    Ok(img) => {
+                        self.errors.remove(&err_key);
+                        crate::logo::bake_image(&img, g.mask)
+                    }
+                    Err(e) => {
+                        self.errors
+                            .insert(err_key, format!("Logo image '{name}': {e}"));
+                        None
+                    }
+                }
+            }
+        };
+        let fit = bake.map(|b| {
+            self.upload_float_texture(key.clone(), b.width, b.height, &b.pixels);
+            let f = &b.far;
+            let far: Vec<[f32; 4]> = f.field.iter().map(|v| [*v; 4]).collect();
+            self.upload_float_texture(far_key(&key), f.width, f.height, &far);
+            LogoFit {
+                far: [
+                    f.origin[0],
+                    f.origin[1],
+                    f.cell,
+                    f.width as f32,
+                    f.height as f32,
+                ],
+                width: b.width,
+                height: b.height,
+                aspect: b.aspect,
+                pad: b.pad,
+                spread: b.spread,
+                max_field: b.max_field,
+            }
+        });
+        self.logos.insert(key.clone(), (frame, fit));
+        // Editing text leaves old bakes behind: forget those not drawn for
+        // a while.
+        let stale: Vec<String> = self
+            .logos
+            .iter()
+            .filter(|(_, (used, _))| frame - *used > 240)
+            .map(|(k, _)| k.clone())
+            .collect();
+        for k in stale {
+            self.logos.remove(&k);
+            self.textures.remove(&k);
+            self.textures.remove(&far_key(&k));
+            self.tex_bgs.retain(|(t, _), _| *t != k);
+            self.logo_bgs
+                .retain(|(a, b, c), _| *a != k && *b != k && *c != k);
+        }
+        fit.map(|f| (key, f))
+    }
+
+    /// What a logo image is, for caching: a built-in name, or the file and
+    /// its retro look. `None` without an image.
+    fn image_id(&self, project: &Project, g: &LogoLayer) -> Option<String> {
+        let name = g.image.as_deref().filter(|n| !n.is_empty())?;
+        Some(if texgen::is_builtin(name) {
+            format!("b:{name}")
+        } else {
+            match project.find_texture(name) {
+                Some(t) => format!("u:{}:{:?}", t.path, t.retro),
+                None => format!("u:{name}"),
+            }
+        })
+    }
+
+    /// The textures of a logo in one bind group (clamped: beyond the edge
+    /// the shader extends the field itself).
+    fn logo_bind_group(&mut self, key: &LogoKey) {
+        if self.logo_bgs.contains_key(key) {
+            return;
+        }
+        let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("logo tex"),
+            layout: &self.bgl_logo,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&self.textures[&key.0].view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&self.textures[&key.1].view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&self.textures[&key.2].view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler_clamp),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(
+                        &self.textures[&far_key(&key.0)].view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::TextureView(
+                        &self.textures[&far_key(&key.1)].view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::TextureView(&self.logo_backdrop.1),
+                },
+            ],
+        });
+        self.logo_bgs.insert(key.clone(), bg);
+    }
+
+    /// The four blocks of a logo layer drawn at `ctx` with its anchor at
+    /// `at` (pixels from the bottom left of a `w` × `h` picture) and its
+    /// opacity times `fade`, the key of its textures' bind group and its
+    /// fit. `None` when there is nothing to draw.
+    #[allow(clippy::too_many_arguments)]
+    fn logo_blocks(
+        &mut self,
+        project: &Project,
+        g: &LogoLayer,
+        ctx: &EvalCtx,
+        at: Vec2,
+        w: u32,
+        h: u32,
+        flash: f32,
+        fade: f32,
+    ) -> Option<LogoDraw> {
+        let (tex, fit) = self.logo_texture(project, g)?;
+        let mut blk: Block = Zeroable::zeroed();
+        blk[0] = c4(g.color_top, g.glow.eval(ctx).max(0.0) * flash);
+        blk[1] = c4(g.color_bottom, g.outline.eval(ctx));
+        blk[2] = c4(g.outline_color, g.shadow.eval(ctx));
+        blk[3] = c4(g.tint, g.chrome.eval(ctx));
+        blk[4] = [
+            at.x / w as f32,
+            at.y / h as f32,
+            g.size.eval(ctx).max(0.0),
+            g.rotation.eval(ctx).to_radians(),
+        ];
+        let [ax, ay] = g.anchor.point();
+        blk[5] = [
+            ax,
+            ay,
+            fit.aspect,
+            g.opacity.eval(ctx).clamp(0.0, 1.0) * fade,
+        ];
+        blk[6] = [
+            fit.pad[0],
+            fit.pad[1],
+            fit.spread,
+            if g.colors == LogoColors::Gradient {
+                1.0
+            } else {
+                0.0
+            },
+        ];
+        blk[7] = [fit.width as f32, fit.height as f32, 0.0, 0.0];
+        // Lighting: bevel, light, material sphere, glint.
+        blk[8] = [
+            g.bevel.index() as f32,
+            g.bevel_width.eval(ctx).max(0.0) * 0.5,
+            g.bevel_depth.eval(ctx).max(0.0),
+            g.steps.max(1) as f32,
+        ];
+        let (la, lh) = (
+            g.light_angle.eval(ctx).to_radians(),
+            g.light_height.eval(ctx).clamp(0.0, 90.0).to_radians(),
+        );
+        blk[9] = [
+            la.cos() * lh.cos(),
+            la.sin() * lh.cos(),
+            lh.sin(),
+            g.lighting.eval(ctx).max(0.0),
+        ];
+        blk[10] = c4(g.light_color, g.shine.eval(ctx).max(0.0));
+        let has_matcap = g.matcap.as_deref().is_some_and(|m| !m.is_empty());
+        blk[11] = [
+            4.0 + g.gloss.clamp(0.0, 1.0).powi(2) * 124.0,
+            if has_matcap {
+                g.matcap_amount.eval(ctx).clamp(0.0, 1.0)
+            } else {
+                0.0
+            },
+            fit.max_field,
+            g.glint.eval(ctx).max(0.0),
+        ];
+        blk[12] = [
+            (ctx.phase * g.glint_cycles as f32).rem_euclid(1.0),
+            g.glint_width.max(0.005),
+            g.glint_angle.to_radians(),
+            0.0,
+        ];
+        blk[13] = c4(g.glint_color, 0.0);
+        blk[14] = [fit.far[0], fit.far[1], fit.far[2], 0.0];
+        blk[15] = [fit.far[3], fit.far[4], 0.0, 0.0];
+        let matcap = self.texture_key(project, g.matcap.as_deref());
+        // The logo it morphs into: the same layer made of the
+        // morph source.
+        let morph_t = g.morph.eval(ctx).clamp(0.0, 1.0);
+        let target = if g.morph.is_animated() || g.morph.base > 0.0 {
+            let other = LogoLayer {
+                source: g.morph_source,
+                text: g.morph_text.clone(),
+                image: g.morph_image.clone(),
+                ..g.clone()
+            };
+            self.logo_texture(project, &other)
+        } else {
+            None
+        };
+        let (morph, other) = match target {
+            Some((k, f)) => (k, f),
+            None => (tex.clone(), fit),
+        };
+        let morph_t = if morph == tex { 0.0 } else { morph_t };
+        let mut e: Block = Zeroable::zeroed();
+        e[0] = [
+            g.contours.eval(ctx).max(0.0),
+            g.contour_spacing.max(0.005),
+            (ctx.phase * g.contour_cycles as f32).rem_euclid(1.0),
+            g.contour_reach.max(0.01),
+        ];
+        e[1] = c4(g.contour_color, g.contour_width.clamp(0.01, 1.0));
+        let stack_w = g.stack_width.eval(ctx).max(0.0);
+        e[2] = [
+            g.stack.min(16) as f32,
+            stack_w,
+            g.stack_gap.max(0.0),
+            if g.contour_inside { 1.0 } else { 0.0 },
+        ];
+        e[3] = c4(g.stack_color_a, 0.0);
+        e[4] = c4(g.stack_color_b, 0.0);
+        let extrude = g.extrude.eval(ctx).clamp(0.0, 2.0);
+        e[5] = [extrude, g.extrude_angle.to_radians(), 0.0, 0.0];
+        e[6] = c4(g.extrude_color, 0.0);
+        e[7] = [
+            g.dissolve.eval(ctx).clamp(0.0, 1.0),
+            g.dissolve_scale.max(0.1),
+            g.dissolve_edges.clamp(0.0, 1.0),
+            g.burn_width.max(0.0),
+        ];
+        e[8] = c4(g.burn_color, (g.dissolve_seed % 997) as f32 * 3.7);
+        e[9] = [
+            g.reveal_amount.eval(ctx).clamp(0.0, 1.0),
+            g.reveal.index() as f32,
+            g.reveal_angle.to_radians(),
+            g.reveal_soft.max(0.0),
+        ];
+        e[10] = [morph_t, other.aspect, other.pad[0], other.pad[1]];
+        e[11] = [
+            other.spread,
+            other.width as f32,
+            other.height as f32,
+            other.max_field,
+        ];
+        // Room for what reaches past the padding (logo heights).
+        let mut margin: f32 = 0.0;
+        if g.contours.is_animated() || g.contours.base > 0.0 {
+            margin = margin.max(g.contour_reach.max(0.01) * 3.0);
+        }
+        if g.stack > 0 {
+            let w = g.stack_width.base.abs() + g.stack_width.amp.abs();
+            margin = margin.max(g.stack.min(16) as f32 * (w + g.stack_gap.max(0.0)));
+        }
+        margin = margin.max(g.extrude.base.abs() + g.extrude.amp.abs());
+        // Distortion moves the picture around.
+        let reach = |p: &Param| p.base.abs() + p.amp.abs();
+        margin += reach(&g.wobble_x).max(reach(&g.wobble_y))
+            + reach(&g.glitch)
+            + reach(&g.chroma)
+            + g.glitch_split.abs();
+        let wider = if morph_t > 0.0 {
+            (other.aspect - fit.aspect).max(0.0)
+        } else {
+            0.0
+        };
+        e[12] = [
+            fit.heights_per_field(),
+            other.heights_per_field(),
+            margin.min(2.0),
+            wider,
+        ];
+        e[13] = [
+            other.content_height() / fit.content_height().max(1.0),
+            0.0,
+            0.0,
+            0.0,
+        ];
+        e[14] = [other.far[0], other.far[1], other.far[2], 0.0];
+        e[15] = [other.far[3], other.far[4], 0.0, 0.0];
+        // Rasters and distortion.
+        let mut e2: Block = Zeroable::zeroed();
+        e2[0] = [
+            g.copper.eval(ctx).clamp(0.0, 1.0),
+            g.copper_bars.max(0.1),
+            (ctx.phase * g.copper_cycles as f32 * 2.0).rem_euclid(2.0),
+            0.0,
+        ];
+        e2[1] = c4(g.copper_a, 0.0);
+        e2[2] = c4(g.copper_b, 0.0);
+        e2[3] = [
+            g.wobble_x.eval(ctx),
+            g.wobble_y.eval(ctx),
+            g.wobble_waves,
+            (ctx.phase * g.wobble_cycles as f32).rem_euclid(1.0),
+        ];
+        let per_loop = g.glitch_per_loop.max(1);
+        e2[4] = [
+            g.glitch.eval(ctx).max(0.0),
+            g.glitch_slices.max(0.1),
+            g.glitch_chance.clamp(0.0, 1.0),
+            (((ctx.phase.rem_euclid(1.0) * per_loop as f32) as u32) % per_loop) as f32,
+        ];
+        e2[5] = [
+            g.chroma.eval(ctx).max(0.0),
+            g.chroma_angle.to_radians(),
+            g.glitch_split,
+            0.0,
+        ];
+        // Retro looks; the palette in a third block.
+        let mut e3: Block = Zeroable::zeroed();
+        let mut colors: Vec<[f32; 3]> = match g.palette {
+            Some(pal) => pal.colors_f32(),
+            None => Vec::new(),
+        };
+        colors.truncate(16);
+        let luma = |c: &[f32; 3]| 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+        if g.palette_by_brightness {
+            colors.sort_by(|a, b| luma(a).total_cmp(&luma(b)));
+        }
+        for (i, c) in colors.iter().enumerate() {
+            e3[i] = c4(*c, 0.0);
+        }
+        let count = match g.palette {
+            Some(PaletteId::Vga) => 216.0,
+            Some(_) => colors.len() as f32,
+            None => 0.0,
+        };
+        let shift = if colors.is_empty() {
+            0.0
+        } else {
+            let n = colors.len() as f32;
+            ((ctx.phase * g.palette_cycles as f32).rem_euclid(1.0) * n).floor() % n
+        };
+        e2[6] = [
+            g.pixelate.eval(ctx).max(0.0),
+            count,
+            g.dither.clamp(0.0, 1.0),
+            shift,
+        ];
+        e2[7] = [
+            if g.palette_by_brightness { 1.0 } else { 0.0 },
+            g.halftone.eval(ctx).clamp(0.0, 1.0),
+            g.halftone_size.max(0.002),
+            g.halftone_angle.to_radians(),
+        ];
+        e2[8] = [
+            g.scanlines.eval(ctx).clamp(0.0, 1.0),
+            g.scanline_count.max(1.0),
+            g.crt_mask.clamp(0.0, 1.0),
+            g.crt_glow.eval(ctx).max(0.0),
+        ];
+        e2[9] = [
+            g.moire.eval(ctx).clamp(0.0, 1.0),
+            g.moire_lines.max(1.0),
+            (ctx.phase * g.moire_cycles as f32).rem_euclid(1.0) * TAU,
+            0.0,
+        ];
+        // Glass.
+        e2[10] = [
+            g.glass.eval(ctx).clamp(0.0, 1.0),
+            g.refraction,
+            g.dispersion.clamp(0.0, 1.0),
+            0.0,
+        ];
+        e2[11] = c4(g.glass_tint, 0.0);
+        let key = (tex, morph, matcap);
+        self.logo_bind_group(&key);
+        Some(([blk, e, e2, e3], key, fit))
+    }
+
+    /// Where every logo layer's anchor sits on a `w` × `h` picture (pixels
+    /// from the bottom left), following attachments to other logos. `None`
+    /// for other layers and logos with nothing to draw.
+    fn place_logos(
+        &mut self,
+        project: &Project,
+        layers: &[Layer],
+        ctx: &EvalCtx,
+        w: f32,
+        h: f32,
+    ) -> Vec<Option<Vec2>> {
+        let fits: Vec<Option<LogoFit>> = layers
+            .iter()
+            .map(|l| match &l.kind {
+                LayerKind::Logo(g) if l.enabled => self.logo_texture(project, g).map(|(_, f)| f),
+                _ => None,
+            })
+            .collect();
+        let mut out = vec![None; layers.len()];
+        let mut state = vec![0u8; layers.len()];
+        for i in 0..layers.len() {
+            place_logo(i, layers, &fits, ctx, w, h, &mut out, &mut state);
+        }
+        out
+    }
+
+    /// Where the logo layers' anchors are on a picture of `size`, as
+    /// fractions from the bottom left (for the viewport's handles).
+    pub fn logo_anchors(
+        &mut self,
+        project: &Project,
+        ctx: &EvalCtx,
+        size: [f32; 2],
+    ) -> Vec<Option<[f32; 2]>> {
+        let layers = project.scene_layers(ctx);
+        self.place_logos(project, &layers, ctx, size[0], size[1])
+            .into_iter()
+            .map(|p| p.map(|p| [p.x / size[0].max(1.0), p.y / size[1].max(1.0)]))
+            .collect()
+    }
+
+    fn make_logo_backdrop(
+        device: &wgpu::Device,
+        w: u32,
+        h: u32,
+    ) -> (wgpu::Texture, wgpu::TextureView, u32, u32) {
+        let t = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("logo backdrop"),
+            size: wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: HDR_FORMAT,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let v = t.create_view(&Default::default());
+        (t, v, w, h)
+    }
+
+    /// Grow the logo backdrop to hold a `w` × `h` picture.
+    fn ensure_logo_backdrop(&mut self, w: u32, h: u32) {
+        let (_, _, bw, bh) = self.logo_backdrop;
+        if bw >= w && bh >= h {
+            return;
+        }
+        self.logo_backdrop = Self::make_logo_backdrop(&self.device, w.max(bw), h.max(bh));
+        // The logos' bind groups hold the old one.
+        self.logo_bgs.clear();
+    }
+
+    /// A built-in or project image, decoded (with its retro look).
+    fn load_image(&self, project: &Project, name: &str) -> Result<RgbaImage, String> {
+        if texgen::is_builtin(name) {
+            return Ok(texgen::generate(name));
+        }
+        let (path, retro) = match project.find_texture(name) {
+            Some(t) => (t.path.clone(), t.retro.clone()),
+            None => (name.to_string(), None),
+        };
+        let bytes = ez_core::store::read(&path).map_err(|e| e.to_string())?;
+        let img = image::load_from_memory(&bytes)
+            .map_err(|e| e.to_string())?
+            .to_rgba8();
+        Ok(match &retro {
+            Some(r) => texgen::retroize(&img, r),
+            None => img,
+        })
+    }
+
+    /// The atlas of a text layer's font, uploaded; `None` (with an error
+    /// shown) when a font file can't be used.
+    fn font_atlas(
+        &mut self,
+        t: &TextLayer,
+    ) -> Option<(String, std::sync::Arc<crate::text::FontAtlas>)> {
+        let key = match &t.font_file {
+            Some(path) => format!("__font:file:{path}"),
+            None => format!("__font:{:?}", t.font),
+        };
+        if let Some(a) = self.fonts.get(&key) {
+            return Some((key, a.clone()));
+        }
+        let atlas = match &t.font_file {
+            None => crate::text::builtin_atlas(t.font),
+            Some(path) => {
+                let built = ez_core::store::read(path)
+                    .map_err(|e| anyhow::anyhow!("{e}"))
+                    .and_then(|bytes| crate::text::build_atlas(&bytes, false));
+                match built {
+                    Ok(a) => {
+                        self.errors.remove(&key);
+                        std::sync::Arc::new(a)
+                    }
+                    Err(e) => {
+                        self.errors.insert(
+                            key.clone(),
+                            format!("Font {}: {e:#}", ez_core::store::file_name(path)),
+                        );
+                        crate::text::builtin_atlas(t.font)
+                    }
+                }
+            }
+        };
+        self.upload_texture_as(key.clone(), &atlas.image, wgpu::TextureFormat::Rgba8Unorm);
+        self.tex_bind_group(&key, false);
+        self.fonts.insert(key.clone(), atlas.clone());
+        Some((key, atlas))
     }
 
     /// Resolve a material texture name to a loaded GPU texture key.
@@ -929,41 +2877,113 @@ impl Renderer {
         if levels == 0 || self.meshes.contains_key(&key) {
             return if levels == 0 { base } else { key };
         }
-        let mut data = match source {
-            MeshSource::Primitive(p) => primitive(p),
-            MeshSource::File { path } => {
-                load_mesh_asset(path).unwrap_or_else(|_| primitive(&Primitive::Cube))
-            }
-        };
+        let mut data = self.source_data(source, &base);
         data.subdivide(levels);
         self.upload_mesh(key.clone(), &data);
         key
+    }
+
+    /// `count` points evenly spread over `shape`'s surface.
+    fn surface_points(
+        &mut self,
+        shape: &MeshSource,
+        count: u32,
+        seed: u32,
+    ) -> std::sync::Arc<Vec<ez_core::eval::SurfacePoint>> {
+        let key = (self.mesh_key(shape), count, seed);
+        if let Some(p) = self.surface_cache.get(&key) {
+            return p.clone();
+        }
+        let data = self.source_data(shape, &key.0);
+        let positions: Vec<[f32; 3]> = data.vertices.iter().map(|v| v.pos).collect();
+        let points = std::sync::Arc::new(ez_core::eval::sample_surface(
+            &positions,
+            &data.indices,
+            count,
+            seed,
+        ));
+        if self.surface_cache.len() > 64 {
+            self.surface_cache.clear();
+        }
+        self.surface_cache.insert(key, points.clone());
+        points
     }
 
     fn mesh_key(&mut self, source: &MeshSource) -> String {
         let key = match source {
             MeshSource::Primitive(p) => format!("p:{}", p.cache_key()),
             MeshSource::File { path } => format!("f:{path}"),
+            MeshSource::Text { .. } => {
+                format!("t:{}", serde_json::to_string(source).unwrap_or_default())
+            }
+            // Every raymarched shape is drawn in the same box.
+            MeshSource::Sdf { .. } => {
+                let key = "sdf-box".to_string();
+                if !self.meshes.contains_key(&key) {
+                    let mut data = primitive(&Primitive::Cube);
+                    for v in &mut data.vertices {
+                        v.pos = (Vec3::from(v.pos) * 2.04).into();
+                    }
+                    self.upload_mesh(key.clone(), &data);
+                }
+                return key;
+            }
         };
         if self.meshes.contains_key(&key) {
             return key;
         }
-        let data = match source {
+        let data = self.source_data(source, &key);
+        self.upload_mesh(key.clone(), &data);
+        key
+    }
+
+    /// Geometry of a shape source; problems are reported under `key` and
+    /// give a cube.
+    fn source_data(&mut self, source: &MeshSource, key: &str) -> MeshData {
+        match source {
             MeshSource::Primitive(p) => primitive(p),
+            // Copies on a raymarched shape stand on a ball of about its size.
+            MeshSource::Sdf { .. } => {
+                let mut data = primitive(&Primitive::Sphere { detail: 3 });
+                for v in &mut data.vertices {
+                    v.pos = (Vec3::from(v.pos) * 0.8).into();
+                }
+                data
+            }
             MeshSource::File { path } => match load_mesh_asset(path) {
                 Ok(m) => {
-                    self.errors.remove(&key);
+                    self.errors.remove(key);
                     m
                 }
                 Err(e) => {
                     self.errors
-                        .insert(key.clone(), format!("model {path}: {e:#}"));
+                        .insert(key.to_string(), format!("model {path}: {e:#}"));
                     primitive(&Primitive::Cube)
                 }
             },
-        };
-        self.upload_mesh(key.clone(), &data);
-        key
+            MeshSource::Text {
+                text,
+                font,
+                font_file,
+                depth,
+            } => {
+                let bytes = match font_file {
+                    Some(path) => match ez_core::store::read(path) {
+                        Ok(b) => {
+                            self.errors.remove(key);
+                            Some(b)
+                        }
+                        Err(e) => {
+                            self.errors
+                                .insert(key.to_string(), format!("font {path}: {e:#}"));
+                            None
+                        }
+                    },
+                    None => None,
+                };
+                crate::text::text_mesh(text, *font, bytes.as_deref(), *depth)
+            }
+        }
     }
 
     /// Geometry of a neon ribbon, generated on first use.
@@ -1000,6 +3020,11 @@ impl Renderer {
                 vbuf,
                 ibuf,
                 count: data.indices.len() as u32,
+                radius: data
+                    .vertices
+                    .iter()
+                    .map(|v| Vec3::from(v.pos).length())
+                    .fold(0.0, f32::max),
             },
         );
     }
@@ -1009,6 +3034,7 @@ impl Renderer {
         self.meshes.retain(|k, _| k.starts_with("p:"));
         self.textures.retain(|k, _| !k.starts_with("u:"));
         self.tex_bgs.retain(|(k, _), _| !k.starts_with("u:"));
+        self.logos.clear();
         self.errors.clear();
         self.floor_bg_cache = None;
     }
@@ -1021,21 +3047,28 @@ impl Renderer {
     // ------------------------------------------------------------------
     // Frame
 
+    #[allow(clippy::too_many_arguments)]
     fn globals(
         project: &Project,
         ctx: &EvalCtx,
+        env: &EnvState,
         view: Mat4,
         proj: Mat4,
         eye: Vec3,
         res: (u32, u32),
         clip: Vec4,
+        fx: &FrameEnv,
     ) -> GlobalsRaw {
-        let env = &project.environment;
+        let e = &project.environment;
+        let flash = fx.lightning;
+        // Lightning brightens the ambient light and the fog.
+        let fog_color = color::add(env.fog_color, color::scale(flash.1, flash.0 * 0.12));
         let vp = proj * view;
         let inv_view = view.inverse();
         let right = inv_view.x_axis.truncate().normalize_or(Vec3::X);
         let up = inv_view.y_axis.truncate().normalize_or(Vec3::Y);
-        let ld = Vec3::from(env.light_dir).normalize_or(Vec3::Y);
+        let hf = &e.height_fog;
+        let ca = &e.caustics;
         GlobalsRaw {
             view_proj: m4(vp),
             inv_view_proj: m4(vp.inverse()),
@@ -1055,19 +3088,197 @@ impl Renderer {
                 1.0 / res.0 as f32,
                 1.0 / res.1 as f32,
             ],
-            fog: c4(env.fog_color, env.fog_density.eval(ctx).max(0.0)),
-            sky: c4(env.sky_color, env.ambient.eval(ctx)),
-            ground: c4(env.ground_color, env.light_intensity.eval(ctx)),
-            light_dir: v4(ld, 0.0),
+            fog: c4(fog_color, env.fog_density),
+            sky: c4(env.sky_color, env.ambient + flash.0 * 0.8),
+            ground: c4(env.ground_color, env.light_intensity),
+            light_dir: v4(Vec3::from(env.light_dir), 0.0),
             light_color: c4(env.light_color, 1.0),
             clip: clip.into(),
-            audio: [ctx.audio, ctx.bass, 0.0, 0.0],
+            audio: [ctx.audio, ctx.bass, flash.0, 0.0],
+            hfog: [
+                hf.density.eval(ctx).max(0.0),
+                hf.height,
+                hf.falloff.max(0.05),
+                0.0,
+            ],
+            caus: [
+                ca.amount.eval(ctx).max(0.0),
+                ca.scale.max(0.05),
+                TAU * (ctx.phase * ca.speed as f32).rem_euclid(1.0),
+                ca.below,
+            ],
+            caus_col: c4(ca.color, fx.wet.clamp(0.0, 1.0)),
+            extra: [
+                fx.snow.clamp(0.0, 1.0),
+                env.night,
+                env.dusk,
+                e.rainbow.eval(ctx).max(0.0),
+            ],
+            sun: v4(Vec3::from(env.sun_dir), 0.0),
+            shadow_vp: m4(Mat4::IDENTITY),
+            shadow: [0.0; 4],
         }
     }
 
     /// Render one frame of `project` at `ctx` into `target`.
+    /// Build the background pipeline for `kind` if it isn't cached. `low`
+    /// is the low-resolution pass (no depth buffer).
+    fn ensure_bg_pipe(&mut self, kind: i32, samples: u32, low: bool) {
+        if self.bg_pipes.contains_key(&(kind, samples, low)) {
+            return;
+        }
+        let constants = [("BG_KIND", kind as f64)];
+        let options = wgpu::PipelineCompilationOptions {
+            constants: &constants,
+            ..Default::default()
+        };
+        let pipe = self
+            .device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("backdrop"),
+                layout: Some(&self.scene_layout),
+                vertex: wgpu::VertexState {
+                    module: &self.bg_module,
+                    entry_point: Some("vs_main"),
+                    compilation_options: options.clone(),
+                    buffers: &[],
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    cull_mode: None,
+                    ..Default::default()
+                },
+                depth_stencil: (!low).then(|| wgpu::DepthStencilState {
+                    format: DEPTH_FORMAT,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(wgpu::CompareFunction::Always),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: wgpu::MultisampleState {
+                    count: samples,
+                    ..Default::default()
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &self.bg_module,
+                    entry_point: Some("fs_main"),
+                    compilation_options: options,
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: HDR_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            });
+        self.bg_pipes.insert((kind, samples, low), pipe);
+    }
+
+    /// Render a frame of `project` at `ctx` into `target`: its scene, or
+    /// with a sequence the scene playing now (two mixed during a
+    /// transition).
     pub fn render(&mut self, project: &Project, ctx: &EvalCtx, target: &RenderTarget) {
-        let layers = project.scene_layers();
+        let Some(frame) = project.sequence.frame_at(ctx) else {
+            return self.render_scene(project, ctx, target);
+        };
+        let Some(current) = project.scene_view(frame.scene) else {
+            return self.render_scene(project, ctx, target);
+        };
+        let Some((from, from_ctx, t, tr)) = frame.from else {
+            return self.render_scene(&current, &frame.ctx, target);
+        };
+        let Some(previous) = project.scene_view(from) else {
+            return self.render_scene(&current, &frame.ctx, target);
+        };
+        let (w, h) = (target.width, target.height);
+        let seq = match self.seq_targets.take() {
+            Some(s) if s.width == w && s.height == h => s,
+            _ => {
+                let a = self.create_target(w, h);
+                let b = self.create_target(w, h);
+                let bind = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("compose"),
+                    layout: &self.bgl_post,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                                buffer: &self.compose_buf,
+                                offset: 0,
+                                size: wgpu::BufferSize::new(POST_SLOT),
+                            }),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(&a.output_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::TextureView(&b.output_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: wgpu::BindingResource::Sampler(&self.sampler_clamp),
+                        },
+                    ],
+                });
+                SeqTargets {
+                    width: w,
+                    height: h,
+                    a,
+                    b,
+                    bind,
+                }
+            }
+        };
+        self.render_scene(&previous, &from_ctx, &seq.a);
+        self.render_scene(&current, &frame.ctx, &seq.b);
+        let mut params = [[0.0f32; 4]; (POST_SLOT / 16) as usize];
+        params[0] = [
+            tr.kind.index() as f32,
+            t,
+            tr.angle.to_radians(),
+            w as f32 / h.max(1) as f32,
+        ];
+        self.queue
+            .write_buffer(&self.compose_buf, 0, bytemuck::cast_slice(&params));
+        let mut enc = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("compose"),
+            });
+        {
+            let att = |view| {
+                Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })
+            };
+            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("compose"),
+                color_attachments: &[att(&target.output_view), att(&target.display_view)],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&self.compose_pipe);
+            pass.set_bind_group(0, &seq.bind, &[0]);
+            pass.draw(0..3, 0..1);
+        }
+        self.queue.submit([enc.finish()]);
+        self.seq_targets = Some(seq);
+    }
+
+    /// Render one scene (no sequence).
+    fn render_scene(&mut self, project: &Project, ctx: &EvalCtx, target: &RenderTarget) {
+        let layers = project.scene_layers(ctx);
         let (w, h) = (target.width, target.height);
         let cam = project.camera.eval(ctx);
         let view = cam.view();
@@ -1078,12 +3289,34 @@ impl Renderer {
         let mut cmds: Vec<Cmd> = Vec::new();
         let mut floor: Option<(u32, String, f32, f32)> = None; // slot, tex, height, blur
         let mut scratch: Vec<Instance> = Vec::new();
+        let mut swarm_jobs: Vec<SwarmJob> = Vec::new();
+        let mut gpu_locals: Vec<[[f32; 4]; 4]> = Vec::new();
+        let mut swarm_total: u32 = 0;
         self.frame_no += 1;
         let mut stats = FrameStats::default();
+        // Lightning flash lighting up the whole scene: brightness, colour.
+        let mut fx = FrameEnv {
+            lightning: (0.0, [1.0; 3]),
+            ..Default::default()
+        };
+        let env = project.scene_environment(ctx).eval(ctx);
 
+        // Logos placed against the screen or each other.
+        let logo_places = self.place_logos(project, &layers, ctx, w as f32, h as f32);
+        let mut logo_rays: Vec<LogoRays> = Vec::new();
+        // Glass and shadow rays need the picture behind the logos: make
+        // room for it before the logos' bind groups are made.
+        let wants_backdrop = layers.iter().any(|l| {
+            matches!(&l.kind, LayerKind::Logo(g) if l.enabled
+                && (g.glass.is_animated() || g.glass.base > 0.0
+                    || (g.rays_shadow && (g.rays.is_animated() || g.rays.base > 0.0))))
+        });
+        if wants_backdrop {
+            self.ensure_logo_backdrop(w, h);
+        }
         for (li, layer) in layers.iter().enumerate().filter(|(_, l)| l.enabled) {
             // Blinking layers can be hidden right now; flashing ones glow more.
-            let Some(flash) = layer.blink.eval(ctx.phase) else {
+            let Some(flash) = layer.blink.eval(ctx.beat_phase) else {
                 continue;
             };
             let mut ls = LayerStats {
@@ -1123,7 +3356,7 @@ impl Renderer {
                         r.steps.min(256) as f32,
                         // Wrapped so the last frame's roll is exactly the first's.
                         TAU * (r.spin as f32 * ctx.phase).rem_euclid(1.0),
-                        0.0,
+                        ctx.phase.rem_euclid(1.0),
                         0.0,
                     ];
                     ls.draws = 1;
@@ -1131,11 +3364,18 @@ impl Renderer {
                     cmds.push(Cmd::Backdrop {
                         slot: blocks.len() as u32,
                         tex,
+                        res: b.resolution.divisor(),
+                        kind: b.kind.index() as i32,
                     });
                     blocks.push(blk);
                 }
                 LayerKind::Mesh(m) => {
-                    let mesh = self.mesh_key_subdivided(&m.source, m.subdivide);
+                    let sdf = matches!(m.source, MeshSource::Sdf { .. });
+                    let mesh = if sdf {
+                        self.mesh_key(&m.source)
+                    } else {
+                        self.mesh_key_subdivided(&m.source, m.subdivide)
+                    };
                     let mat = &m.material;
                     let tex = self.texture_key(project, mat.texture.as_deref());
                     let rel = &mat.relief;
@@ -1150,17 +3390,105 @@ impl Renderer {
                         "__white".to_string()
                     };
                     self.mesh_tex_bind_group(&tex, &relief, mat.pixelated);
-                    let first = instances.len() as u32;
+                    let surface = match &m.instancer {
+                        Instancer::Surface {
+                            shape, count, seed, ..
+                        } => Some(self.surface_points(shape, *count, *seed)),
+                        _ => None,
+                    };
+                    let surface = surface.as_deref().map(|v| v.as_slice());
+                    // With compute shaders every layout is placed on the GPU.
+                    let gpu = self.swarm.is_some();
+                    let mut first = instances.len() as u32;
+                    let mut bounds = None;
                     let to_raw = |i: &Instance| InstanceRaw {
                         model: m4(i.model),
-                        inst: [i.hue, i.glow, i.rand, 0.0],
+                        inst: [i.hue, i.glow, i.rand, i.along],
                     };
-                    let count = if instances_are_static(layer, m) {
+                    let count = if gpu {
+                        // One dispatch per symmetry copy, into the copies
+                        // buffer.
+                        let lay = gpu_layout(&m.instancer, ctx, surface, &mut gpu_locals);
+                        let n = lay.count;
+                        // Copies on a terrain are placed in the world already.
+                        let l = if matches!(m.instancer, Instancer::OnTerrain { .. }) {
+                            Mat4::IDENTITY
+                        } else {
+                            layer_frame(&layer.transform, ctx)
+                        };
+                        let size = layer_scale(&layer.transform, ctx);
+                        let v = &m.variation;
+                        let mut bands = [[0.0f32; 4]; 4];
+                        let spectrum_on = v.spectrum != 0.0 && ctx.music.active;
+                        if spectrum_on {
+                            for (k, b) in ctx.music.spectrum.iter().enumerate().take(16) {
+                                bands[k / 4][k % 4] = *b;
+                            }
+                        }
+                        first = swarm_total;
+                        let syms = symmetry_matrices(&layer.symmetry);
+                        // Where the copies can be: the layout's reach around
+                        // each symmetry copy, plus the size of one copy.
+                        if let (Some(reach), Some(g)) = (lay.reach, self.meshes.get(&mesh)) {
+                            let grow = (1.0 + v.scale)
+                                * (1.0 + v.ripple.abs())
+                                * (1.0 + v.spectrum.abs())
+                                * m.deform.reach(ctx).max(1.0);
+                            let one = g.radius * size.abs().max_element() * grow;
+                            let centres: Vec<Vec3> = syms
+                                .iter()
+                                .map(|s| (*s * l).transform_point3(Vec3::ZERO))
+                                .collect();
+                            let c = centres.iter().copied().sum::<Vec3>() / centres.len() as f32;
+                            let spread = centres
+                                .iter()
+                                .map(|p| (*p - c).length())
+                                .fold(0.0, f32::max);
+                            bounds = Some((c, spread + reach + one * 1.5 + 0.5));
+                        }
+                        if n > 0 {
+                            for sym in syms {
+                                swarm_jobs.push(SwarmJob {
+                                    params: SwarmParams {
+                                        frame: m4(sym * l),
+                                        size: [size.x, size.y, size.z, 0.0],
+                                        shape: [
+                                            lay.shape[0],
+                                            lay.shape[1],
+                                            lay.shape[2],
+                                            ctx.phase,
+                                        ],
+                                        ints: [lay.layout, n, lay.seed, swarm_total],
+                                        lay_u: lay.lay_u,
+                                        lay_f: lay.lay_f,
+                                        var_a: [
+                                            v.rotation.to_radians(),
+                                            v.spin as f32,
+                                            v.scale,
+                                            v.ripple,
+                                        ],
+                                        var_b: [
+                                            v.ripple_cycles as f32,
+                                            v.ripple_spread,
+                                            v.chase,
+                                            v.hue,
+                                        ],
+                                        var_c: [v.seed, spectrum_on as u32, 0, 0],
+                                        var_d: [v.spectrum, 0.0, 0.0, 0.0],
+                                        bands,
+                                    },
+                                    count: n,
+                                });
+                                swarm_total += n;
+                            }
+                        }
+                        (swarm_total - first) as usize
+                    } else if instances_are_static(layer, m) {
                         let key = layer_hash(layer);
                         let frame = self.frame_no;
                         let entry = self.instance_cache.entry(key).or_insert_with(|| {
                             scratch.clear();
-                            mesh_instances(layer, m, ctx, &mut scratch);
+                            mesh_instances_with(layer, m, ctx, surface, &mut scratch);
                             (frame, scratch.iter().map(to_raw).collect())
                         });
                         entry.0 = frame;
@@ -1169,7 +3497,7 @@ impl Renderer {
                         entry.1.len()
                     } else {
                         scratch.clear();
-                        mesh_instances(layer, m, ctx, &mut scratch);
+                        mesh_instances_with(layer, m, ctx, surface, &mut scratch);
                         instances.extend(scratch.iter().map(to_raw));
                         scratch.len()
                     };
@@ -1222,6 +3550,58 @@ impl Renderer {
                             0.0
                         },
                     ];
+                    let ramp = &m.ramp;
+                    if ramp.enabled && !ramp.colors.is_empty() {
+                        let n = ramp.colors.len().min(4);
+                        for k in 0..4 {
+                            let c = ramp.colors[k.min(n - 1)];
+                            blk[11 + k] = c4(c, 0.0);
+                        }
+                        blk[11][3] = n as f32;
+                        blk[12][3] = e;
+                        blk[15] = [
+                            1.0,
+                            match ramp.mode {
+                                RampMode::Gradient => 0.0,
+                                RampMode::Steps => 1.0,
+                            },
+                            (ctx.phase * ramp.cycles as f32).rem_euclid(1.0),
+                            if ramp.glow { 1.0 } else { 0.0 },
+                        ];
+                    }
+                    let df = &m.deform;
+                    if df.is_active() {
+                        blk[9] = [
+                            df.twist.eval(ctx),
+                            df.bend.eval(ctx).to_radians(),
+                            df.taper.eval(ctx),
+                            df.noise.eval(ctx),
+                        ];
+                        blk[10] = [
+                            df.noise_scale.max(0.01),
+                            TAU * (ctx.phase * df.noise_speed as f32).rem_euclid(1.0),
+                            df.explode.eval(ctx),
+                            df.reach(ctx),
+                        ];
+                    }
+                    if let MeshSource::Sdf { form, cycles } = &m.source {
+                        // No glitch, relief or deform on raymarched shapes:
+                        // their slots hold the shape instead.
+                        let [a, b, c] = form.params();
+                        blk[4] = [form.index() as f32, a, b, c];
+                        blk[5] = [
+                            TAU * (ctx.phase * *cycles as f32).rem_euclid(1.0),
+                            if *cycles != 0 { 1.5 } else { 0.0 },
+                            0.0,
+                            0.0,
+                        ];
+                        blk[8] = [0.0; 4];
+                        blk[9] = [0.0; 4];
+                        blk[10] = [0.0; 4];
+                        // Marching costs per pixel, not per triangle.
+                        ls.triangles = 0;
+                        ls.load = count as f32 / 40.0;
+                    }
                     cmds.push(Cmd::Mesh {
                         slot: blocks.len() as u32,
                         mesh,
@@ -1230,6 +3610,9 @@ impl Renderer {
                         pixelated: mat.pixelated,
                         first,
                         count: count as u32,
+                        sdf,
+                        gpu,
+                        bounds,
                     });
                     blocks.push(blk);
                 }
@@ -1256,7 +3639,12 @@ impl Renderer {
                             p.trail.min(16) as f32,
                             p.trail_spacing.eval(ctx),
                         ];
-                        blk[4] = [p.sprite.index() as f32, 0.0, 0.0, 0.0];
+                        blk[4] = [
+                            p.sprite.index() as f32,
+                            if p.smoke { 1.0 } else { 0.0 },
+                            0.0,
+                            0.0,
+                        ];
                         let model = m4(sym * lm);
                         blk[8..12].copy_from_slice(&model);
                         cmds.push(Cmd::Particles {
@@ -1270,9 +3658,10 @@ impl Renderer {
                     let tex = self.texture_key(project, t.texture.as_deref());
                     self.tex_bind_group(&tex, t.pixelated);
                     let lm = layer_matrix(&layer.transform, ctx);
-                    let cells = t.cells.clamp(4, 256);
+                    let cells = t.cells.clamp(4, t.max_cells());
+                    let drawn = t.drawn_cells();
                     let syms = symmetry_matrices(&layer.symmetry);
-                    ls.triangles = (cells * cells * 2) as u64 * syms.len() as u64;
+                    ls.triangles = (drawn * drawn * 2) as u64 * syms.len() as u64;
                     ls.draws = syms.len() as u32;
                     ls.load = ls.triangles as f32 / 150_000.0 + 0.05;
                     for sym in syms {
@@ -1300,10 +3689,40 @@ impl Renderer {
                             0.0,
                             0.0,
                         ];
-                        blk[8..12].copy_from_slice(&m4(sym * lm));
+                        let lq = &t.liquid;
+                        blk[5] = [
+                            t.shape.index() as f32,
+                            t.biome.index() as f32,
+                            lq.kind.index() as f32,
+                            lq.level.eval(ctx) * t.height.eval(ctx),
+                        ];
+                        blk[6] = c4(lq.color, lq.glow.eval(ctx) * flash);
+                        // Liquid motion: one small circle per bar, plus the
+                        // current (whole drifts per loop).
+                        let bars = (ctx.loop_beats / 4).max(1) as f32;
+                        blk[7] = [
+                            lq.waves.eval(ctx).max(0.0),
+                            (ctx.phase * lq.flow as f32).rem_euclid(1.0),
+                            TAU * (ctx.phase * bars).rem_euclid(1.0),
+                            0.0,
+                        ];
+                        let model = sym * lm;
+                        blk[8..12].copy_from_slice(&m4(model));
+                        if t.lod {
+                            // Detail follows the camera: its position over
+                            // the terrain, in 0..1.
+                            let size = t.size.max(1.0);
+                            let eye = model.inverse().transform_point3(cam.eye);
+                            let fu = (eye.x / size + 0.5).clamp(0.0, 1.0);
+                            let fw = (eye.z / size + 0.5).clamp(0.0, 1.0);
+                            let (kx, sx) = ez_core::scene::lod_grading(cells, drawn, fu);
+                            let (kz, sz) = ez_core::scene::lod_grading(cells, drawn, fw);
+                            blk[12] = [fu, fw, kx, kz];
+                            blk[13] = [sx, sz, drawn as f32, 0.0];
+                        }
                         cmds.push(Cmd::Terrain {
                             slot: blocks.len() as u32,
-                            vertices: cells * cells * 6,
+                            vertices: drawn * drawn * 6,
                             tex: tex.clone(),
                             pixelated: t.pixelated,
                         });
@@ -1317,6 +3736,10 @@ impl Renderer {
                     ls.draws = syms.len() as u32;
                     ls.triangles = beams as u64 * 2 * syms.len() as u64;
                     ls.load = 0.05 * syms.len() as f32;
+                    if z.style == BeamStyle::Spotlight {
+                        ls.triangles = beams as u64 * 48 * syms.len() as u64;
+                        ls.load = 0.15 * syms.len() as f32 * (beams as f32 / 8.0).max(1.0);
+                    }
                     // Beat strobe: full on each beat, decaying until the next.
                     let beat_flash = (1.0 - ctx.beat_frac()).powi(3);
                     let strobe = z.strobe.eval(ctx).clamp(0.0, 1.0);
@@ -1341,9 +3764,346 @@ impl Renderer {
                             (ctx.phase * cycles.max(1.0)).rem_euclid(1.0),
                         ];
                         blk[8..12].copy_from_slice(&m4(sym * lm));
-                        cmds.push(Cmd::Lasers {
+                        let slot = blocks.len() as u32;
+                        if z.style == BeamStyle::Spotlight {
+                            let half = (z.cone.0.eval(ctx).clamp(1.0, 170.0) * 0.5).to_radians();
+                            blk[4] = [half.tan(), if z.pools { 1.0 } else { 0.0 }, 0.0, 0.0];
+                            cmds.push(Cmd::Spots {
+                                slot,
+                                beams,
+                                pools: z.pools,
+                            });
+                        } else {
+                            cmds.push(Cmd::Lasers { slot, beams });
+                        }
+                        blocks.push(blk);
+                    }
+                }
+                LayerKind::Text(t) => {
+                    let Some((font, atlas)) = self.font_atlas(t) else {
+                        continue;
+                    };
+                    let glyphs = crate::text::layout(t, &atlas, ctx);
+                    let mut lm = layer_matrix(&layer.transform, ctx);
+                    if t.face_camera {
+                        // Keep position and size, turn to face the camera.
+                        let (scale, _, pos) = lm.to_scale_rotation_translation();
+                        let fwd = (cam.eye - pos).normalize_or(Vec3::Z);
+                        let side = cam.up.cross(fwd).normalize_or(Vec3::X);
+                        let up = fwd.cross(side);
+                        lm = Mat4::from_cols(
+                            (side * scale.x).extend(0.0),
+                            (up * scale.y).extend(0.0),
+                            (fwd * scale.z).extend(0.0),
+                            pos.extend(1.0),
+                        );
+                    }
+                    let syms = symmetry_matrices(&layer.symmetry);
+                    let size = t.size.max(0.01);
+                    let cell = crate::text::FontAtlas::cell_em() * size;
+                    let pen = crate::text::FontAtlas::pen_in_cell() * size;
+                    let first = instances.len() as u32;
+                    for sym in &syms {
+                        let base = *sym * lm;
+                        for g in &glyphs {
+                            let origin = g.pos * size - pen;
+                            let m = base
+                                * Mat4::from_translation(origin.extend(0.0))
+                                * Mat4::from_scale(Vec3::new(cell, cell, 1.0));
+                            instances.push(InstanceRaw {
+                                model: m4(m),
+                                inst: [g.cell as f32, g.alpha * flash.min(1.0), g.along, 0.0],
+                            });
+                        }
+                    }
+                    let count = instances.len() as u32 - first;
+                    ls.draws = syms.len() as u32;
+                    ls.triangles = count as u64 * 2;
+                    ls.load = 0.02 + count as f32 / 20_000.0;
+                    let mut blk: Block = Zeroable::zeroed();
+                    blk[0] = c4(t.color_top, t.glow.eval(ctx).max(0.0) * flash.max(1.0));
+                    blk[1] = c4(t.color_bottom, t.outline);
+                    blk[2] = c4(t.outline_color, t.shadow);
+                    let base_h = 1.0
+                        - (crate::text::CELL as f32
+                            - crate::text::FontAtlas::pen_in_cell().y * crate::text::EM_PX)
+                            / crate::text::CELL as f32;
+                    blk[3] = [t.chrome, atlas.cols as f32, atlas.rows as f32, base_h];
+                    if count > 0 {
+                        cmds.push(Cmd::Text {
                             slot: blocks.len() as u32,
-                            beams,
+                            font,
+                            first,
+                            count,
+                        });
+                    }
+                    blocks.push(blk);
+                }
+                LayerKind::Logo(g) => {
+                    let Some(at) = logo_places[li] else {
+                        continue;
+                    };
+                    // Echoes: the logo a moment ago, oldest first, fading;
+                    // then the logo now.
+                    let mut draws = Vec::new();
+                    for k in (1..=g.echoes.min(16)).rev() {
+                        let mut past = *ctx;
+                        let back = k as f32 * g.echo_spacing.max(0.0);
+                        past.phase = (ctx.phase - back).rem_euclid(1.0);
+                        past.beat_phase = (ctx.beat_phase - back).rem_euclid(1.0);
+                        let places = self.place_logos(project, &layers, &past, w as f32, h as f32);
+                        if let Some(then) = places[li] {
+                            let fade = g.echo_fade.clamp(0.0, 1.0).powi(k as i32);
+                            let d = self.logo_blocks(project, g, &past, then, w, h, flash, fade);
+                            draws.push((d, false));
+                        }
+                    }
+                    let now = self.logo_blocks(project, g, ctx, at, w, h, flash, 1.0);
+                    draws.push((now, true));
+                    ls.draws = draws.len() as u32;
+                    ls.triangles = 2 * draws.len() as u64;
+                    ls.load = 0.01 * draws.len() as f32;
+                    for (d, current) in draws {
+                        let Some((blks, (tex, morph, matcap), fit)) = d else {
+                            continue;
+                        };
+                        let slot = blocks.len() as u32;
+                        let glass = blks[2][10][0] > 0.0;
+                        let strength = g.rays.eval(ctx).max(0.0);
+                        if current && strength > 0.0 {
+                            // Rays stream from the middle of the logo.
+                            let lh = g.size.eval(ctx).max(0.0) * h as f32;
+                            let [ax, ay] = g.anchor.point();
+                            let local = (Vec2::splat(0.5) - Vec2::new(ax, ay))
+                                * Vec2::new(lh * fit.aspect, lh);
+                            let a = g.rotation.eval(ctx).to_radians();
+                            let c = at
+                                + Vec2::new(
+                                    local.x * a.cos() - local.y * a.sin(),
+                                    local.x * a.sin() + local.y * a.cos(),
+                                );
+                            logo_rays.push(LogoRays {
+                                slot,
+                                key: (tex.clone(), morph.clone(), matcap.clone()),
+                                centre: [c.x / w as f32, 1.0 - c.y / h as f32],
+                                strength,
+                                length: g.rays_length.clamp(0.0, 1.0),
+                                threshold: g.rays_threshold.max(0.0),
+                                tint: g.rays_tint,
+                                shadow: g.rays_shadow,
+                            });
+                        }
+                        cmds.push(Cmd::Logo {
+                            slot,
+                            tex,
+                            morph,
+                            matcap,
+                            glass,
+                        });
+                        blocks.extend(blks);
+                    }
+                }
+                LayerKind::Arcs(arc) => {
+                    let lm = layer_matrix(&layer.transform, ctx);
+                    let syms = symmetry_matrices(&layer.symmetry);
+                    // Copies of the layer the arcs connect to.
+                    let copies = |name: &str, out: &mut Vec<Instance>| {
+                        let Some(t) = layers.iter().find(|l| l.enabled && l.name == name) else {
+                            return;
+                        };
+                        match &t.kind {
+                            LayerKind::Mesh(m) => mesh_instances_with(t, m, ctx, None, out),
+                            LayerKind::Sprite(sp) => {
+                                copies_with(t, &sp.instancer, &sp.variation, ctx, None, out)
+                            }
+                            _ => out.push(Instance {
+                                model: layer_matrix(&t.transform, ctx),
+                                hue: 0.0,
+                                glow: 1.0,
+                                rand: 0.0,
+                                along: 0.0,
+                            }),
+                        }
+                    };
+                    let mut ends: Vec<(Vec3, Vec3)> = Vec::new();
+                    scratch.clear();
+                    match &arc.path {
+                        ArcPath::Points { from, to } => {
+                            for sym in &syms {
+                                let m = *sym * lm;
+                                ends.push((
+                                    m.transform_point3(Vec3::from(*from)),
+                                    m.transform_point3(Vec3::from(*to)),
+                                ));
+                            }
+                        }
+                        ArcPath::Nearest { target, count } => {
+                            copies(target, &mut scratch);
+                            for sym in &syms {
+                                let src = (*sym * lm).transform_point3(Vec3::ZERO);
+                                let mut pts: Vec<Vec3> =
+                                    scratch.iter().map(|i| i.model.w_axis.truncate()).collect();
+                                pts.sort_by(|a, b| {
+                                    (*a - src)
+                                        .length_squared()
+                                        .total_cmp(&(*b - src).length_squared())
+                                });
+                                ends.extend(
+                                    pts.into_iter()
+                                        .take((*count).max(1) as usize)
+                                        .map(|p| (src, p)),
+                                );
+                            }
+                        }
+                        ArcPath::Chain { target } => {
+                            copies(target, &mut scratch);
+                            let pts: Vec<Vec3> =
+                                scratch.iter().map(|i| i.model.w_axis.truncate()).collect();
+                            let n = pts.len();
+                            // Round the ring when there are enough copies.
+                            let links = if n > 2 { n } else { n.saturating_sub(1) };
+                            ends.extend((0..links).map(|i| (pts[i], pts[(i + 1) % n])));
+                        }
+                    }
+                    ends.truncate(512);
+                    let first = instances.len() as u32;
+                    for (i, (a, b)) in ends.iter().enumerate() {
+                        let seed = (arc.seed % 10_000) * 1000 + i as u32;
+                        instances.push(InstanceRaw {
+                            model: [
+                                [a.x, a.y, a.z, seed as f32],
+                                [b.x, b.y, b.z, 1.0],
+                                [0.0; 4],
+                                [0.0; 4],
+                            ],
+                            inst: [0.0; 4],
+                        });
+                    }
+                    let count = ends.len() as u32;
+                    let segments = if arc.branches { 32 + 12 } else { 32 };
+                    ls.triangles = count as u64 * segments as u64 * 2;
+                    ls.load = 0.01 + ls.triangles as f32 / 150_000.0;
+                    let mut blk: Block = Zeroable::zeroed();
+                    blk[0] = c4(arc.color, arc.glow.eval(ctx).max(0.0) * flash);
+                    blk[1] = [
+                        arc.strikes.max(1) as f32,
+                        arc.crawl,
+                        arc.fade.clamp(0.0, 1.0),
+                        if arc.branches { 1.0 } else { 0.0 },
+                    ];
+                    blk[2] = [
+                        ctx.phase,
+                        arc.width.eval(ctx).max(0.0),
+                        arc.jag.eval(ctx).max(0.0),
+                        0.0,
+                    ];
+                    if count > 0 {
+                        cmds.push(Cmd::Arcs {
+                            slot: blocks.len() as u32,
+                            segments,
+                            first,
+                            count,
+                        });
+                    }
+                    blocks.push(blk);
+                }
+                LayerKind::Sprite(sp) => {
+                    let tex = self.texture_key(project, sp.image.as_deref());
+                    self.tex_bind_group(&tex, sp.pixelated);
+                    scratch.clear();
+                    copies_with(layer, &sp.instancer, &sp.variation, ctx, None, &mut scratch);
+                    if sp.blend == SpriteBlend::Alpha {
+                        // Soft edges need the far copies drawn first.
+                        let d =
+                            |i: &Instance| (i.model.w_axis.truncate() - cam.eye).length_squared();
+                        scratch.sort_by(|a, b| d(b).total_cmp(&d(a)));
+                    }
+                    let first = instances.len() as u32;
+                    instances.extend(scratch.iter().map(|i| InstanceRaw {
+                        model: m4(i.model),
+                        inst: [i.hue, i.glow, i.rand, i.along],
+                    }));
+                    let count = scratch.len() as u32;
+                    ls.triangles = count as u64 * 2;
+                    ls.load = 0.01 + count as f32 / 20_000.0;
+                    let has_image = sp.image.as_deref().is_some_and(|n| !n.is_empty());
+                    let (cols, rows) = (sp.columns.max(1), sp.rows.max(1));
+                    let aspect = if has_image {
+                        let t = &self.textures[&tex]._texture;
+                        (t.width() as f32 / cols as f32)
+                            / (t.height() as f32 / rows as f32).max(1.0)
+                    } else {
+                        1.0
+                    };
+                    let mut blk: Block = Zeroable::zeroed();
+                    blk[0] = c4(sp.tint, sp.glow.eval(ctx).max(0.0) * flash);
+                    blk[1] = [
+                        cols as f32,
+                        rows as f32,
+                        sp.frame_count() as f32,
+                        (ctx.phase * sp.cycles as f32).rem_euclid(1.0),
+                    ];
+                    blk[2] = [
+                        match sp.facing {
+                            SpriteFacing::Camera => 0.0,
+                            SpriteFacing::Upright => 1.0,
+                            SpriteFacing::Fixed => 2.0,
+                        },
+                        if sp.random_start { 1.0 } else { 0.0 },
+                        aspect,
+                        if has_image { 1.0 } else { 0.0 },
+                    ];
+                    blk[3] = [
+                        sp.size.eval(ctx).max(0.0),
+                        sp.opacity.eval(ctx).clamp(0.0, 1.0),
+                        match sp.blend {
+                            SpriteBlend::Alpha => 0.0,
+                            SpriteBlend::Additive => 1.0,
+                            SpriteBlend::Cutout => 2.0,
+                        },
+                        0.0,
+                    ];
+                    if count > 0 {
+                        cmds.push(Cmd::Sprite {
+                            slot: blocks.len() as u32,
+                            tex,
+                            pixelated: sp.pixelated,
+                            blend: sp.blend,
+                            first,
+                            count,
+                        });
+                    }
+                    blocks.push(blk);
+                }
+                LayerKind::Falls(fl) => {
+                    let lm = layer_matrix(&layer.transform, ctx);
+                    let syms = symmetry_matrices(&layer.symmetry);
+                    ls.draws = syms.len() as u32 * 2;
+                    ls.triangles = (FALL_VERTICES / 3 + FALL_PUFFS * 2) as u64 * syms.len() as u64;
+                    ls.load = 0.1 * syms.len() as f32;
+                    for sym in syms {
+                        let mut blk: Block = Zeroable::zeroed();
+                        blk[0] = [
+                            fl.kind.index() as f32,
+                            fl.width.max(0.05),
+                            fl.height.max(0.05),
+                            fl.push,
+                        ];
+                        blk[1] = c4(fl.color, fl.glow.eval(ctx).max(0.0) * flash);
+                        blk[2] = [
+                            (ctx.phase * fl.flow as f32).rem_euclid(1.0),
+                            fl.foam.eval(ctx).max(0.0),
+                            (fl.seed % 65536) as f32,
+                            (fl.flow / 2).max(1) as f32,
+                        ];
+                        blk[8..12].copy_from_slice(&m4(sym * lm));
+                        cmds.push(Cmd::Falls {
+                            slot: blocks.len() as u32,
+                            puffs: if fl.foam.is_animated() || fl.foam.base > 0.0 {
+                                FALL_PUFFS
+                            } else {
+                                0
+                            },
                         });
                         blocks.push(blk);
                     }
@@ -1389,8 +4149,94 @@ impl Renderer {
                         pixelated: false,
                         first,
                         count: syms.len() as u32,
+                        sdf: false,
+                        gpu: false,
+                        bounds: None,
                     });
                     blocks.push(blk);
+                }
+                LayerKind::Weather(wx) => {
+                    let count = if wx.kind == Precipitation::None {
+                        0
+                    } else {
+                        wx.count.min(100_000)
+                    };
+                    let mut blk: Block = Zeroable::zeroed();
+                    blk[0] = [
+                        wx.kind.index() as f32,
+                        count as f32,
+                        wx.falls.clamp(1, 256) as f32,
+                        (wx.seed % 65536) as f32,
+                    ];
+                    blk[1] = c4(wx.color, wx.size.eval(ctx).max(0.001));
+                    let dir_a = wx.wind_dir.to_radians();
+                    let dir = [dir_a.cos(), dir_a.sin()];
+                    let push = wx.wind.eval(ctx).clamp(-80.0, 80.0).to_radians().tan();
+                    blk[2] = [
+                        dir[0] * push,
+                        dir[1] * push,
+                        wx.intensity.eval(ctx).max(0.0) * flash,
+                        wx.streak.max(0.0),
+                    ];
+                    let ground = layer.transform.position[1];
+                    blk[3] = [
+                        wx.area.max(0.5),
+                        wx.height.max(0.1),
+                        ground,
+                        wx.splashes.eval(ctx).clamp(0.0, 1.0),
+                    ];
+                    blk[7] = [dir[0], dir[1], 0.0, 0.0];
+                    let mut instances = count;
+                    let lt = &wx.lightning;
+                    if let Some((b, slot, _)) = lt.strike(ctx.beat_phase) {
+                        let flash_k = lt.flash.eval(ctx).max(0.0);
+                        fx.lightning.0 += b * flash_k;
+                        fx.lightning.1 = lt.color;
+                        // The bolt: in front of the camera, at a random
+                        // bearing and distance for each strike.
+                        let hs = |k: u32| {
+                            (ez_core::rng::hash_u32(
+                                slot.wrapping_mul(0x2c1b_3c6d)
+                                    ^ lt.seed.wrapping_mul(0x297a_2d39)
+                                    ^ k.wrapping_mul(0x68e3_1da4),
+                            ) >> 8) as f32
+                                / (1u32 << 24) as f32
+                        };
+                        let fwd = (cam.target - cam.eye) * Vec3::new(1.0, 0.0, 1.0);
+                        let yaw = fwd.z.atan2(fwd.x) + (hs(1) - 0.5) * 1.6;
+                        let dist = lt.distance.max(2.0) * (0.7 + 0.6 * hs(2));
+                        let foot = Vec3::new(
+                            cam.eye.x + yaw.cos() * dist,
+                            ground,
+                            cam.eye.z + yaw.sin() * dist,
+                        );
+                        let top = foot
+                            + Vec3::new(
+                                (hs(3) - 0.5) * dist * 0.3,
+                                wx.height.max(4.0) * 2.5,
+                                (hs(4) - 0.5) * dist * 0.3,
+                            );
+                        blk[4] = v4(top, b * flash_k.max(0.3));
+                        blk[5] = v4(foot, (slot * 7919 + lt.seed) as f32 % 65536.0);
+                        blk[6] = c4(lt.color, 0.0);
+                        instances += BOLT_SEGMENTS;
+                    }
+                    let ground_k = wx.ground.eval(ctx).clamp(0.0, 1.0);
+                    match wx.kind {
+                        Precipitation::Rain => fx.wet = fx.wet.max(ground_k),
+                        Precipitation::Snow => fx.snow = fx.snow.max(ground_k),
+                        _ => {}
+                    }
+                    ls.particles = count as u64;
+                    ls.draws = 1;
+                    ls.load = count as f32 / 60_000.0 + 0.02;
+                    if instances > 0 {
+                        cmds.push(Cmd::Weather {
+                            slot: blocks.len() as u32,
+                            instances,
+                        });
+                        blocks.push(blk);
+                    }
                 }
                 LayerKind::Mirror(f) => {
                     if floor.is_some() {
@@ -1422,6 +4268,60 @@ impl Renderer {
             stats.layers.push(ls);
         }
 
+        // Backgrounds are opaque and fill the screen: only the last one
+        // shows, so the others are not drawn at all.
+        if let Some(last) = cmds.iter().rposition(|c| matches!(c, Cmd::Backdrop { .. })) {
+            let mut i = 0;
+            cmds.retain(|c| {
+                let keep = !matches!(c, Cmd::Backdrop { .. }) || i == last;
+                i += 1;
+                keep
+            });
+        }
+        for c in &cmds {
+            if let Cmd::Backdrop { kind, res, .. } = c {
+                self.ensure_bg_pipe(*kind, self.msaa, false);
+                self.ensure_bg_pipe(*kind, 1, false);
+                if *res > 1 {
+                    self.ensure_bg_pipe(*kind, 1, true);
+                }
+            }
+        }
+
+        // Contact shadows under shapes on the mirror floor.
+        let contact = project.environment.shadows.contact;
+        if contact > 0.0 {
+            if let Some((_, _, fh, _)) = &floor {
+                let meshes: Vec<(u32, u32, bool)> = cmds
+                    .iter()
+                    .filter_map(|c| match c {
+                        Cmd::Mesh {
+                            first, count, gpu, ..
+                        } if *count > 0 => Some((*first, *count, *gpu)),
+                        _ => None,
+                    })
+                    .collect();
+                if !meshes.is_empty() {
+                    let mut blk: Block = Zeroable::zeroed();
+                    blk[0] = [*fh, contact.clamp(0.0, 1.0), 0.0, 0.0];
+                    let slot = blocks.len() as u32;
+                    blocks.push(blk);
+                    for (first, count, gpu) in meshes {
+                        cmds.push(Cmd::Contact {
+                            slot,
+                            first,
+                            count,
+                            gpu,
+                        });
+                    }
+                }
+            }
+        }
+        let e = &project.environment;
+        if e.day_cycle.enabled || e.rainbow.base != 0.0 || e.rainbow.is_animated() {
+            cmds.push(Cmd::SkyFx);
+        }
+
         // Frame statistics. A mirror floor renders the scene a second time
         // at half resolution.
         stats.reflection = floor.is_some();
@@ -1439,6 +4339,24 @@ impl Renderer {
         self.instance_cache
             .retain(|_, (used, _)| frame - *used < 120);
 
+        // A mirror floor that is off screen, or seen from below, shows no
+        // reflection: skip rendering the scene a second time.
+        if let Some((slot, _, fh, _)) = &floor {
+            let size = blocks[*slot as usize][0][0];
+            let vp = proj * view;
+            let planes = frustum_planes(vp);
+            let corners = [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
+                .map(|(x, z)| Vec3::new(x * size, *fh, z * size));
+            // Off screen when all four corners lie outside the same plane.
+            let off = planes
+                .iter()
+                .any(|p| corners.iter().all(|c| p.truncate().dot(*c) + p.w < 0.0));
+            if off || cam.eye.y < *fh {
+                blocks[*slot as usize][0][3] = 0.0;
+                self.stats.reflection = false;
+            }
+        }
+
         // --- uploads -------------------------------------------------------
         if blocks.is_empty() {
             blocks.push(Zeroable::zeroed());
@@ -1447,6 +4365,12 @@ impl Renderer {
             self.draw_cap = (blocks.len() as u64).next_power_of_two();
             self.draw_buf = Self::make_draw_buf(&self.device, self.draw_cap);
             self.draw_bg = Self::make_draw_bg(&self.device, &self.bgl_draw, &self.draw_buf);
+            self.logo_fx_bg = Self::make_draw_bg_sized(
+                &self.device,
+                &self.bgl_logo_fx,
+                &self.draw_buf,
+                LOGO_FX_SIZE,
+            );
         }
         self.queue
             .write_buffer(&self.draw_buf, 0, bytemuck::cast_slice(&blocks));
@@ -1461,7 +4385,69 @@ impl Renderer {
                 .write_buffer(&self.inst_buf, 0, bytemuck::cast_slice(&instances));
             self.uploaded = instances;
         }
-        let main_globals = Self::globals(project, ctx, view, proj, cam.eye, (w, h), Vec4::ZERO);
+        // Sun shadow map: an orthographic view from the sun around the
+        // camera's target, snapped to whole texels so edges don't shimmer.
+        let sh = &project.environment.shadows;
+        let casters = cmds
+            .iter()
+            .any(|c| matches!(c, Cmd::Mesh { .. } | Cmd::Terrain { .. }));
+        let shadow = (sh.enabled && casters).then(|| {
+            let r = sh.distance.max(1.0);
+            let l = Vec3::from(env.light_dir).normalize_or(Vec3::Y);
+            let centre = cam.target;
+            let up = if l.y.abs() > 0.99 { Vec3::Z } else { Vec3::Y };
+            let eye = centre + l * r * 2.0;
+            let lview = Mat4::look_at_rh(eye, centre, up);
+            let lproj = Mat4::orthographic_rh(-r, r, -r, r, 0.05, r * 4.0);
+            let c = (lproj * lview).project_point3(centre);
+            let texel = 2.0 / SHADOW_SIZE as f32;
+            let snap = Vec3::new(
+                (c.x / texel).round() * texel - c.x,
+                (c.y / texel).round() * texel - c.y,
+                0.0,
+            );
+            let lproj = Mat4::from_translation(snap) * lproj;
+            (lview, lproj, eye, r)
+        });
+        if let Some((lview, lproj, eye, _)) = shadow {
+            let g = Self::globals(
+                project,
+                ctx,
+                &env,
+                lview,
+                lproj,
+                eye,
+                (SHADOW_SIZE, SHADOW_SIZE),
+                Vec4::ZERO,
+                &fx,
+            );
+            self.queue
+                .write_buffer(&self.globals_buf[2], 0, bytemuck::bytes_of(&g));
+        }
+        let with_shadow = |mut g: GlobalsRaw| {
+            if let Some((lview, lproj, _, r)) = shadow {
+                g.shadow_vp = m4(lproj * lview);
+                g.shadow = [
+                    sh.strength.clamp(0.0, 1.0),
+                    sh.softness.max(0.0),
+                    1.0 / SHADOW_SIZE as f32,
+                    2.0 * r / SHADOW_SIZE as f32 * 1.5,
+                ];
+            }
+            g
+        };
+        let main_globals = Self::globals(
+            project,
+            ctx,
+            &env,
+            view,
+            proj,
+            cam.eye,
+            (w, h),
+            Vec4::ZERO,
+            &fx,
+        );
+        let main_globals = with_shadow(main_globals);
         self.queue
             .write_buffer(&self.globals_buf[0], 0, bytemuck::bytes_of(&main_globals));
         if let Some((_, _, fh, _)) = &floor {
@@ -1472,12 +4458,15 @@ impl Renderer {
             let g = Self::globals(
                 project,
                 ctx,
+                &env,
                 rview,
                 proj,
                 reye,
                 target.refl_size,
                 Vec4::new(0.0, 1.0, 0.0, -fh + 0.001),
+                &fx,
             );
+            let g = with_shadow(g);
             self.queue
                 .write_buffer(&self.globals_buf[1], 0, bytemuck::bytes_of(&g));
         }
@@ -1486,6 +4475,9 @@ impl Renderer {
             ctx,
             target,
             floor.as_ref().map(|f| f.3).unwrap_or(0.0),
+            proj * view,
+            cam.eye,
+            &env,
         );
 
         // Floor bind group (references the target's reflection texture).
@@ -1527,8 +4519,61 @@ impl Renderer {
                 label: Some("ez2 frame"),
             });
 
+        // --- big swarms: copies placed by the compute shader ------------------
+        if let (Some(sw), false) = (self.swarm.as_mut(), swarm_jobs.is_empty()) {
+            sw.reserve(
+                &self.device,
+                swarm_jobs.len() as u64,
+                swarm_total as u64,
+                gpu_locals.len() as u64,
+            );
+            if !gpu_locals.is_empty() {
+                self.queue
+                    .write_buffer(&sw.locals, 0, bytemuck::cast_slice(&gpu_locals));
+            }
+            let mut bytes = vec![0u8; swarm_jobs.len() * SWARM_SLOT as usize];
+            for (i, job) in swarm_jobs.iter().enumerate() {
+                let at = i * SWARM_SLOT as usize;
+                bytes[at..at + std::mem::size_of::<SwarmParams>()]
+                    .copy_from_slice(bytemuck::bytes_of(&job.params));
+            }
+            self.queue.write_buffer(&sw.params, 0, &bytes);
+            let mut pass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("copies"),
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(&sw.pipe);
+            for (i, job) in swarm_jobs.iter().enumerate() {
+                pass.set_bind_group(0, &sw.bg, &[(i as u64 * SWARM_SLOT) as u32]);
+                pass.dispatch_workgroups(job.count.div_ceil(64), 1, 1);
+            }
+        }
+
+        // --- sun shadow map -------------------------------------------------------
+        if shadow.is_some() {
+            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("sun shadow"),
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.shadow_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            self.draw_shadow_casters(&mut pass, &cmds);
+        }
+
         // --- reflection -------------------------------------------------------
-        if floor.is_some() {
+        let reflect = floor
+            .as_ref()
+            .is_some_and(|(slot, ..)| blocks_refl_on(&blocks, *slot));
+        if reflect {
             {
                 let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("reflection"),
@@ -1553,7 +4598,21 @@ impl Renderer {
                     occlusion_query_set: None,
                     multiview_mask: None,
                 });
-                self.draw_scene(&mut pass, &self.refl_pipes, 1, &cmds);
+                let (solid, clear): (Vec<Cmd>, Vec<Cmd>) = cmds.iter().cloned().partition(|c| {
+                    matches!(
+                        c,
+                        Cmd::Backdrop { .. }
+                            | Cmd::SkyFx
+                            | Cmd::Mesh { .. }
+                            | Cmd::Terrain { .. }
+                            | Cmd::Sprite {
+                                blend: SpriteBlend::Cutout,
+                                ..
+                            }
+                    )
+                });
+                self.draw_scene(&mut pass, &self.refl_pipes, 1, &solid);
+                self.draw_scene(&mut pass, &self.refl_pipes, 1, &clear);
             }
             self.post_pass(
                 &mut enc,
@@ -1575,6 +4634,42 @@ impl Renderer {
             );
         }
 
+        // --- low-resolution background ------------------------------------------
+        let low_bg = cmds.iter().find_map(|c| match c {
+            Cmd::Backdrop {
+                slot,
+                tex,
+                res,
+                kind,
+            } if *res > 1 => Some((*slot, tex.clone(), *res, *kind)),
+            _ => None,
+        });
+        if let Some((slot, tex, res, kind)) = &low_bg {
+            if let Some((_, view, _)) = target.bg_low.iter().find(|(d, _, _)| d == res) {
+                let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("background low"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                pass.set_pipeline(&self.bg_pipes[&(*kind, 1, true)]);
+                pass.set_bind_group(0, &self.globals_bg[0], &[]);
+                pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                pass.set_bind_group(2, &self.tex_bgs[&(tex.clone(), false)], &[]);
+                pass.draw(0..3, 0..1);
+            }
+        }
+
         // --- main scene -------------------------------------------------------
         {
             let (view_tex, resolve) = match &target.msaa_color {
@@ -1589,9 +4684,9 @@ impl Renderer {
                     resolve_target: resolve,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: project.environment.fog_color[0] as f64,
-                            g: project.environment.fog_color[1] as f64,
-                            b: project.environment.fog_color[2] as f64,
+                            r: main_globals.fog[0] as f64,
+                            g: main_globals.fog[1] as f64,
+                            b: main_globals.fog[2] as f64,
                             a: 1.0,
                         }),
                         store: if resolve.is_some() {
@@ -1617,16 +4712,108 @@ impl Renderer {
             let (back, rest): (Vec<Cmd>, Vec<Cmd>) = cmds
                 .iter()
                 .cloned()
-                .partition(|c| matches!(c, Cmd::Backdrop { .. }));
+                .partition(|c| matches!(c, Cmd::Backdrop { .. } | Cmd::SkyFx));
+            let back: Vec<Cmd> = back
+                .into_iter()
+                .map(|c| match c {
+                    Cmd::Backdrop { res, .. } if res > 1 => Cmd::BackdropUp { res },
+                    other => other,
+                })
+                .collect();
+            for c in &back {
+                if let Cmd::BackdropUp { res } = c {
+                    if let Some((_, _, bg)) = target.bg_low.iter().find(|(d, _, _)| d == res) {
+                        pass.set_pipeline(&self.bg_up_pipe);
+                        pass.set_bind_group(0, &self.globals_bg[0], &[]);
+                        pass.set_bind_group(1, &self.draw_bg, &[0]);
+                        pass.set_bind_group(2, bg, &[]);
+                        pass.draw(0..3, 0..1);
+                    }
+                }
+            }
             self.draw_scene(&mut pass, &self.main_pipes, 0, &back);
             if let (Some((slot, _, _, _)), Some(bg)) = (&floor, &floor_bg) {
                 pass.set_pipeline(&self.floor_pipe);
                 pass.set_bind_group(0, &self.globals_bg[0], &[]);
                 pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
                 pass.set_bind_group(2, *bg, &[]);
+                pass.set_bind_group(3, &self.shadow_bg, &[]);
                 pass.draw(0..6, 0..1);
+                for c in &cmds {
+                    if let Cmd::Contact {
+                        slot,
+                        first,
+                        count,
+                        gpu,
+                    } = c
+                    {
+                        pass.set_pipeline(&self.contact_pipe);
+                        pass.set_bind_group(0, &self.globals_bg[0], &[]);
+                        pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                        pass.set_vertex_buffer(0, self.mesh_instances(*gpu).slice(..));
+                        pass.draw(0..6, *first..*first + *count);
+                    }
+                }
             }
-            self.draw_scene(&mut pass, &self.main_pipes, 0, &rest);
+            // Solid geometry before anything see-through, which doesn't
+            // write depth and would otherwise be painted over.
+            // Skip what is entirely outside the view (the reflection and the
+            // shadow map still get everything).
+            let planes = frustum_planes(proj * view);
+            let rest: Vec<Cmd> = rest
+                .into_iter()
+                .filter(|c| match self.cmd_bounds(c, &blocks) {
+                    Some((centre, r)) => sphere_visible(&planes, centre, r),
+                    None => true,
+                })
+                .collect();
+            let (solid, clear): (Vec<Cmd>, Vec<Cmd>) = rest.into_iter().partition(|c| {
+                matches!(
+                    c,
+                    Cmd::Mesh { .. }
+                        | Cmd::Terrain { .. }
+                        | Cmd::Sprite {
+                            blend: SpriteBlend::Cutout,
+                            ..
+                        }
+                )
+            });
+            self.draw_scene(&mut pass, &self.main_pipes, 0, &solid);
+            self.draw_scene(&mut pass, &self.main_pipes, 0, &clear);
+        }
+
+        // --- depth of field: distance to the camera --------------------------
+        if project.post.dof.enabled {
+            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("dof distance"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &target.dof_dist,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        // Nothing drawn = very far (the sky).
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 60_000.0,
+                            g: 0.0,
+                            b: 0.0,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &target.dof_z,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Discard,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            self.draw_distance(&mut pass, &cmds, floor.as_ref().map(|f| f.0));
         }
 
         // --- post ---------------------------------------------------------------
@@ -1639,6 +4826,229 @@ impl Renderer {
             SLOT_WARP,
             false,
         );
+        // --- logos, on the picture before the glows and trails -------------------
+        let backdrop_needed = cmds
+            .iter()
+            .any(|c| matches!(c, Cmd::Logo { glass: true, .. }))
+            || logo_rays.iter().any(|r| r.shadow);
+        if backdrop_needed && self.logo_backdrop.2 >= w && self.logo_backdrop.3 >= h {
+            // The picture behind the logos, for glass and shadow rays.
+            enc.copy_texture_to_texture(
+                target.hdr2_tex.as_image_copy(),
+                self.logo_backdrop.0.as_image_copy(),
+                wgpu::Extent3d {
+                    width: w,
+                    height: h,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
+        if cmds.iter().any(|c| matches!(c, Cmd::Logo { .. })) {
+            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("logos"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &target.hdr2,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&self.logo_pipe);
+            pass.set_bind_group(0, &self.globals_bg[0], &[]);
+            for c in &cmds {
+                if let Cmd::Logo {
+                    slot,
+                    tex,
+                    morph,
+                    matcap,
+                    ..
+                } = c
+                {
+                    let key = (tex.clone(), morph.clone(), matcap.clone());
+                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                    pass.set_bind_group(2, &self.logo_bgs[&key], &[]);
+                    pass.set_bind_group(3, &self.logo_fx_bg, &[(slot + 1) * DRAW_SLOT as u32]);
+                    pass.draw(0..6, 0..1);
+                }
+            }
+        }
+        // --- rays streaming from logos -----------------------------------------
+        if !logo_rays.is_empty() {
+            self.ensure_logo_rays_source(target);
+        }
+        for (k, ray) in logo_rays.iter().take(LOGO_RAYS_MAX).enumerate() {
+            let src = &self.logo_rays_src[&target.id];
+            let slot = SLOT_LOGO_RAYS + k as u32;
+            let mut p: PostBlock = Zeroable::zeroed();
+            p[0] = [ray.centre[0], ray.centre[1], 1.0, ray.strength];
+            p[1] = [ray.length, ray.threshold, w as f32 / h.max(1) as f32, 0.0];
+            // No falloff: the whole logo streams.
+            p[2] = c4(ray.tint, 0.0);
+            self.queue.write_buffer(
+                &self.post_buf,
+                slot as u64 * POST_SLOT,
+                bytemuck::bytes_of(&p),
+            );
+            // Source: the logo's light on black, or the picture behind it
+            // with the logo's shadow cut out.
+            if ray.shadow {
+                enc.copy_texture_to_texture(
+                    self.logo_backdrop.0.as_image_copy(),
+                    src.tex.as_image_copy(),
+                    wgpu::Extent3d {
+                        width: w,
+                        height: h,
+                        depth_or_array_layers: 1,
+                    },
+                );
+            }
+            {
+                let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("logo rays source"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &src.view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: if ray.shadow {
+                                wgpu::LoadOp::Load
+                            } else {
+                                wgpu::LoadOp::Clear(wgpu::Color::BLACK)
+                            },
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                pass.set_pipeline(if ray.shadow {
+                    &self.logo_shadow_pipe
+                } else {
+                    &self.logo_pipe
+                });
+                pass.set_bind_group(0, &self.globals_bg[0], &[]);
+                pass.set_bind_group(1, &self.draw_bg, &[ray.slot * DRAW_SLOT as u32]);
+                pass.set_bind_group(2, &self.logo_bgs[&ray.key], &[]);
+                pass.set_bind_group(3, &self.logo_fx_bg, &[(ray.slot + 1) * DRAW_SLOT as u32]);
+                pass.draw(0..6, 0..1);
+            }
+            self.post_pass(
+                &mut enc,
+                "logo rays",
+                &self.rays_pipe,
+                &target.rays,
+                &src.bg,
+                slot,
+                false,
+            );
+            self.post_pass(
+                &mut enc,
+                "logo rays add",
+                &self.rays_add_pipe,
+                &target.hdr2,
+                &target.bg_rays_add,
+                SLOT_RAYS_ADD,
+                true,
+            );
+        }
+        if project.post.rays.enabled {
+            self.post_pass(
+                &mut enc,
+                "god rays",
+                &self.rays_pipe,
+                &target.rays,
+                &target.bg_rays,
+                SLOT_RAYS,
+                false,
+            );
+            self.post_pass(
+                &mut enc,
+                "god rays add",
+                &self.rays_add_pipe,
+                &target.hdr2,
+                &target.bg_rays_add,
+                SLOT_RAYS_ADD,
+                true,
+            );
+        }
+        let fb = &project.post.feedback;
+        if fb.enabled {
+            let loop_s = project.timing.loop_seconds().max(0.01);
+            let state = self.feedback.get(&target.id).copied();
+            let next = match state {
+                // The same moment drawn again (a paused preview while
+                // editing): redo the last step from the same history
+                // instead of feeding the picture back into itself.
+                Some(st) if st.phase == ctx.phase => st,
+                Some(st) => {
+                    // Seconds since the last frame of this target: a jump
+                    // (a scrub, the first frame) starts over without history.
+                    let dt = (ctx.phase - st.phase).rem_euclid(1.0) * loop_s;
+                    FeedbackState {
+                        read: st.write,
+                        write: st.read,
+                        phase: ctx.phase,
+                        dt,
+                        fresh: dt > 0.5,
+                    }
+                }
+                None => FeedbackState {
+                    read: 0,
+                    write: 1,
+                    phase: ctx.phase,
+                    dt: 0.0,
+                    fresh: true,
+                },
+            };
+            let (dt, fresh, read, write) = (next.dt, next.fresh, next.read, next.write);
+            let keep = 0.5 + 0.49 * fb.length.eval(ctx).clamp(0.0, 1.0);
+            let mut params = [[0.0f32; 4]; (POST_SLOT / 16) as usize];
+            params[0] = [
+                keep.powf(dt * 30.0),
+                fb.zoom.max(0.01).powf(dt),
+                (fb.turn * dt).to_radians(),
+                fb.hue * dt,
+            ];
+            params[1] = [
+                target.width as f32 / target.height.max(1) as f32,
+                if fresh { 1.0 } else { 0.0 },
+                0.0,
+                0.0,
+            ];
+            self.queue.write_buffer(
+                &self.post_buf,
+                SLOT_FEEDBACK as u64 * POST_SLOT,
+                bytemuck::cast_slice(&params),
+            );
+            self.post_pass(
+                &mut enc,
+                "feedback",
+                &self.feedback_pipe,
+                &target.fb[write].1,
+                &target.bg_fb[read],
+                SLOT_FEEDBACK,
+                false,
+            );
+            enc.copy_texture_to_texture(
+                target.fb[write].0.as_image_copy(),
+                target.hdr2_tex.as_image_copy(),
+                wgpu::Extent3d {
+                    width: target.width,
+                    height: target.height,
+                    depth_or_array_layers: 1,
+                },
+            );
+            self.feedback.insert(target.id, next);
+        }
         if project.post.bloom.enabled {
             for i in 0..BLOOM_LEVELS {
                 self.post_pass(
@@ -1663,16 +5073,202 @@ impl Renderer {
                 );
             }
         }
-        self.post_pass(
-            &mut enc,
-            "final",
-            &self.final_pipe,
-            &target.output_view,
-            &target.bg_final,
-            SLOT_FINAL,
-            false,
-        );
+        {
+            let att = |view| {
+                Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })
+            };
+            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("final"),
+                color_attachments: &[att(&target.output_view), att(&target.display_view)],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&self.final_pipe);
+            pass.set_bind_group(0, &target.bg_final, &[SLOT_FINAL * POST_SLOT as u32]);
+            pass.draw(0..3, 0..1);
+        }
         self.queue.submit([enc.finish()]);
+    }
+
+    /// A bounding sphere of what a command draws, when it is cheap to know.
+    fn cmd_bounds(&self, cmd: &Cmd, blocks: &[Block]) -> Option<(Vec3, f32)> {
+        let model = |slot: u32| {
+            let b = &blocks[slot as usize];
+            Mat4::from_cols_array_2d(&[b[8], b[9], b[10], b[11]])
+        };
+        let scale = |m: &Mat4| {
+            m.x_axis
+                .truncate()
+                .length()
+                .max(m.y_axis.truncate().length())
+                .max(m.z_axis.truncate().length())
+        };
+        match cmd {
+            // GPU copies aren't read back: their layout's reach.
+            Cmd::Mesh {
+                gpu: true, bounds, ..
+            } => *bounds,
+            Cmd::Mesh {
+                mesh,
+                first,
+                count,
+                slot,
+                ..
+            } => {
+                // Deformed shapes reach further (blk[10].w, 0 = none).
+                let reach = blocks[*slot as usize][10][3].max(1.0);
+                let mr = self.meshes.get(mesh)?.radius * reach;
+                let inst = self
+                    .uploaded
+                    .get(*first as usize..(*first + *count) as usize)?;
+                if inst.is_empty() {
+                    return None;
+                }
+                let mut lo = Vec3::splat(f32::MAX);
+                let mut hi = Vec3::splat(f32::MIN);
+                let mut rmax = 0.0f32;
+                for i in inst {
+                    let m = Mat4::from_cols_array_2d(&i.model);
+                    let c = m.w_axis.truncate();
+                    lo = lo.min(c);
+                    hi = hi.max(c);
+                    rmax = rmax.max(scale(&m) * mr);
+                }
+                let centre = (lo + hi) * 0.5;
+                // Glitch and displacement can push vertices out a little.
+                Some((centre, (hi - lo).length() * 0.5 + rmax * 1.5 + 0.5))
+            }
+            Cmd::Particles { slot, .. } => {
+                let m = model(*slot);
+                let b = &blocks[*slot as usize];
+                let r = (b[3][1] * 3.5 * b[3][0].abs().max(1.0) + b[1][3]) * scale(&m);
+                Some((m.w_axis.truncate(), r + 1.0))
+            }
+            Cmd::Lasers { slot, .. } | Cmd::Spots { slot, .. } => {
+                let m = model(*slot);
+                let len = blocks[*slot as usize][0][3];
+                Some((m.w_axis.truncate(), len * scale(&m) * 1.3 + 1.0))
+            }
+            _ => None,
+        }
+    }
+
+    /// Meshes and terrain seen from the sun, depth only.
+    fn draw_shadow_casters(&self, pass: &mut wgpu::RenderPass<'_>, cmds: &[Cmd]) {
+        for cmd in cmds {
+            match cmd {
+                Cmd::Mesh {
+                    slot,
+                    mesh,
+                    tex,
+                    relief,
+                    pixelated,
+                    first,
+                    count,
+                    sdf,
+                    gpu,
+                    ..
+                } if *count > 0 => {
+                    let m = &self.meshes[mesh];
+                    pass.set_pipeline(if *sdf {
+                        &self.shadow_sdf_pipe
+                    } else {
+                        &self.shadow_mesh_pipe
+                    });
+                    pass.set_bind_group(0, &self.globals_bg[2], &[]);
+                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                    pass.set_bind_group(
+                        2,
+                        &self.mesh_tex_bgs[&(tex.clone(), relief.clone(), *pixelated)],
+                        &[],
+                    );
+                    pass.set_vertex_buffer(0, m.vbuf.slice(..));
+                    pass.set_vertex_buffer(1, self.mesh_instances(*gpu).slice(..));
+                    pass.set_index_buffer(m.ibuf.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.draw_indexed(0..m.count, 0, *first..*first + *count);
+                }
+                Cmd::Terrain {
+                    slot,
+                    vertices,
+                    tex,
+                    pixelated,
+                } => {
+                    pass.set_pipeline(&self.shadow_terrain_pipe);
+                    pass.set_bind_group(0, &self.globals_bg[2], &[]);
+                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                    pass.set_bind_group(2, &self.tex_bgs[&(tex.clone(), *pixelated)], &[]);
+                    pass.draw(0..*vertices, 0..1);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Solid meshes and terrain with the distance-to-camera pipelines.
+    fn draw_distance(&self, pass: &mut wgpu::RenderPass<'_>, cmds: &[Cmd], floor: Option<u32>) {
+        if let Some(slot) = floor {
+            pass.set_pipeline(&self.dof_floor_pipe);
+            pass.set_bind_group(0, &self.globals_bg[0], &[]);
+            pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+            pass.draw(0..6, 0..1);
+        }
+        for cmd in cmds {
+            match cmd {
+                Cmd::Mesh {
+                    slot,
+                    mesh,
+                    tex,
+                    relief,
+                    pixelated,
+                    first,
+                    count,
+                    sdf,
+                    gpu,
+                    ..
+                } if *count > 0 => {
+                    let m = &self.meshes[mesh];
+                    pass.set_pipeline(if *sdf {
+                        &self.dof_sdf_pipe
+                    } else {
+                        &self.dof_mesh_pipe
+                    });
+                    pass.set_bind_group(0, &self.globals_bg[0], &[]);
+                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                    pass.set_bind_group(
+                        2,
+                        &self.mesh_tex_bgs[&(tex.clone(), relief.clone(), *pixelated)],
+                        &[],
+                    );
+                    pass.set_vertex_buffer(0, m.vbuf.slice(..));
+                    pass.set_vertex_buffer(1, self.mesh_instances(*gpu).slice(..));
+                    pass.set_index_buffer(m.ibuf.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.draw_indexed(0..m.count, 0, *first..*first + *count);
+                }
+                Cmd::Terrain {
+                    slot,
+                    vertices,
+                    tex,
+                    pixelated,
+                } => {
+                    pass.set_pipeline(&self.dof_terrain_pipe);
+                    pass.set_bind_group(0, &self.globals_bg[0], &[]);
+                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                    pass.set_bind_group(2, &self.tex_bgs[&(tex.clone(), *pixelated)], &[]);
+                    pass.draw(0..*vertices, 0..1);
+                }
+                _ => {}
+            }
+        }
     }
 
     fn draw_scene(
@@ -1684,8 +5280,57 @@ impl Renderer {
     ) {
         for cmd in cmds {
             match cmd {
-                Cmd::Backdrop { slot, tex } => {
-                    pass.set_pipeline(&pipes.backdrop);
+                Cmd::Text {
+                    slot,
+                    font,
+                    first,
+                    count,
+                } => {
+                    pass.set_pipeline(&pipes.text);
+                    pass.set_bind_group(0, &self.globals_bg[globals], &[]);
+                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                    pass.set_bind_group(2, &self.tex_bgs[&(font.clone(), false)], &[]);
+                    pass.set_vertex_buffer(0, self.inst_buf.slice(..));
+                    pass.draw(0..6, *first..*first + *count);
+                }
+                Cmd::Arcs {
+                    slot,
+                    segments,
+                    first,
+                    count,
+                } => {
+                    pass.set_pipeline(&pipes.arcs);
+                    pass.set_bind_group(0, &self.globals_bg[globals], &[]);
+                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                    pass.set_vertex_buffer(0, self.inst_buf.slice(..));
+                    pass.draw(0..6 * segments, *first..*first + *count);
+                }
+                Cmd::Sprite {
+                    slot,
+                    tex,
+                    pixelated,
+                    blend,
+                    first,
+                    count,
+                } => {
+                    let i = match blend {
+                        SpriteBlend::Alpha => 0,
+                        SpriteBlend::Additive => 1,
+                        SpriteBlend::Cutout => 2,
+                    };
+                    pass.set_pipeline(&pipes.sprite[i]);
+                    pass.set_bind_group(0, &self.globals_bg[globals], &[]);
+                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                    pass.set_bind_group(2, &self.tex_bgs[&(tex.clone(), *pixelated)], &[]);
+                    pass.set_vertex_buffer(0, self.inst_buf.slice(..));
+                    pass.draw(0..6, *first..*first + *count);
+                }
+                // Logos go on after depth of field, in their own pass.
+                Cmd::BackdropUp { .. } | Cmd::Logo { .. } => {}
+                Cmd::Backdrop {
+                    slot, tex, kind, ..
+                } => {
+                    pass.set_pipeline(&self.bg_pipes[&(*kind, pipes.samples, false)]);
                     pass.set_bind_group(0, &self.globals_bg[globals], &[]);
                     pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
                     pass.set_bind_group(2, &self.tex_bgs[&(tex.clone(), false)], &[]);
@@ -1699,12 +5344,15 @@ impl Renderer {
                     pixelated,
                     first,
                     count,
+                    sdf,
+                    gpu,
+                    ..
                 } => {
                     if *count == 0 {
                         continue;
                     }
                     let m = &self.meshes[mesh];
-                    pass.set_pipeline(&pipes.mesh);
+                    pass.set_pipeline(if *sdf { &pipes.sdf } else { &pipes.mesh });
                     pass.set_bind_group(0, &self.globals_bg[globals], &[]);
                     pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
                     pass.set_bind_group(
@@ -1712,8 +5360,9 @@ impl Renderer {
                         &self.mesh_tex_bgs[&(tex.clone(), relief.clone(), *pixelated)],
                         &[],
                     );
+                    pass.set_bind_group(3, &self.shadow_bg, &[]);
                     pass.set_vertex_buffer(0, m.vbuf.slice(..));
-                    pass.set_vertex_buffer(1, self.inst_buf.slice(..));
+                    pass.set_vertex_buffer(1, self.mesh_instances(*gpu).slice(..));
                     pass.set_index_buffer(m.ibuf.slice(..), wgpu::IndexFormat::Uint32);
                     pass.draw_indexed(0..m.count, 0, *first..*first + *count);
                 }
@@ -1733,6 +5382,7 @@ impl Renderer {
                     pass.set_bind_group(0, &self.globals_bg[globals], &[]);
                     pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
                     pass.set_bind_group(2, &self.tex_bgs[&(tex.clone(), *pixelated)], &[]);
+                    pass.set_bind_group(3, &self.shadow_bg, &[]);
                     pass.draw(0..*vertices, 0..1);
                 }
                 Cmd::Lasers { slot, beams } => {
@@ -1740,6 +5390,39 @@ impl Renderer {
                     pass.set_bind_group(0, &self.globals_bg[globals], &[]);
                     pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
                     pass.draw(0..6, 0..*beams);
+                }
+                Cmd::Contact { .. } => {}
+                Cmd::SkyFx => {
+                    for pipe in [&pipes.sky_mul, &pipes.sky_add] {
+                        pass.set_pipeline(pipe);
+                        pass.set_bind_group(0, &self.globals_bg[globals], &[]);
+                        pass.set_bind_group(1, &self.draw_bg, &[0]);
+                        pass.draw(0..3, 0..1);
+                    }
+                }
+                Cmd::Spots { slot, beams, pools } => {
+                    pass.set_pipeline(&pipes.spots);
+                    pass.set_bind_group(0, &self.globals_bg[globals], &[]);
+                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                    pass.draw(0..SPOT_VERTICES, 0..*beams);
+                    if *pools {
+                        pass.draw(0..6, *beams..*beams * 2);
+                    }
+                }
+                Cmd::Falls { slot, puffs } => {
+                    pass.set_pipeline(&pipes.falls);
+                    pass.set_bind_group(0, &self.globals_bg[globals], &[]);
+                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                    pass.draw(0..FALL_VERTICES, 0..1);
+                    if *puffs > 0 {
+                        pass.draw(0..6, 1..1 + *puffs);
+                    }
+                }
+                Cmd::Weather { slot, instances } => {
+                    pass.set_pipeline(&pipes.weather);
+                    pass.set_bind_group(0, &self.globals_bg[globals], &[]);
+                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                    pass.draw(0..6, 0..*instances);
                 }
             }
         }
@@ -1781,15 +5464,19 @@ impl Renderer {
         pass.draw(0..3, 0..1);
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn write_post_params(
         &self,
         project: &Project,
         ctx: &EvalCtx,
         target: &RenderTarget,
         blur: f32,
+        view_proj: Mat4,
+        eye: Vec3,
+        env: &EnvState,
     ) {
         let post = &project.post;
-        let mut slots: Vec<PostBlock> = vec![Zeroable::zeroed(); SLOT_FINAL as usize + 1];
+        let mut slots: Vec<PostBlock> = vec![Zeroable::zeroed(); SLOT_RAYS_ADD as usize + 1];
         let (rw, rh) = target.refl_size;
         let br = blur.clamp(0.0, 1.0) * 3.0;
         slots[SLOT_BLUR_H as usize][0] = [br / rw as f32, 0.0, 0.0, 0.0];
@@ -1816,6 +5503,35 @@ impl Renderer {
             target.width as f32 / target.height as f32,
             mirror_mode as f32,
         ];
+        let hz = &post.haze;
+        if hz.enabled {
+            slots[SLOT_WARP as usize][2] = [
+                hz.amount.eval(ctx).max(0.0),
+                hz.scale.max(0.05),
+                TAU * (ctx.phase * hz.speed as f32).rem_euclid(1.0),
+                match hz.region {
+                    HazeRegion::HotSpots => 0.0,
+                    HazeRegion::Ground => 1.0,
+                    HazeRegion::Everywhere => 2.0,
+                },
+            ];
+        }
+
+        let dof = &post.dof;
+        if dof.enabled {
+            let cam = project.camera.eval(ctx);
+            let focus = if dof.auto_focus {
+                (cam.target - cam.eye).length()
+            } else {
+                dof.focus.eval(ctx)
+            };
+            slots[SLOT_WARP as usize][3] = [
+                1.0,
+                focus.max(0.01),
+                dof.blur.eval(ctx).clamp(0.0, 2.0) * 0.03,
+                0.0,
+            ];
+        }
 
         let b = &post.bloom;
         for i in 0..BLOOM_LEVELS {
@@ -1836,6 +5552,42 @@ impl Renderer {
             let (_, sw, sh) = target.bloom[i + 1];
             slots[(SLOT_BLOOM_UP as usize) + i][0] = [1.0 / sw as f32, 1.0 / sh as f32, 0.0, 0.0];
             slots[(SLOT_BLOOM_UP as usize) + i][1] = [up_w, 0.0, 0.0, 0.0];
+        }
+
+        let gr = &post.rays;
+        if gr.enabled {
+            let (light_uv, vis) = match gr.source {
+                RaySource::Centre => ([0.5, 0.5], 1.0),
+                RaySource::Sun => {
+                    let ld = Vec3::from(env.light_dir).normalize_or(Vec3::Y);
+                    let clip = view_proj * (eye + ld * 1000.0).extend(1.0);
+                    if clip.w <= 1e-4 || env.night > 0.97 {
+                        ([0.5, 0.5], 0.0)
+                    } else {
+                        let (x, y) = (clip.x / clip.w, clip.y / clip.w);
+                        // Fade out as the light leaves the picture.
+                        let off = (x.abs().max(y.abs()) - 1.0).max(0.0);
+                        (
+                            [x * 0.5 + 0.5, 0.5 - y * 0.5],
+                            (1.0 - off * 0.6).clamp(0.0, 1.0),
+                        )
+                    }
+                }
+            };
+            slots[SLOT_RAYS as usize][0] = [
+                light_uv[0],
+                light_uv[1],
+                vis,
+                gr.intensity.eval(ctx).max(0.0),
+            ];
+            slots[SLOT_RAYS as usize][1] = [
+                gr.length.eval(ctx).clamp(0.0, 1.0),
+                gr.threshold.eval(ctx).max(0.0),
+                target.width as f32 / target.height as f32,
+                gr.flare.eval(ctx).max(0.0),
+            ];
+            // Rays gather near the sun (falloff).
+            slots[SLOT_RAYS as usize][2] = c4(project.scene_color(gr.tint, ctx), 2.5);
         }
 
         let g = &post.grade;
@@ -1891,7 +5643,7 @@ impl Renderer {
             post.crt.noise.eval(ctx),
         ];
         let frames = ctx.loop_beats as f32 * 6.0;
-        let frame_id = (ctx.phase * frames).floor().rem_euclid(frames);
+        let frame_id = (ctx.beat_phase * frames).floor().rem_euclid(frames);
         f[5] = [ctx.beat_frac(), frame_id, ctx.loop_beats as f32, 0.0];
         for (i, c) in cols.iter().take(16).enumerate() {
             f[8 + i] = c4(*c, 1.0);
@@ -1904,6 +5656,80 @@ impl Renderer {
 
     // ------------------------------------------------------------------
     // Targets
+
+    /// A post pass's inputs: the parameters, two pictures and a sampler.
+    fn post_bind_group(&self, a: &wgpu::TextureView, b: &wgpu::TextureView) -> wgpu::BindGroup {
+        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("post"),
+            layout: &self.bgl_post,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &self.post_buf,
+                        offset: 0,
+                        size: wgpu::BufferSize::new(POST_SLOT),
+                    }),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(a),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(b),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler_clamp),
+                },
+            ],
+        })
+    }
+
+    /// The logo rays' source picture for `target`, made the first time a
+    /// logo with rays is drawn there. Ones not used for a while (targets
+    /// gone or rays turned off) are dropped.
+    fn ensure_logo_rays_source(&mut self, target: &RenderTarget) {
+        let frame = self.frame_no;
+        self.logo_rays_src
+            .retain(|id, src| *id == target.id || frame - src.used < 240);
+        let size = (target.width, target.height);
+        if let Some(src) = self.logo_rays_src.get_mut(&target.id) {
+            if src.size == size {
+                src.used = frame;
+                return;
+            }
+        }
+        let tex = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("logo rays source"),
+            size: wgpu::Extent3d {
+                width: size.0,
+                height: size.1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: HDR_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let view = tex.create_view(&Default::default());
+        let bg = self.post_bind_group(&view, &view);
+        self.logo_rays_src.insert(
+            target.id,
+            LogoRaysSource {
+                tex,
+                view,
+                bg,
+                size,
+                used: frame,
+            },
+        );
+    }
 
     pub fn create_target(&self, width: u32, height: u32) -> RenderTarget {
         let (w, h) = (width.max(8), height.max(8));
@@ -1932,7 +5758,33 @@ impl Renderer {
             (self.msaa > 1).then(|| tex("msaa color", w, h, HDR_FORMAT, self.msaa, none));
         let depth = tex("depth", w, h, DEPTH_FORMAT, self.msaa, none);
         let hdr = tex("hdr", w, h, HDR_FORMAT, 1, sampled);
-        let hdr2 = tex("hdr2", w, h, HDR_FORMAT, 1, sampled);
+        let full_tex = |label: &str, extra: wgpu::TextureUsages| {
+            let t = dev.create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size: wgpu::Extent3d {
+                    width: w,
+                    height: h,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: HDR_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | sampled | extra,
+                view_formats: &[],
+            });
+            let v = t.create_view(&Default::default());
+            (t, v)
+        };
+        let (hdr2_tex, hdr2) = full_tex(
+            "hdr2",
+            wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC,
+        );
+
+        let fb = [
+            full_tex("feedback a", wgpu::TextureUsages::COPY_SRC),
+            full_tex("feedback b", wgpu::TextureUsages::COPY_SRC),
+        ];
         let mut bloom = Vec::new();
         let (mut bw, mut bh) = (w, h);
         for _ in 0..BLOOM_LEVELS {
@@ -1962,38 +5814,31 @@ impl Renderer {
             view_formats: &[],
         });
         let output_view = output.create_view(&Default::default());
-        let display_view = output.create_view(&Default::default());
-        let post_bg = |a: &wgpu::TextureView, b: &wgpu::TextureView| {
-            dev.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("post"),
-                layout: &self.bgl_post,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                            buffer: &self.post_buf,
-                            offset: 0,
-                            size: wgpu::BufferSize::new(POST_SLOT),
-                        }),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(a),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::TextureView(b),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler_clamp),
-                    },
-                ],
-            })
-        };
+        let display = dev.create_texture(&wgpu::TextureDescriptor {
+            label: Some("display"),
+            size: wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: DISPLAY_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let display_view = display.create_view(&Default::default());
+        let post_bg = |a: &wgpu::TextureView, b: &wgpu::TextureView| self.post_bind_group(a, b);
         let bg_blur_h = post_bg(&refl, &refl);
         let bg_blur_v = post_bg(&refl_tmp, &refl_tmp);
-        let bg_warp = post_bg(&hdr, &hdr);
+        let bg_fb = [post_bg(&hdr2, &fb[0].1), post_bg(&hdr2, &fb[1].1)];
+        let (dw, dh) = ((w / 2).max(1), (h / 2).max(1));
+        let dof_dist = tex("dof distance", dw, dh, DOF_FORMAT, 1, sampled);
+        let dof_z = tex("dof depth", dw, dh, DEPTH_FORMAT, 1, none);
+        let bg_warp = post_bg(&hdr, &dof_dist);
         let bg_bloom_down = (0..BLOOM_LEVELS)
             .map(|i| {
                 let src = if i == 0 { &hdr2 } else { &bloom[i - 1].0 };
@@ -2004,6 +5849,37 @@ impl Renderer {
             .map(|i| post_bg(&bloom[i + 1].0, &bloom[i + 1].0))
             .collect();
         let bg_final = post_bg(&hdr2, &bloom[0].0);
+        let bg_low = [2u32, 4]
+            .into_iter()
+            .map(|d| {
+                let view = tex(
+                    "background low",
+                    (w / d).max(1),
+                    (h / d).max(1),
+                    HDR_FORMAT,
+                    1,
+                    sampled,
+                );
+                let bg = dev.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("background low"),
+                    layout: &self.bgl_tex,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(&self.sampler_clamp),
+                        },
+                    ],
+                });
+                (d, view, bg)
+            })
+            .collect();
+        let rays = tex("god rays", rw, rh, HDR_FORMAT, 1, sampled);
+        let bg_rays = post_bg(&hdr2, &hdr2);
+        let bg_rays_add = post_bg(&rays, &rays);
         RenderTarget {
             id: TARGET_IDS.fetch_add(1, Ordering::Relaxed),
             width: w,
@@ -2020,6 +5896,7 @@ impl Renderer {
             refl_size: (rw, rh),
             output,
             output_view,
+            display,
             display_view,
             bg_blur_h,
             bg_blur_v,
@@ -2027,6 +5904,15 @@ impl Renderer {
             bg_bloom_down,
             bg_bloom_up,
             bg_final,
+            bg_low,
+            bg_rays,
+            bg_rays_add,
+            rays,
+            dof_dist,
+            dof_z,
+            hdr2_tex,
+            fb,
+            bg_fb,
         }
     }
 
@@ -2034,7 +5920,18 @@ impl Renderer {
     /// waiting (required on the web, where blocking is impossible). Poll the
     /// returned [`Readback`] until it is ready.
     pub fn start_readback(&self, target: &RenderTarget) -> Readback {
-        let (w, h) = (target.width, target.height);
+        self.readback_texture(&target.output, target.width, target.height)
+    }
+
+    /// Copy the display image (what the editor shows) back to the CPU
+    /// (blocking; desktop only). Used to check it matches the export image.
+    pub fn read_display_pixels(&self, target: &RenderTarget) -> Vec<u8> {
+        let rb = self.readback_texture(&target.display, target.width, target.height);
+        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+        rb.take().expect("readback finished")
+    }
+
+    fn readback_texture(&self, texture: &wgpu::Texture, w: u32, h: u32) -> Readback {
         let row = 4 * w;
         let padded =
             row.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
@@ -2047,7 +5944,7 @@ impl Renderer {
         let mut enc = self.device.create_command_encoder(&Default::default());
         enc.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
-                texture: &target.output,
+                texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
@@ -2066,7 +5963,7 @@ impl Renderer {
                 depth_or_array_layers: 1,
             },
         );
-        self.queue.submit([enc.finish()]);
+        let index = self.queue.submit([enc.finish()]);
         let ready = Arc::new(AtomicBool::new(false));
         let flag = ready.clone();
         buf.slice(..).map_async(wgpu::MapMode::Read, move |r| {
@@ -2076,6 +5973,7 @@ impl Renderer {
         });
         Readback {
             buf,
+            index,
             ready,
             width: w,
             height: h,
@@ -2089,6 +5987,15 @@ impl Renderer {
         let rb = self.start_readback(target);
         let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
         rb.take().expect("readback finished")
+    }
+
+    /// Blocks until `rb` has finished (not later frames). Native only.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn wait_for(&self, rb: &Readback) {
+        let _ = self.device.poll(wgpu::PollType::Wait {
+            submission_index: Some(rb.index.clone()),
+            timeout: None,
+        });
     }
 
     /// Lets pending GPU work (e.g. readbacks) make progress without
@@ -2120,6 +6027,9 @@ impl Renderer {
 /// A pending GPU -> CPU copy of a rendered frame.
 pub struct Readback {
     buf: wgpu::Buffer,
+    /// Submission of the copy (to wait for exactly this frame on native).
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    index: wgpu::SubmissionIndex,
     ready: Arc<AtomicBool>,
     pub width: u32,
     pub height: u32,
@@ -2162,5 +6072,24 @@ pub fn supported_msaa(adapter: &wgpu::Adapter) -> u32 {
         4
     } else {
         1
+    }
+}
+
+#[cfg(test)]
+mod cull_tests {
+    use super::*;
+
+    #[test]
+    fn frustum_culling() {
+        let view = Mat4::look_at_rh(Vec3::new(0.0, 0.0, 10.0), Vec3::ZERO, Vec3::Y);
+        let proj = Mat4::perspective_rh(1.0, 16.0 / 9.0, 0.1, 100.0);
+        let planes = frustum_planes(proj * view);
+        assert!(sphere_visible(&planes, Vec3::ZERO, 1.0));
+        // Behind the camera, far to the side, beyond the far plane.
+        assert!(!sphere_visible(&planes, Vec3::new(0.0, 0.0, 20.0), 1.0));
+        assert!(!sphere_visible(&planes, Vec3::new(60.0, 0.0, 0.0), 1.0));
+        assert!(!sphere_visible(&planes, Vec3::new(0.0, 0.0, -200.0), 1.0));
+        // Partly inside counts as visible.
+        assert!(sphere_visible(&planes, Vec3::new(0.0, 0.0, 20.0), 12.0));
     }
 }

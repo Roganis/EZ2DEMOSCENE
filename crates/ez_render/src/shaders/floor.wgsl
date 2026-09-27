@@ -42,12 +42,20 @@ fn fs_main(in: FOut) -> @location(0) vec4<f32> {
         base = base * texel;
     }
     let ambient = mix(G.ground.rgb, G.sky.rgb, 1.0) * G.sky.w;
-    let diffuse = G.light_color.rgb * G.ground.w * max(normalize(G.light_dir.xyz).y, 0.0);
-    var col = base * (ambient + diffuse);
+    let sun_lit = sun_shadow(in.world, vec3<f32>(0.0, 1.0, 0.0));
+    let diffuse = G.light_color.rgb * G.ground.w * max(normalize(G.light_dir.xyz).y, 0.0) * sun_lit;
+    // Shadows also dim the ambient light a little, so they read on dark,
+    // glossy floors too.
+    var col = base * (ambient * mix(1.0, sun_lit, 0.5) + diffuse);
 
+    let up = vec3<f32>(0.0, 1.0, 0.0);
+    // Snow settles on the floor and hides the reflection.
+    let snow = snow_cover(in.world, up);
+    col = mix(col, vec3<f32>(0.88, 0.91, 0.96) * (ambient + diffuse), snow);
+    col = col + (base + vec3<f32>(0.08)) * caustic_light(in.world, up);
     let fres = pow(1.0 - max(v.y, 0.0), 4.0);
-    let k = D.v[0].z * mix(0.55, 1.0, fres) * D.v[0].w;
-    col = col * (1.0 - k * 0.5) + refl * D.v[2].rgb * k;
+    let k = D.v[0].z * mix(0.55, 1.0, fres) * D.v[0].w * (1.0 - snow * 0.85);
+    col = col * (1.0 - k * 0.5) + refl * D.v[2].rgb * k * mix(1.0, sun_lit, 0.35);
 
     // Glowing grid lines
     let f = abs(fract(gp - 0.5) - 0.5);
@@ -62,7 +70,14 @@ fn fs_main(in: FOut) -> @location(0) vec4<f32> {
 
     // Fade out towards the floor edge so it blends into the backdrop.
     let edge = max(abs(in.world.x), abs(in.world.z)) / D.v[0].x;
-    let out_col = apply_fog(col, dist);
+    col = col + refl * rain_rings(in.world) * G.caus_col.w * 0.3 * (1.0 - snow);
+    let out_col = apply_fog_at(col, in.world);
     let fade = smoothstep(1.0, 0.85, edge);
     return vec4<f32>(mix(G.fog.rgb, out_col, fade), 1.0);
+}
+
+// Distance to the camera, for depth of field.
+@fragment
+fn fs_depth(in: FOut) -> @location(0) vec4<f32> {
+    return vec4<f32>(length(in.world - G.cam_pos.xyz), 0.0, 0.0, 1.0);
 }

@@ -798,29 +798,9 @@ fn mobius(width: f32) -> MeshData {
 
 /// Tube geometry of a neon ribbon (U runs along the curve, for the pulses).
 pub fn ribbon(r: &ez_core::Ribbon) -> MeshData {
-    use ez_core::RibbonCurve;
     let [a, b, c] = r.freq.map(|f| f.clamp(1, 16) as f32);
-    let kind = r.curve;
-    let curve = move |t: f32| {
-        let x = t * TAU;
-        match kind {
-            RibbonCurve::Lissajous => Vec3::new(
-                (a * x + 0.5 * PI).sin(),
-                (b * x).sin() * 0.6,
-                (c * x + 0.25 * PI).sin(),
-            ),
-            RibbonCurve::Knot => {
-                let rr = 0.62 + 0.28 * (b * x).cos();
-                Vec3::new(rr * (a * x).cos(), 0.28 * (b * x).sin(), rr * (a * x).sin())
-            }
-            RibbonCurve::Infinity => Vec3::new(x.sin(), 0.15 * (a * x).sin(), x.sin() * x.cos()),
-            RibbonCurve::Wave => Vec3::new(x.cos(), 0.3 * (a * x).sin(), x.sin()),
-            RibbonCurve::Rose => {
-                let rr = (a * x).cos();
-                Vec3::new(rr * x.cos(), 0.1 * (b * x).sin(), rr * x.sin())
-            }
-        }
-    };
+    let (kind, freq) = (r.curve, r.freq);
+    let curve = move |t: f32| Vec3::from(kind.point(freq, t));
     let along = (256.0 * a.max(b).max(c)).clamp(256.0, 2048.0) as u32;
     tube(curve, true, r.thickness.clamp(0.002, 0.5), along, 8)
 }

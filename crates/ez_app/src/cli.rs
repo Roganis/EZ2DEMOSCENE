@@ -13,6 +13,7 @@ USAGE:
     ez2demoscene [PROJECT.ez2.json]              open the editor
     ez2demoscene --render SCENE OUT.png [--phase 0.25] [--size 1920x1080]
     ez2demoscene --export SCENE OUT [--size WxH] [--fps 60] [--repeats 1]
+                 [--motion-blur 8] [--shutter 0.5]
                  (OUT: .mp4 .webm .gif, or a folder for a PNG sequence)
     ez2demoscene --list-presets
     ez2demoscene --write-presets DIR              save built-in presets as projects
@@ -119,13 +120,24 @@ pub fn run(args: &[String]) -> Result<Option<i32>> {
                     .map(|s| s.parse())
                     .transpose()?
                     .unwrap_or(1),
+                motion_blur: flag(args, "--motion-blur")
+                    .map(|s| s.parse())
+                    .transpose()?
+                    .unwrap_or(1),
+                shutter: flag(args, "--shutter")
+                    .map(|s| s.parse())
+                    .transpose()?
+                    .unwrap_or(0.5),
                 output: out,
                 ..Default::default()
             };
-            let audio = scene
-                .audio
-                .as_ref()
-                .and_then(|a| ez_export::analyze_audio(Path::new(a)).ok());
+            let audio = match ez_export::load_music(&scene) {
+                Ok(a) => a,
+                Err(e) => {
+                    eprintln!("warning: music ignored: {e:#}");
+                    None
+                }
+            };
             let cancel = AtomicBool::new(false);
             let mut last = 0;
             let path = ez_export::export(
