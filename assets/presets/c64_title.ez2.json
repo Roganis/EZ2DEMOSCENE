@@ -1,66 +1,59 @@
 {
   "version": 2,
-  "name": "Copper Logo",
+  "name": "C64 Title",
   "timing": {
-    "bpm": 140.0,
+    "bpm": 120.0,
     "loop_beats": 16
   },
   "camera": {
-    "mode": "Static",
+    "mode": "Pendulum",
     "target": [
       0.0,
-      0.0,
-      0.0
+      3.0,
+      -12.0
     ],
-    "distance": 6.0,
-    "height": 0.0,
+    "distance": 16.0,
+    "height": 2.5,
     "angle": 0.0,
     "orbit_turns": 1,
-    "swing": 30.0,
-    "fov": 70.0,
-    "roll": {
-      "base": 0.0,
-      "amp": 12.0,
-      "wave": "Sine",
-      "cycles": 1,
-      "offset": 0.0,
-      "audio": 0.0
-    },
+    "swing": 8.0,
+    "fov": 65.0,
+    "roll": 0.0,
     "beat_shake": 0.0
   },
   "environment": {
     "fog_color": [
-      0.0,
-      0.0,
-      0.0
+      0.0021246888,
+      0.000607054,
+      0.010329823
     ],
-    "fog_density": 0.03,
+    "fog_density": 0.025,
     "sky_color": [
-      0.21586053,
-      0.27889434,
-      0.4341537
-    ],
-    "ground_color": [
-      0.014443844,
-      0.014443844,
-      0.014443844
-    ],
-    "light_dir": [
-      0.4,
-      1.0,
-      0.3
-    ],
-    "light_color": [
-      1.0,
-      1.0,
+      0.11697067,
+      0.051269468,
       1.0
     ],
-    "light_intensity": 1.5,
+    "ground_color": [
+      0.002428216,
+      0.0,
+      0.005181517
+    ],
+    "light_dir": [
+      0.0,
+      0.4,
+      -1.0
+    ],
+    "light_color": [
+      0.5271152,
+      0.21586053,
+      1.0
+    ],
+    "light_intensity": 1.2,
     "ambient": 0.3
   },
   "layers": [
     {
-      "name": "XOR tunnel",
+      "name": "Stars",
       "enabled": true,
       "transform": {
         "position": [
@@ -91,121 +84,36 @@
       },
       "kind": {
         "type": "Backdrop",
-        "kind": "Tunnel",
+        "kind": "Starfield",
         "color_a": [
+          0.000607054,
           0.0,
-          0.0,
-          0.0
+          0.00303527
         ],
         "color_b": [
-          0.014443844,
-          0.051269468,
-          1.0
+          0.029556833,
+          0.005181517,
+          0.11697067
         ],
         "color_c": [
-          1.0,
-          0.051269468,
-          0.5271152
-        ],
-        "speed": 4,
-        "intensity": 1.2,
-        "detail": 1.0,
-        "texture": "xor"
-      }
-    },
-    {
-      "name": "Icosahedron",
-      "enabled": true,
-      "transform": {
-        "position": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "scale": 1.3,
-        "stretch": [
-          1.0,
-          1.0,
+          0.3515327,
+          0.5271152,
           1.0
         ],
-        "spin": [
-          2,
-          1,
-          0
-        ],
-        "bob": 0.0
-      },
-      "symmetry": {
-        "type": "None"
-      },
-      "kind": {
-        "type": "Mesh",
-        "source": {
-          "type": "Primitive",
-          "shape": "Icosahedron"
-        },
-        "material": {
-          "base_color": [
-            1.0,
-            1.0,
-            1.0
-          ],
-          "metallic": 0.2,
-          "roughness": 0.4,
-          "emissive_color": [
-            1.0,
-            1.0,
-            0.09084173
-          ],
-          "emissive": {
-            "base": 0.6,
-            "amp": 1.5,
-            "wave": "Pulse",
-            "cycles": 16,
-            "offset": 0.0,
-            "audio": 0.0
-          },
-          "emissive_mode": "Edges",
-          "texture": "checker",
-          "texture_scale": 2.0,
-          "scroll": [
-            1,
-            0
-          ],
-          "pixelated": true,
-          "flat_shading": true,
-          "rim": 0.3,
-          "hue_shift": 0.0
-        },
-        "instancer": {
-          "type": "Single"
-        },
-        "variation": {
-          "seed": 1,
-          "rotation": 0.0,
-          "scale": 0.0,
-          "hue": 0.0,
-          "spin": 0,
-          "ripple": 0.0,
-          "ripple_cycles": 1,
-          "ripple_spread": 1.0,
-          "chase": 0.0
-        }
+        "speed": 1,
+        "intensity": 1.0,
+        "detail": 1.0,
+        "texture": null
       }
     },
     {
-      "name": "Warp stars",
+      "name": "Valley",
       "enabled": true,
       "transform": {
         "position": [
           0.0,
-          0.0,
-          0.0
+          -0.5,
+          -20.0
         ],
         "rotation": [
           0.0,
@@ -229,32 +137,147 @@
         "type": "None"
       },
       "kind": {
-        "type": "Particles",
-        "emitter": "Warp",
-        "count": 700,
-        "lifetimes": 4,
-        "size": 0.05,
-        "speed": 1.0,
-        "radius": 6.0,
-        "color_a": [
+        "type": "Terrain",
+        "size": 80.0,
+        "cells": 80,
+        "height": 7.0,
+        "hills": 5,
+        "roughness": 0.45,
+        "scroll": 2,
+        "valley": 0.35,
+        "style": "Both",
+        "line_color": [
+          1.0,
+          0.02415763,
+          0.6724432
+        ],
+        "glow": {
+          "base": 1.2,
+          "amp": 0.6,
+          "wave": "Pulse",
+          "cycles": 16,
+          "offset": 0.0,
+          "audio": 0.0
+        },
+        "fill_color": [
+          0.00303527,
+          0.001214108,
+          0.009134057
+        ],
+        "seed": 7,
+        "texture": null,
+        "tiles": 8,
+        "texture_lines": false,
+        "pixelated": false
+      }
+    },
+    {
+      "name": "Lasers",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.5,
+          -45.0
+        ],
+        "rotation": [
+          -20.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
           1.0,
           1.0,
           1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "MirrorX"
+      },
+      "kind": {
+        "type": "Lasers",
+        "count": 10,
+        "pattern": "Fan",
+        "spread": 80.0,
+        "length": 60.0,
+        "width": 0.1,
+        "color_a": [
+          0.014443844,
+          1.0,
+          0.3515327
         ],
         "color_b": [
-          0.09084173,
-          1.0,
+          0.014443844,
+          0.3515327,
           1.0
         ],
-        "intensity": 2.0,
-        "trail": 4,
-        "trail_spacing": 0.01,
-        "sprite": "Square",
+        "intensity": 3.0,
+        "sweep": 20.0,
+        "sweep_cycles": 2,
+        "strobe": 0.6,
         "seed": 1
       }
     },
     {
-      "name": "Logo",
+      "name": "Ribbon",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          6.0,
+          -14.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 4.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          1,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Ribbon",
+        "curve": "Wave",
+        "freq": [
+          5,
+          1,
+          1
+        ],
+        "thickness": 0.03,
+        "color": [
+          0.0,
+          0.7835379,
+          1.0
+        ],
+        "glow": 0.8,
+        "pulses": 4,
+        "pulse_speed": 2,
+        "pulse_length": 0.06,
+        "pulse_glow": 8.0
+      }
+    },
+    {
+      "name": "Title",
       "enabled": true,
       "transform": {
         "position": [
@@ -286,17 +309,17 @@
       "kind": {
         "type": "Logo",
         "source": "Text",
-        "text": "AMIGA",
+        "text": "READY.",
         "font": "Pixel",
         "font_file": null,
         "image": null,
         "mask": "Alpha",
         "attach_to": "",
-        "attach_point": "BottomLeft",
-        "x": 0.5,
-        "y": 0.62,
-        "anchor": "Centre",
-        "size": 0.28,
+        "attach_point": "Top",
+        "x": 0.0,
+        "y": -0.1,
+        "anchor": "Top",
+        "size": 0.22,
         "rotation": 0.0,
         "opacity": 1.0,
         "colors": "Gradient",
@@ -316,13 +339,13 @@
           1.0
         ],
         "glow": 1.0,
-        "outline": 0.3,
+        "outline": 0.0,
         "outline_color": [
           0.0,
           0.0,
           0.0
         ],
-        "shadow": 1.0,
+        "shadow": 0.8,
         "chrome": 0.0,
         "bevel": "Off",
         "bevel_width": 0.4,
@@ -399,48 +422,48 @@
         "morph_text": "LOOP",
         "morph_image": null,
         "copper": 1.0,
-        "copper_bars": 4.0,
-        "copper_cycles": 2,
+        "copper_bars": 2.0,
+        "copper_cycles": 1,
         "copper_a": [
           1.0,
-          0.051269468,
-          0.014443844
+          1.0,
+          1.0
         ],
         "copper_b": [
           0.014443844,
-          0.5271152,
-          1.0
+          0.014443844,
+          0.014443844
         ],
-        "wobble_x": 0.05,
+        "wobble_x": 0.0,
         "wobble_y": 0.0,
-        "wobble_waves": 1.0,
-        "wobble_cycles": 2,
-        "glitch": {
+        "wobble_waves": 1.5,
+        "wobble_cycles": 1,
+        "glitch": 0.0,
+        "glitch_slices": 12.0,
+        "glitch_chance": 0.3,
+        "glitch_per_loop": 16,
+        "glitch_split": 0.02,
+        "chroma": 0.0,
+        "chroma_angle": 0.0,
+        "pixelate": {
           "base": 0.0,
           "amp": 0.12,
           "wave": "ExpOut",
-          "cycles": 16,
+          "cycles": 1,
           "offset": 0.0,
           "audio": 0.0
         },
-        "glitch_slices": 12.0,
-        "glitch_chance": 0.35,
-        "glitch_per_loop": 16,
-        "glitch_split": 0.03,
-        "chroma": 0.0,
-        "chroma_angle": 0.0,
-        "pixelate": 0.0,
-        "palette": null,
-        "dither": 0.5,
-        "palette_by_brightness": false,
-        "palette_cycles": 0,
+        "palette": "C64",
+        "dither": 0.6,
+        "palette_by_brightness": true,
+        "palette_cycles": 2,
         "halftone": 0.0,
         "halftone_size": 0.04,
         "halftone_angle": 45.0,
-        "scanlines": 0.0,
-        "scanline_count": 40.0,
+        "scanlines": 0.5,
+        "scanline_count": 24.0,
         "crt_mask": 0.0,
-        "crt_glow": 0.0,
+        "crt_glow": 0.4,
         "moire": 0.0,
         "moire_lines": 30.0,
         "moire_cycles": 1
@@ -450,9 +473,9 @@
   "post": {
     "bloom": {
       "enabled": true,
-      "intensity": 0.5,
-      "threshold": 0.9,
-      "radius": 0.5
+      "intensity": 1.1,
+      "threshold": 0.8,
+      "radius": 0.8
     },
     "kaleido": {
       "enabled": false,
@@ -474,27 +497,27 @@
       "amount": 0.004
     },
     "pixelate": {
-      "enabled": true,
-      "size": 3.0
+      "enabled": false,
+      "size": 4.0
     },
     "palette": {
-      "enabled": true,
+      "enabled": false,
       "palette": "Ega",
-      "dither": 0.7
+      "dither": 0.6
     },
     "crt": {
-      "enabled": true,
+      "enabled": false,
       "scanlines": 0.5,
-      "curvature": 0.12,
-      "noise": 0.08
+      "curvature": 0.15,
+      "noise": 0.1
     },
     "grade": {
       "exposure": 1.0,
       "contrast": 1.05,
       "saturation": 1.1,
-      "vignette": 0.2,
-      "grain": 0.0,
-      "beat_flash": 0.15
+      "vignette": 0.35,
+      "grain": 0.03,
+      "beat_flash": 0.0
     }
   },
   "textures": [],

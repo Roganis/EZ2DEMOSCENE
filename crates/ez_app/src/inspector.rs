@@ -3456,6 +3456,136 @@ fn logo_ui(
     );
     logo_effects_ui(ui, g, textures, lref);
     logo_raster_ui(ui, g);
+    logo_retro_ui(ui, g);
+}
+
+/// Retro looks of a logo.
+fn logo_retro_ui(ui: &mut Ui, g: &mut LogoLayer) {
+    let on = |p: &Param| p.is_animated() || p.base > 0.0;
+    let open = on(&g.pixelate)
+        || g.palette.is_some()
+        || on(&g.halftone)
+        || on(&g.scanlines)
+        || on(&g.moire);
+    section(ui, "Retro looks", open, |ui| {
+        param(
+            ui,
+            "Pixel blocks",
+            "Block size in logo heights (0 = sharp). Animate it to pixelate in or out",
+            &mut g.pixelate,
+            0.0..=0.3,
+        );
+        row(ui, "Palette", "Only the colours of a retro machine", |ui| {
+            let text = g.palette.map(|p| p.label()).unwrap_or("Any colours");
+            egui::ComboBox::from_id_salt("logo_palette")
+                .selected_text(text)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut g.palette, None, "Any colours");
+                    for p in PaletteId::ALL {
+                        ui.selectable_value(&mut g.palette, Some(p), p.label());
+                    }
+                });
+        });
+        if let Some(pal) = g.palette {
+            slider(
+                ui,
+                "Dither",
+                "Ordered dither between palette colours",
+                &mut g.dither,
+                0.0..=1.0,
+            );
+            if pal != PaletteId::Vga {
+                ui.checkbox(
+                    &mut g.palette_by_brightness,
+                    "By brightness (the palette as a dark-to-light ramp)",
+                );
+                drag_i(
+                    ui,
+                    "Cycles / loop",
+                    "Palette colours rotating, whole turns per loop",
+                    &mut g.palette_cycles,
+                    -16..=16,
+                );
+            }
+        }
+        ui.separator();
+        param(
+            ui,
+            "Halftone",
+            "Dots as big as the colour is bright (0 = none, 1 = only dots)",
+            &mut g.halftone,
+            0.0..=1.0,
+        );
+        if on(&g.halftone) {
+            slider(
+                ui,
+                "Dot spacing",
+                "In logo heights",
+                &mut g.halftone_size,
+                0.005..=0.2,
+            );
+            slider(
+                ui,
+                "Screen angle",
+                "Degrees",
+                &mut g.halftone_angle,
+                -90.0..=90.0,
+            );
+        }
+        ui.separator();
+        param(
+            ui,
+            "Scanlines",
+            "Dark gaps between the lines",
+            &mut g.scanlines,
+            0.0..=1.0,
+        );
+        slider(
+            ui,
+            "Lines",
+            "Per logo height",
+            &mut g.scanline_count,
+            2.0..=200.0,
+        );
+        slider(
+            ui,
+            "Phosphor stripes",
+            "Red, green and blue stripes like a CRT's mask",
+            &mut g.crt_mask,
+            0.0..=1.0,
+        );
+        param(
+            ui,
+            "Line glow",
+            "Extra brightness in the lines (it blooms)",
+            &mut g.crt_glow,
+            0.0..=3.0,
+        );
+        ui.separator();
+        param(
+            ui,
+            "Moiré",
+            "Two turning line patterns beating against each other",
+            &mut g.moire,
+            0.0..=1.0,
+        );
+        if on(&g.moire) {
+            slider(
+                ui,
+                "Lines",
+                "Per logo height",
+                &mut g.moire_lines,
+                2.0..=120.0,
+            );
+            drag_i(
+                ui,
+                "Turns / loop",
+                "The patterns turn opposite ways",
+                &mut g.moire_cycles,
+                -8..=8,
+            );
+        }
+    });
 }
 
 /// Distance-field effects of a logo (distances in logo heights).

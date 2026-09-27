@@ -50,6 +50,13 @@
 //          jumps, seed (changes a whole number of times per loop)
 // E.v[21]: colour split (logo heights), direction (radians), a jumping
 //          slice's split (logo heights), _
+// E.v[22]: pixel blocks (logo heights, 0 = sharp), palette colours (0 = no
+//          palette, 216 = the VGA cube), dither, palette rotation (steps)
+// E.v[23]: by brightness (0/1), halftone, dot spacing (logo heights),
+//          screen angle (radians)
+// E.v[24]: scanlines, per logo height, phosphor stripes, line glow
+// E.v[25]: moiré, lines per logo height, turn (radians), _
+// E.v[32..48]: palette colours (sRGB; dark to light when by brightness)
 
 @group(2) @binding(0) var t_tex: texture_2d<f32>;
 // The logo it morphs into (this one when none).
@@ -62,10 +69,48 @@
 @group(2) @binding(5) var t_morph_far: texture_2d<f32>;
 @group(3) @binding(0) var<uniform> E: Effects;
 
-// Two blocks of effect settings.
+// Three blocks of effect settings.
 struct Effects {
-    v: array<vec4<f32>, 32>,
+    v: array<vec4<f32>, 48>,
 };
+
+// 4×4 Bayer threshold in (-0.5, 0.5), as the palette post effect.
+fn bayer(p: vec2<u32>) -> f32 {
+    let x = p.x & 3u;
+    let y = p.y & 3u;
+    let e = x ^ y;
+    let v = ((e & 1u) << 3u) | ((y & 1u) << 2u) | (((e >> 1u) & 1u) << 1u) | ((y >> 1u) & 1u);
+    return (f32(v) + 0.5) / 16.0 - 0.5;
+}
+
+// Only palette colours: `c` linear, `cell` the dither position.
+fn to_palette(c_in: vec3<f32>, cell: vec2<u32>) -> vec3<f32> {
+    let n = i32(E.v[22].y + 0.5);
+    let g = pow(clamp(c_in, vec3<f32>(0.0), vec3<f32>(1.0)), vec3<f32>(1.0 / 2.2));
+    let d = bayer(cell) * clamp(E.v[22].z, 0.0, 1.0);
+    if (n >= 216) {
+        let q = clamp(round((g + d / 5.0) * 5.0), vec3<f32>(0.0), vec3<f32>(5.0)) / 5.0;
+        return pow(q, vec3<f32>(2.2));
+    }
+    var best = 0;
+    if (E.v[23].x > 0.5) {
+        let luma = dot(g, vec3<f32>(0.2126, 0.7152, 0.0722));
+        best = clamp(i32(floor((luma + d / f32(n)) * f32(n))), 0, n - 1);
+    } else {
+        let p = clamp(g + d / sqrt(f32(n)), vec3<f32>(0.0), vec3<f32>(1.0));
+        var best_d = 1e9;
+        for (var i = 0; i < n; i = i + 1) {
+            let e = p - E.v[32 + i].rgb;
+            let dist = 0.3 * e.r * e.r + 0.59 * e.g * e.g + 0.11 * e.b * e.b;
+            if (dist < best_d) {
+                best_d = dist;
+                best = i;
+            }
+        }
+    }
+    let k = (best + i32(E.v[22].w + 0.5)) % n;
+    return pow(E.v[32 + k].rgb, vec3<f32>(2.2));
+}
 
 // Height of the bevel (0 at the outline, 1 on top) for a field value.
 fn bevel_height(d: f32) -> f32 {
@@ -229,12 +274,15 @@ fn shade(uv: vec2<f32>, box: vec2<f32>, lod: f32) -> vec4<f32> {
     let b_l = shape(uv - vec2<f32>(texel.x, 0.0), lod).a;
     let b_u = shape(uv - vec2<f32>(0.0, texel.y), lod).a;
     let b_d = shape(uv + vec2<f32>(0.0, texel.y), lod).a;
-    let w = max(fwidth(d) * 0.75, 1e-4);
+    // Pixel blocks are solid: no smoothing across them (a screen
+    // derivative would see the jump between blocks).
+    let blocky = E.v[22].x > 0.0;
+    let w = select(max(fwidth(d) * 0.75, 1e-4), 1e-4, blocky);
     // Distance outside the outline in logo heights, and where we are
     // (logo heights from the middle).
     let ka = max(E.v[12].x, 1e-6);
     let dist = (0.5 - d) * ka;
-    let fd = max(fwidth(dist), 1e-5);
+    let fd = select(max(fwidth(dist), 1e-5), 1e-5, blocky);
     let aspect = D.v[5].z;
     let pc = (box - 0.5) * vec2<f32>(aspect, 1.0);
     let mh = max((deepest() - 0.5) * ka, 1e-3);
@@ -371,7 +419,7 @@ fn shade(uv: vec2<f32>, box: vec2<f32>, lod: f32) -> vec4<f32> {
         + vnoise3(vec3<f32>(q * 2.3, E.v[8].w + 7.0)) * 0.35;
     let depth = clamp(-dist / mh, 0.0, 1.0);
     let v = mix(nz, depth, clamp(E.v[7].z, 0.0, 1.0));
-    let fv = max(fwidth(v), 1e-4);
+    let fv = select(max(fwidth(v), 1e-4), 1e-4, blocky);
     let dis = E.v[7].x;
     if (dis > 0.0) {
         let front = dis * 1.02;
@@ -416,17 +464,28 @@ fn fs_main(in: LOut) -> @location(0) vec4<f32> {
     let fx = dpdx(in.uv * tsz);
     let fy = dpdy(in.uv * tsz);
     let lod = max(0.5 * log2(max(max(dot(fx, fx), dot(fy, fy)), 1e-8)), 0.0);
+    // Pixel blocks: everything is worked out at the middle of the block.
+    var pbox = in.box;
+    var cell = vec2<u32>(in.pos.xy);
+    let block = E.v[22].x;
+    if (block > 0.0) {
+        let hb = (in.box - 0.5) * vec2<f32>(aspect, 1.0);
+        let k = floor(hb / block);
+        cell = bitcast<vec2<u32>>(vec2<i32>(k));
+        pbox = (k + 0.5) * block / vec2<f32>(aspect, 1.0) + 0.5;
+    }
+    let puv = to_uv(pbox, D.v[6].xy);
     // How far this pixel's picture is moved (logo heights).
     var off = vec2<f32>(0.0);
     let waves = E.v[19].z;
     let wpos = E.v[19].w;
-    off.x = off.x + E.v[19].x * sin(TAU * (in.box.y * waves + wpos));
-    off.y = off.y + E.v[19].y * sin(TAU * (in.box.x * aspect * waves + wpos));
+    off.x = off.x + E.v[19].x * sin(TAU * (pbox.y * waves + wpos));
+    off.y = off.y + E.v[19].y * sin(TAU * (pbox.x * aspect * waves + wpos));
     // Raster glitch: some slices jump sideways, split in colour.
     var split = 0.0;
     let jump = E.v[20].x;
     if (jump > 0.0) {
-        let slice = bitcast<u32>(i32(floor(in.box.y * max(E.v[20].y, 0.1))));
+        let slice = bitcast<u32>(i32(floor(pbox.y * max(E.v[20].y, 0.1))));
         let seed = u32(E.v[20].w);
         if (hash2u(slice * 3u + 1u, seed) < E.v[20].z) {
             let k = hash2u(slice * 3u + 2u, seed) * 2.0 - 1.0;
@@ -434,8 +493,9 @@ fn fs_main(in: LOut) -> @location(0) vec4<f32> {
             split = E.v[21].z * sign(k);
         }
     }
-    let uv = in.uv - off * h_uv;
-    let box = in.box - off * h_box;
+    let uv = puv - off * h_uv;
+    let box = pbox - off * h_box;
+    var col: vec4<f32>;
     if (E.v[21].x > 0.0 || jump > 0.0) {
         // Chromatic split: red one way, blue the other.
         let ca = E.v[21].y;
@@ -443,7 +503,52 @@ fn fs_main(in: LOut) -> @location(0) vec4<f32> {
         let r = shade(uv - c * h_uv, box - c * h_box, lod);
         let g = shade(uv, box, lod);
         let b = shade(uv + c * h_uv, box + c * h_box, lod);
-        return vec4<f32>(r.r, g.g, b.b, (r.a + g.a + b.a) / 3.0);
+        col = vec4<f32>(r.r, g.g, b.b, (r.a + g.a + b.a) / 3.0);
+    } else {
+        col = shade(uv, box, lod);
     }
-    return shade(uv, box, lod);
+
+    // Retro looks on the finished logo. Logo heights from the middle:
+    let hp = (pbox - 0.5) * vec2<f32>(aspect, 1.0);
+    // Moiré: two line patterns turning opposite ways.
+    let mo = E.v[25].x;
+    if (mo > 0.0) {
+        let n = E.v[25].y;
+        let a = E.v[25].z;
+        let l1 = 0.5 + 0.5 * cos(TAU * n * dot(hp, vec2<f32>(cos(a), sin(a))));
+        let l2 = 0.5 + 0.5 * cos(TAU * n * dot(hp, vec2<f32>(cos(0.1 - a), sin(0.1 - a))));
+        col = vec4<f32>(col.rgb * mix(1.0, l1 * l2 * 2.0, clamp(mo, 0.0, 1.0)), col.a);
+    }
+    // Halftone: a dot per cell, as big as the colour is bright.
+    let ha = E.v[23].w;
+    let hr = vec2<f32>(hp.x * cos(ha) + hp.y * sin(ha), hp.y * cos(ha) - hp.x * sin(ha))
+        / max(E.v[23].z, 1e-3);
+    let hdist = length(fract(hr) - 0.5);
+    let haa = max(fwidth(hdist), 1e-4);
+    let ht = clamp(E.v[23].y, 0.0, 1.0);
+    if (ht > 0.0) {
+        let c = col.rgb / max(col.a, 1e-3);
+        let luma = dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
+        let radius = sqrt(clamp(luma, 0.0, 1.0)) * 0.62;
+        let dot_in = 1.0 - smoothstep(radius - haa, radius + haa, hdist);
+        let dot_col = c / max(max(c.r, max(c.g, c.b)), 1e-3);
+        col = mix(col, vec4<f32>(dot_col, 1.0) * dot_in * col.a, ht);
+    }
+    // Palette with ordered dither (and colours turning).
+    if (E.v[22].y > 0.5 && col.a > 0.002) {
+        col = vec4<f32>(to_palette(col.rgb / col.a, cell) * col.a, col.a);
+    }
+    // Scanlines, phosphor stripes and glowing lines.
+    let sl = clamp(E.v[24].x, 0.0, 1.0);
+    let stripes = clamp(E.v[24].z, 0.0, 1.0);
+    let glow = max(E.v[24].w, 0.0);
+    if (sl > 0.0 || stripes > 0.0 || glow > 0.0) {
+        let line = 0.5 + 0.5 * cos(TAU * pbox.y * E.v[24].y);
+        var f = vec3<f32>(mix(1.0, line, sl) * (1.0 + glow * line));
+        let k = u32(in.pos.x) % 3u;
+        let rgb = vec3<f32>(f32(k == 0u), f32(k == 1u), f32(k == 2u)) * 2.4 + 0.2;
+        f = f * mix(vec3<f32>(1.0), rgb, stripes);
+        col = vec4<f32>(col.rgb * f, col.a);
+    }
+    return col;
 }

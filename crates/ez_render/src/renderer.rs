@@ -28,8 +28,8 @@ pub const OUTPUT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSr
 pub const DISPLAY_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 const DRAW_SLOT: u64 = 256;
-/// A logo's effect settings: two draw slots read as one.
-const LOGO_FX_SIZE: u64 = 2 * DRAW_SLOT;
+/// A logo's effect settings: three draw slots read as one.
+const LOGO_FX_SIZE: u64 = 3 * DRAW_SLOT;
 const POST_SLOT: u64 = 512;
 /// Distance to the camera for depth of field.
 const DOF_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R16Float;
@@ -3640,6 +3640,55 @@ impl Renderer {
                         g.glitch_split,
                         0.0,
                     ];
+                    // Retro looks; the palette in a third block.
+                    let mut e3: Block = Zeroable::zeroed();
+                    let mut colors: Vec<[f32; 3]> = match g.palette {
+                        Some(pal) => pal.colors_f32(),
+                        None => Vec::new(),
+                    };
+                    colors.truncate(16);
+                    let luma = |c: &[f32; 3]| 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+                    if g.palette_by_brightness {
+                        colors.sort_by(|a, b| luma(a).total_cmp(&luma(b)));
+                    }
+                    for (i, c) in colors.iter().enumerate() {
+                        e3[i] = c4(*c, 0.0);
+                    }
+                    let count = match g.palette {
+                        Some(PaletteId::Vga) => 216.0,
+                        Some(_) => colors.len() as f32,
+                        None => 0.0,
+                    };
+                    let shift = if colors.is_empty() {
+                        0.0
+                    } else {
+                        let n = colors.len() as f32;
+                        ((ctx.phase * g.palette_cycles as f32).rem_euclid(1.0) * n).floor() % n
+                    };
+                    e2[6] = [
+                        g.pixelate.eval(ctx).max(0.0),
+                        count,
+                        g.dither.clamp(0.0, 1.0),
+                        shift,
+                    ];
+                    e2[7] = [
+                        if g.palette_by_brightness { 1.0 } else { 0.0 },
+                        g.halftone.eval(ctx).clamp(0.0, 1.0),
+                        g.halftone_size.max(0.002),
+                        g.halftone_angle.to_radians(),
+                    ];
+                    e2[8] = [
+                        g.scanlines.eval(ctx).clamp(0.0, 1.0),
+                        g.scanline_count.max(1.0),
+                        g.crt_mask.clamp(0.0, 1.0),
+                        g.crt_glow.eval(ctx).max(0.0),
+                    ];
+                    e2[9] = [
+                        g.moire.eval(ctx).clamp(0.0, 1.0),
+                        g.moire_lines.max(1.0),
+                        (ctx.phase * g.moire_cycles as f32).rem_euclid(1.0) * TAU,
+                        0.0,
+                    ];
                     let key = (tex, morph, matcap);
                     self.logo_bind_group(&key);
                     let (tex, morph, matcap) = key;
@@ -3652,6 +3701,7 @@ impl Renderer {
                     blocks.push(blk);
                     blocks.push(e);
                     blocks.push(e2);
+                    blocks.push(e3);
                 }
                 LayerKind::Arcs(arc) => {
                     let lm = layer_matrix(&layer.transform, ctx);

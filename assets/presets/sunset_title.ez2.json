@@ -532,7 +532,22 @@
         "glitch_per_loop": 16,
         "glitch_split": 0.02,
         "chroma": 0.0,
-        "chroma_angle": 0.0
+        "chroma_angle": 0.0,
+        "pixelate": 0.0,
+        "palette": null,
+        "dither": 0.5,
+        "palette_by_brightness": false,
+        "palette_cycles": 0,
+        "halftone": 0.0,
+        "halftone_size": 0.04,
+        "halftone_angle": 45.0,
+        "scanlines": 0.0,
+        "scanline_count": 40.0,
+        "crt_mask": 0.0,
+        "crt_glow": 0.0,
+        "moire": 0.0,
+        "moire_lines": 30.0,
+        "moire_cycles": 1
       }
     },
     {
@@ -703,7 +718,22 @@
         "glitch_per_loop": 16,
         "glitch_split": 0.02,
         "chroma": 0.0,
-        "chroma_angle": 0.0
+        "chroma_angle": 0.0,
+        "pixelate": 0.0,
+        "palette": null,
+        "dither": 0.5,
+        "palette_by_brightness": false,
+        "palette_cycles": 0,
+        "halftone": 0.0,
+        "halftone_size": 0.04,
+        "halftone_angle": 45.0,
+        "scanlines": 0.0,
+        "scanline_count": 40.0,
+        "crt_mask": 0.0,
+        "crt_glow": 0.0,
+        "moire": 0.0,
+        "moire_lines": 30.0,
+        "moire_cycles": 1
       }
     }
   ],

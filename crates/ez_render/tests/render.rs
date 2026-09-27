@@ -1937,3 +1937,108 @@ fn logos_attach_to_the_screen_and_each_other() {
     // is half a title height right of the title's centre (in pixels).
     assert!(((s[0] - t[0]) * w - 0.1 * h).abs() < 0.5, "{t:?} {s:?}");
 }
+
+/// Retro looks on logos: pixel blocks, palette (cycling), halftone,
+/// scanlines and moiré show, move and loop.
+#[test]
+fn logo_retro_looks_show_and_loop() {
+    use ez_core::palette::PaletteId;
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let target = r.create_target(320, 180);
+    let mut plain = presets::empty();
+    plain.post.grade.grain = Param::new(0.0);
+    plain.post.bloom.enabled = false;
+    plain
+        .layers
+        .retain(|l| !matches!(l.kind, LayerKind::Mesh(_)));
+    let at = |p: &Project, phase: f32| EvalCtx::new(&p.timing, phase, None);
+    let with = |g: LogoLayer| {
+        let mut p = plain.clone();
+        p.layers.push(Layer::new("Logo", LayerKind::Logo(g)));
+        p
+    };
+    let base = LogoLayer {
+        text: "RETRO".into(),
+        size: Param::new(0.35),
+        copper: Param::new(1.0),
+        ..Default::default()
+    };
+    let mut render = |p: &Project, phase: f32| r.render_image(p, &at(p, phase), &target);
+    let logo = render(&with(base.clone()), 0.3);
+    let cases: Vec<(&str, LogoLayer)> = vec![
+        (
+            "pixelate",
+            LogoLayer {
+                pixelate: Param::new(0.04).osc(Wave::Triangle, 0.03, 1),
+                ..base.clone()
+            },
+        ),
+        (
+            "palette",
+            LogoLayer {
+                palette: Some(PaletteId::C64),
+                palette_by_brightness: true,
+                palette_cycles: 1,
+                ..base.clone()
+            },
+        ),
+        (
+            "vga",
+            LogoLayer {
+                palette: Some(PaletteId::Vga),
+                pixelate: Param::new(0.02).osc(Wave::Sine, 0.01, 1),
+                ..base.clone()
+            },
+        ),
+        (
+            "halftone",
+            LogoLayer {
+                halftone: Param::new(1.0),
+                halftone_size: 0.05,
+                glow: Param::new(1.0).osc(Wave::Sine, 0.5, 1),
+                ..base.clone()
+            },
+        ),
+        (
+            "scanlines",
+            LogoLayer {
+                scanlines: Param::new(0.8),
+                scanline_count: 20.0,
+                crt_mask: 0.5,
+                crt_glow: Param::new(0.5).osc(Wave::Sine, 0.5, 1),
+                ..base.clone()
+            },
+        ),
+        (
+            "moire",
+            LogoLayer {
+                moire: Param::new(1.0),
+                moire_lines: 25.0,
+                ..base.clone()
+            },
+        ),
+    ];
+    for (name, g) in cases {
+        let p = with(g);
+        let a = render(&p, 0.0);
+        let b = render(&p, 1.0);
+        let mid = render(&p, 0.3);
+        mid.save(snapshot_dir().join(format!("logo_retro_{name}.png")))
+            .unwrap();
+        let seam = mean_abs_diff(a.as_raw(), b.as_raw());
+        let moves = mean_abs_diff(a.as_raw(), mid.as_raw());
+        let changes = mean_abs_diff(mid.as_raw(), logo.as_raw());
+        eprintln!("{name}: seam {seam:.3}, moves {moves:.2}, changes the logo {changes:.2}");
+        assert!(seam < 0.6, "{name} doesn't loop");
+        assert!(moves > 0.2, "{name} doesn't move");
+        assert!(changes > 0.3, "{name} doesn't show");
+    }
+}

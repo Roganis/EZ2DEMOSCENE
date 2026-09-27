@@ -3691,6 +3691,38 @@ pub struct LogoLayer {
     pub chroma: Param,
     /// Direction red moves, in degrees.
     pub chroma_angle: f32,
+    // Retro looks.
+    /// Blocks (logo heights; 0 = sharp). Animate it to pixelate in or out.
+    pub pixelate: Param,
+    /// Only colours of a retro palette.
+    pub palette: Option<PaletteId>,
+    /// Ordered (Bayer) dither between palette colours (0..1).
+    pub dither: f32,
+    /// Pick by brightness along the palette sorted dark to light, instead of
+    /// the nearest colour.
+    pub palette_by_brightness: bool,
+    /// Palette colours rotating, whole turns per loop.
+    pub palette_cycles: i32,
+    /// Halftone dots (0 = none, 1 = only dots).
+    pub halftone: Param,
+    /// Dot spacing (logo heights).
+    pub halftone_size: f32,
+    /// Screen angle in degrees.
+    pub halftone_angle: f32,
+    /// Dark gaps between scanlines (0..1).
+    pub scanlines: Param,
+    /// Scanlines per logo height.
+    pub scanline_count: f32,
+    /// Red, green and blue phosphor stripes (0..1).
+    pub crt_mask: f32,
+    /// Extra brightness in the lines (above 0 they bloom).
+    pub crt_glow: Param,
+    /// Two turning line patterns beating against each other (0..1).
+    pub moire: Param,
+    /// Lines per logo height.
+    pub moire_lines: f32,
+    /// Turns per loop (the two patterns turn opposite ways).
+    pub moire_cycles: i32,
 }
 
 impl Default for LogoLayer {
@@ -3781,6 +3813,21 @@ impl Default for LogoLayer {
             glitch_split: 0.02,
             chroma: Param::new(0.0),
             chroma_angle: 0.0,
+            pixelate: Param::new(0.0),
+            palette: None,
+            dither: 0.5,
+            palette_by_brightness: false,
+            palette_cycles: 0,
+            halftone: Param::new(0.0),
+            halftone_size: 0.04,
+            halftone_angle: 45.0,
+            scanlines: Param::new(0.0),
+            scanline_count: 40.0,
+            crt_mask: 0.0,
+            crt_glow: Param::new(0.0),
+            moire: Param::new(0.0),
+            moire_lines: 30.0,
+            moire_cycles: 1,
         }
     }
 }

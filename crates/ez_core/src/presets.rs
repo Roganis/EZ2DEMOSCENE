@@ -170,6 +170,11 @@ pub fn all() -> Vec<Preset> {
             project: copper_logo(),
         },
         Preset {
+            name: "C64 Title",
+            description: "Vector Valley with a title in C64 colours cycling by brightness, pixelating in every loop, under scanlines.",
+            project: c64_title(),
+        },
+        Preset {
             name: "Empty",
             description: "A blank stage with a floor and a sky.",
             project: empty(),
@@ -882,6 +887,42 @@ pub fn copper_logo() -> Project {
             glitch: Param::new(0.0).osc(Wave::ExpOut, 0.12, 16),
             glitch_chance: 0.35,
             glitch_split: 0.03,
+            ..Default::default()
+        }),
+    ));
+    p
+}
+
+/// Retro looks on a logo over Vector Valley: a C64 palette ramp cycling,
+/// a pixelate-in at the start of every loop and scanlines.
+pub fn c64_title() -> Project {
+    use crate::palette::PaletteId;
+    let mut p = vector_valley();
+    p.name = "C64 Title".into();
+    p.layers.push(Layer::new(
+        "Title",
+        LayerKind::Logo(LogoLayer {
+            text: "READY.".into(),
+            font: TextFont::Pixel,
+            attach_point: LogoAnchor::Top,
+            anchor: LogoAnchor::Top,
+            x: Param::new(0.0),
+            y: Param::new(-0.1),
+            size: Param::new(0.22),
+            copper: Param::new(1.0),
+            copper_bars: 2.0,
+            copper_cycles: 1,
+            copper_a: hex(0xffffff),
+            copper_b: hex(0x202020),
+            palette: Some(PaletteId::C64),
+            palette_by_brightness: true,
+            palette_cycles: 2,
+            dither: 0.6,
+            pixelate: Param::new(0.0).osc(Wave::ExpOut, 0.12, 1),
+            scanlines: Param::new(0.5),
+            scanline_count: 24.0,
+            crt_glow: Param::new(0.4),
+            shadow: Param::new(0.8),
             ..Default::default()
         }),
     ));

@@ -637,7 +637,7 @@ bound as 512 bytes (two slots) of the draw buffer. The quad grows by
 the distortions' reach. Tested: every effect shows, moves and loops.
 Preset: Copper Logo.
 
-### ☐ 9.5 Retro looks
+### ☑ 9.5 Retro looks
 **How.**
 - **Pixelate / mosaic** with an animatable block size (pixelate in and
   out as a reveal).
@@ -647,6 +647,22 @@ Preset: Copper Logo.
 - **Halftone** dot screen, dot size following brightness.
 - **Scanlines and CRT glow** limited to the logo.
 - **Moiré:** two rotating line patterns multiplied inside the mask.
+
+**Done.** In the logo shader's entry point: pixel blocks snap the
+position to the middle of its block before anything else, so every
+effect is worked out once per block; within blocks the antialiasing
+widths are pinned small (a screen derivative across two blocks would
+draw a line at every block edge). The finished colour then goes through
+moiré (two line patterns turning opposite ways, whole turns per loop),
+halftone (a dot per cell by brightness, transparent between dots), the
+palette and the CRT look. The palette mirrors the post effect's
+quantiser (same Bayer threshold, spread and weighted distance, the VGA
+cube with 6 levels), in gamma, per block when pixelated; *by
+brightness* sorts the palette dark to light and picks along it, and
+cycling rotates the index by whole palette turns per loop. Scanlines
+count per logo height; phosphor stripes are per screen pixel. The
+palette (16 colours) needed a third block of logo settings. Tested:
+every look shows, moves and loops. Preset: C64 Title.
 
 ### ☐ 9.6 Logo meets scene
 **How.**
