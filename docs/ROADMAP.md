@@ -457,11 +457,97 @@ Room 0.70 → 0.58 ms), frame totals unchanged on llvmpipe.
 
 ---
 
+## Phase 9 — 2D logo layer
+
+### ☐ 9.1 Logo layer with a baked distance field
+A screen-space layer for logos and title cards: an imported image (PNG with
+alpha) or a line of text, placed by position, scale, rotation and anchor
+on screen rather than in the world. It draws into the HDR scene target
+after the 3D pass and before post, so bloom, feedback and transitions
+apply to it.
+
+**How.**
+- On import, bake a signed distance field from the image's alpha (a
+  one-off CPU distance transform, 8SSEDT or jump flooding, at a capped
+  resolution) and keep it beside the colour image. Text logos reuse the
+  glyph SDF atlas from 5.1.
+- The SDF drives shape and every effect below; the colour texture keeps
+  the artwork's own colours (or the layer's gradient replaces them).
+- Reuse the text layer's looks (gradient, outline, glow halo, drop shadow,
+  chrome bevel) by sharing the SDF shading from `text.wgsl` in
+  `common.wgsl`.
+- Every look value is a Param, so music and signal nodes can drive it
+  (scale punch, glow flash or outline width on kicks).
+
+### ☐ 9.2 Lit logos
+Make a flat logo read as a solid, shiny object.
+
+**How.**
+- Normal from the SDF gradient, height from a remap of distance: bevel
+  profiles *round*, *chiselled*, *stepped* (quantised distance, terraced)
+  and *pillow* (the whole logo curves).
+- A 2D light (fixed, circling a whole number of times per loop, or
+  following the beat) for diffuse and specular.
+- **Glint sweep:** a bright diagonal band crosses the bevel a whole number
+  of times per loop.
+- **Matcap** option: look up a small sphere image by the normal (a few
+  built-in matcaps: gold, chrome, plastic, candy), beside the existing
+  environment reflection.
+
+### ☐ 9.3 Distance-field effects
+**How.**
+- **Contour lines / neon tubes:** `fract(d * N - phase * cycles)`, rings
+  that pulse outward from the edges.
+- **Stacked outlines:** several coloured rings at set distances.
+- **Fake extrusion:** sample the SDF a few times along one direction for
+  a stepped isometric extrude without a mesh.
+- **Dissolve / burn-in:** noise thresholded against distance, with a hot
+  glowing rim at the front.
+- **Reveal wipes:** by distance (grows from the skeleton outward or from
+  the edge inward), linear or radial.
+- **Morph** between two logos by mixing their fields (also as a scene
+  transition).
+
+### ☐ 9.4 Rasters & distortion
+**How.**
+- **Copper bars:** horizontal colour bands scrolling through the logo only
+  (masked by the SDF), a whole number of passes per loop.
+- **Sine wobble / rubber logo:** per-row and per-column UV offsets, whole
+  cycles per loop.
+- **Raster glitch:** hashed horizontal slices shifted and colour-split,
+  reseeded per beat.
+- **Chromatic split:** R, G and B sampled at small offsets.
+
+### ☐ 9.5 Retro looks
+**How.**
+- **Pixelate / mosaic** with an animatable block size (pixelate in and
+  out as a reveal).
+- **Palette + ordered dither:** quantise to a small palette using the
+  existing `bayer4`, with **palette cycling** a whole number of turns per
+  loop.
+- **Halftone** dot screen, dot size following brightness.
+- **Scanlines and CRT glow** limited to the logo.
+- **Moiré:** two rotating line patterns multiplied inside the mask.
+
+### ☐ 9.6 Logo meets scene
+**How.**
+- **Glass logo / lens:** copy the scene target before the logo draws and
+  sample it offset by the SDF normal (refraction, with optional chromatic
+  dispersion and a tint).
+- **Rays from the logo:** feed the logo as the source to the god-ray pass,
+  with the ray centre at the logo's centre (or behind it, so the logo
+  occludes a bright backdrop).
+- **Echo trails:** a few past copies of the logo's transform drawn with
+  fading alpha. Past states are the layer at earlier phases, so they
+  are exact and loop without a history buffer.
+
+---
+
 ## Order of work
 
 0.1 → 1.1 → 1.2 → 2.1 → 2.3 → 2.4 → 2.5 → 2.2 → 2.6 → 3.1 → 3.2 → 3.3 →
 4.1 → 4.2 → 5.1 → 5.2 → 6.1 → 6.2 → 6.3 → 7.1 → 7.2 → 7.3 → 8.1 → 8.2 →
-8.3 → 8.4.
+8.3 → 8.4 → 9.1 → 9.2 → 9.3 → 9.4 → 9.5 → 9.6.
 
 Each item lands as its own commit with tests (loop seams, golden images
 where the look is meant to stay, new goldens for new presets), README and
