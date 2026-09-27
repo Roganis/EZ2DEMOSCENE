@@ -685,7 +685,9 @@ every look shows, moves and loops. Preset: C64 Title.
   heights; red and blue bend more and less for dispersion; a rim where
   the tilt is steepest keeps glass letters readable over dark scenes.
 - **Rays:** after the logos, each logo with rays (up to four) is drawn
-  on its own into a full-size source picture, black around it, or, for
+  on its own into a full-size source picture (made for a target the
+  first time a logo with rays is drawn there, dropped when unused),
+  black around it, or, for
   shadow rays, onto the backdrop with a blend that multiplies by one
   minus its coverage. The god-ray shader then runs from the logo's
   middle with no falloff (the sun's rays keep theirs, now a parameter)

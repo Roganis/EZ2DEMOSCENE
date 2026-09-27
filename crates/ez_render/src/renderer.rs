@@ -320,6 +320,16 @@ struct LogoRays {
     shadow: bool,
 }
 
+/// A target's logo rays source picture and its post bind group.
+struct LogoRaysSource {
+    tex: wgpu::Texture,
+    view: wgpu::TextureView,
+    bg: wgpu::BindGroup,
+    size: (u32, u32),
+    /// Frame it was last used.
+    used: u64,
+}
+
 /// Post slots for logo rays (one logo each).
 const SLOT_LOGO_RAYS: u32 = 18;
 const LOGO_RAYS_MAX: usize = 4;
@@ -878,6 +888,8 @@ pub struct Renderer {
     logo_backdrop: (wgpu::Texture, wgpu::TextureView, u32, u32),
     /// Logos drawn as a rays source cutting their shadow out.
     logo_shadow_pipe: wgpu::RenderPipeline,
+    /// Logo rays' source pictures by target, made when first needed.
+    logo_rays_src: HashMap<u64, LogoRaysSource>,
     /// Logo effect settings (two slots of the draw buffer).
     bgl_logo_fx: wgpu::BindGroupLayout,
     logo_fx_bg: wgpu::BindGroup,
@@ -935,10 +947,6 @@ pub struct RenderTarget {
     bg_low: Vec<(u32, wgpu::TextureView, wgpu::BindGroup)>,
     bg_rays: wgpu::BindGroup,
     bg_rays_add: wgpu::BindGroup,
-    /// Logo rays: their source picture (full size) and its post bind group.
-    logo_src_tex: wgpu::Texture,
-    logo_src: wgpu::TextureView,
-    bg_logo_rays: wgpu::BindGroup,
     rays: wgpu::TextureView,
     /// Depth of field: distance to the camera (half resolution) and its
     /// depth buffer.
@@ -1969,6 +1977,7 @@ impl Renderer {
             bgl_logo_fx,
             logo_backdrop: Self::make_logo_backdrop(device, 1, 1),
             logo_shadow_pipe,
+            logo_rays_src: HashMap::new(),
             bgl_logo,
             logo_bgs: HashMap::new(),
             logos: HashMap::new(),
@@ -4871,7 +4880,11 @@ impl Renderer {
             }
         }
         // --- rays streaming from logos -----------------------------------------
+        if !logo_rays.is_empty() {
+            self.ensure_logo_rays_source(target);
+        }
         for (k, ray) in logo_rays.iter().take(LOGO_RAYS_MAX).enumerate() {
+            let src = &self.logo_rays_src[&target.id];
             let slot = SLOT_LOGO_RAYS + k as u32;
             let mut p: PostBlock = Zeroable::zeroed();
             p[0] = [ray.centre[0], ray.centre[1], 1.0, ray.strength];
@@ -4888,7 +4901,7 @@ impl Renderer {
             if ray.shadow {
                 enc.copy_texture_to_texture(
                     self.logo_backdrop.0.as_image_copy(),
-                    target.logo_src_tex.as_image_copy(),
+                    src.tex.as_image_copy(),
                     wgpu::Extent3d {
                         width: w,
                         height: h,
@@ -4900,7 +4913,7 @@ impl Renderer {
                 let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("logo rays source"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &target.logo_src,
+                        view: &src.view,
                         depth_slice: None,
                         resolve_target: None,
                         ops: wgpu::Operations {
@@ -4933,7 +4946,7 @@ impl Renderer {
                 "logo rays",
                 &self.rays_pipe,
                 &target.rays,
-                &target.bg_logo_rays,
+                &src.bg,
                 slot,
                 false,
             );
@@ -5644,6 +5657,80 @@ impl Renderer {
     // ------------------------------------------------------------------
     // Targets
 
+    /// A post pass's inputs: the parameters, two pictures and a sampler.
+    fn post_bind_group(&self, a: &wgpu::TextureView, b: &wgpu::TextureView) -> wgpu::BindGroup {
+        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("post"),
+            layout: &self.bgl_post,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &self.post_buf,
+                        offset: 0,
+                        size: wgpu::BufferSize::new(POST_SLOT),
+                    }),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(a),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(b),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler_clamp),
+                },
+            ],
+        })
+    }
+
+    /// The logo rays' source picture for `target`, made the first time a
+    /// logo with rays is drawn there. Ones not used for a while (targets
+    /// gone or rays turned off) are dropped.
+    fn ensure_logo_rays_source(&mut self, target: &RenderTarget) {
+        let frame = self.frame_no;
+        self.logo_rays_src
+            .retain(|id, src| *id == target.id || frame - src.used < 240);
+        let size = (target.width, target.height);
+        if let Some(src) = self.logo_rays_src.get_mut(&target.id) {
+            if src.size == size {
+                src.used = frame;
+                return;
+            }
+        }
+        let tex = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("logo rays source"),
+            size: wgpu::Extent3d {
+                width: size.0,
+                height: size.1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: HDR_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let view = tex.create_view(&Default::default());
+        let bg = self.post_bind_group(&view, &view);
+        self.logo_rays_src.insert(
+            target.id,
+            LogoRaysSource {
+                tex,
+                view,
+                bg,
+                size,
+                used: frame,
+            },
+        );
+    }
+
     pub fn create_target(&self, width: u32, height: u32) -> RenderTarget {
         let (w, h) = (width.max(8), height.max(8));
         let dev = &self.device;
@@ -5693,8 +5780,7 @@ impl Renderer {
             "hdr2",
             wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC,
         );
-        // Logo rays' source picture.
-        let (logo_src_tex, logo_src) = full_tex("logo rays source", wgpu::TextureUsages::COPY_DST);
+
         let fb = [
             full_tex("feedback a", wgpu::TextureUsages::COPY_SRC),
             full_tex("feedback b", wgpu::TextureUsages::COPY_SRC),
@@ -5745,34 +5831,7 @@ impl Renderer {
             view_formats: &[],
         });
         let display_view = display.create_view(&Default::default());
-        let post_bg = |a: &wgpu::TextureView, b: &wgpu::TextureView| {
-            dev.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("post"),
-                layout: &self.bgl_post,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                            buffer: &self.post_buf,
-                            offset: 0,
-                            size: wgpu::BufferSize::new(POST_SLOT),
-                        }),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(a),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::TextureView(b),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler_clamp),
-                    },
-                ],
-            })
-        };
+        let post_bg = |a: &wgpu::TextureView, b: &wgpu::TextureView| self.post_bind_group(a, b);
         let bg_blur_h = post_bg(&refl, &refl);
         let bg_blur_v = post_bg(&refl_tmp, &refl_tmp);
         let bg_fb = [post_bg(&hdr2, &fb[0].1), post_bg(&hdr2, &fb[1].1)];
@@ -5821,7 +5880,6 @@ impl Renderer {
         let rays = tex("god rays", rw, rh, HDR_FORMAT, 1, sampled);
         let bg_rays = post_bg(&hdr2, &hdr2);
         let bg_rays_add = post_bg(&rays, &rays);
-        let bg_logo_rays = post_bg(&logo_src, &logo_src);
         RenderTarget {
             id: TARGET_IDS.fetch_add(1, Ordering::Relaxed),
             width: w,
@@ -5849,9 +5907,6 @@ impl Renderer {
             bg_low,
             bg_rays,
             bg_rays_add,
-            logo_src_tex,
-            logo_src,
-            bg_logo_rays,
             rays,
             dof_dist,
             dof_z,
