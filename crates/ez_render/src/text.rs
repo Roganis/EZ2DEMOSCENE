@@ -692,6 +692,27 @@ fn text_contours(font: &FontRef, text: &str) -> Vec<Vec<Vec2>> {
     all
 }
 
+/// Closed outlines of `text` for a flat logo, in ems (y up), filled by the
+/// non-zero rule. The pixel font gives its blocks as squares. `None` when
+/// nothing would show.
+pub fn logo_contours(text: &str, font: TextFont, bytes: Option<&[u8]>) -> Option<Vec<Vec<Vec2>>> {
+    if text.trim().is_empty() {
+        return None;
+    }
+    let font_ref = bytes
+        .and_then(|b| FontRef::new(b).ok())
+        .unwrap_or_else(|| FontRef::new(font_bytes(font)).expect("built-in font"));
+    let contours: Vec<Vec<Vec2>> = if font == TextFont::Pixel && bytes.is_none() {
+        pixel_blocks(&font_ref, text)
+            .into_iter()
+            .map(|(lo, hi)| vec![lo, Vec2::new(hi.x, lo.y), hi, Vec2::new(lo.x, hi.y)])
+            .collect()
+    } else {
+        text_contours(&font_ref, text)
+    };
+    (!contours.is_empty()).then_some(contours)
+}
+
 /// Extruded 3D text, centred and scaled to fit a unit sphere like the
 /// other shapes. `bytes` overrides the built-in font.
 pub fn text_mesh(

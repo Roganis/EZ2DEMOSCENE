@@ -614,7 +614,31 @@ lasts and takes a new shape at every strike.</p>
 </table>
 <p>The <b>Tesla Swarm</b> preset strikes the nearest debris from the core and runs arcs round a ring of coils.</p>
 
-<div class="keep"><h2>5.14 Placing objects in the viewport</h2>
+<h2>5.14 Logos</h2>
+<p>A logo or title laid flat on the screen, over the whole scene: it stays the same size and in the same place whatever the camera does.
+Add one from <span class="ui">+ Add → 🏷 Logo</span> (Title, Chrome logo, Corner tag or Image logo). It is drawn before the post effects, so
+bloom, god rays, feedback trails, scanlines and the colour grade apply to it, but depth of field never blurs it.</p>
+<table>
+  <tr><th style="width:24%">Setting</th><th>What it does</th></tr>
+  <tr><td>Made of</td><td><b>Text</b> (one or more lines, any built-in font or your own TTF/OTF) or an <b>Image</b>. For an image,
+  <span class="ui">Shape from</span> picks which parts are the logo: its <b>Transparency</b>, its <b>Bright parts</b> (a logo on black) or its
+  <b>Dark parts</b> (a logo on white). Empty margins are cut off, so the size is the logo's own.</td></tr>
+  <tr><td>Across, Up</td><td>Where the logo sits: 0 to 1 from the left edge and from the bottom. <span class="ui">Anchor</span> is the point of the
+  logo that sits there (Centre, Top left, Bottom right…) and the point it turns around.</td></tr>
+  <tr><td>Size, Turn, Opacity</td><td>Height as a fraction of the screen height (the width follows), a turn in degrees, and transparency.</td></tr>
+  <tr><td>Colours</td><td><b>Gradient</b> (top and bottom colour) or <b>Image colours</b> (the picture's own colours times a
+  <span class="ui">Tint</span>; for text, the tint).</td></tr>
+  <tr><td>Glow, Outline, Drop shadow, Chrome</td><td>The same looks as text: brightness (above 1 it glows), an outline ring, a shadow down and to
+  the right, and a shiny bevel reflecting the sky.</td></tr>
+</table>
+<p>Every number has <span class="ui">~</span> and 🎵: pulse the glow on the kick, sway the turn, slide the logo in. With the logo selected, the
+viewport shows one handle at its anchor: drag it with <span class="ui">Move</span> to place the logo, with <span class="ui">Scale</span> to size it
+and with <span class="ui">Rotate</span> to turn it (<kbd>Ctrl</kbd> snaps). The <b>Sunset Title</b> preset has a chrome title pulsing on every
+beat and a pixel tag in the corner.</p>
+<div class="tip"><b>Tip</b>The logo's shape is worked out once when you type or pick an image (it becomes a distance field, which keeps the
+edges sharp at any size and gives outlines, glows and bevels for free), so the first frame after a change can take a moment.</div>
+
+<div class="keep"><h2>5.15 Placing objects in the viewport</h2>
 <figure><img src="img/gizmo.jpg"><figcaption>The Dodecahedron is selected: the Move handles appear on it, and the ground grid is on.</figcaption></figure></div>
 <ul>
   <li><b>Select</b> a shape or particle layer by clicking it in the viewport, or in the layer list.</li>

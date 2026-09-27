@@ -68,36 +68,25 @@ fn fs_main(in: GOut) -> @location(0) vec4<f32> {
         discard;
     }
 
-    let body = smoothstep(0.5 - w, 0.5 + w, d);
-    let ow = clamp(D.v[1].w, 0.0, 1.0) * 0.22;
-    var ring = 0.0;
-    if (ow > 0.0) {
-        ring = max(smoothstep(0.5 - ow - w, 0.5 - ow + w, d) - body, 0.0);
-    }
     // Top-to-bottom colour between the baseline and the capitals' top.
     let base = D.v[3].w;
     let t = clamp((in.local.y - base) / 0.42, 0.0, 1.0);
-    var col = mix(D.v[1].rgb, D.v[0].rgb, t);
-    // Chrome: a bevel from the distance field reflects the environment.
-    let chrome = clamp(D.v[3].x, 0.0, 1.0);
-    if (chrome > 0.0) {
-        let slope = vec2<f32>(dx, dy) * 6.0 * smoothstep(0.75, 0.5, d);
-        let n = normalize(in.normal - in.side * slope.x - in.up * slope.y);
-        let v = normalize(G.cam_pos.xyz - in.world);
-        let nn = select(-n, n, dot(n, v) > 0.0);
-        let r = reflect(-v, nn);
-        let env = env_color(r, 0.08);
-        col = mix(col, env * (0.35 + col * 0.9), chrome);
-    }
-    let glow = max(D.v[0].w, 0.0);
-    var rgb = col * glow * body + D.v[2].rgb * ring;
-    var a = body + ring;
-    // Soft halo around bright letters (light only, no coverage).
-    let halo = smoothstep(0.15, 0.5, d) * (1.0 - a);
-    rgb = rgb + col * halo * max(glow - 1.0, 0.0) * 0.25;
-    // Drop shadow under everything.
-    let shadow = smoothstep(0.4, 0.55, ds) * clamp(D.v[2].w, 0.0, 1.0) * (1.0 - a);
-    a = a + shadow * 0.8;
+    let col = mix(D.v[1].rgb, D.v[0].rgb, t);
+    let look = sdf_look(
+        d,
+        w,
+        vec2<f32>(dx, dy),
+        ds,
+        col,
+        D.v[2].rgb,
+        vec4<f32>(D.v[0].w, D.v[1].w, D.v[2].w, D.v[3].x),
+        in.normal,
+        in.side,
+        in.up,
+        normalize(G.cam_pos.xyz - in.world),
+    );
+    var rgb = look.rgb;
+    let a = look.a;
     let fog = fog_amount_at(in.world);
     rgb = mix(rgb, G.fog.rgb * a, fog);
     return vec4<f32>(rgb, a) * in.alpha;

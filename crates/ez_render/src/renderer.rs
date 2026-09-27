@@ -214,6 +214,11 @@ enum Cmd {
         first: u32,
         count: u32,
     },
+    /// A logo flat on the screen, drawn after the scene (see `logo.wgsl`).
+    Logo {
+        slot: u32,
+        tex: String,
+    },
     /// Contact shadows under the copies `first..first + count` of a mesh.
     Contact {
         slot: u32,
@@ -222,6 +227,19 @@ enum Cmd {
         /// The copies are in the compute pass's buffer.
         gpu: bool,
     },
+}
+
+/// How a baked logo texture maps onto the screen.
+#[derive(Clone, Copy, Debug)]
+struct LogoFit {
+    width: u32,
+    height: u32,
+    /// Width over height of the shape.
+    aspect: f32,
+    /// Padding around the shape (fraction of its width and height).
+    pad: [f32; 2],
+    /// Distance field spread in texels.
+    spread: f32,
 }
 
 /// Vertices of one spotlight cone (see spots.wgsl).
@@ -741,6 +759,10 @@ pub struct Renderer {
     compose_buf: wgpu::Buffer,
     /// Font atlases by texture key.
     fonts: HashMap<String, std::sync::Arc<crate::text::FontAtlas>>,
+    logo_pipe: wgpu::RenderPipeline,
+    /// Baked logos by texture key, with the frame they were last drawn
+    /// (`None`: nothing to draw).
+    logos: HashMap<String, (u64, Option<LogoFit>)>,
     /// Points on shape surfaces for Instancer::Surface: (mesh, count, seed).
     surface_cache: HashMap<(String, u32, u32), std::sync::Arc<Vec<ez_core::eval::SurfacePoint>>>,
     frame_no: u64,
@@ -1158,6 +1180,23 @@ impl Renderer {
         let sh_sdf = shader(device, "sdf", include_str!("shaders/sdf.wgsl"), true);
         let sh_sprite = shader(device, "sprite", include_str!("shaders/sprite.wgsl"), true);
         let sh_arcs = shader(device, "arcs", include_str!("shaders/arcs.wgsl"), true);
+        let sh_logo = shader(device, "logo", include_str!("shaders/logo.wgsl"), true);
+        // Logos go on the picture after depth of field (no depth, no MSAA:
+        // the distance field antialiases).
+        let logo_pipe = make_pipeline(
+            device,
+            PipeDesc {
+                label: "logo",
+                layout: &scene_layout,
+                module: &sh_logo,
+                fs: "fs_main",
+                buffers: &[],
+                format: HDR_FORMAT,
+                samples: 1,
+                depth: None,
+                blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+            },
+        );
 
         let scene_pipes = |samples: u32| ScenePipes {
             samples,
@@ -1746,6 +1785,8 @@ impl Renderer {
             compose_pipe,
             compose_buf,
             fonts: HashMap::new(),
+            logo_pipe,
+            logos: HashMap::new(),
             surface_cache: HashMap::new(),
             frame_no: 0,
             uploaded: Vec::new(),
@@ -1884,6 +1925,176 @@ impl Renderer {
                 view,
             },
         );
+    }
+
+    /// Upload float RGBA pixels (as half floats) with mipmaps.
+    fn upload_float_texture(&mut self, key: String, w: u32, h: u32, px: &[[f32; 4]]) {
+        let levels = crate::logo::mips(w, h, px);
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some(&key),
+            size: wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: levels.len() as u32,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba16Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        for (mip, (lw, lh, level)) in levels.iter().enumerate() {
+            let bytes: Vec<u8> = level
+                .iter()
+                .flatten()
+                .flat_map(|c| crate::logo::f16_bits(*c).to_le_bytes())
+                .collect();
+            self.queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &texture,
+                    mip_level: mip as u32,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &bytes,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(8 * lw),
+                    rows_per_image: Some(*lh),
+                },
+                wgpu::Extent3d {
+                    width: *lw,
+                    height: *lh,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
+        let view = texture.create_view(&Default::default());
+        self.tex_bgs.retain(|(k, _), _| *k != key);
+        self.textures.insert(
+            key,
+            GpuTexture {
+                _texture: texture,
+                view,
+            },
+        );
+    }
+
+    /// A logo layer's baked texture, uploaded, and how it fits; `None` when
+    /// there is nothing to draw (no text, no image, an empty mask).
+    fn logo_texture(&mut self, project: &Project, g: &LogoLayer) -> Option<(String, LogoFit)> {
+        let key = match g.source {
+            LogoSource::Text => format!("__logo:text:{:?}:{:?}:{}", g.font, g.font_file, g.text),
+            LogoSource::Image => {
+                format!("__logo:image:{}:{:?}", self.image_id(project, g)?, g.mask)
+            }
+        };
+        let frame = self.frame_no;
+        if let Some((used, fit)) = self.logos.get_mut(&key) {
+            *used = frame;
+            return fit.map(|f| (key, f));
+        }
+        // Problems are shown per font file and per image, not per bake
+        // (which changes with every letter typed).
+        let bake = match g.source {
+            LogoSource::Text => {
+                let bytes = g.font_file.as_ref().and_then(|path| {
+                    let err_key = format!("__font:file:{path}");
+                    let name = ez_core::store::file_name(path);
+                    match ez_core::store::read(path) {
+                        Ok(b) if skrifa::FontRef::new(&b).is_ok() => {
+                            self.errors.remove(&err_key);
+                            Some(b)
+                        }
+                        Ok(_) => {
+                            self.errors
+                                .insert(err_key, format!("Font {name}: not a font"));
+                            None
+                        }
+                        Err(e) => {
+                            self.errors.insert(err_key, format!("Font {name}: {e}"));
+                            None
+                        }
+                    }
+                });
+                crate::logo::bake_text(&g.text, g.font, bytes.as_deref())
+            }
+            LogoSource::Image => {
+                let name = g.image.as_deref().unwrap_or_default();
+                let err_key = format!("__logo:image:{}", self.image_id(project, g)?);
+                match self.load_image(project, name) {
+                    Ok(img) => {
+                        self.errors.remove(&err_key);
+                        crate::logo::bake_image(&img, g.mask)
+                    }
+                    Err(e) => {
+                        self.errors
+                            .insert(err_key, format!("Logo image '{name}': {e}"));
+                        None
+                    }
+                }
+            }
+        };
+        let fit = bake.map(|b| {
+            self.upload_float_texture(key.clone(), b.width, b.height, &b.pixels);
+            self.tex_bind_group(&key, false);
+            LogoFit {
+                width: b.width,
+                height: b.height,
+                aspect: b.aspect,
+                pad: b.pad,
+                spread: b.spread,
+            }
+        });
+        self.logos.insert(key.clone(), (frame, fit));
+        // Editing text leaves old bakes behind: forget those not drawn for
+        // a while.
+        let stale: Vec<String> = self
+            .logos
+            .iter()
+            .filter(|(_, (used, _))| frame - *used > 240)
+            .map(|(k, _)| k.clone())
+            .collect();
+        for k in stale {
+            self.logos.remove(&k);
+            self.textures.remove(&k);
+            self.tex_bgs.retain(|(t, _), _| *t != k);
+        }
+        fit.map(|f| (key, f))
+    }
+
+    /// What a logo image is, for caching: a built-in name, or the file and
+    /// its retro look. `None` without an image.
+    fn image_id(&self, project: &Project, g: &LogoLayer) -> Option<String> {
+        let name = g.image.as_deref().filter(|n| !n.is_empty())?;
+        Some(if texgen::is_builtin(name) {
+            format!("b:{name}")
+        } else {
+            match project.find_texture(name) {
+                Some(t) => format!("u:{}:{:?}", t.path, t.retro),
+                None => format!("u:{name}"),
+            }
+        })
+    }
+
+    /// A built-in or project image, decoded (with its retro look).
+    fn load_image(&self, project: &Project, name: &str) -> Result<RgbaImage, String> {
+        if texgen::is_builtin(name) {
+            return Ok(texgen::generate(name));
+        }
+        let (path, retro) = match project.find_texture(name) {
+            Some(t) => (t.path.clone(), t.retro.clone()),
+            None => (name.to_string(), None),
+        };
+        let bytes = ez_core::store::read(&path).map_err(|e| e.to_string())?;
+        let img = image::load_from_memory(&bytes)
+            .map_err(|e| e.to_string())?
+            .to_rgba8();
+        Ok(match &retro {
+            Some(r) => texgen::retroize(&img, r),
+            None => img,
+        })
     }
 
     /// The atlas of a text layer's font, uploaded; `None` (with an error
@@ -2208,6 +2419,7 @@ impl Renderer {
         self.meshes.retain(|k, _| k.starts_with("p:"));
         self.textures.retain(|k, _| !k.starts_with("u:"));
         self.tex_bgs.retain(|(k, _), _| !k.starts_with("u:"));
+        self.logos.clear();
         self.errors.clear();
         self.floor_bg_cache = None;
     }
@@ -2997,6 +3209,43 @@ impl Renderer {
                             count,
                         });
                     }
+                    blocks.push(blk);
+                }
+                LayerKind::Logo(g) => {
+                    let Some((tex, fit)) = self.logo_texture(project, g) else {
+                        continue;
+                    };
+                    ls.draws = 1;
+                    ls.triangles = 2;
+                    ls.load = 0.01;
+                    let mut blk: Block = Zeroable::zeroed();
+                    blk[0] = c4(g.color_top, g.glow.eval(ctx).max(0.0) * flash);
+                    blk[1] = c4(g.color_bottom, g.outline.eval(ctx));
+                    blk[2] = c4(g.outline_color, g.shadow.eval(ctx));
+                    blk[3] = c4(g.tint, g.chrome.eval(ctx));
+                    blk[4] = [
+                        g.x.eval(ctx),
+                        g.y.eval(ctx),
+                        g.size.eval(ctx).max(0.0),
+                        g.rotation.eval(ctx).to_radians(),
+                    ];
+                    let [ax, ay] = g.anchor.point();
+                    blk[5] = [ax, ay, fit.aspect, g.opacity.eval(ctx).clamp(0.0, 1.0)];
+                    blk[6] = [
+                        fit.pad[0],
+                        fit.pad[1],
+                        fit.spread,
+                        if g.colors == LogoColors::Gradient {
+                            1.0
+                        } else {
+                            0.0
+                        },
+                    ];
+                    blk[7] = [fit.width as f32, fit.height as f32, 0.0, 0.0];
+                    cmds.push(Cmd::Logo {
+                        slot: blocks.len() as u32,
+                        tex,
+                    });
                     blocks.push(blk);
                 }
                 LayerKind::Arcs(arc) => {
@@ -3916,6 +4165,34 @@ impl Renderer {
             SLOT_WARP,
             false,
         );
+        // --- logos, on the picture before the glows and trails -------------------
+        if cmds.iter().any(|c| matches!(c, Cmd::Logo { .. })) {
+            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("logos"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &target.hdr2,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&self.logo_pipe);
+            pass.set_bind_group(0, &self.globals_bg[0], &[]);
+            for c in &cmds {
+                if let Cmd::Logo { slot, tex } = c {
+                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                    pass.set_bind_group(2, &self.tex_bgs[&(tex.clone(), false)], &[]);
+                    pass.draw(0..6, 0..1);
+                }
+            }
+        }
         if project.post.rays.enabled {
             self.post_pass(
                 &mut enc,
@@ -4281,7 +4558,8 @@ impl Renderer {
                     pass.set_vertex_buffer(0, self.inst_buf.slice(..));
                     pass.draw(0..6, *first..*first + *count);
                 }
-                Cmd::BackdropUp { .. } => {}
+                // Logos go on after depth of field, in their own pass.
+                Cmd::BackdropUp { .. } | Cmd::Logo { .. } => {}
                 Cmd::Backdrop {
                     slot, tex, kind, ..
                 } => {

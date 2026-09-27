@@ -147,6 +147,8 @@ pub fn randomize(project: &mut Project, seed: u64, opt: RandomizeOptions) {
                     r.pulse_speed = *rng.pick(&[-2, -1, 1, 2]);
                 }
             }
+            // The words and the picture are the user's.
+            LayerKind::Logo(_) => {}
             LayerKind::Text(t) => {
                 // The words are the user's; only the motion changes.
                 if opt.motion && matches!(t.style, TextStyle::SineScroller) {

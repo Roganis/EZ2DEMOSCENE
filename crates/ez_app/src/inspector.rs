@@ -857,6 +857,7 @@ pub fn layer_ui(ui: &mut Ui, layer: &mut Layer, textures: &[UserTexture], lref: 
         LayerKind::Text(t) => text_ui(ui, t, lref),
         LayerKind::Sprite(sp) => sprite_ui(ui, sp, textures, lref),
         LayerKind::Arcs(a) => arcs_ui(ui, a),
+        LayerKind::Logo(g) => logo_ui(ui, g, textures, lref),
     }
     let is_mesh_like = matches!(
         layer.kind,
@@ -866,8 +867,9 @@ pub fn layer_ui(ui: &mut Ui, layer: &mut Layer, textures: &[UserTexture], lref: 
             | LayerKind::Ribbon(_)
             | LayerKind::Falls(_)
     );
-    let is_backdrop = matches!(layer.kind, LayerKind::Backdrop(_));
-    if !is_backdrop {
+    // Logos are placed on the screen by their own settings.
+    let placed = !matches!(layer.kind, LayerKind::Backdrop(_) | LayerKind::Logo(_));
+    if placed {
         section(ui, "Placement & motion", true, |ui| {
             let t = &mut layer.transform;
             if matches!(layer.kind, LayerKind::Mirror(_)) {
@@ -2686,6 +2688,60 @@ pub fn add_layer_menu(ui: &mut Ui, templates: &[Layer]) -> Option<Layer> {
             }
         }
     });
+    ui.menu_button("🏷 Logo", |ui| {
+        let logos: [(&str, &str, LogoLayer); 4] = [
+            (
+                "Title",
+                "Big text in the middle of the screen",
+                LogoLayer::default(),
+            ),
+            (
+                "Chrome logo",
+                "Shiny bevelled letters with an outline and a shadow",
+                LogoLayer {
+                    text: "CHROME".into(),
+                    size: Param::new(0.25),
+                    color_top: ez_core::color::hex(0xfff2c0),
+                    color_bottom: ez_core::color::hex(0xff8a3d),
+                    outline: Param::new(0.35),
+                    outline_color: ez_core::color::hex(0x1a0830),
+                    shadow: Param::new(0.8),
+                    chrome: Param::new(0.7),
+                    ..Default::default()
+                },
+            ),
+            (
+                "Corner tag",
+                "Small pixel letters in the bottom right corner",
+                LogoLayer {
+                    text: "EZ2".into(),
+                    font: TextFont::Pixel,
+                    x: Param::new(0.97),
+                    y: Param::new(0.04),
+                    anchor: LogoAnchor::BottomRight,
+                    size: Param::new(0.08),
+                    shadow: Param::new(0.8),
+                    ..Default::default()
+                },
+            ),
+            (
+                "Image logo",
+                "Your picture as a logo (choose the image; transparent parts are cut away)",
+                LogoLayer {
+                    source: LogoSource::Image,
+                    image: Some("sheet_coin".into()),
+                    colors: LogoColors::Image,
+                    size: Param::new(0.3),
+                    ..Default::default()
+                },
+            ),
+        ];
+        for (name, tip, g) in logos {
+            if ui.button(name).on_hover_text(tip).clicked() {
+                out = Some(Layer::new(name, LayerKind::Logo(g)));
+            }
+        }
+    });
     ui.menu_button("☔ Weather", |ui| {
         for k in Precipitation::ALL {
             if ui.button(k.label()).clicked() {
@@ -2772,6 +2828,7 @@ pub fn layer_icon(l: &Layer) -> &'static str {
         LayerKind::Falls(_) => "🌊",
         LayerKind::Text(_) => "🔤",
         LayerKind::Sprite(_) => "🖼",
+        LayerKind::Logo(_) => "🏷",
         LayerKind::Arcs(_) => "⚡",
     }
 }
@@ -3086,6 +3143,135 @@ fn arc_target_ui(ui: &mut Ui, target: &mut String, names: &[String]) {
     }
 }
 
+fn logo_ui(ui: &mut Ui, g: &mut LogoLayer, textures: &[UserTexture], lref: LayerRef) {
+    section(ui, "Logo", true, |ui| {
+        combo(ui, "Made of", "", &mut g.source, &LogoSource::ALL, |s| {
+            s.label()
+        });
+        match g.source {
+            LogoSource::Text => {
+                ui.add(
+                    egui::TextEdit::multiline(&mut g.text)
+                        .desired_rows(2)
+                        .desired_width(f32::INFINITY)
+                        .hint_text("Your logo text"),
+                );
+                font_picker(ui, &mut g.font, &mut g.font_file, lref);
+            }
+            LogoSource::Image => {
+                texture_picker(
+                    ui,
+                    "Image",
+                    &mut g.image,
+                    textures,
+                    Some((lref, TexSlot::Logo)),
+                );
+                combo(
+                    ui,
+                    "Shape from",
+                    "Which parts of the image are the logo",
+                    &mut g.mask,
+                    &LogoMask::ALL,
+                    |m| m.label(),
+                );
+            }
+        }
+    });
+    section(ui, "On screen", true, |ui| {
+        param(
+            ui,
+            "Across",
+            "Position from the left edge (0) to the right edge (1)",
+            &mut g.x,
+            0.0..=1.0,
+        );
+        param(
+            ui,
+            "Up",
+            "Position from the bottom (0) to the top (1)",
+            &mut g.y,
+            0.0..=1.0,
+        );
+        combo(
+            ui,
+            "Anchor",
+            "The point of the logo at that position (it turns around it too)",
+            &mut g.anchor,
+            &LogoAnchor::ALL,
+            |a| a.label(),
+        );
+        param(
+            ui,
+            "Size",
+            "Height, as a fraction of the screen height",
+            &mut g.size,
+            0.0..=1.0,
+        );
+        param(ui, "Turn", "Degrees", &mut g.rotation, -180.0..=180.0);
+        param(ui, "Opacity", "", &mut g.opacity, 0.0..=1.0);
+    });
+    section(ui, "Look", true, |ui| {
+        combo(ui, "Colours", "", &mut g.colors, &LogoColors::ALL, |c| {
+            c.label()
+        });
+        match g.colors {
+            LogoColors::Image => {
+                color(ui, "Tint", "Multiplies the colours", &mut g.tint);
+            }
+            LogoColors::Gradient => {
+                color(ui, "Top colour", "", &mut g.color_top);
+                color(ui, "Bottom colour", "", &mut g.color_bottom);
+            }
+        }
+        param(
+            ui,
+            "Glow",
+            "Brightness; above 1 it glows",
+            &mut g.glow,
+            0.0..=8.0,
+        );
+        param(ui, "Outline", "", &mut g.outline, 0.0..=1.0);
+        if g.outline.is_animated() || g.outline.base > 0.0 {
+            color(ui, "Outline colour", "", &mut g.outline_color);
+        }
+        param(ui, "Drop shadow", "", &mut g.shadow, 0.0..=1.0);
+        param(
+            ui,
+            "Chrome",
+            "Shiny bevelled edges reflecting the sky",
+            &mut g.chrome,
+            0.0..=1.0,
+        );
+    });
+}
+
+/// Built-in fonts, or a TTF / OTF file.
+fn font_picker(ui: &mut Ui, font: &mut TextFont, file: &mut Option<String>, lref: LayerRef) {
+    row(ui, "Font", "", |ui| {
+        let label = match &*file {
+            Some(p) => ez_core::store::file_name(p).to_string(),
+            None => font.label().to_string(),
+        };
+        egui::ComboBox::from_id_salt("font")
+            .selected_text(label)
+            .show_ui(ui, |ui| {
+                for f in TextFont::ALL {
+                    if ui
+                        .selectable_label(file.is_none() && *font == f, f.label())
+                        .clicked()
+                    {
+                        *font = f;
+                        *file = None;
+                    }
+                }
+                ui.separator();
+                if ui.button("Font file (TTF / OTF)…").clicked() {
+                    platform::pick(Purpose::SetFont(lref));
+                }
+            });
+    });
+}
+
 fn text_ui(ui: &mut Ui, t: &mut TextLayer, lref: LayerRef) {
     section(ui, "Text", true, |ui| {
         ui.add(
@@ -3159,29 +3345,7 @@ fn text_ui(ui: &mut Ui, t: &mut TextLayer, lref: LayerRef) {
         }
     });
     section(ui, "Font & look", true, |ui| {
-        row(ui, "Font", "", |ui| {
-            let label = match &t.font_file {
-                Some(p) => ez_core::store::file_name(p).to_string(),
-                None => t.font.label().to_string(),
-            };
-            egui::ComboBox::from_id_salt("font")
-                .selected_text(label)
-                .show_ui(ui, |ui| {
-                    for f in TextFont::ALL {
-                        if ui
-                            .selectable_label(t.font_file.is_none() && t.font == f, f.label())
-                            .clicked()
-                        {
-                            t.font = f;
-                            t.font_file = None;
-                        }
-                    }
-                    ui.separator();
-                    if ui.button("Font file (TTF / OTF)…").clicked() {
-                        platform::pick(Purpose::SetFont(lref));
-                    }
-                });
-        });
+        font_picker(ui, &mut t.font, &mut t.font_file, lref);
         slider(ui, "Size", "Letter height", &mut t.size, 0.1..=10.0);
         slider(
             ui,

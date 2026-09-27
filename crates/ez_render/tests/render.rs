@@ -1330,3 +1330,190 @@ fn gpu_copies_match_the_cpu_and_loop() {
     let img = r.render_image(&p, &at(&p, 0.2), &target);
     img.save(snapshot_dir().join("swarm_100k.png")).unwrap();
 }
+
+/// Logos flat on the screen: text and images, every look on, animated
+/// placement. Visible where they are placed, moving and seamless.
+#[test]
+fn logos_show_where_placed_and_loop() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
+    let (w, h) = (320u32, 180u32);
+    let target = r.create_target(w, h);
+    let mut plain = presets::empty();
+    plain.post.grade.grain = Param::new(0.0);
+    plain
+        .layers
+        .retain(|l| !matches!(l.kind, LayerKind::Mesh(_)));
+    let at = |p: &Project, phase: f32| EvalCtx::new(&p.timing, phase, None);
+    let wobble = |base: f32, amp: f32, cycles: i32| Param {
+        amp,
+        cycles,
+        ..Param::new(base)
+    };
+    let cases = [
+        (
+            "text",
+            LogoLayer {
+                text: "EZ2\nLOGO".into(),
+                font: TextFont::Sans,
+                x: Param::new(0.05),
+                y: Param::new(0.95),
+                anchor: LogoAnchor::TopLeft,
+                size: Param::new(0.35),
+                rotation: wobble(0.0, 8.0, 1),
+                glow: Param::new(1.5),
+                outline: Param::new(0.4),
+                shadow: Param::new(0.6),
+                chrome: Param::new(0.6),
+                ..Default::default()
+            },
+        ),
+        (
+            "coin",
+            LogoLayer {
+                source: LogoSource::Image,
+                image: Some("sheet_coin".into()),
+                colors: LogoColors::Image,
+                x: wobble(0.2, 0.1, 2),
+                y: Param::new(0.8),
+                size: Param::new(0.3),
+                outline: Param::new(0.3),
+                outline_color: [1.0, 1.0, 1.0],
+                ..Default::default()
+            },
+        ),
+        (
+            "pixel",
+            LogoLayer {
+                text: "HI".into(),
+                font: TextFont::Pixel,
+                x: Param::new(0.1),
+                y: Param::new(0.9),
+                anchor: LogoAnchor::TopLeft,
+                size: wobble(0.3, 0.05, 1),
+                shadow: Param::new(1.0),
+                ..Default::default()
+            },
+        ),
+    ];
+    // Mean difference in the top-left and bottom-right quarters.
+    let quarters = |a: &image::RgbaImage, b: &image::RgbaImage| {
+        let q = |x0: u32, y0: u32| {
+            let mut sum = 0.0;
+            for y in y0..y0 + h / 2 {
+                for x in x0..x0 + w / 2 {
+                    let (pa, pb) = (a.get_pixel(x, y), b.get_pixel(x, y));
+                    for c in 0..3 {
+                        sum += (pa[c] as i32 - pb[c] as i32).unsigned_abs() as f32;
+                    }
+                }
+            }
+            sum / (w * h / 4 * 3) as f32
+        };
+        (q(0, 0), q(w / 2, h / 2))
+    };
+    for (name, logo) in cases {
+        let mut p = plain.clone();
+        p.layers.push(Layer::new(name, LayerKind::Logo(logo)));
+        let a = r.render_image(&p, &at(&p, 0.0), &target);
+        let b = r.render_image(&p, &at(&p, 1.0), &target);
+        let mid = r.render_image(&p, &at(&p, 0.3), &target);
+        let reference = r.render_image(&plain, &at(&p, 0.3), &target);
+        mid.save(snapshot_dir().join(format!("logo_{name}.png")))
+            .unwrap();
+        let seam = mean_abs_diff(a.as_raw(), b.as_raw());
+        let moves = mean_abs_diff(a.as_raw(), mid.as_raw());
+        let (top_left, bottom_right) = quarters(&mid, &reference);
+        eprintln!(
+            "{name}: seam {seam:.3}, moves {moves:.2}, top left {top_left:.2}, \
+             bottom right {bottom_right:.3}"
+        );
+        assert!(seam < 0.6, "{name} doesn't loop");
+        assert!(moves > 0.05, "{name} doesn't move");
+        assert!(top_left > 4.0, "{name} barely visible");
+        // Bloom may spill a little light; nothing is drawn there.
+        assert!(bottom_right < 0.2, "{name} shows in the wrong place");
+    }
+    // Nothing to draw: no text, no image.
+    let mut p = plain.clone();
+    p.layers.push(Layer::new(
+        "empty",
+        LayerKind::Logo(LogoLayer {
+            text: " ".into(),
+            ..Default::default()
+        }),
+    ));
+    p.layers.push(Layer::new(
+        "no image",
+        LayerKind::Logo(LogoLayer {
+            source: LogoSource::Image,
+            ..Default::default()
+        }),
+    ));
+    let img = r.render_image(&p, &at(&p, 0.3), &target);
+    let reference = r.render_image(&plain, &at(&p, 0.3), &target);
+    assert!(mean_abs_diff(img.as_raw(), reference.as_raw()) < 0.05);
+}
+
+/// Logos go on after depth of field: a blurred scene leaves them sharp.
+#[test]
+fn logos_stay_sharp_under_depth_of_field() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let target = r.create_target(320, 180);
+    let mut p = presets::empty();
+    p.post.grade.grain = Param::new(0.0);
+    p.post.bloom.enabled = false;
+    p.layers.push(Layer::new(
+        "Logo",
+        LayerKind::Logo(LogoLayer {
+            text: "SHARP".into(),
+            size: Param::new(0.3),
+            color_top: [1.0, 1.0, 1.0],
+            color_bottom: [1.0, 1.0, 1.0],
+            ..Default::default()
+        }),
+    ));
+    let ctx = EvalCtx::new(&p.timing, 0.3, None);
+    let sharp = r.render_image(&p, &ctx, &target);
+    p.post.dof = DepthOfField {
+        enabled: true,
+        auto_focus: false,
+        focus: Param::new(0.5),
+        blur: Param::new(1.0),
+    };
+    let blurred = r.render_image(&p, &ctx, &target);
+    blurred.save(snapshot_dir().join("logo_dof.png")).unwrap();
+    // Inside the logo's middle row the picture is the logo either way.
+    let row = 90;
+    let mut diff = 0.0;
+    let mut n = 0.0;
+    for x in 100..220 {
+        let (a, b) = (sharp.get_pixel(x, row), blurred.get_pixel(x, row));
+        // Only where the logo covers (bright letters).
+        if a[0] > 200 && a[1] > 200 {
+            for c in 0..3 {
+                diff += (a[c] as i32 - b[c] as i32).unsigned_abs() as f32;
+            }
+            n += 3.0;
+        }
+    }
+    assert!(n > 30.0, "no logo pixels on the row");
+    let diff = diff / n;
+    eprintln!("logo under depth of field: diff {diff:.2}");
+    assert!(diff < 3.0, "the logo is blurred");
+}

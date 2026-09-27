@@ -459,7 +459,7 @@ Room 0.70 → 0.58 ms), frame totals unchanged on llvmpipe.
 
 ## Phase 9 — 2D logo layer
 
-### ☐ 9.1 Logo layer with a baked distance field
+### ☑ 9.1 Logo layer with a baked distance field
 A screen-space layer for logos and title cards: an imported image (PNG with
 alpha) or a line of text, placed by position, scale, rotation and anchor
 on screen rather than in the world. It draws into the HDR scene target
@@ -478,6 +478,38 @@ apply to it.
   `common.wgsl`.
 - Every look value is a Param, so music and signal nodes can drive it
   (scale punch, glow flash or outline width on kicks).
+
+**Done, differently in three places.** A Logo layer (`LayerKind::Logo`)
+made of text (a built-in font or a TTF/OTF) or an image, whose shape comes
+from its transparency, its bright parts or its dark parts (cropped to the
+logo). Placed by anchor point, across/up position, height as a fraction of
+the screen and a turn, all Params; the gizmo shows one handle at the
+anchor (move, scale, rotate). The differences from the plan:
+- **One baked texture per logo, not a colour image plus a field.**
+  `logo.rs` bakes a half-float RGBA texture: linear colour spread outward
+  from the shape (so edges never pick up the background) in rgb, the
+  signed distance field in alpha. The field is unclamped, ready for the
+  far-reaching effects of 9.3.
+- **An exact distance transform, not 8SSEDT or jump flooding.**
+  Felzenszwalb–Huttenlocher (lower envelopes of parabolas) on the inside
+  and the outside, at 2–4× the output resolution, averaged down, so the
+  outline falls between pixels. Rows run on several threads on desktop.
+  Text logos are filled from the glyph outlines (non-zero winding) and
+  go through the same bake instead of the glyph atlas, so a multi-line
+  logo is one shape. A text bake takes about 0.1 s on the development
+  container; bakes are cached by source and dropped once unused.
+- **Drawn after depth of field, not in the scene pass.** A pass of its
+  own on the picture right after the warp/depth-of-field pass, before
+  god rays, feedback, bloom and the grade: blur never softens a logo,
+  every other post effect applies. No MSAA or depth; the field
+  antialiases.
+The text layer's shading moved into `sdf_look()` in `common.wgsl`; the
+text layer calls it unchanged (every golden image matches exactly).
+Tested: the bake against a brute-force distance transform and an
+analytic disc, masks, every font; on the GPU, text and image logos with
+every look show only where they are anchored, move and loop, empty ones
+draw nothing, and depth of field leaves a logo sharp. Preset: Sunset
+Title.
 
 ### ☐ 9.2 Lit logos
 Make a flat logo read as a solid, shiny object.

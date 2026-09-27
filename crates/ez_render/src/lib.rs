@@ -6,6 +6,7 @@
 
 pub mod gpu;
 pub mod import;
+pub mod logo;
 pub mod mesh;
 mod renderer;
 pub mod texgen;

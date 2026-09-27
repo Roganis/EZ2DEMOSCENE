@@ -402,3 +402,54 @@ fn quad_corner(vi: u32) -> vec2<f32> {
     let y = select(-1.0, 1.0, vi == 2u || vi == 4u || vi == 5u);
     return vec2<f32>(x, y);
 }
+
+// Looks of a shape drawn from a signed distance field (text, logos): a
+// body with a glow halo, an outline ring, a drop shadow and a chrome
+// bevel. `d` is the field (0.5 on the outline, 0.5 more per spread
+// inside), `w` its antialiasing width, `grad` the field's change across
+// the shape (x along `side`, y along `up`), `ds` the field at the shadow's
+// offset. look: glow, outline width (0..1), shadow, chrome. `normal`,
+// `side` and `up` place the shape in the world for the chrome's
+// reflection; `view` points towards the eye. Returns premultiplied colour
+// and coverage.
+fn sdf_look(
+    d: f32,
+    w: f32,
+    grad: vec2<f32>,
+    ds: f32,
+    base: vec3<f32>,
+    outline_col: vec3<f32>,
+    look: vec4<f32>,
+    normal: vec3<f32>,
+    side: vec3<f32>,
+    up: vec3<f32>,
+    view: vec3<f32>,
+) -> vec4<f32> {
+    let body = smoothstep(0.5 - w, 0.5 + w, d);
+    let ow = clamp(look.y, 0.0, 1.0) * 0.22;
+    var ring = 0.0;
+    if (ow > 0.0) {
+        ring = max(smoothstep(0.5 - ow - w, 0.5 - ow + w, d) - body, 0.0);
+    }
+    var col = base;
+    // Chrome: a bevel from the distance field reflects the environment.
+    let chrome = clamp(look.w, 0.0, 1.0);
+    if (chrome > 0.0) {
+        let slope = grad * 6.0 * smoothstep(0.75, 0.5, d);
+        let n = normalize(normal - side * slope.x - up * slope.y);
+        let nn = select(-n, n, dot(n, view) > 0.0);
+        let r = reflect(-view, nn);
+        let env = env_color(r, 0.08);
+        col = mix(col, env * (0.35 + col * 0.9), chrome);
+    }
+    let glow = max(look.x, 0.0);
+    var rgb = col * glow * body + outline_col * ring;
+    var a = body + ring;
+    // Soft halo around bright shapes (light only, no coverage).
+    let halo = smoothstep(0.15, 0.5, d) * (1.0 - a);
+    rgb = rgb + col * halo * max(glow - 1.0, 0.0) * 0.25;
+    // Drop shadow under everything.
+    let shadow = smoothstep(0.4, 0.55, ds) * clamp(look.z, 0.0, 1.0) * (1.0 - a);
+    a = a + shadow * 0.8;
+    return vec4<f32>(rgb, a);
+}

@@ -75,6 +75,11 @@ fn layer_paths(l: &mut Layer, f: &mut impl FnMut(&mut String)) {
                 f(path);
             }
         }
+        LayerKind::Logo(g) => {
+            if let Some(path) = &mut g.font_file {
+                f(path);
+            }
+        }
         _ => {}
     }
 }

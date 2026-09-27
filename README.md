@@ -64,6 +64,11 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     wall, spiral, curve, big swarms of up to 250,000 in orbits, a cloud,
     a shell or a spiral galaxy) is placed with its variation by a compute
     shader on desktop and WebGPU; WebGL2 runs the same maths on the CPU.
+  - **Logos**: text or an image laid flat on the screen (placed by an
+    anchor, size and turn, all animatable), drawn before the post effects
+    but after depth of field. The shape is baked into a signed distance
+    field, so outlines, glow, drop shadows and a chrome bevel work on any
+    image, at any size.
   - **Electric arcs**: tesla lightning between two points, to the nearest
     copies of a shape (jumping as they move) or copy to copy, crawling and
     re-striking a whole number of times per loop.

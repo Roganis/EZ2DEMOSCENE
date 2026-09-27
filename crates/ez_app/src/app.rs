@@ -628,6 +628,7 @@ impl EzApp {
                             (LayerKind::Mirror(f), _) => f.texture = Some(name.clone()),
                             (LayerKind::Terrain(t), _) => t.texture = Some(name.clone()),
                             (LayerKind::Sprite(sp), _) => sp.image = Some(name.clone()),
+                            (LayerKind::Logo(g), _) => g.image = Some(name.clone()),
                             _ => {}
                         }
                     }
@@ -645,6 +646,7 @@ impl EzApp {
                 Purpose::SetFont(lref) => {
                     match self.layer_for(lref).map(|l| &mut l.kind) {
                         Some(LayerKind::Text(t)) => t.font_file = Some(p.path.clone()),
+                        Some(LayerKind::Logo(g)) => g.font_file = Some(p.path.clone()),
                         Some(LayerKind::Mesh(MeshLayer {
                             source: MeshSource::Text { font_file, .. },
                             ..

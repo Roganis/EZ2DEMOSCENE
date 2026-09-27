@@ -155,6 +155,11 @@ pub fn all() -> Vec<Preset> {
             project: galaxy_swarm(),
         },
         Preset {
+            name: "Sunset Title",
+            description: "Synth Sunset with a title card: a chrome logo pulsing to the beat and a pixel tag in the corner, drawn flat on the screen.",
+            project: sunset_title(),
+        },
+        Preset {
             name: "Empty",
             description: "A blank stage with a floor and a sky.",
             project: empty(),
@@ -754,6 +759,48 @@ pub fn galaxy_swarm() -> Project {
         )
         .scaled(0.5),
     );
+    p
+}
+
+/// Logos on the screen over Synth Sunset: a chrome title that pulses on
+/// every beat and sways, and a small pixel tag in the corner.
+pub fn sunset_title() -> Project {
+    let mut p = synth_sunset();
+    p.name = "Sunset Title".into();
+    p.layers.push(Layer::new(
+        "Title",
+        LayerKind::Logo(LogoLayer {
+            text: "EZ2DEMOSCENE".into(),
+            font: TextFont::Sans,
+            y: Param::new(0.8).osc(Wave::Sine, 0.015, 2),
+            size: Param::new(0.12),
+            rotation: Param::new(0.0).osc(Wave::Sine, 2.5, 1),
+            color_top: hex(0xffffff),
+            color_bottom: hex(0x30d8ff),
+            glow: Param::new(1.3).osc(Wave::ExpOut, 0.9, 16),
+            outline: Param::new(0.6),
+            outline_color: hex(0x10002a),
+            shadow: Param::new(1.0),
+            chrome: Param::new(0.45),
+            ..Default::default()
+        }),
+    ));
+    p.layers.push(Layer::new(
+        "Tag",
+        LayerKind::Logo(LogoLayer {
+            text: "LOOP 4EVER".into(),
+            font: TextFont::Pixel,
+            x: Param::new(0.97),
+            y: Param::new(0.05),
+            anchor: LogoAnchor::BottomRight,
+            size: Param::new(0.055),
+            color_top: hex(0xffff80),
+            color_bottom: hex(0xff8040),
+            glow: Param::new(1.4),
+            shadow: Param::new(0.9),
+            ..Default::default()
+        }),
+    ));
     p
 }
 

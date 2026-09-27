@@ -711,6 +711,7 @@ impl Layer {
             LayerKind::Text(_) => "Text",
             LayerKind::Sprite(_) => "Sprites",
             LayerKind::Arcs(_) => "Electric arcs",
+            LayerKind::Logo(_) => "Logo",
         }
     }
 }
@@ -731,6 +732,7 @@ pub enum LayerKind {
     Text(TextLayer),
     Sprite(SpriteLayer),
     Arcs(ArcLayer),
+    Logo(LogoLayer),
 }
 
 impl LayerKind {
@@ -3318,6 +3320,191 @@ impl SpriteBlend {
             SpriteBlend::Alpha => "Alpha",
             SpriteBlend::Additive => "Additive (glow)",
             SpriteBlend::Cutout => "Cutout",
+        }
+    }
+}
+
+/// What a logo is made of.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum LogoSource {
+    /// A line (or a few lines) of text in a font.
+    #[default]
+    Text,
+    /// An image; its shape comes from `LogoLayer::mask`.
+    Image,
+}
+
+impl LogoSource {
+    pub const ALL: [LogoSource; 2] = [LogoSource::Text, LogoSource::Image];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            LogoSource::Text => "Text",
+            LogoSource::Image => "Image",
+        }
+    }
+}
+
+/// Which parts of a logo image are the logo.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum LogoMask {
+    /// The image's transparency.
+    #[default]
+    Alpha,
+    /// Bright parts (a logo on black).
+    Bright,
+    /// Dark parts (a logo on white).
+    Dark,
+}
+
+impl LogoMask {
+    pub const ALL: [LogoMask; 3] = [LogoMask::Alpha, LogoMask::Bright, LogoMask::Dark];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            LogoMask::Alpha => "Transparency",
+            LogoMask::Bright => "Bright parts",
+            LogoMask::Dark => "Dark parts",
+        }
+    }
+}
+
+/// Where a logo's colour comes from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum LogoColors {
+    /// The image's own colours times the tint (text: the tint).
+    Image,
+    /// Top to bottom gradient.
+    #[default]
+    Gradient,
+}
+
+impl LogoColors {
+    pub const ALL: [LogoColors; 2] = [LogoColors::Image, LogoColors::Gradient];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            LogoColors::Image => "Image colours",
+            LogoColors::Gradient => "Gradient",
+        }
+    }
+}
+
+/// The point of the logo that sits at its position (and that it turns
+/// around).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum LogoAnchor {
+    TopLeft,
+    Top,
+    TopRight,
+    Left,
+    #[default]
+    Centre,
+    Right,
+    BottomLeft,
+    Bottom,
+    BottomRight,
+}
+
+impl LogoAnchor {
+    pub const ALL: [LogoAnchor; 9] = [
+        LogoAnchor::TopLeft,
+        LogoAnchor::Top,
+        LogoAnchor::TopRight,
+        LogoAnchor::Left,
+        LogoAnchor::Centre,
+        LogoAnchor::Right,
+        LogoAnchor::BottomLeft,
+        LogoAnchor::Bottom,
+        LogoAnchor::BottomRight,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            LogoAnchor::TopLeft => "Top left",
+            LogoAnchor::Top => "Top",
+            LogoAnchor::TopRight => "Top right",
+            LogoAnchor::Left => "Left",
+            LogoAnchor::Centre => "Centre",
+            LogoAnchor::Right => "Right",
+            LogoAnchor::BottomLeft => "Bottom left",
+            LogoAnchor::Bottom => "Bottom",
+            LogoAnchor::BottomRight => "Bottom right",
+        }
+    }
+
+    /// The anchor inside the logo (0..1 from the left, 0..1 from the bottom).
+    pub fn point(self) -> [f32; 2] {
+        let i = LogoAnchor::ALL.iter().position(|a| *a == self).unwrap_or(4);
+        [(i % 3) as f32 * 0.5, 1.0 - (i / 3) as f32 * 0.5]
+    }
+}
+
+/// A logo or title drawn flat on the screen over the scene (before the
+/// post effects, so bloom, rays and trails apply). Its shape is a signed
+/// distance field baked from the text or image, which gives outlines,
+/// glows, shadows and bevels at any size.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LogoLayer {
+    pub source: LogoSource,
+    pub text: String,
+    pub font: TextFont,
+    /// A TTF/OTF file used instead of `font`.
+    pub font_file: Option<String>,
+    /// A texture (built-in or added to the project).
+    pub image: Option<String>,
+    pub mask: LogoMask,
+    /// Position of the anchor on the screen (0..1 from the left and from
+    /// the bottom).
+    pub x: Param,
+    pub y: Param,
+    pub anchor: LogoAnchor,
+    /// Height as a fraction of the screen height; the width follows.
+    pub size: Param,
+    /// Degrees, anticlockwise, around the anchor.
+    pub rotation: Param,
+    pub opacity: Param,
+    pub colors: LogoColors,
+    /// Multiplies the image colours.
+    pub tint: Rgb,
+    pub color_top: Rgb,
+    pub color_bottom: Rgb,
+    /// Brightness; above 1 it glows.
+    pub glow: Param,
+    /// Outline width (0 = none, 1 = thick).
+    pub outline: Param,
+    pub outline_color: Rgb,
+    /// Drop shadow strength.
+    pub shadow: Param,
+    /// Chrome: a shiny bevel reflecting the sky.
+    pub chrome: Param,
+}
+
+impl Default for LogoLayer {
+    fn default() -> Self {
+        LogoLayer {
+            source: LogoSource::Text,
+            text: "EZ2DEMOSCENE".into(),
+            font: TextFont::Mono,
+            font_file: None,
+            image: None,
+            mask: LogoMask::Alpha,
+            x: Param::new(0.5),
+            y: Param::new(0.5),
+            anchor: LogoAnchor::Centre,
+            size: Param::new(0.2),
+            rotation: Param::new(0.0),
+            opacity: Param::new(1.0),
+            colors: LogoColors::Gradient,
+            tint: [1.0, 1.0, 1.0],
+            color_top: hex(0xffffff),
+            color_bottom: hex(0x2bd6ff),
+            glow: Param::new(1.0),
+            outline: Param::new(0.0),
+            outline_color: hex(0x000000),
+            shadow: Param::new(0.0),
+            chrome: Param::new(0.0),
         }
     }
 }
