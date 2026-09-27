@@ -77,6 +77,9 @@ pub struct EzApp {
     playing: bool,
     time: f64,
     preview_scale: f32,
+    fps_cap: platform::FpsCap,
+    /// When the next frame is due while playing under an fps limit.
+    next_frame: f64,
     aspect: (u32, u32),
 
     audio: Option<AudioPlayer>,
@@ -170,6 +173,8 @@ impl EzApp {
             playing: true,
             time: 0.0,
             preview_scale: 1.0,
+            fps_cap: platform::FpsCap::load(),
+            next_frame: 0.0,
             aspect: (16, 9),
             audio: None,
             audio_env: None,
@@ -452,6 +457,28 @@ impl EzApp {
             }
         }
         ctx.request_repaint();
+    }
+
+    /// Ask for the next playback frame, no sooner than the fps limit
+    /// allows. Frames drawn early (input) do not move the schedule.
+    fn schedule_next_frame(&mut self, ctx: &egui::Context) {
+        let Some(fps) = self.fps_cap.fps() else {
+            ctx.request_repaint();
+            return;
+        };
+        let period = 1.0 / fps;
+        // Wake a little early: the picture is drawn at the next screen
+        // refresh after the wake-up anyway.
+        const SLACK: f64 = 0.003;
+        if self.now >= self.next_frame - SLACK {
+            self.next_frame += period;
+            if self.next_frame < self.now {
+                // Fell behind (slow frame, or playback just resumed).
+                self.next_frame = self.now + period;
+            }
+        }
+        let wait = (self.next_frame - self.now - SLACK).max(0.0);
+        ctx.request_repaint_after(std::time::Duration::from_secs_f64(wait));
     }
 
     fn save_user_preset(&mut self, name: String) {
@@ -1623,6 +1650,23 @@ impl EzApp {
                 })
                 .response
                 .on_hover_text("Lower the preview resolution if playback stutters");
+            let cap = self.fps_cap;
+            egui::ComboBox::from_id_salt("fps_cap")
+                .selected_text(cap.label())
+                .width(70.0)
+                .show_ui(ui, |ui| {
+                    for c in platform::FpsCap::ALL {
+                        ui.selectable_value(&mut self.fps_cap, c, c.label());
+                    }
+                })
+                .response
+                .on_hover_text(
+                    "Frame rate limit of the preview. 30 or 60 saves battery and heat; \
+                     Display draws as fast as the screen refreshes. Export is not affected.",
+                );
+            if self.fps_cap != cap {
+                self.fps_cap.save();
+            }
             {
                 let st = self.viewport.renderer.stats();
                 let fps = 1000.0 / self.frame_ms.max(0.1);
@@ -2438,8 +2482,10 @@ impl eframe::App for EzApp {
             platform::set_title(&ctx, &title);
             self.title = title;
         }
-        if self.playing || self.export.is_running() {
+        if self.export.is_running() {
             ctx.request_repaint();
+        } else if self.playing {
+            self.schedule_next_frame(&ctx);
         }
     }
 }
