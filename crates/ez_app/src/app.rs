@@ -125,6 +125,13 @@ pub struct EzApp {
     narrow: bool,
     tab: Tab,
     last_node_selection: Option<usize>,
+    /// The text field being edited and where it was last seen, so the
+    /// on-screen keyboard stays up while it is scrolled out of view.
+    last_ime: Option<(egui::Id, egui::output::IMEOutput)>,
+    /// Scroll the inspector to this text field on the next frame.
+    scroll_to_field: Option<egui::Rect>,
+    /// Screen height last frame (the on-screen keyboard shrinks it).
+    last_screen_h: f32,
     /// Smoothed frame time in milliseconds.
     frame_ms: f32,
 }
@@ -207,6 +214,9 @@ impl EzApp {
             narrow: false,
             tab: Tab::View,
             last_node_selection: None,
+            last_ime: None,
+            scroll_to_field: None,
+            last_screen_h: 0.0,
             frame_ms: 16.0,
         };
         match initial {
@@ -457,6 +467,43 @@ impl EzApp {
             }
         }
         ctx.request_repaint();
+    }
+
+    /// egui only reports a text field as being edited while it is visible,
+    /// and the web backend hides the on-screen keyboard whenever none is.
+    /// On a phone the keyboard itself shrinks the screen, which can push the
+    /// field out of view: the keyboard then closed and reopened every frame.
+    /// Keep reporting the field while it still has focus, and scroll it back
+    /// into view when the screen shrinks or the user types into it.
+    fn keep_keyboard(&mut self, ctx: &egui::Context) {
+        let focused = ctx.memory(|m| m.focused());
+        let screen_h = ctx.content_rect().height();
+        let shrank = screen_h < self.last_screen_h - 1.0;
+        self.last_screen_h = screen_h;
+        match (ctx.output(|o| o.ime), focused) {
+            (Some(ime), Some(id)) => {
+                self.last_ime = Some((id, ime));
+                if shrank {
+                    self.scroll_to_field = Some(ime.rect);
+                }
+            }
+            (None, Some(id)) if self.last_ime.is_some_and(|(last, _)| last == id) => {
+                let ime = self.last_ime.unwrap().1;
+                ctx.output_mut(|o| o.ime = Some(ime));
+                let typed = ctx.input(|i| {
+                    i.events
+                        .iter()
+                        .any(|e| matches!(e, egui::Event::Text(_) | egui::Event::Ime(_)))
+                });
+                if shrank || typed {
+                    self.scroll_to_field = Some(ime.rect);
+                }
+            }
+            _ => self.last_ime = None,
+        }
+        if self.scroll_to_field.is_some() {
+            ctx.request_repaint();
+        }
     }
 
     /// Ask for the next playback frame, no sooner than the fps limit
@@ -1213,7 +1260,11 @@ impl EzApp {
         let ctx = self.project.ctx_at(self.time, self.audio_env.as_deref());
         let view = self.project.camera.view_point(&ctx);
         ui.data_mut(|d| d.insert_temp(egui::Id::new(inspector::CAMERA_VIEW), view));
+        let scroll_to_field = self.scroll_to_field.take();
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+            if let Some(r) = scroll_to_field {
+                ui.scroll_to_rect(r, Some(egui::Align::Center));
+            }
             ui.add_space(4.0);
             if self.mode == Mode::Nodes {
                 let textures = &mut self.project.textures;
@@ -2482,6 +2533,7 @@ impl eframe::App for EzApp {
             platform::set_title(&ctx, &title);
             self.title = title;
         }
+        self.keep_keyboard(&ctx);
         if self.export.is_running() {
             ctx.request_repaint();
         } else if self.playing {
