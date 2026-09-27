@@ -3723,6 +3723,30 @@ pub struct LogoLayer {
     pub moire_lines: f32,
     /// Turns per loop (the two patterns turn opposite ways).
     pub moire_cycles: i32,
+    // The logo meets the scene.
+    /// Glass letters: the scene behind them, bent (0 = none, 1 = all glass).
+    pub glass: Param,
+    /// How far the glass bends the scene (logo heights).
+    pub refraction: f32,
+    /// Colours bent by different amounts (0..1 of the bend).
+    pub dispersion: f32,
+    pub glass_tint: Rgb,
+    /// Light rays streaming out from the logo (0 = none).
+    pub rays: Param,
+    /// Length of the rays (0..1).
+    pub rays_length: f32,
+    /// Only light brighter than this streams.
+    pub rays_threshold: f32,
+    /// Rays of the light behind the logo, with the logo's shadow cut out of
+    /// them, instead of the logo's own light.
+    pub rays_shadow: bool,
+    pub rays_tint: Rgb,
+    /// Fading copies of the logo where it was a moment ago (0 = none).
+    pub echoes: u32,
+    /// Time between copies (fraction of the loop).
+    pub echo_spacing: f32,
+    /// Each copy's opacity relative to the one after it.
+    pub echo_fade: f32,
 }
 
 impl Default for LogoLayer {
@@ -3828,6 +3852,18 @@ impl Default for LogoLayer {
             moire: Param::new(0.0),
             moire_lines: 30.0,
             moire_cycles: 1,
+            glass: Param::new(0.0),
+            refraction: 0.08,
+            dispersion: 0.2,
+            glass_tint: [1.0, 1.0, 1.0],
+            rays: Param::new(0.0),
+            rays_length: 0.5,
+            rays_threshold: 0.0,
+            rays_shadow: false,
+            rays_tint: [1.0, 1.0, 1.0],
+            echoes: 0,
+            echo_spacing: 0.02,
+            echo_fade: 0.6,
         }
     }
 }

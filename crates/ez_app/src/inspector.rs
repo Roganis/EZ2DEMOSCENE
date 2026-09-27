@@ -3457,6 +3457,90 @@ fn logo_ui(
     logo_effects_ui(ui, g, textures, lref);
     logo_raster_ui(ui, g);
     logo_retro_ui(ui, g);
+    logo_scene_ui(ui, g);
+}
+
+/// How a logo meets the scene: glass, rays, echoes.
+fn logo_scene_ui(ui: &mut Ui, g: &mut LogoLayer) {
+    let on = |p: &Param| p.is_animated() || p.base > 0.0;
+    section(
+        ui,
+        "Glass, rays & echoes",
+        on(&g.glass) || on(&g.rays) || g.echoes > 0,
+        |ui| {
+            param(
+                ui,
+                "Glass",
+                "Letters of glass: the scene behind shows through, bent by their edges",
+                &mut g.glass,
+                0.0..=1.0,
+            );
+            if on(&g.glass) {
+                slider(
+                    ui,
+                    "Bend",
+                    "How far the glass bends the scene, in logo heights",
+                    &mut g.refraction,
+                    0.0..=0.5,
+                );
+                slider(
+                    ui,
+                    "Dispersion",
+                    "Colours bent by different amounts (rainbow edges)",
+                    &mut g.dispersion,
+                    0.0..=1.0,
+                );
+                color(ui, "Glass tint", "", &mut g.glass_tint);
+            }
+            ui.separator();
+            param(
+                ui,
+                "Rays",
+                "Light streaming out from the logo",
+                &mut g.rays,
+                0.0..=4.0,
+            );
+            if on(&g.rays) {
+                slider(ui, "Length", "", &mut g.rays_length, 0.05..=1.0);
+                slider(
+                    ui,
+                    "Threshold",
+                    "Only light brighter than this streams",
+                    &mut g.rays_threshold,
+                    0.0..=2.0,
+                );
+                ui.checkbox(
+                    &mut g.rays_shadow,
+                    "Shadow: rays of the light behind, the logo blocking them",
+                );
+                color(ui, "Ray tint", "", &mut g.rays_tint);
+            }
+            ui.separator();
+            drag_u(
+                ui,
+                "Echoes",
+                "Fading copies where the logo was a moment ago (animate it to see them)",
+                &mut g.echoes,
+                0..=16,
+            );
+            if g.echoes > 0 {
+                slider(
+                    ui,
+                    "Spacing",
+                    "Time between copies, as a fraction of the loop",
+                    &mut g.echo_spacing,
+                    0.002..=0.25,
+                );
+                slider(
+                    ui,
+                    "Fade",
+                    "Each copy's opacity relative to the next",
+                    &mut g.echo_fade,
+                    0.0..=1.0,
+                );
+            }
+        },
+    );
 }
 
 /// Retro looks of a logo.

@@ -56,6 +56,8 @@
 //          screen angle (radians)
 // E.v[24]: scanlines, per logo height, phosphor stripes, line glow
 // E.v[25]: moiré, lines per logo height, turn (radians), _
+// E.v[26]: glass (0..1), bend (logo heights), dispersion (0..1), _
+// E.v[27]: glass tint, _
 // E.v[32..48]: palette colours (sRGB; dark to light when by brightness)
 
 @group(2) @binding(0) var t_tex: texture_2d<f32>;
@@ -67,6 +69,8 @@
 // Coarse far fields of both (see logo.rs).
 @group(2) @binding(4) var t_far: texture_2d<f32>;
 @group(2) @binding(5) var t_morph_far: texture_2d<f32>;
+// The picture behind the logos (for glass; may be bigger than the target).
+@group(2) @binding(6) var t_behind: texture_2d<f32>;
 @group(3) @binding(0) var<uniform> E: Effects;
 
 // Three blocks of effect settings.
@@ -129,6 +133,12 @@ fn bevel_height(d: f32) -> f32 {
         return min((floor(x) + smoothstep(0.3, 0.7, fract(x))) / n, 1.0);
     }
     // Round and pillow: a quarter circle.
+    return sqrt(max(1.0 - (1.0 - t) * (1.0 - t), 0.0));
+}
+
+// A rounded edge `w` field units wide (0 at the outline, 1 on top).
+fn round_height(d: f32, w: f32) -> f32 {
+    let t = clamp((d - 0.5) / w, 0.0, 1.0);
     return sqrt(max(1.0 - (1.0 - t) * (1.0 - t), 0.0));
 }
 
@@ -252,7 +262,8 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> LOut {
 }
 
 // The whole logo at `uv` (texture coordinates) and `box` (the shape's box).
-fn shade(uv: vec2<f32>, box: vec2<f32>, lod: f32) -> vec4<f32> {
+// `px`: the fragment's pixel (for glass).
+fn shade(uv: vec2<f32>, box: vec2<f32>, lod: f32, px: vec2<f32>) -> vec4<f32> {
     let tsz = max(D.v[7].xy, vec2<f32>(1.0));
     let texel = 1.0 / tsz;
     let spread = D.v[6].z;
@@ -327,6 +338,33 @@ fn shade(uv: vec2<f32>, box: vec2<f32>, lod: f32) -> vec4<f32> {
         col = col * mix(1.0, shade, clamp(D.v[9].w, 0.0, 2.0));
     }
     col = mix(col, mat, clamp(D.v[11].y, 0.0, 1.0));
+    // Glass: the picture behind, bent by the slope of the letters (a
+    // rounded edge when there is no bevel).
+    let gl = clamp(E.v[26].x, 0.0, 1.0);
+    if (gl > 0.0) {
+        // The surface's tilt (at most 1 each way).
+        var gn = n.xy;
+        if (kind == 0) {
+            let rw = 0.3;
+            let rh = vec2<f32>(
+                round_height(b_r, rw) - round_height(b_l, rw),
+                round_height(b_u, rw) - round_height(b_d, rw),
+            ) / step;
+            let rs = vec2<f32>(rh.x * cos(a) - rh.y * sin(a), rh.x * sin(a) + rh.y * cos(a));
+            gn = normalize(vec3<f32>(-rs, 1.0)).xy;
+        }
+        let dims = vec2<f32>(textureDimensions(t_behind));
+        // Logo heights on the screen, as texels of the picture behind.
+        let bend = vec2<f32>(gn.x, -gn.y) * E.v[26].y * D.v[4].z * G.res.y / dims;
+        let base = px / dims;
+        let dsp = clamp(E.v[26].z, 0.0, 1.0);
+        let br = textureSampleLevel(t_behind, s_clamp, base + bend * (1.0 + dsp), 0.0).r;
+        let bg = textureSampleLevel(t_behind, s_clamp, base + bend, 0.0).g;
+        let bb = textureSampleLevel(t_behind, s_clamp, base + bend * (1.0 - dsp), 0.0).b;
+        // Edges catch the light, as glass edges do.
+        let rim = pow(clamp(length(gn), 0.0, 1.0), 3.0) * 0.6;
+        col = mix(col, vec3<f32>(br, bg, bb) * E.v[27].rgb + E.v[27].rgb * rim, gl);
+    }
     if (kind > 0) {
         let h = normalize(D.v[9].xyz + vec3<f32>(0.0, 0.0, 1.0));
         let spec = pow(max(dot(n, h), 0.0), D.v[11].x);
@@ -500,12 +538,12 @@ fn fs_main(in: LOut) -> @location(0) vec4<f32> {
         // Chromatic split: red one way, blue the other.
         let ca = E.v[21].y;
         let c = vec2<f32>(cos(ca), sin(ca)) * (E.v[21].x + split);
-        let r = shade(uv - c * h_uv, box - c * h_box, lod);
-        let g = shade(uv, box, lod);
-        let b = shade(uv + c * h_uv, box + c * h_box, lod);
+        let r = shade(uv - c * h_uv, box - c * h_box, lod, in.pos.xy);
+        let g = shade(uv, box, lod, in.pos.xy);
+        let b = shade(uv + c * h_uv, box + c * h_box, lod, in.pos.xy);
         col = vec4<f32>(r.r, g.g, b.b, (r.a + g.a + b.a) / 3.0);
     } else {
-        col = shade(uv, box, lod);
+        col = shade(uv, box, lod, in.pos.xy);
     }
 
     // Retro looks on the finished logo. Logo heights from the middle:

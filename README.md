@@ -80,7 +80,9 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     distortion: copper bars, sine sway and bob, raster glitch slices and
     chromatic split. Retro looks: pixel blocks (animatable, to pixelate
     in), retro palettes with ordered dither and palette cycling, halftone
-    dots, scanlines with phosphor stripes, and moiré.
+    dots, scanlines with phosphor stripes, and moiré. Logos meet the
+    scene: glass letters bending what is behind them, god rays from the
+    logo (or its shadow in the light behind), and echo trails.
   - **Electric arcs**: tesla lightning between two points, to the nearest
     copies of a shape (jumping as they move) or copy to copy, crawling and
     re-striking a whole number of times per loop.

@@ -547,7 +547,27 @@
         "crt_glow": 0.0,
         "moire": 0.0,
         "moire_lines": 30.0,
-        "moire_cycles": 1
+        "moire_cycles": 1,
+        "glass": 0.0,
+        "refraction": 0.08,
+        "dispersion": 0.2,
+        "glass_tint": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "rays": 0.0,
+        "rays_length": 0.5,
+        "rays_threshold": 0.0,
+        "rays_shadow": false,
+        "rays_tint": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "echoes": 0,
+        "echo_spacing": 0.02,
+        "echo_fade": 0.6
       }
     },
     {
@@ -733,7 +753,27 @@
         "crt_glow": 0.0,
         "moire": 0.0,
         "moire_lines": 30.0,
-        "moire_cycles": 1
+        "moire_cycles": 1,
+        "glass": 0.0,
+        "refraction": 0.08,
+        "dispersion": 0.2,
+        "glass_tint": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "rays": 0.0,
+        "rays_length": 0.5,
+        "rays_threshold": 0.0,
+        "rays_shadow": false,
+        "rays_tint": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "echoes": 0,
+        "echo_spacing": 0.02,
+        "echo_fade": 0.6
       }
     }
   ],

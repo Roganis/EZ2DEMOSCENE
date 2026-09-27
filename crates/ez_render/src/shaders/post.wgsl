@@ -212,7 +212,8 @@ fn fs_rays(in: VOut) -> @location(0) vec4<f32> {
         for (var i = 0; i < n; i = i + 1) {
             let s = textureSampleLevel(t_a, s_lin, uv, 0.0).rgb;
             let d = (uv - sun) * vec2<f32>(aspect, 1.0);
-            let near = exp(-dot(d, d) * 2.5);
+            // P.v[2].w: how tightly rays gather at the source (0: everywhere).
+            let near = exp(-dot(d, d) * P.v[2].w);
             sum = sum + min(max(s - vec3<f32>(thr), vec3<f32>(0.0)), vec3<f32>(6.0)) * decay * near;
             decay = decay * 0.965;
             uv = uv - delta;

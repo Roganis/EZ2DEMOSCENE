@@ -224,6 +224,8 @@ enum Cmd {
         tex: String,
         morph: String,
         matcap: String,
+        /// Needs the picture behind it (glass).
+        glass: bool,
     },
     /// Contact shadows under the copies `first..first + count` of a mesh.
     Contact {
@@ -295,6 +297,32 @@ fn place_logo(
 fn far_key(logo: &str) -> String {
     format!("{logo}:far")
 }
+
+/// Texture keys of a logo's bind group: the logo, the logo it morphs
+/// into, its material sphere.
+type LogoKey = (String, String, String);
+
+/// One logo draw: its four blocks, bind group key and fit.
+type LogoDraw = ([Block; 4], LogoKey, LogoFit);
+
+/// Rays streaming from a logo, drawn after the logos.
+struct LogoRays {
+    /// The logo's first block and textures.
+    slot: u32,
+    key: LogoKey,
+    /// Middle of the logo (post-pass coordinates: 0..1, y down).
+    centre: [f32; 2],
+    strength: f32,
+    length: f32,
+    threshold: f32,
+    tint: [f32; 3],
+    /// From the light behind the logo, the logo cutting a shadow out.
+    shadow: bool,
+}
+
+/// Post slots for logo rays (one logo each).
+const SLOT_LOGO_RAYS: u32 = 18;
+const LOGO_RAYS_MAX: usize = 4;
 
 /// How a baked logo texture maps onto the screen.
 #[derive(Clone, Copy, Debug)]
@@ -845,11 +873,16 @@ pub struct Renderer {
     fonts: HashMap<String, std::sync::Arc<crate::text::FontAtlas>>,
     logo_pipe: wgpu::RenderPipeline,
     bgl_logo: wgpu::BindGroupLayout,
+    /// The picture behind the logos (for glass and shadow rays), at least
+    /// as big as the target being drawn: texture, view, size.
+    logo_backdrop: (wgpu::Texture, wgpu::TextureView, u32, u32),
+    /// Logos drawn as a rays source cutting their shadow out.
+    logo_shadow_pipe: wgpu::RenderPipeline,
     /// Logo effect settings (two slots of the draw buffer).
     bgl_logo_fx: wgpu::BindGroupLayout,
     logo_fx_bg: wgpu::BindGroup,
     /// Logo texture bind groups by (logo, morph target, material sphere).
-    logo_bgs: HashMap<(String, String, String), wgpu::BindGroup>,
+    logo_bgs: HashMap<LogoKey, wgpu::BindGroup>,
     /// Baked logos by texture key, with the frame they were last drawn
     /// (`None`: nothing to draw).
     logos: HashMap<String, (u64, Option<LogoFit>)>,
@@ -902,6 +935,10 @@ pub struct RenderTarget {
     bg_low: Vec<(u32, wgpu::TextureView, wgpu::BindGroup)>,
     bg_rays: wgpu::BindGroup,
     bg_rays_add: wgpu::BindGroup,
+    /// Logo rays: their source picture (full size) and its post bind group.
+    logo_src_tex: wgpu::Texture,
+    logo_src: wgpu::TextureView,
+    bg_logo_rays: wgpu::BindGroup,
     rays: wgpu::TextureView,
     /// Depth of field: distance to the camera (half resolution) and its
     /// depth buffer.
@@ -1284,6 +1321,7 @@ impl Renderer {
                 sampler_entry(3),
                 tex_entry(4),
                 tex_entry(5),
+                tex_entry(6),
             ],
         });
         let bgl_logo_fx = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -1301,6 +1339,29 @@ impl Renderer {
             ],
             immediate_size: 0,
         });
+        // A logo cutting its shadow out of the light behind it:
+        // picture × (1 - coverage).
+        let logo_shadow_pipe = make_pipeline(
+            device,
+            PipeDesc {
+                label: "logo shadow",
+                layout: &logo_layout,
+                module: &sh_logo,
+                fs: "fs_main",
+                buffers: &[],
+                format: HDR_FORMAT,
+                samples: 1,
+                depth: None,
+                blend: Some(wgpu::BlendState {
+                    color: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::Zero,
+                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                    alpha: wgpu::BlendComponent::OVER,
+                }),
+            },
+        );
         let logo_pipe = make_pipeline(
             device,
             PipeDesc {
@@ -1906,6 +1967,8 @@ impl Renderer {
             logo_pipe,
             logo_fx_bg,
             bgl_logo_fx,
+            logo_backdrop: Self::make_logo_backdrop(device, 1, 1),
+            logo_shadow_pipe,
             bgl_logo,
             logo_bgs: HashMap::new(),
             logos: HashMap::new(),
@@ -2229,7 +2292,7 @@ impl Renderer {
 
     /// The textures of a logo in one bind group (clamped: beyond the edge
     /// the shader extends the field itself).
-    fn logo_bind_group(&mut self, key: &(String, String, String)) {
+    fn logo_bind_group(&mut self, key: &LogoKey) {
         if self.logo_bgs.contains_key(key) {
             return;
         }
@@ -2265,9 +2328,283 @@ impl Renderer {
                         &self.textures[&far_key(&key.1)].view,
                     ),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::TextureView(&self.logo_backdrop.1),
+                },
             ],
         });
         self.logo_bgs.insert(key.clone(), bg);
+    }
+
+    /// The four blocks of a logo layer drawn at `ctx` with its anchor at
+    /// `at` (pixels from the bottom left of a `w` × `h` picture) and its
+    /// opacity times `fade`, the key of its textures' bind group and its
+    /// fit. `None` when there is nothing to draw.
+    #[allow(clippy::too_many_arguments)]
+    fn logo_blocks(
+        &mut self,
+        project: &Project,
+        g: &LogoLayer,
+        ctx: &EvalCtx,
+        at: Vec2,
+        w: u32,
+        h: u32,
+        flash: f32,
+        fade: f32,
+    ) -> Option<LogoDraw> {
+        let (tex, fit) = self.logo_texture(project, g)?;
+        let mut blk: Block = Zeroable::zeroed();
+        blk[0] = c4(g.color_top, g.glow.eval(ctx).max(0.0) * flash);
+        blk[1] = c4(g.color_bottom, g.outline.eval(ctx));
+        blk[2] = c4(g.outline_color, g.shadow.eval(ctx));
+        blk[3] = c4(g.tint, g.chrome.eval(ctx));
+        blk[4] = [
+            at.x / w as f32,
+            at.y / h as f32,
+            g.size.eval(ctx).max(0.0),
+            g.rotation.eval(ctx).to_radians(),
+        ];
+        let [ax, ay] = g.anchor.point();
+        blk[5] = [
+            ax,
+            ay,
+            fit.aspect,
+            g.opacity.eval(ctx).clamp(0.0, 1.0) * fade,
+        ];
+        blk[6] = [
+            fit.pad[0],
+            fit.pad[1],
+            fit.spread,
+            if g.colors == LogoColors::Gradient {
+                1.0
+            } else {
+                0.0
+            },
+        ];
+        blk[7] = [fit.width as f32, fit.height as f32, 0.0, 0.0];
+        // Lighting: bevel, light, material sphere, glint.
+        blk[8] = [
+            g.bevel.index() as f32,
+            g.bevel_width.eval(ctx).max(0.0) * 0.5,
+            g.bevel_depth.eval(ctx).max(0.0),
+            g.steps.max(1) as f32,
+        ];
+        let (la, lh) = (
+            g.light_angle.eval(ctx).to_radians(),
+            g.light_height.eval(ctx).clamp(0.0, 90.0).to_radians(),
+        );
+        blk[9] = [
+            la.cos() * lh.cos(),
+            la.sin() * lh.cos(),
+            lh.sin(),
+            g.lighting.eval(ctx).max(0.0),
+        ];
+        blk[10] = c4(g.light_color, g.shine.eval(ctx).max(0.0));
+        let has_matcap = g.matcap.as_deref().is_some_and(|m| !m.is_empty());
+        blk[11] = [
+            4.0 + g.gloss.clamp(0.0, 1.0).powi(2) * 124.0,
+            if has_matcap {
+                g.matcap_amount.eval(ctx).clamp(0.0, 1.0)
+            } else {
+                0.0
+            },
+            fit.max_field,
+            g.glint.eval(ctx).max(0.0),
+        ];
+        blk[12] = [
+            (ctx.phase * g.glint_cycles as f32).rem_euclid(1.0),
+            g.glint_width.max(0.005),
+            g.glint_angle.to_radians(),
+            0.0,
+        ];
+        blk[13] = c4(g.glint_color, 0.0);
+        blk[14] = [fit.far[0], fit.far[1], fit.far[2], 0.0];
+        blk[15] = [fit.far[3], fit.far[4], 0.0, 0.0];
+        let matcap = self.texture_key(project, g.matcap.as_deref());
+        // The logo it morphs into: the same layer made of the
+        // morph source.
+        let morph_t = g.morph.eval(ctx).clamp(0.0, 1.0);
+        let target = if g.morph.is_animated() || g.morph.base > 0.0 {
+            let other = LogoLayer {
+                source: g.morph_source,
+                text: g.morph_text.clone(),
+                image: g.morph_image.clone(),
+                ..g.clone()
+            };
+            self.logo_texture(project, &other)
+        } else {
+            None
+        };
+        let (morph, other) = match target {
+            Some((k, f)) => (k, f),
+            None => (tex.clone(), fit),
+        };
+        let morph_t = if morph == tex { 0.0 } else { morph_t };
+        let mut e: Block = Zeroable::zeroed();
+        e[0] = [
+            g.contours.eval(ctx).max(0.0),
+            g.contour_spacing.max(0.005),
+            (ctx.phase * g.contour_cycles as f32).rem_euclid(1.0),
+            g.contour_reach.max(0.01),
+        ];
+        e[1] = c4(g.contour_color, g.contour_width.clamp(0.01, 1.0));
+        let stack_w = g.stack_width.eval(ctx).max(0.0);
+        e[2] = [
+            g.stack.min(16) as f32,
+            stack_w,
+            g.stack_gap.max(0.0),
+            if g.contour_inside { 1.0 } else { 0.0 },
+        ];
+        e[3] = c4(g.stack_color_a, 0.0);
+        e[4] = c4(g.stack_color_b, 0.0);
+        let extrude = g.extrude.eval(ctx).clamp(0.0, 2.0);
+        e[5] = [extrude, g.extrude_angle.to_radians(), 0.0, 0.0];
+        e[6] = c4(g.extrude_color, 0.0);
+        e[7] = [
+            g.dissolve.eval(ctx).clamp(0.0, 1.0),
+            g.dissolve_scale.max(0.1),
+            g.dissolve_edges.clamp(0.0, 1.0),
+            g.burn_width.max(0.0),
+        ];
+        e[8] = c4(g.burn_color, (g.dissolve_seed % 997) as f32 * 3.7);
+        e[9] = [
+            g.reveal_amount.eval(ctx).clamp(0.0, 1.0),
+            g.reveal.index() as f32,
+            g.reveal_angle.to_radians(),
+            g.reveal_soft.max(0.0),
+        ];
+        e[10] = [morph_t, other.aspect, other.pad[0], other.pad[1]];
+        e[11] = [
+            other.spread,
+            other.width as f32,
+            other.height as f32,
+            other.max_field,
+        ];
+        // Room for what reaches past the padding (logo heights).
+        let mut margin: f32 = 0.0;
+        if g.contours.is_animated() || g.contours.base > 0.0 {
+            margin = margin.max(g.contour_reach.max(0.01) * 3.0);
+        }
+        if g.stack > 0 {
+            let w = g.stack_width.base.abs() + g.stack_width.amp.abs();
+            margin = margin.max(g.stack.min(16) as f32 * (w + g.stack_gap.max(0.0)));
+        }
+        margin = margin.max(g.extrude.base.abs() + g.extrude.amp.abs());
+        // Distortion moves the picture around.
+        let reach = |p: &Param| p.base.abs() + p.amp.abs();
+        margin += reach(&g.wobble_x).max(reach(&g.wobble_y))
+            + reach(&g.glitch)
+            + reach(&g.chroma)
+            + g.glitch_split.abs();
+        let wider = if morph_t > 0.0 {
+            (other.aspect - fit.aspect).max(0.0)
+        } else {
+            0.0
+        };
+        e[12] = [
+            fit.heights_per_field(),
+            other.heights_per_field(),
+            margin.min(2.0),
+            wider,
+        ];
+        e[13] = [
+            other.content_height() / fit.content_height().max(1.0),
+            0.0,
+            0.0,
+            0.0,
+        ];
+        e[14] = [other.far[0], other.far[1], other.far[2], 0.0];
+        e[15] = [other.far[3], other.far[4], 0.0, 0.0];
+        // Rasters and distortion.
+        let mut e2: Block = Zeroable::zeroed();
+        e2[0] = [
+            g.copper.eval(ctx).clamp(0.0, 1.0),
+            g.copper_bars.max(0.1),
+            (ctx.phase * g.copper_cycles as f32 * 2.0).rem_euclid(2.0),
+            0.0,
+        ];
+        e2[1] = c4(g.copper_a, 0.0);
+        e2[2] = c4(g.copper_b, 0.0);
+        e2[3] = [
+            g.wobble_x.eval(ctx),
+            g.wobble_y.eval(ctx),
+            g.wobble_waves,
+            (ctx.phase * g.wobble_cycles as f32).rem_euclid(1.0),
+        ];
+        let per_loop = g.glitch_per_loop.max(1);
+        e2[4] = [
+            g.glitch.eval(ctx).max(0.0),
+            g.glitch_slices.max(0.1),
+            g.glitch_chance.clamp(0.0, 1.0),
+            (((ctx.phase.rem_euclid(1.0) * per_loop as f32) as u32) % per_loop) as f32,
+        ];
+        e2[5] = [
+            g.chroma.eval(ctx).max(0.0),
+            g.chroma_angle.to_radians(),
+            g.glitch_split,
+            0.0,
+        ];
+        // Retro looks; the palette in a third block.
+        let mut e3: Block = Zeroable::zeroed();
+        let mut colors: Vec<[f32; 3]> = match g.palette {
+            Some(pal) => pal.colors_f32(),
+            None => Vec::new(),
+        };
+        colors.truncate(16);
+        let luma = |c: &[f32; 3]| 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+        if g.palette_by_brightness {
+            colors.sort_by(|a, b| luma(a).total_cmp(&luma(b)));
+        }
+        for (i, c) in colors.iter().enumerate() {
+            e3[i] = c4(*c, 0.0);
+        }
+        let count = match g.palette {
+            Some(PaletteId::Vga) => 216.0,
+            Some(_) => colors.len() as f32,
+            None => 0.0,
+        };
+        let shift = if colors.is_empty() {
+            0.0
+        } else {
+            let n = colors.len() as f32;
+            ((ctx.phase * g.palette_cycles as f32).rem_euclid(1.0) * n).floor() % n
+        };
+        e2[6] = [
+            g.pixelate.eval(ctx).max(0.0),
+            count,
+            g.dither.clamp(0.0, 1.0),
+            shift,
+        ];
+        e2[7] = [
+            if g.palette_by_brightness { 1.0 } else { 0.0 },
+            g.halftone.eval(ctx).clamp(0.0, 1.0),
+            g.halftone_size.max(0.002),
+            g.halftone_angle.to_radians(),
+        ];
+        e2[8] = [
+            g.scanlines.eval(ctx).clamp(0.0, 1.0),
+            g.scanline_count.max(1.0),
+            g.crt_mask.clamp(0.0, 1.0),
+            g.crt_glow.eval(ctx).max(0.0),
+        ];
+        e2[9] = [
+            g.moire.eval(ctx).clamp(0.0, 1.0),
+            g.moire_lines.max(1.0),
+            (ctx.phase * g.moire_cycles as f32).rem_euclid(1.0) * TAU,
+            0.0,
+        ];
+        // Glass.
+        e2[10] = [
+            g.glass.eval(ctx).clamp(0.0, 1.0),
+            g.refraction,
+            g.dispersion.clamp(0.0, 1.0),
+            0.0,
+        ];
+        e2[11] = c4(g.glass_tint, 0.0);
+        let key = (tex, morph, matcap);
+        self.logo_bind_group(&key);
+        Some(([blk, e, e2, e3], key, fit))
     }
 
     /// Where every logo layer's anchor sits on a `w` × `h` picture (pixels
@@ -2309,6 +2646,42 @@ impl Renderer {
             .into_iter()
             .map(|p| p.map(|p| [p.x / size[0].max(1.0), p.y / size[1].max(1.0)]))
             .collect()
+    }
+
+    fn make_logo_backdrop(
+        device: &wgpu::Device,
+        w: u32,
+        h: u32,
+    ) -> (wgpu::Texture, wgpu::TextureView, u32, u32) {
+        let t = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("logo backdrop"),
+            size: wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: HDR_FORMAT,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let v = t.create_view(&Default::default());
+        (t, v, w, h)
+    }
+
+    /// Grow the logo backdrop to hold a `w` × `h` picture.
+    fn ensure_logo_backdrop(&mut self, w: u32, h: u32) {
+        let (_, _, bw, bh) = self.logo_backdrop;
+        if bw >= w && bh >= h {
+            return;
+        }
+        self.logo_backdrop = Self::make_logo_backdrop(&self.device, w.max(bw), h.max(bh));
+        // The logos' bind groups hold the old one.
+        self.logo_bgs.clear();
     }
 
     /// A built-in or project image, decoded (with its retro look).
@@ -2921,6 +3294,17 @@ impl Renderer {
 
         // Logos placed against the screen or each other.
         let logo_places = self.place_logos(project, &layers, ctx, w as f32, h as f32);
+        let mut logo_rays: Vec<LogoRays> = Vec::new();
+        // Glass and shadow rays need the picture behind the logos: make
+        // room for it before the logos' bind groups are made.
+        let wants_backdrop = layers.iter().any(|l| {
+            matches!(&l.kind, LayerKind::Logo(g) if l.enabled
+                && (g.glass.is_animated() || g.glass.base > 0.0
+                    || (g.rays_shadow && (g.rays.is_animated() || g.rays.base > 0.0))))
+        });
+        if wants_backdrop {
+            self.ensure_logo_backdrop(w, h);
+        }
         for (li, layer) in layers.iter().enumerate().filter(|(_, l)| l.enabled) {
             // Blinking layers can be hidden right now; flashing ones glow more.
             let Some(flash) = layer.blink.eval(ctx.beat_phase) else {
@@ -3447,261 +3831,68 @@ impl Renderer {
                     blocks.push(blk);
                 }
                 LayerKind::Logo(g) => {
-                    let Some((tex, fit)) = self.logo_texture(project, g) else {
+                    let Some(at) = logo_places[li] else {
                         continue;
                     };
-                    ls.draws = 1;
-                    ls.triangles = 2;
-                    ls.load = 0.01;
-                    let mut blk: Block = Zeroable::zeroed();
-                    blk[0] = c4(g.color_top, g.glow.eval(ctx).max(0.0) * flash);
-                    blk[1] = c4(g.color_bottom, g.outline.eval(ctx));
-                    blk[2] = c4(g.outline_color, g.shadow.eval(ctx));
-                    blk[3] = c4(g.tint, g.chrome.eval(ctx));
-                    let at = logo_places[li].unwrap_or_default();
-                    blk[4] = [
-                        at.x / w as f32,
-                        at.y / h as f32,
-                        g.size.eval(ctx).max(0.0),
-                        g.rotation.eval(ctx).to_radians(),
-                    ];
-                    let [ax, ay] = g.anchor.point();
-                    blk[5] = [ax, ay, fit.aspect, g.opacity.eval(ctx).clamp(0.0, 1.0)];
-                    blk[6] = [
-                        fit.pad[0],
-                        fit.pad[1],
-                        fit.spread,
-                        if g.colors == LogoColors::Gradient {
-                            1.0
-                        } else {
-                            0.0
-                        },
-                    ];
-                    blk[7] = [fit.width as f32, fit.height as f32, 0.0, 0.0];
-                    // Lighting: bevel, light, material sphere, glint.
-                    blk[8] = [
-                        g.bevel.index() as f32,
-                        g.bevel_width.eval(ctx).max(0.0) * 0.5,
-                        g.bevel_depth.eval(ctx).max(0.0),
-                        g.steps.max(1) as f32,
-                    ];
-                    let (la, lh) = (
-                        g.light_angle.eval(ctx).to_radians(),
-                        g.light_height.eval(ctx).clamp(0.0, 90.0).to_radians(),
-                    );
-                    blk[9] = [
-                        la.cos() * lh.cos(),
-                        la.sin() * lh.cos(),
-                        lh.sin(),
-                        g.lighting.eval(ctx).max(0.0),
-                    ];
-                    blk[10] = c4(g.light_color, g.shine.eval(ctx).max(0.0));
-                    let has_matcap = g.matcap.as_deref().is_some_and(|m| !m.is_empty());
-                    blk[11] = [
-                        4.0 + g.gloss.clamp(0.0, 1.0).powi(2) * 124.0,
-                        if has_matcap {
-                            g.matcap_amount.eval(ctx).clamp(0.0, 1.0)
-                        } else {
-                            0.0
-                        },
-                        fit.max_field,
-                        g.glint.eval(ctx).max(0.0),
-                    ];
-                    blk[12] = [
-                        (ctx.phase * g.glint_cycles as f32).rem_euclid(1.0),
-                        g.glint_width.max(0.005),
-                        g.glint_angle.to_radians(),
-                        0.0,
-                    ];
-                    blk[13] = c4(g.glint_color, 0.0);
-                    blk[14] = [fit.far[0], fit.far[1], fit.far[2], 0.0];
-                    blk[15] = [fit.far[3], fit.far[4], 0.0, 0.0];
-                    let matcap = self.texture_key(project, g.matcap.as_deref());
-                    // The logo it morphs into: the same layer made of the
-                    // morph source.
-                    let morph_t = g.morph.eval(ctx).clamp(0.0, 1.0);
-                    let target = if g.morph.is_animated() || g.morph.base > 0.0 {
-                        let other = LogoLayer {
-                            source: g.morph_source,
-                            text: g.morph_text.clone(),
-                            image: g.morph_image.clone(),
-                            ..g.clone()
+                    // Echoes: the logo a moment ago, oldest first, fading;
+                    // then the logo now.
+                    let mut draws = Vec::new();
+                    for k in (1..=g.echoes.min(16)).rev() {
+                        let mut past = *ctx;
+                        let back = k as f32 * g.echo_spacing.max(0.0);
+                        past.phase = (ctx.phase - back).rem_euclid(1.0);
+                        past.beat_phase = (ctx.beat_phase - back).rem_euclid(1.0);
+                        let places = self.place_logos(project, &layers, &past, w as f32, h as f32);
+                        if let Some(then) = places[li] {
+                            let fade = g.echo_fade.clamp(0.0, 1.0).powi(k as i32);
+                            let d = self.logo_blocks(project, g, &past, then, w, h, flash, fade);
+                            draws.push((d, false));
+                        }
+                    }
+                    let now = self.logo_blocks(project, g, ctx, at, w, h, flash, 1.0);
+                    draws.push((now, true));
+                    ls.draws = draws.len() as u32;
+                    ls.triangles = 2 * draws.len() as u64;
+                    ls.load = 0.01 * draws.len() as f32;
+                    for (d, current) in draws {
+                        let Some((blks, (tex, morph, matcap), fit)) = d else {
+                            continue;
                         };
-                        self.logo_texture(project, &other)
-                    } else {
-                        None
-                    };
-                    let (morph, other) = match target {
-                        Some((k, f)) => (k, f),
-                        None => (tex.clone(), fit),
-                    };
-                    let morph_t = if morph == tex { 0.0 } else { morph_t };
-                    let mut e: Block = Zeroable::zeroed();
-                    e[0] = [
-                        g.contours.eval(ctx).max(0.0),
-                        g.contour_spacing.max(0.005),
-                        (ctx.phase * g.contour_cycles as f32).rem_euclid(1.0),
-                        g.contour_reach.max(0.01),
-                    ];
-                    e[1] = c4(g.contour_color, g.contour_width.clamp(0.01, 1.0));
-                    let stack_w = g.stack_width.eval(ctx).max(0.0);
-                    e[2] = [
-                        g.stack.min(16) as f32,
-                        stack_w,
-                        g.stack_gap.max(0.0),
-                        if g.contour_inside { 1.0 } else { 0.0 },
-                    ];
-                    e[3] = c4(g.stack_color_a, 0.0);
-                    e[4] = c4(g.stack_color_b, 0.0);
-                    let extrude = g.extrude.eval(ctx).clamp(0.0, 2.0);
-                    e[5] = [extrude, g.extrude_angle.to_radians(), 0.0, 0.0];
-                    e[6] = c4(g.extrude_color, 0.0);
-                    e[7] = [
-                        g.dissolve.eval(ctx).clamp(0.0, 1.0),
-                        g.dissolve_scale.max(0.1),
-                        g.dissolve_edges.clamp(0.0, 1.0),
-                        g.burn_width.max(0.0),
-                    ];
-                    e[8] = c4(g.burn_color, (g.dissolve_seed % 997) as f32 * 3.7);
-                    e[9] = [
-                        g.reveal_amount.eval(ctx).clamp(0.0, 1.0),
-                        g.reveal.index() as f32,
-                        g.reveal_angle.to_radians(),
-                        g.reveal_soft.max(0.0),
-                    ];
-                    e[10] = [morph_t, other.aspect, other.pad[0], other.pad[1]];
-                    e[11] = [
-                        other.spread,
-                        other.width as f32,
-                        other.height as f32,
-                        other.max_field,
-                    ];
-                    // Room for what reaches past the padding (logo heights).
-                    let mut margin: f32 = 0.0;
-                    if g.contours.is_animated() || g.contours.base > 0.0 {
-                        margin = margin.max(g.contour_reach.max(0.01) * 3.0);
+                        let slot = blocks.len() as u32;
+                        let glass = blks[2][10][0] > 0.0;
+                        let strength = g.rays.eval(ctx).max(0.0);
+                        if current && strength > 0.0 {
+                            // Rays stream from the middle of the logo.
+                            let lh = g.size.eval(ctx).max(0.0) * h as f32;
+                            let [ax, ay] = g.anchor.point();
+                            let local = (Vec2::splat(0.5) - Vec2::new(ax, ay))
+                                * Vec2::new(lh * fit.aspect, lh);
+                            let a = g.rotation.eval(ctx).to_radians();
+                            let c = at
+                                + Vec2::new(
+                                    local.x * a.cos() - local.y * a.sin(),
+                                    local.x * a.sin() + local.y * a.cos(),
+                                );
+                            logo_rays.push(LogoRays {
+                                slot,
+                                key: (tex.clone(), morph.clone(), matcap.clone()),
+                                centre: [c.x / w as f32, 1.0 - c.y / h as f32],
+                                strength,
+                                length: g.rays_length.clamp(0.0, 1.0),
+                                threshold: g.rays_threshold.max(0.0),
+                                tint: g.rays_tint,
+                                shadow: g.rays_shadow,
+                            });
+                        }
+                        cmds.push(Cmd::Logo {
+                            slot,
+                            tex,
+                            morph,
+                            matcap,
+                            glass,
+                        });
+                        blocks.extend(blks);
                     }
-                    if g.stack > 0 {
-                        let w = g.stack_width.base.abs() + g.stack_width.amp.abs();
-                        margin = margin.max(g.stack.min(16) as f32 * (w + g.stack_gap.max(0.0)));
-                    }
-                    margin = margin.max(g.extrude.base.abs() + g.extrude.amp.abs());
-                    // Distortion moves the picture around.
-                    let reach = |p: &Param| p.base.abs() + p.amp.abs();
-                    margin += reach(&g.wobble_x).max(reach(&g.wobble_y))
-                        + reach(&g.glitch)
-                        + reach(&g.chroma)
-                        + g.glitch_split.abs();
-                    let wider = if morph_t > 0.0 {
-                        (other.aspect - fit.aspect).max(0.0)
-                    } else {
-                        0.0
-                    };
-                    e[12] = [
-                        fit.heights_per_field(),
-                        other.heights_per_field(),
-                        margin.min(2.0),
-                        wider,
-                    ];
-                    e[13] = [
-                        other.content_height() / fit.content_height().max(1.0),
-                        0.0,
-                        0.0,
-                        0.0,
-                    ];
-                    e[14] = [other.far[0], other.far[1], other.far[2], 0.0];
-                    e[15] = [other.far[3], other.far[4], 0.0, 0.0];
-                    // Rasters and distortion.
-                    let mut e2: Block = Zeroable::zeroed();
-                    e2[0] = [
-                        g.copper.eval(ctx).clamp(0.0, 1.0),
-                        g.copper_bars.max(0.1),
-                        (ctx.phase * g.copper_cycles as f32 * 2.0).rem_euclid(2.0),
-                        0.0,
-                    ];
-                    e2[1] = c4(g.copper_a, 0.0);
-                    e2[2] = c4(g.copper_b, 0.0);
-                    e2[3] = [
-                        g.wobble_x.eval(ctx),
-                        g.wobble_y.eval(ctx),
-                        g.wobble_waves,
-                        (ctx.phase * g.wobble_cycles as f32).rem_euclid(1.0),
-                    ];
-                    let per_loop = g.glitch_per_loop.max(1);
-                    e2[4] = [
-                        g.glitch.eval(ctx).max(0.0),
-                        g.glitch_slices.max(0.1),
-                        g.glitch_chance.clamp(0.0, 1.0),
-                        (((ctx.phase.rem_euclid(1.0) * per_loop as f32) as u32) % per_loop) as f32,
-                    ];
-                    e2[5] = [
-                        g.chroma.eval(ctx).max(0.0),
-                        g.chroma_angle.to_radians(),
-                        g.glitch_split,
-                        0.0,
-                    ];
-                    // Retro looks; the palette in a third block.
-                    let mut e3: Block = Zeroable::zeroed();
-                    let mut colors: Vec<[f32; 3]> = match g.palette {
-                        Some(pal) => pal.colors_f32(),
-                        None => Vec::new(),
-                    };
-                    colors.truncate(16);
-                    let luma = |c: &[f32; 3]| 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
-                    if g.palette_by_brightness {
-                        colors.sort_by(|a, b| luma(a).total_cmp(&luma(b)));
-                    }
-                    for (i, c) in colors.iter().enumerate() {
-                        e3[i] = c4(*c, 0.0);
-                    }
-                    let count = match g.palette {
-                        Some(PaletteId::Vga) => 216.0,
-                        Some(_) => colors.len() as f32,
-                        None => 0.0,
-                    };
-                    let shift = if colors.is_empty() {
-                        0.0
-                    } else {
-                        let n = colors.len() as f32;
-                        ((ctx.phase * g.palette_cycles as f32).rem_euclid(1.0) * n).floor() % n
-                    };
-                    e2[6] = [
-                        g.pixelate.eval(ctx).max(0.0),
-                        count,
-                        g.dither.clamp(0.0, 1.0),
-                        shift,
-                    ];
-                    e2[7] = [
-                        if g.palette_by_brightness { 1.0 } else { 0.0 },
-                        g.halftone.eval(ctx).clamp(0.0, 1.0),
-                        g.halftone_size.max(0.002),
-                        g.halftone_angle.to_radians(),
-                    ];
-                    e2[8] = [
-                        g.scanlines.eval(ctx).clamp(0.0, 1.0),
-                        g.scanline_count.max(1.0),
-                        g.crt_mask.clamp(0.0, 1.0),
-                        g.crt_glow.eval(ctx).max(0.0),
-                    ];
-                    e2[9] = [
-                        g.moire.eval(ctx).clamp(0.0, 1.0),
-                        g.moire_lines.max(1.0),
-                        (ctx.phase * g.moire_cycles as f32).rem_euclid(1.0) * TAU,
-                        0.0,
-                    ];
-                    let key = (tex, morph, matcap);
-                    self.logo_bind_group(&key);
-                    let (tex, morph, matcap) = key;
-                    cmds.push(Cmd::Logo {
-                        slot: blocks.len() as u32,
-                        tex,
-                        morph,
-                        matcap,
-                    });
-                    blocks.push(blk);
-                    blocks.push(e);
-                    blocks.push(e2);
-                    blocks.push(e3);
                 }
                 LayerKind::Arcs(arc) => {
                     let lm = layer_matrix(&layer.transform, ctx);
@@ -4627,6 +4818,22 @@ impl Renderer {
             false,
         );
         // --- logos, on the picture before the glows and trails -------------------
+        let backdrop_needed = cmds
+            .iter()
+            .any(|c| matches!(c, Cmd::Logo { glass: true, .. }))
+            || logo_rays.iter().any(|r| r.shadow);
+        if backdrop_needed && self.logo_backdrop.2 >= w && self.logo_backdrop.3 >= h {
+            // The picture behind the logos, for glass and shadow rays.
+            enc.copy_texture_to_texture(
+                target.hdr2_tex.as_image_copy(),
+                self.logo_backdrop.0.as_image_copy(),
+                wgpu::Extent3d {
+                    width: w,
+                    height: h,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
         if cmds.iter().any(|c| matches!(c, Cmd::Logo { .. })) {
             let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("logos"),
@@ -4652,6 +4859,7 @@ impl Renderer {
                     tex,
                     morph,
                     matcap,
+                    ..
                 } = c
                 {
                     let key = (tex.clone(), morph.clone(), matcap.clone());
@@ -4661,6 +4869,83 @@ impl Renderer {
                     pass.draw(0..6, 0..1);
                 }
             }
+        }
+        // --- rays streaming from logos -----------------------------------------
+        for (k, ray) in logo_rays.iter().take(LOGO_RAYS_MAX).enumerate() {
+            let slot = SLOT_LOGO_RAYS + k as u32;
+            let mut p: PostBlock = Zeroable::zeroed();
+            p[0] = [ray.centre[0], ray.centre[1], 1.0, ray.strength];
+            p[1] = [ray.length, ray.threshold, w as f32 / h.max(1) as f32, 0.0];
+            // No falloff: the whole logo streams.
+            p[2] = c4(ray.tint, 0.0);
+            self.queue.write_buffer(
+                &self.post_buf,
+                slot as u64 * POST_SLOT,
+                bytemuck::bytes_of(&p),
+            );
+            // Source: the logo's light on black, or the picture behind it
+            // with the logo's shadow cut out.
+            if ray.shadow {
+                enc.copy_texture_to_texture(
+                    self.logo_backdrop.0.as_image_copy(),
+                    target.logo_src_tex.as_image_copy(),
+                    wgpu::Extent3d {
+                        width: w,
+                        height: h,
+                        depth_or_array_layers: 1,
+                    },
+                );
+            }
+            {
+                let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("logo rays source"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &target.logo_src,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: if ray.shadow {
+                                wgpu::LoadOp::Load
+                            } else {
+                                wgpu::LoadOp::Clear(wgpu::Color::BLACK)
+                            },
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                pass.set_pipeline(if ray.shadow {
+                    &self.logo_shadow_pipe
+                } else {
+                    &self.logo_pipe
+                });
+                pass.set_bind_group(0, &self.globals_bg[0], &[]);
+                pass.set_bind_group(1, &self.draw_bg, &[ray.slot * DRAW_SLOT as u32]);
+                pass.set_bind_group(2, &self.logo_bgs[&ray.key], &[]);
+                pass.set_bind_group(3, &self.logo_fx_bg, &[(ray.slot + 1) * DRAW_SLOT as u32]);
+                pass.draw(0..6, 0..1);
+            }
+            self.post_pass(
+                &mut enc,
+                "logo rays",
+                &self.rays_pipe,
+                &target.rays,
+                &target.bg_logo_rays,
+                slot,
+                false,
+            );
+            self.post_pass(
+                &mut enc,
+                "logo rays add",
+                &self.rays_add_pipe,
+                &target.hdr2,
+                &target.bg_rays_add,
+                SLOT_RAYS_ADD,
+                true,
+            );
         }
         if project.post.rays.enabled {
             self.post_pass(
@@ -5288,7 +5573,8 @@ impl Renderer {
                 target.width as f32 / target.height as f32,
                 gr.flare.eval(ctx).max(0.0),
             ];
-            slots[SLOT_RAYS as usize][2] = c4(gr.tint, 0.0);
+            // Rays gather near the sun (falloff).
+            slots[SLOT_RAYS as usize][2] = c4(gr.tint, 2.5);
         }
 
         let g = &post.grade;
@@ -5403,7 +5689,12 @@ impl Renderer {
             let v = t.create_view(&Default::default());
             (t, v)
         };
-        let (hdr2_tex, hdr2) = full_tex("hdr2", wgpu::TextureUsages::COPY_DST);
+        let (hdr2_tex, hdr2) = full_tex(
+            "hdr2",
+            wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC,
+        );
+        // Logo rays' source picture.
+        let (logo_src_tex, logo_src) = full_tex("logo rays source", wgpu::TextureUsages::COPY_DST);
         let fb = [
             full_tex("feedback a", wgpu::TextureUsages::COPY_SRC),
             full_tex("feedback b", wgpu::TextureUsages::COPY_SRC),
@@ -5530,6 +5821,7 @@ impl Renderer {
         let rays = tex("god rays", rw, rh, HDR_FORMAT, 1, sampled);
         let bg_rays = post_bg(&hdr2, &hdr2);
         let bg_rays_add = post_bg(&rays, &rays);
+        let bg_logo_rays = post_bg(&logo_src, &logo_src);
         RenderTarget {
             id: TARGET_IDS.fetch_add(1, Ordering::Relaxed),
             width: w,
@@ -5557,6 +5849,9 @@ impl Renderer {
             bg_low,
             bg_rays,
             bg_rays_add,
+            logo_src_tex,
+            logo_src,
+            bg_logo_rays,
             rays,
             dof_dist,
             dof_z,

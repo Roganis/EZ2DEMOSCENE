@@ -2042,3 +2042,98 @@ fn logo_retro_looks_show_and_loop() {
         assert!(changes > 0.3, "{name} doesn't show");
     }
 }
+
+/// Logos meeting the scene: glass bends what is behind it, rays stream
+/// out (the logo's light, or its shadow in the light behind), and echoes
+/// trail behind a moving logo; all loop.
+#[test]
+fn logos_meet_the_scene() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let target = r.create_target(320, 180);
+    let mut plain = presets::empty();
+    plain.post.grade.grain = Param::new(0.0);
+    plain.post.bloom.enabled = false;
+    // Something with detail behind the logo: a spinning cube.
+    let at = |p: &Project, phase: f32| EvalCtx::new(&p.timing, phase, None);
+    let with = |g: LogoLayer| {
+        let mut p = plain.clone();
+        p.layers.push(Layer::new("Logo", LayerKind::Logo(g)));
+        p
+    };
+    let base = LogoLayer {
+        text: "GLASS".into(),
+        size: Param::new(0.35),
+        ..Default::default()
+    };
+    let mut render = |p: &Project, phase: f32| r.render_image(p, &at(p, phase), &target);
+    let logo = render(&with(base.clone()), 0.3);
+    let empty = render(&plain, 0.3);
+    // Glass: not the plain logo, not an empty picture, and the bend shows.
+    let glass = |bend: f32| LogoLayer {
+        glass: Param::new(1.0),
+        refraction: bend,
+        bevel: LogoBevel::Round,
+        ..base.clone()
+    };
+    let g1 = render(&with(glass(0.15)), 0.3);
+    let g0 = render(&with(glass(0.0)), 0.3);
+    g1.save(snapshot_dir().join("logo_glass.png")).unwrap();
+    let vs_logo = mean_abs_diff(g1.as_raw(), logo.as_raw());
+    let bends = mean_abs_diff(g1.as_raw(), g0.as_raw());
+    eprintln!("glass: vs the logo {vs_logo:.2}, bending {bends:.2}");
+    assert!(vs_logo > 1.0, "glass looks like the plain logo");
+    assert!(bends > 0.05, "glass doesn't bend");
+    assert!(
+        mean_abs_diff(g0.as_raw(), empty.as_raw()) < mean_abs_diff(logo.as_raw(), empty.as_raw())
+    );
+    // Rays: light beyond the logo's quad, both kinds, and they loop.
+    let rays = |shadow: bool| LogoLayer {
+        rays: Param::new(1.5).osc(Wave::Sine, 0.5, 1),
+        rays_length: 0.6,
+        rays_shadow: shadow,
+        rays_threshold: if shadow { 0.05 } else { 0.0 },
+        glow: Param::new(2.0),
+        ..base.clone()
+    };
+    for (name, shadow) in [("rays", false), ("shadow_rays", true)] {
+        let p = with(rays(shadow));
+        let a = render(&p, 0.0);
+        let b = render(&p, 1.0);
+        let mid = render(&p, 0.3);
+        mid.save(snapshot_dir().join(format!("logo_{name}.png")))
+            .unwrap();
+        let seam = mean_abs_diff(a.as_raw(), b.as_raw());
+        let changes = mean_abs_diff(mid.as_raw(), logo.as_raw());
+        eprintln!("{name}: seam {seam:.3}, changes the picture {changes:.2}");
+        assert!(seam < 0.6, "{name} don't loop");
+        assert!(changes > 0.3, "{name} don't show");
+    }
+    // Echoes trail a sliding logo.
+    let slide = LogoLayer {
+        x: Param::new(0.5).osc(Wave::Sine, 0.3, 1),
+        ..base.clone()
+    };
+    let solo = render(&with(slide.clone()), 0.3);
+    let p = with(LogoLayer {
+        echoes: 4,
+        echo_spacing: 0.03,
+        ..slide
+    });
+    let a = render(&p, 0.0);
+    let b = render(&p, 1.0);
+    let mid = render(&p, 0.3);
+    mid.save(snapshot_dir().join("logo_echoes.png")).unwrap();
+    let seam = mean_abs_diff(a.as_raw(), b.as_raw());
+    let trail = mean_abs_diff(mid.as_raw(), solo.as_raw());
+    eprintln!("echoes: seam {seam:.3}, trail {trail:.2}");
+    assert!(seam < 0.6, "echoes don't loop");
+    assert!(trail > 0.3, "no trail");
+}

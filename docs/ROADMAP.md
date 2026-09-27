@@ -664,7 +664,7 @@ count per logo height; phosphor stripes are per screen pixel. The
 palette (16 colours) needed a third block of logo settings. Tested:
 every look shows, moves and loops. Preset: C64 Title.
 
-### ☐ 9.6 Logo meets scene
+### ☑ 9.6 Logo meets scene
 **How.**
 - **Glass logo / lens:** copy the scene target before the logo draws and
   sample it offset by the SDF normal (refraction, with optional chromatic
@@ -675,6 +675,27 @@ every look shows, moves and loops. Preset: C64 Title.
 - **Echo trails:** a few past copies of the logo's transform drawn with
   fading alpha. Past states are the layer at earlier phases, so they
   are exact and loop without a history buffer.
+
+**Done.**
+- **Glass:** when a logo has glass (or shadow rays), the picture after
+  depth of field is copied to a backdrop texture (kept by the renderer,
+  as big as the largest target) just before the logo pass. The letters
+  sample it at their pixel, moved by the surface's tilt (the bevel's
+  normal, or a rounded edge's without a bevel) times the bend in logo
+  heights; red and blue bend more and less for dispersion; a rim where
+  the tilt is steepest keeps glass letters readable over dark scenes.
+- **Rays:** after the logos, each logo with rays (up to four) is drawn
+  on its own into a full-size source picture, black around it, or, for
+  shadow rays, onto the backdrop with a blend that multiplies by one
+  minus its coverage. The god-ray shader then runs from the logo's
+  middle with no falloff (the sun's rays keep theirs, now a parameter)
+  and is added to the picture.
+- **Echoes:** the logo's blocks are built by one function at any phase;
+  each echo is the layer at `phase − k × spacing` (placement and
+  attachments included), drawn oldest first with its opacity times
+  fade^k. Pure functions of the phase, so they loop.
+Tested: glass differs from a plain logo and bends; both kinds of rays
+show and loop; echoes trail a moving logo and loop. Preset: Glass Galaxy.
 
 ---
 

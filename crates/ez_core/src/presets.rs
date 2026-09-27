@@ -175,6 +175,11 @@ pub fn all() -> Vec<Preset> {
             project: c64_title(),
         },
         Preset {
+            name: "Glass Galaxy",
+            description: "Galaxy Swarm behind a glass logo that bends the stars, casting shadow rays through their light, with echoes as it sways.",
+            project: glass_galaxy(),
+        },
+        Preset {
             name: "Empty",
             description: "A blank stage with a floor and a sky.",
             project: empty(),
@@ -923,6 +928,41 @@ pub fn c64_title() -> Project {
             scanline_count: 24.0,
             crt_glow: Param::new(0.4),
             shadow: Param::new(0.8),
+            ..Default::default()
+        }),
+    ));
+    p
+}
+
+/// A logo meeting the scene over Galaxy Swarm: glass letters bending the
+/// swarm, shadow rays through its light and echoes of a gentle sway.
+pub fn glass_galaxy() -> Project {
+    let mut p = galaxy_swarm();
+    p.name = "Glass Galaxy".into();
+    p.layers.push(Layer::new(
+        "Logo",
+        LayerKind::Logo(LogoLayer {
+            text: "GALAXY".into(),
+            font: TextFont::Sans,
+            attach_point: LogoAnchor::Centre,
+            x: Param::new(0.0).osc(Wave::Sine, 0.04, 1),
+            y: Param::new(0.0).osc(Wave::Sine, 0.03, 2),
+            size: Param::new(0.24),
+            bevel: LogoBevel::Round,
+            bevel_width: Param::new(0.8),
+            shine: Param::new(1.2),
+            glass: Param::new(1.0),
+            refraction: 0.12,
+            dispersion: 0.35,
+            glass_tint: hex(0xd8ecff),
+            rays: Param::new(1.2),
+            rays_shadow: true,
+            rays_threshold: 0.3,
+            rays_length: 0.7,
+            rays_tint: hex(0xbfd8ff),
+            echoes: 3,
+            echo_spacing: 0.015,
+            echo_fade: 0.5,
             ..Default::default()
         }),
     ));
