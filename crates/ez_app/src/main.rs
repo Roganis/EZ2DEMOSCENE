@@ -8,6 +8,8 @@ mod cli;
 #[cfg_attr(target_arch = "wasm32", path = "export_web.rs")]
 mod export_ui;
 mod gizmo;
+#[cfg(not(target_arch = "wasm32"))]
+mod gpu_choice;
 mod inspector;
 #[cfg_attr(target_arch = "wasm32", path = "library_web.rs")]
 mod library;
@@ -51,12 +53,37 @@ fn main() -> anyhow::Result<()> {
         ..Default::default()
     };
     fit_device_to_adapter(&mut options.wgpu_options.wgpu_setup);
-    eframe::run_native(
+    if let egui_wgpu::WgpuSetup::CreateNew(setup) = &mut options.wgpu_options.wgpu_setup {
+        setup.instance_descriptor.backends = gpu_choice::choose();
+    }
+    gpu_choice::watchdog(args.clone());
+    let result = eframe::run_native(
         "EZ2DEMOSCENE",
         options,
         Box::new(move |cc| Ok(Box::new(app::EzApp::new(cc, initial)))),
-    )
-    .map_err(|e| anyhow::anyhow!("{e}"))
+    );
+    if let Err(e) = result {
+        // The automatic backend failed with an error (not a crash): start
+        // again, which moves on to the next backend, once per backend.
+        let retries: usize = std::env::var("EZ2_GPU_RETRY")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0);
+        if gpu_choice::trying() && retries + 1 < gpu_choice::Backend::available().len() {
+            eprintln!("Graphics start-up failed ({e}); trying another backend…");
+            if let Ok(exe) = std::env::current_exe() {
+                let status = std::process::Command::new(exe)
+                    .args(&args)
+                    .env("EZ2_GPU_RETRY", (retries + 1).to_string())
+                    .status();
+                if let Ok(s) = status {
+                    std::process::exit(s.code().unwrap_or(1));
+                }
+            }
+        }
+        return Err(anyhow::anyhow!("{e}"));
+    }
+    Ok(())
 }
 
 /// Browser entry point: runs the editor on the page's `<canvas id="ez2_canvas">`.

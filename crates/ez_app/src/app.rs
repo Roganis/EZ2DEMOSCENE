@@ -132,6 +132,14 @@ pub struct EzApp {
     scroll_to_field: Option<egui::Rect>,
     /// Screen height last frame (the on-screen keyboard shrinks it).
     last_screen_h: f32,
+    /// Frames drawn since start (the desktop app notes a working graphics
+    /// backend once a few have been drawn).
+    frames_drawn: u32,
+    /// Desktop graphics backend chosen in the Graphics window.
+    #[cfg(not(target_arch = "wasm32"))]
+    native_backend: crate::gpu_choice::Backend,
+    #[cfg(not(target_arch = "wasm32"))]
+    native_backend_started: crate::gpu_choice::Backend,
     /// Smoothed frame time in milliseconds.
     frame_ms: f32,
 }
@@ -217,6 +225,11 @@ impl EzApp {
             last_ime: None,
             scroll_to_field: None,
             last_screen_h: 0.0,
+            frames_drawn: 0,
+            #[cfg(not(target_arch = "wasm32"))]
+            native_backend: crate::gpu_choice::load_pref(),
+            #[cfg(not(target_arch = "wasm32"))]
+            native_backend_started: crate::gpu_choice::load_pref(),
             frame_ms: 16.0,
         };
         match initial {
@@ -2261,6 +2274,25 @@ impl EzApp {
                     ctx.copy_text(text.join("\n"));
                     self.set_status("Graphics details copied", false);
                 }
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    use crate::gpu_choice::Backend as B;
+                    ui.separator();
+                    ui.label(RichText::new("Graphics backend").strong());
+                    ui.label("If the app crashes, hangs or glitches, try another backend. Automatic moves on by itself when one fails to start.");
+                    let before = self.native_backend;
+                    ui.horizontal_wrapped(|ui| {
+                        for b in std::iter::once(B::Auto).chain(B::available().iter().copied()) {
+                            ui.selectable_value(&mut self.native_backend, b, b.label());
+                        }
+                    });
+                    if self.native_backend != before {
+                        crate::gpu_choice::save_pref(self.native_backend);
+                    }
+                    if self.native_backend != self.native_backend_started {
+                        ui.label(RichText::new("Used from the next start").color(Color32::LIGHT_YELLOW));
+                    }
+                }
                 if platform::IS_WEB {
                     ui.separator();
                     ui.label(RichText::new("Graphics backend").strong());
@@ -2373,6 +2405,30 @@ impl eframe::App for EzApp {
         self.now = ctx.input(|i| i.time);
         let raw_dt = ctx.input(|i| i.unstable_dt) * 1000.0;
         self.frame_ms += (raw_dt.clamp(0.0, 1000.0) - self.frame_ms) * 0.1;
+        self.frames_drawn = self.frames_drawn.saturating_add(1);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if self.frames_drawn == 1 {
+                log::info!("first frame");
+                if let Some(b) = crate::gpu_choice::failed_last_time() {
+                    self.set_status(
+                        format!(
+                            "{} did not start last time: now using {}. Change it in Graphics.",
+                            b.label(),
+                            self.viewport.adapter_info().backend
+                        ),
+                        true,
+                    );
+                }
+            }
+            if self.frames_drawn == 10 {
+                log::info!(
+                    "graphics started: {:?}",
+                    self.viewport.adapter_info().backend
+                );
+                crate::gpu_choice::started_ok();
+            }
+        }
         self.project.sync_sequence_length();
         if self.music_key != self.music_key() {
             self.reload_audio();

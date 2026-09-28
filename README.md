@@ -208,6 +208,9 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   - Newest build of `main`: the [`desktop-latest`](https://github.com/roganis/ez2demoscene/releases/tag/desktop-latest) prerelease.
   - Tagged releases (`v*`) attach the same archives.
   - The Windows and Linux archives include ffmpeg. On macOS, run `brew install ffmpeg`.
+  - If the app crashes or hangs at start, it tries another graphics backend on
+    the next start (DirectX 12, then OpenGL, then Vulkan on Windows). You can also
+    pick one in **Graphics**, or set `WGPU_BACKEND=gl` (or `dx12`, `vulkan`).
 
 ## Getting started
 

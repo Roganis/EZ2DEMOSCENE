@@ -78,6 +78,22 @@ jobs:
           Expand-Archive ff.zip -DestinationPath ff
           $bin = Get-ChildItem -Recurse -Filter ffmpeg.exe ff | Select-Object -First 1
           Copy-Item $bin.FullName "dist/EZ2DEMOSCENE-${{ matrix.name }}/"
+      # DirectX 12 shader compiler. Without it wgpu falls back to FXC, which
+      # can take practically forever on the raymarch shaders. wgpu loads
+      # dxcompiler.dll from the app folder.
+      - name: Bundle DXC (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download --repo microsoft/DirectXShaderCompiler --pattern 'dxc_*.zip' --dir dxc
+          ZIP=$(ls dxc/dxc_*.zip | grep -vi pdb | head -n1)
+          7z x "$ZIP" -odxc/x > /dev/null
+          D=dist/EZ2DEMOSCENE-${{ matrix.name }}
+          cp dxc/x/bin/x64/dxcompiler.dll dxc/x/bin/x64/dxil.dll "$D/"
+          cp dxc/x/LICENSE-MIT.txt "$D/DXC_LICENSE.txt" 2>/dev/null || cp dxc/x/LICENSE* "$D/" 2>/dev/null || true
       - name: macOS note
         if: runner.os == 'macOS'
         run: echo "For video export on macOS install ffmpeg with 'brew install ffmpeg'." > dist/EZ2DEMOSCENE-${{ matrix.name }}/FFMPEG.txt
