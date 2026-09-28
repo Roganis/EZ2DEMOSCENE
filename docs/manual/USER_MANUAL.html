@@ -882,7 +882,7 @@ Click it to open the animation panel:</p>
 <p>Pick <span class="ui">Envelope</span> and the graph becomes an editor for one cycle (with ♩ <b>once per loop</b>, the whole
 loop's timeline; with <b>every bar</b>, one bar that repeats):</p>
 <ul>
-  <li><b>Click</b> an empty spot to add a point (up to 16). Points snap to quarter beats; hold <kbd>Shift</kbd> to place them freely.</li>
+  <li><b>Click</b> an empty spot to add a point (up to 64). Points snap to the grid; hold <kbd>Shift</kbd> to place them freely.</li>
   <li><b>Drag</b> a point to move it in time and height.</li>
   <li><b>Right-click</b> a point (long press on a touch screen) to choose how it goes on to the next point: <b>Straight</b>,
   <b>Smooth</b>, <b>Ease in</b>, <b>Ease out</b> or <b>Hold, then jump</b>, or to <b>delete</b> it. <b>Double-click</b> also deletes.</li>
@@ -891,6 +891,21 @@ loop's timeline; with <b>every bar</b>, one bar that repeats):</p>
 </ul>
 <figure><img src="img/envelope.jpg"><figcaption>An envelope on Metallic: a rise, a hold, a peak and a slow fall over the loop.
 The labels are the real values at the bottom and top.</figcaption></figure>
+<h3>Drawing shapes</h3>
+<p>The buttons under the editor pick a tool. The arrow edits points as above. The others draw a shape into the cells of the grid,
+from the bottom up to the height of the pointer: click a cell, or drag across several to fill them all.</p>
+<ul>
+  <li><b>Step</b>: flat across the cell.</li>
+  <li><b>Square</b>: high for the first half of the cell, then low.</li>
+  <li><b>Ramp up</b>: rises across the cell, then drops.</li>
+  <li><b>Ramp down</b>: jumps up, then falls across the cell.</li>
+  <li><b>Triangle</b>: up and back down.</li>
+</ul>
+<p>The number next to the tools sets the grid: <b>4, 8, 16 or 32 steps</b> in one cycle. With ♩ <b>once per loop</b> on a 16-beat loop,
+16 steps is one per beat. Only the cell you draw in changes; the rest of the envelope stays as it was, with a jump at each edge
+where needed. Right-click an empty spot for <b>Clear</b> (flat at the bottom) to start again.</p>
+<figure><img src="img/envelope-tools.jpg"><figcaption>Drawn with the tools on a 16-step grid: steps, ramps up, squares, a
+triangle and ramps down.</figcaption></figure>
 <p>Almost every number can be animated this way, including <b>post effects</b> (bloom threshold, pixel size, dither, CRT scanlines and
 curvature, contrast, saturation, vignette, grain, beat flash, kaleidoscope angle), materials (metallic, roughness, rim light, tiling),
 light, camera swing and shake, particle speed and area, mirror reflectivity and blur, laser spread, length, width and sweep, terrain

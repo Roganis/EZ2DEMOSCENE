@@ -276,7 +276,7 @@ pub struct Envelope {
 }
 
 impl Envelope {
-    pub const MAX: usize = 16;
+    pub const MAX: usize = 64;
 
     /// A rise to the top halfway through the cycle and a fall back.
     pub const DEFAULT: Envelope = {
@@ -347,6 +347,163 @@ impl Envelope {
             return b.v;
         }
         a.v + (b.v - a.v) * a.curve.shape((x - ta) / len)
+    }
+}
+
+/// A shape drawn into one cell of the envelope's grid (the editor's shape
+/// tools), from the bottom up to a height.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stamp {
+    /// Flat across the cell.
+    Step,
+    /// High for the first half, low for the second.
+    Square,
+    /// Rises across the cell, then drops.
+    RampUp,
+    /// Jumps up, then falls across the cell.
+    RampDown,
+    /// Up and back down.
+    Triangle,
+}
+
+impl Stamp {
+    pub const ALL: [Stamp; 5] = [
+        Stamp::Step,
+        Stamp::Square,
+        Stamp::RampUp,
+        Stamp::RampDown,
+        Stamp::Triangle,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Stamp::Step => "Step: flat at the height you click",
+            Stamp::Square => "Square: high, then low",
+            Stamp::RampUp => "Ramp up: rises, then drops",
+            Stamp::RampDown => "Ramp down: jumps up, then falls",
+            Stamp::Triangle => "Triangle: up and down",
+        }
+    }
+
+    /// The shape in a unit cell at height 1: its points (t, v, curve on to
+    /// the next), and the value it arrives at by the end of the cell.
+    pub fn outline(self) -> (&'static [(f32, f32, Curve)], f32) {
+        match self {
+            Stamp::Step => (&[(0.0, 1.0, Curve::Hold)], 1.0),
+            Stamp::Square => (&[(0.0, 1.0, Curve::Hold), (0.5, 0.0, Curve::Hold)], 0.0),
+            Stamp::RampUp => (&[(0.0, 0.0, Curve::Linear)], 1.0),
+            Stamp::RampDown => (&[(0.0, 1.0, Curve::Linear)], 0.0),
+            Stamp::Triangle => (&[(0.0, 0.0, Curve::Linear), (0.5, 1.0, Curve::Linear)], 0.0),
+        }
+    }
+}
+
+impl Envelope {
+    /// The value just before `f` (a jump at `f` not taken yet).
+    fn eval_before(&self, f: f32) -> f32 {
+        let pts = self.points();
+        let n = pts.len();
+        match n {
+            0 => return 0.0,
+            1 => return pts[0].v,
+            _ => {}
+        }
+        let i = pts.iter().rposition(|p| p.t < f).unwrap_or(n - 1);
+        let a = pts[i];
+        let b = pts[(i + 1) % n];
+        let (ta, mut tb, mut x) = (a.t, b.t, f);
+        if i + 1 >= n {
+            tb += 1.0;
+            if x <= ta {
+                x += 1.0;
+            }
+        }
+        let len = tb - ta;
+        if len <= 1e-6 {
+            return b.v;
+        }
+        a.v + (b.v - a.v) * a.curve.shape((x - ta) / len)
+    }
+
+    /// This envelope with `shape` drawn into `t0..t1` (0 ≤ t0 < t1 ≤ 1),
+    /// from 0 up to `height`, replacing what was there and leaving the
+    /// rest as it was (a jump at each end where needed). `None` when it
+    /// would need more than [`Self::MAX`] points.
+    pub fn stamp(&self, t0: f32, t1: f32, shape: Stamp, height: f32) -> Option<Envelope> {
+        let t0 = t0.clamp(0.0, 1.0);
+        let t1 = t1.clamp(t0, 1.0);
+        if t1 - t0 < 1e-6 {
+            return Some(*self);
+        }
+        let h = height.clamp(0.0, 1.0);
+        let pts = self.points();
+        let same = |a: f32, b: f32| (a - b).abs() < 1e-6;
+        let at_end = t1 >= 1.0 - 1e-6;
+        // Where the cell starts from, and what follows it.
+        let before = self.eval_before(if t0 <= 0.0 { 1.0 } else { t0 });
+        let after = self.eval(if at_end { 0.0 } else { t1 });
+        // The curve of the segment crossing t1, kept for what follows.
+        let cross = pts
+            .iter()
+            .rev()
+            .find(|p| at_end || p.t <= t1)
+            .or(pts.last())
+            .map_or(Curve::Linear, |p| p.curve);
+        let (outline, end) = shape.outline();
+        let first = outline[0].1 * h;
+        let last_hold = outline[outline.len() - 1].2 == Curve::Hold;
+        let end = end * h;
+
+        let mut out: Vec<EnvPoint> = Vec::new();
+        out.extend(pts.iter().filter(|p| p.t < t0 - 1e-6));
+        // A jump into the cell (not needed after a hold: it jumps anyway).
+        let held = |q: Option<&EnvPoint>| q.is_some_and(|q| q.curve == Curve::Hold);
+        if t0 > 0.0 && !same(before, first) && !held(out.last()) {
+            out.push(EnvPoint::new(t0, before, Curve::Linear));
+        }
+        for &(u, v, c) in outline {
+            out.push(EnvPoint::new(t0 + (t1 - t0) * u, v * h, c));
+        }
+        // What was at t1: keep its last point (the one it leaves from).
+        let rest: Vec<EnvPoint> = pts.iter().copied().filter(|p| p.t > t1 - 1e-6).collect();
+        let departs = if at_end {
+            None
+        } else {
+            rest.iter().rev().find(|p| same(p.t, t1)).copied()
+        };
+        let depart = match departs {
+            Some(p) => p,
+            // Round the end: the loop goes on from the start, which is
+            // this shape when it starts there.
+            None if at_end && t0 <= 0.0 => EnvPoint::new(1.0, first, cross),
+            None => EnvPoint::new(t1, after, cross),
+        };
+        if !last_hold && !same(end, depart.v) {
+            out.push(EnvPoint::new(t1, end, Curve::Linear));
+        }
+        if at_end {
+            // The loop goes on from the point at 0: make sure there is one.
+            if t0 > 0.0 && !out.iter().any(|p| p.t <= 1e-6) {
+                out.insert(0, EnvPoint::new(0.0, after, cross));
+            }
+        } else {
+            out.push(depart);
+            out.extend(rest.iter().filter(|p| p.t > t1 + 1e-6));
+            // Drawn from the start: the cycle's end arrives where it was.
+            if t0 <= 0.0
+                && !pts.iter().any(|p| same(p.t, 1.0))
+                && !same(before, first)
+                && !held(out.last())
+            {
+                out.push(EnvPoint::new(1.0, before, Curve::Linear));
+            }
+        }
+        if out.len() > Self::MAX {
+            return None;
+        }
+        let mut e = *self;
+        e.set(&out);
+        Some(e)
     }
 }
 
@@ -730,8 +887,8 @@ mod tests {
         assert_eq!(e.points()[0], EnvPoint::new(0.0, 0.5, Curve::Smooth));
         assert_eq!(e.points()[1], EnvPoint::new(0.8, 1.0, Curve::Linear));
         // More than MAX points are cut.
-        let many: Vec<EnvPoint> = (0..40)
-            .map(|i| EnvPoint::new(i as f32 / 40.0, 0.5, Curve::Linear))
+        let many: Vec<EnvPoint> = (0..100)
+            .map(|i| EnvPoint::new(i as f32 / 100.0, 0.5, Curve::Linear))
             .collect();
         e.set(&many);
         assert_eq!(e.points().len(), Envelope::MAX);
@@ -760,6 +917,103 @@ mod tests {
         // Other params don't save the default envelope.
         let json = serde_json::to_string(&Param::new(1.0).osc(Wave::Sine, 1.0, 1)).unwrap();
         assert!(!json.contains("env"), "{json}");
+    }
+
+    /// What a stamp should look like at `u` (0..1) through its cell.
+    fn ideal(shape: Stamp, u: f32, h: f32) -> f32 {
+        h * match shape {
+            Stamp::Step => 1.0,
+            Stamp::Square => (u < 0.5) as u8 as f32,
+            Stamp::RampUp => u,
+            Stamp::RampDown => 1.0 - u,
+            Stamp::Triangle => 1.0 - (2.0 * u - 1.0).abs(),
+        }
+    }
+
+    #[test]
+    fn stamps_draw_their_shape_and_leave_the_rest() {
+        // A small deterministic random walk over envelopes and stamps.
+        let mut seed = 12345u32;
+        let mut rnd = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            (seed % 10000) as f32 / 10000.0
+        };
+        let curves = Curve::ALL;
+        for round in 0..300 {
+            let n = 1 + (rnd() * 6.0) as usize;
+            let mut pts: Vec<EnvPoint> = (0..n)
+                .map(|_| {
+                    let c = curves[(rnd() * 5.0) as usize % 5];
+                    EnvPoint::new((rnd() * 8.0).floor() / 8.0, rnd(), c)
+                })
+                .collect();
+            if round % 3 == 0 {
+                pts.push(EnvPoint::new(1.0, rnd(), Curve::Linear));
+            }
+            // Straight and held segments cut at a cell's edge keep their
+            // shape exactly; curved ones keep their ends.
+            let exact = round % 2 == 0;
+            if exact {
+                for p in &mut pts {
+                    if !matches!(p.curve, Curve::Linear | Curve::Hold) {
+                        p.curve = Curve::Linear;
+                    }
+                }
+            }
+            let mut e = Envelope::from_points(&pts);
+            for _ in 0..4 {
+                let div = [4, 8, 16][(rnd() * 3.0) as usize % 3];
+                let k = (rnd() * div as f32) as usize % div;
+                let (t0, t1) = (k as f32 / div as f32, (k + 1) as f32 / div as f32);
+                let shape = Stamp::ALL[(rnd() * 5.0) as usize % 5];
+                let h = rnd();
+                let Some(s) = e.stamp(t0, t1, shape, h) else {
+                    continue;
+                };
+                for i in 0..=400 {
+                    let f = i as f32 / 400.0;
+                    let m = 2e-3;
+                    let got = s.eval(f);
+                    if f > t0 + m && f < t1 - m {
+                        let u = (f - t0) / (t1 - t0);
+                        if shape == Stamp::Square && (u - 0.5).abs() < 0.02 {
+                            continue;
+                        }
+                        let want = ideal(shape, u, h);
+                        assert!(
+                            (got - want).abs() < 1e-3,
+                            "{shape:?} {t0}..{t1} h {h} at {f}: {got} vs {want}\n{:?}\n{:?}",
+                            e.points(),
+                            s.points()
+                        );
+                    } else if exact
+                        && (f < t0 - m || f > t1 + m)
+                        && !(t1 >= 1.0 && f < m)
+                        && !(t0 <= 0.0 && f > 1.0 - m)
+                    {
+                        let want = e.eval(f);
+                        assert!(
+                            (got - want).abs() < 1e-3,
+                            "{shape:?} {t0}..{t1} changed {f}: {got} vs {want}\n{:?}\n{:?}",
+                            e.points(),
+                            s.points()
+                        );
+                    }
+                }
+                e = s;
+            }
+        }
+        // A square in every sixteenth fits, and so does a mix.
+        let mut e = Envelope::from_points(&[EnvPoint::new(0.0, 0.0, Curve::Linear)]);
+        for k in 0..16 {
+            let shape = Stamp::ALL[k % 5];
+            e = e
+                .stamp(k as f32 / 16.0, (k + 1) as f32 / 16.0, shape, 0.8)
+                .unwrap();
+        }
+        assert!(e.points().len() <= Envelope::MAX, "{}", e.points().len());
     }
 
     #[test]
