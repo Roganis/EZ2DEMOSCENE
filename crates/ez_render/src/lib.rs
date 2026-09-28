@@ -13,6 +13,6 @@ pub mod texgen;
 pub mod text;
 
 pub use renderer::{
-    supported_msaa, FrameStats, LayerStats, Readback, RenderTarget, Renderer, HDR_FORMAT,
-    OUTPUT_FORMAT,
+    supported_msaa, FrameStats, LayerStats, Readback, RenderTarget, Renderer, DISPLAY_FORMAT,
+    HDR_FORMAT, OUTPUT_FORMAT,
 };

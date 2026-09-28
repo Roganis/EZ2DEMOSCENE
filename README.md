@@ -31,8 +31,10 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     LED textures.
   - Shapes: 25 built-ins (platonic solids, crystals, shards, beveled tech
     panels, neon ring bands, tori, torus knots, springs, gears, stars,
-    gems, hearts, a Möbius strip, a Menger sponge…) and your own
-    **glTF/GLB/OBJ** models.
+    gems, hearts, a Möbius strip, a Menger sponge…), a **library of about
+    1,000 low-poly models** (spaceships, vehicles, trees, food, buildings,
+    characters… by Kenney, CC0) picked from tiles with previews, and your
+    own **glTF/GLB/OBJ** models.
   - Copies (instancing): grid, radial, scatter, orbit swarm, curved wall,
     spiral. Each has random tilt, size and hue, plus *size waves* and
     *light chases* that travel across the copies.
@@ -208,6 +210,9 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   - Newest build of `main`: the [`desktop-latest`](https://github.com/roganis/ez2demoscene/releases/tag/desktop-latest) prerelease.
   - Tagged releases (`v*`) attach the same archives.
   - The Windows and Linux archives include ffmpeg. On macOS, run `brew install ffmpeg`.
+  - If the app crashes or hangs at start, it tries another graphics backend on
+    the next start (DirectX 12, then OpenGL, then Vulkan on Windows). You can also
+    pick one in **Graphics**, or set `WGPU_BACKEND=gl` (or `dx12`, `vulkan`).
 
 ## Getting started
 
@@ -261,6 +266,7 @@ ez2demoscene --write-textures assets/textures
 | Crate | What it does |
 |---|---|
 | `crates/ez_core` | Scene model (serde), loop clock, animatable `Param`s, camera/instancing/symmetry math, presets, randomizer, node graph compiler. No GPU dependencies. |
+| `tools/model_library.py` | Builds `assets/models/library.zip`, the bundled model library, from Kenney's CC0 packs. |
 | `crates/ez_render` | wgpu renderer: procedural meshes, glTF/OBJ import, texture generator, WGSL shaders (SDF backdrops, lit instanced meshes, analytic particles, mirror floor, bloom, kaleido, retro post). |
 | `crates/ez_export` | Offline loop rendering to PNG / ffmpeg (MP4, WebM, GIF), plus the audio envelope analysis. |
 | `crates/ez_app` | The egui editor (`ez2demoscene` binary) and the CLI. On wasm it swaps in `library_web.rs` (IndexedDB), `audio_web.rs` (HTML audio) and `export_web.rs` (WebCodecs/GIF/PNG zip). |

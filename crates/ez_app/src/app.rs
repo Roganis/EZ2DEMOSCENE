@@ -10,6 +10,9 @@ use crate::platform::slug;
 use crate::platform::{self, LayerRef, Purpose};
 use crate::viewport::Viewport;
 use crate::widgets::{self, ACCENT};
+
+#[path = "shape_picker.rs"]
+mod shape_picker;
 use egui::{Color32, RichText, Ui};
 use ez_core::graph::Graph;
 use ez_core::randomize::{randomize, RandomizeOptions};
@@ -97,6 +100,8 @@ pub struct EzApp {
     live_frame: Option<ez_core::MusicFrame>,
 
     presets_open: bool,
+    /// Open the preset gallery when the app starts.
+    presets_on_startup: bool,
     thumbs: Vec<Thumb>,
     randomize_open: bool,
     rand_opts: RandomizeOptions,
@@ -132,11 +137,22 @@ pub struct EzApp {
     scroll_to_field: Option<egui::Rect>,
     /// Screen height last frame (the on-screen keyboard shrinks it).
     last_screen_h: f32,
+    shape_picker: shape_picker::ShapePicker,
+    /// Frames drawn since start (the desktop app notes a working graphics
+    /// backend once a few have been drawn).
+    frames_drawn: u32,
+    /// Desktop graphics backend chosen in the Graphics window.
+    #[cfg(not(target_arch = "wasm32"))]
+    native_backend: crate::gpu_choice::Backend,
+    #[cfg(not(target_arch = "wasm32"))]
+    native_backend_started: crate::gpu_choice::Backend,
     /// Smoothed frame time in milliseconds.
     frame_ms: f32,
 }
 
 const AUTOSAVE_SECONDS: f64 = 30.0;
+/// Setting: "no" keeps the preset gallery closed at start-up.
+const PRESETS_ON_STARTUP: &str = "presets_on_startup";
 /// Layer load above which the layer list shows a warning.
 const HEAVY_LAYER: f32 = 1.0;
 
@@ -165,7 +181,8 @@ impl EzApp {
                 s.spacing.slider_width = 150.0;
             });
         }
-        let project = presets::neon_arena();
+        // A blank stage, paused: nothing heavy to render at start-up.
+        let project = presets::empty();
         let mut app = EzApp {
             saved: project.clone(),
             committed: project.clone(),
@@ -177,7 +194,7 @@ impl EzApp {
             mode: Mode::Simple,
             nodes: None,
             viewport: Viewport::new(rs),
-            playing: true,
+            playing: false,
             time: 0.0,
             preview_scale: 1.0,
             fps_cap: platform::FpsCap::load(),
@@ -192,6 +209,7 @@ impl EzApp {
             live: None,
             live_frame: None,
             presets_open: false,
+            presets_on_startup: platform::load_setting(PRESETS_ON_STARTUP).as_deref() != Some("no"),
             thumbs: Vec::new(),
             randomize_open: false,
             rand_opts: RandomizeOptions::default(),
@@ -217,6 +235,12 @@ impl EzApp {
             last_ime: None,
             scroll_to_field: None,
             last_screen_h: 0.0,
+            shape_picker: Default::default(),
+            frames_drawn: 0,
+            #[cfg(not(target_arch = "wasm32"))]
+            native_backend: crate::gpu_choice::load_pref(),
+            #[cfg(not(target_arch = "wasm32"))]
+            native_backend_started: crate::gpu_choice::load_pref(),
             frame_ms: 16.0,
         };
         match initial {
@@ -227,7 +251,7 @@ impl EzApp {
                     .unwrap_or_default();
                 app.open_asset(&p.to_string_lossy(), &name)
             }
-            None => app.presets_open = app.library.recovery.is_none(),
+            None => app.presets_open = app.presets_on_startup && app.library.recovery.is_none(),
         }
         app.test = platform::query_param("ez2test");
         app
@@ -2035,7 +2059,7 @@ impl EzApp {
         } else {
             window.fixed_size(egui::vec2(win_w - 12.0, screen.y - 140.0))
         };
-        let list_height = if cols == 3 { 520.0 } else { screen.y - 260.0 };
+        let list_height = if cols == 3 { 520.0 } else { screen.y - 290.0 };
         window.show(ctx, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     ui.selectable_value(&mut self.gallery_tab, 0, "Built-in");
@@ -2095,11 +2119,23 @@ impl EzApp {
                         }
                     }
                 }
+                ui.separator();
+                let mut hide = !self.presets_on_startup;
+                if ui
+                    .checkbox(&mut hide, "Don't show on startup")
+                    .on_hover_text("Open this window from Presets in the menu bar")
+                    .changed()
+                {
+                    self.presets_on_startup = !hide;
+                    platform::save_setting(PRESETS_ON_STARTUP, if hide { "no" } else { "yes" });
+                }
             });
+        // A chosen preset starts playing, to show how it moves.
         if let Some(i) = chosen_builtin {
             let p = presets::all().into_iter().nth(i).unwrap();
             self.load_project(p.project, None);
             self.presets_open = false;
+            self.playing = true;
         }
         if let Some(i) = chosen_user {
             match self.library.load_preset(i) {
@@ -2107,6 +2143,7 @@ impl EzApp {
                 Ok(p) => {
                     self.load_project(p, None);
                     self.presets_open = false;
+                    self.playing = true;
                 }
                 Err(e) => self.set_status(format!("Could not load preset: {e}"), true),
             }
@@ -2261,6 +2298,25 @@ impl EzApp {
                     ctx.copy_text(text.join("\n"));
                     self.set_status("Graphics details copied", false);
                 }
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    use crate::gpu_choice::Backend as B;
+                    ui.separator();
+                    ui.label(RichText::new("Graphics backend").strong());
+                    ui.label("If the app crashes, hangs or glitches, try another backend. Automatic moves on by itself when one fails to start.");
+                    let before = self.native_backend;
+                    ui.horizontal_wrapped(|ui| {
+                        for b in std::iter::once(B::Auto).chain(B::available().iter().copied()) {
+                            ui.selectable_value(&mut self.native_backend, b, b.label());
+                        }
+                    });
+                    if self.native_backend != before {
+                        crate::gpu_choice::save_pref(self.native_backend);
+                    }
+                    if self.native_backend != self.native_backend_started {
+                        ui.label(RichText::new("Used from the next start").color(Color32::LIGHT_YELLOW));
+                    }
+                }
                 if platform::IS_WEB {
                     ui.separator();
                     ui.label(RichText::new("Graphics backend").strong());
@@ -2373,6 +2429,30 @@ impl eframe::App for EzApp {
         self.now = ctx.input(|i| i.time);
         let raw_dt = ctx.input(|i| i.unstable_dt) * 1000.0;
         self.frame_ms += (raw_dt.clamp(0.0, 1000.0) - self.frame_ms) * 0.1;
+        self.frames_drawn = self.frames_drawn.saturating_add(1);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if self.frames_drawn == 1 {
+                log::info!("first frame");
+                if let Some(b) = crate::gpu_choice::failed_last_time() {
+                    self.set_status(
+                        format!(
+                            "{} did not start last time: now using {}. Change it in Graphics.",
+                            b.label(),
+                            self.viewport.adapter_info().backend
+                        ),
+                        true,
+                    );
+                }
+            }
+            if self.frames_drawn == 10 {
+                log::info!(
+                    "graphics started: {:?}",
+                    self.viewport.adapter_info().backend
+                );
+                crate::gpu_choice::started_ok();
+            }
+        }
         self.project.sync_sequence_length();
         if self.music_key != self.music_key() {
             self.reload_audio();
@@ -2509,6 +2589,8 @@ impl eframe::App for EzApp {
             }
         }
 
+        self.poll_shape_picker_request(&ctx);
+        self.shape_picker_window(&ctx);
         self.presets_window(&ctx);
         self.recovery_window(&ctx);
         self.preset_name_window(&ctx);

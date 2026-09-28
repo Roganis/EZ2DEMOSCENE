@@ -1259,6 +1259,10 @@ pub enum MeshSource {
     File {
         path: String,
     },
+    /// A model of the bundled library (see [`crate::models`]).
+    Library {
+        id: String,
+    },
     /// A raymarched distance-field object: drawn inside its box (it fits
     /// the unit sphere like the built-in shapes), so it intersects other
     /// shapes, casts and takes shadows and gets the usual material.

@@ -2917,6 +2917,9 @@ impl Renderer {
         let key = match source {
             MeshSource::Primitive(p) => format!("p:{}", p.cache_key()),
             MeshSource::File { path } => format!("f:{path}"),
+            // Keyed by the library's generation: a model wanted before the
+            // web app fetched the library loads again once it arrives.
+            MeshSource::Library { id } => format!("l:{id}:{}", ez_core::models::generation()),
             MeshSource::Text { .. } => {
                 format!("t:{}", serde_json::to_string(source).unwrap_or_default())
             }
@@ -2965,6 +2968,27 @@ impl Renderer {
                     primitive(&Primitive::Cube)
                 }
             },
+            MeshSource::Library { id } => {
+                // Problems are reported per model, whatever the generation.
+                let err_key = format!("l:{id}");
+                let result = match ez_core::models::library() {
+                    Some(lib) => lib
+                        .glb(id)
+                        .map_err(anyhow::Error::msg)
+                        .and_then(|glb| crate::import::load_mesh_bytes("glb", &glb)),
+                    None => Err(anyhow::anyhow!("the model library is loading")),
+                };
+                match result {
+                    Ok(m) => {
+                        self.errors.remove(&err_key);
+                        m
+                    }
+                    Err(e) => {
+                        self.errors.insert(err_key, format!("model {id}: {e:#}"));
+                        primitive(&Primitive::Cube)
+                    }
+                }
+            }
             MeshSource::Text {
                 text,
                 font,

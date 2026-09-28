@@ -20,12 +20,16 @@ pub fn load_mesh_asset(path: &str) -> Result<MeshData> {
 }
 
 /// Parse a mesh from bytes. `ext` is the file extension (gltf, glb, obj).
-/// glTF files must embed their buffers (.glb or data URIs).
+/// glTF files must embed their buffers (.glb or data URIs). Images are not
+/// read (materials come from the layer), so files that point at texture
+/// files next to them still load.
 pub fn load_mesh_bytes(ext: &str, bytes: &[u8]) -> Result<MeshData> {
     let mut m = match ext {
         "gltf" | "glb" => {
-            let (doc, buffers, _images) = gltf::import_slice(bytes).context("reading glTF")?;
-            gltf_to_mesh(&doc, &buffers)?
+            let gltf = gltf::Gltf::from_slice(bytes).context("reading glTF")?;
+            let buffers = gltf::import_buffers(&gltf.document, None, gltf.blob.clone())
+                .context("reading glTF buffers")?;
+            gltf_to_mesh(&gltf.document, &buffers)?
         }
         "obj" => {
             let mut reader = std::io::BufReader::new(bytes);

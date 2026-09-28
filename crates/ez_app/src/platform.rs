@@ -430,3 +430,89 @@ pub fn slug(name: &str) -> String {
         s
     }
 }
+
+/// Fetch the model library (`library.zip` next to the page) when something
+/// asked for it: the web build doesn't carry it in the app. Desktop builds
+/// have it built in, so this does nothing there.
+pub fn fetch_model_library(ctx: &egui::Context) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        use std::sync::atomic::AtomicU64;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use wasm_bindgen::JsCast;
+        static BUSY: AtomicBool = AtomicBool::new(false);
+        // After a failure, wait a little before trying again.
+        static RETRY_AT: AtomicU64 = AtomicU64::new(0);
+        let now = js_sys::Date::now() as u64;
+        if !ez_core::models::wanted()
+            || now < RETRY_AT.load(Ordering::Relaxed)
+            || BUSY.swap(true, Ordering::Relaxed)
+        {
+            return;
+        }
+        let ctx = ctx.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let result: Result<Vec<u8>, String> = async {
+                let window = web_sys::window().ok_or("no window")?;
+                let resp =
+                    wasm_bindgen_futures::JsFuture::from(window.fetch_with_str("library.zip"))
+                        .await
+                        .map_err(|e| format!("{e:?}"))?
+                        .dyn_into::<web_sys::Response>()
+                        .map_err(|e| format!("{e:?}"))?;
+                if !resp.ok() {
+                    return Err(format!("HTTP {}", resp.status()));
+                }
+                let buf = wasm_bindgen_futures::JsFuture::from(
+                    resp.array_buffer().map_err(|e| format!("{e:?}"))?,
+                )
+                .await
+                .map_err(|e| format!("{e:?}"))?;
+                Ok(js_sys::Uint8Array::new(&buf).to_vec())
+            }
+            .await;
+            match result.and_then(ez_core::models::install) {
+                Ok(()) => log::info!("model library loaded"),
+                // Asked again, it tries again.
+                Err(e) => {
+                    log::warn!("could not load the model library: {e}");
+                    RETRY_AT.store(js_sys::Date::now() as u64 + 10_000, Ordering::Relaxed);
+                }
+            }
+            BUSY.store(false, Ordering::Relaxed);
+            ctx.request_repaint();
+        });
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = ctx;
+}
+
+/// A small saved setting: `localStorage` in the browser, a text file in the
+/// data folder on desktop.
+pub fn load_setting(key: &str) -> Option<String> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_sys::window()
+            .and_then(|w| w.local_storage().ok().flatten())
+            .and_then(|s| s.get_item(&format!("ez2_{key}")).ok().flatten())
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::fs::read_to_string(crate::library::data_dir().join(format!("{key}.txt")))
+            .ok()
+            .map(|s| s.trim().to_string())
+    }
+}
+
+pub fn save_setting(key: &str, value: &str) {
+    #[cfg(target_arch = "wasm32")]
+    if let Some(s) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+        let _ = s.set_item(&format!("ez2_{key}"), value);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let dir = crate::library::data_dir();
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = std::fs::write(dir.join(format!("{key}.txt")), value);
+    }
+}

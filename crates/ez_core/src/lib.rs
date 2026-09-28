@@ -14,6 +14,7 @@ pub mod color;
 pub mod eval;
 pub mod graph;
 pub mod midi;
+pub mod models;
 pub mod music;
 pub mod palette;
 pub mod param;

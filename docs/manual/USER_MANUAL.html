@@ -220,7 +220,9 @@ cargo run --release                   # opens the editor
 cargo run --release -- my.ez2.json    # opens a saved project</pre>
 <p>The first build downloads and compiles libraries, so it takes a few minutes. Later starts are instant. The finished
 program is <code>target/release/ez2demoscene</code> (<code>ez2demoscene.exe</code> on Windows), and you can copy it anywhere.</p>
-<p>When the editor opens you are greeted by the <b>preset gallery</b>.</p>
+<p>The editor opens on an empty stage, paused (press <span class="ui">Space</span> or ▶ to play), with the <b>preset
+gallery</b> on top. Choosing a preset loads it and starts playing. Tick <span class="ui">Don't show on startup</span> at the
+bottom of the gallery to skip it; it stays one click away under <span class="ui">Presets</span> in the menu bar.</p>
 <figure><img src="img/gallery.jpg" ><figcaption>The preset gallery appears at start-up. Hover a card for a description, click to load it.</figcaption></figure>
 
 <!-- ===================================================== 3 -->
@@ -347,7 +349,16 @@ into each other, so the jump back at the end of the loop happens while it is inv
 
 <h2>5.3 Shapes</h2>
 <figure><img src="img/mesh.jpg"><figcaption>A shape layer (Tech panels): Shape, Material, Copies, Variation, Placement &amp; motion, Symmetry.</figcaption></figure>
-<p>In <span class="ui">Shape</span> choose one of 25 built-in shapes, or a 3D file:</p>
+<p>Click the <span class="ui">Shape</span> button to open <span class="ui">Choose a shape</span>, a window of tiles with a
+picture of every shape. The <span class="ui">Built-in</span> tab has the 25 built-in shapes, the raymarched ones, 3D text and
+<span class="ui">3D model file…</span>; the <span class="ui">Library</span> tab has about 1,000 ready-made low-poly models
+(spaceships, vehicles, nature, food, buildings, characters and more), with categories and a search box.</p>
+<div class="note"><b>Library models</b>The models are by Kenney (kenney.nl) and free to use for anything (CC0). They take the
+layer's material, like every shape. The desktop apps carry the library; the web app downloads it (about 6&nbsp;MB) the
+first time you open the Library tab.</div>
+<figure><img src="img/shape-picker.jpg"><figcaption>The Library tab of <span class="ui">Choose a shape</span>: categories,
+search and a preview of every model.</figcaption></figure>
+<p>The built-in shapes:</p>
 <table>
   <tr><th style="width:28%">Shape</th><th>Good for</th></tr>
   <tr><td>Cube, Tetrahedron, Octahedron, Dodecahedron, Icosahedron</td><td>Classic demo solids. Try them with <span class="ui">Faceted</span> on and
