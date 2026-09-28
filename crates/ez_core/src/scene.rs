@@ -2676,6 +2676,28 @@ pub struct PostStack {
     /// The picture drawn with text characters.
     #[serde(skip_serializing_if = "is_default")]
     pub ascii: Ascii,
+    /// A fisheye lens (or its opposite).
+    #[serde(skip_serializing_if = "is_default")]
+    pub lens: Lens,
+}
+
+/// Lens distortion of the whole picture.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Lens {
+    pub enabled: bool,
+    /// Above 0: fisheye, the middle bulges out and the corners stay put.
+    /// Below 0: the middle shrinks away and the edges stretch.
+    pub amount: Param,
+}
+
+impl Default for Lens {
+    fn default() -> Self {
+        Lens {
+            enabled: false,
+            amount: Param::new(0.5),
+        }
+    }
 }
 
 /// Line wobble of the whole picture.
@@ -3131,6 +3153,10 @@ pub struct UserTexture {
     pub path: String,
     /// Optional "retro-ize" processing applied on load.
     pub retro: Option<RetroProcess>,
+    /// Tile it flipped: every other copy is a mirror image, so opposite
+    /// edges always meet and a picture that doesn't tile shows no seams.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub mirror: bool,
 }
 
 impl Default for UserTexture {
@@ -3139,6 +3165,7 @@ impl Default for UserTexture {
             name: "texture".into(),
             path: String::new(),
             retro: None,
+            mirror: false,
         }
     }
 }

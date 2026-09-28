@@ -38,6 +38,7 @@ pub fn add_user_texture(textures: &mut Vec<UserTexture>, path: &str, file_name: 
         name: name.clone(),
         path: path_s,
         retro: None,
+        mirror: false,
     });
     name
 }
@@ -794,6 +795,15 @@ pub fn post_ui(ui: &mut Ui, post: &mut PostStack) {
             -32..=32,
         );
     });
+    toggle_section(ui, "Fisheye lens", &mut post.lens.enabled, |ui| {
+        param(
+            ui,
+            "Amount",
+            "Above 0: fisheye, the middle bulges out. Below 0: the middle shrinks away and the edges stretch",
+            &mut post.lens.amount,
+            -1.0..=1.0,
+        );
+    });
     toggle_section(ui, "Line wobble", &mut post.wobble.enabled, |ui| {
         combo(
             ui,
@@ -980,6 +990,9 @@ pub fn textures_ui(ui: &mut Ui, textures: &mut Vec<UserTexture>) {
             }
         });
         ui.label(RichText::new(&t.path).weak().small());
+        ui.checkbox(&mut t.mirror, "Mirror tiling").on_hover_text(
+            "Repeat it flipped: every other copy is a mirror image, so the edges always meet and there are no seams",
+        );
         let mut retro = t.retro.is_some();
         if ui.checkbox(&mut retro, "Retro-ize").changed() {
             t.retro = retro.then(RetroProcess::default);

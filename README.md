@@ -128,7 +128,8 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   checkerboard, circuit, tech panel, LED grid, speaker grille, Win9x, copper
   bars, Sierpinski, Tron grid, Truchet, the C64 10 PRINT maze, Matrix rain,
   CRT phosphors…). Imported images can be *retro-ized*: downscaled,
-  palette-reduced and dithered.
+  palette-reduced and dithered, and tiled *mirrored* so photos repeat
+  without seams.
 - **Post FX.** Bloom, **god rays** (light shafts from the sun or the
   picture centre) with lens flare, **heat haze**, **depth of field**
   (auto focus, round bokeh), **feedback trails** (zoom/turn/hue-drifting
@@ -138,7 +139,8 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   scanlines/curvature/VHS wobble, **line wobble** (retro RPG wave,
   interlaced or compression), **VHS tape** (jittering lines, a torn
   tracking band, colour bleed, snow), **ASCII art** (picture colours or
-  green/amber terminal), grading, vignette, grain and beat flash.
+  green/amber terminal), a **fisheye lens** (and its opposite), grading,
+  vignette, grain and beat flash.
 - **Animate anything.** Click `~` next to almost any value, post effects
   included, to pick a shape: LFOs (sine, triangle, saw up/down, square),
   beat fades (pulse, exponential and linear fades in/out, swell) or random

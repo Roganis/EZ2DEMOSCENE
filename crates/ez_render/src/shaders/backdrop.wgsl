@@ -1,6 +1,6 @@
 // Fullscreen procedural / raymarched backgrounds.
 // D.v[0]: kind, speed (cycles/loop), intensity, detail
-// D.v[1..3]: colours a, b, c;  D.v[4].x: has texture
+// D.v[1..3]: colours a, b, c;  D.v[4].x: has texture, y: mirrored tiling
 // Raymarched kinds (tunnel, fractal, sponge, rings):
 // D.v[5]: variant, pattern, size, twist
 // D.v[6]: warp, bend, glow, fog
@@ -138,7 +138,13 @@ fn bg_tunnel(rd_in: vec3<f32>, speed: f32, detail: f32, ca: vec3<f32>, cb: vec3<
     // Twist is measured from the camera, and the pattern repeats a whole
     // number of times per tunnel period: both keep the loop seamless.
     let u = (atan2(q.y, q.x) + (p.z - z0) * twist) / TAU + 0.5;
-    let v = p.z / period * max(round(4.0 * detail), 1.0);
+    // Whole repeats per tunnel period (pairs for a mirrored picture, which
+    // repeats every two), so the loop closes.
+    var reps = max(round(4.0 * detail), 1.0);
+    if (D.v[4].y > 0.5) {
+        reps = max(round(2.0 * detail), 1.0) * 2.0;
+    }
+    let v = p.z / period * reps;
     var pattern: vec3<f32>;
     if (use_tex) {
         pattern = textureSampleLevel(t_tex, s_tex, vec2<f32>(u * 2.0, v), 0.0).rgb;
@@ -634,7 +640,8 @@ fn battle_pattern(kind: i32, uv: vec2<f32>) -> f32 {
             return v * 0.125 + 0.5;
         }
         case 9: {
-            let t = textureSampleLevel(t_tex, s_tex, f, 0.0).rgb;
+            // Not wrapped here: the sampler tiles it (mirrored if asked).
+            let t = textureSampleLevel(t_tex, s_tex, uv, 0.0).rgb;
             return dot(t, vec3<f32>(0.299, 0.587, 0.114));
         }
         default: {
