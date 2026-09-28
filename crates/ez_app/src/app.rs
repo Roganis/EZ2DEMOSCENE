@@ -138,6 +138,9 @@ pub struct EzApp {
     /// Screen height last frame (the on-screen keyboard shrinks it).
     last_screen_h: f32,
     shape_picker: shape_picker::ShapePicker,
+    /// The clock was moved by hand (scrub, rewind, load): the music jumps
+    /// there. Otherwise, while it plays, the music leads the clock.
+    music_seek: bool,
     /// The last layer copied (Ctrl+C), in case the system clipboard can't
     /// be read back.
     layer_clipboard: Option<Layer>,
@@ -154,6 +157,20 @@ pub struct EzApp {
 }
 
 const AUTOSAVE_SECONDS: f64 = 30.0;
+/// Bring the loop clock `time` to `want` (where the music is), the short
+/// way round a loop of `period` seconds: a quarter of the way when they are
+/// close (smooth, whatever the audio's update steps), straight there when
+/// the picture has fallen behind (slow frames).
+fn follow_clock(time: f64, want: f64, period: f64) -> f64 {
+    let d = (want - time).rem_euclid(period);
+    let d = if d > period / 2.0 { d - period } else { d };
+    if d.abs() < 0.1 {
+        (time + d * 0.25).rem_euclid(period)
+    } else {
+        want.rem_euclid(period)
+    }
+}
+
 /// Whether `key` went down this frame with Ctrl/Cmd held (`command`) and
 /// Shift held (`shift`), as they were at that moment (`None`: either way).
 /// The modifiers come with the key press, so a quick tap that is over
@@ -268,6 +285,7 @@ impl EzApp {
             scroll_to_field: None,
             last_screen_h: 0.0,
             shape_picker: Default::default(),
+            music_seek: true,
             layer_clipboard: None,
             frames_drawn: 0,
             #[cfg(not(target_arch = "wasm32"))]
@@ -354,6 +372,7 @@ impl EzApp {
             Mode::Simple
         };
         self.time = 0.0;
+        self.music_seek = true;
         self.viewport.renderer.reload_assets();
         self.reload_audio();
     }
@@ -690,6 +709,38 @@ impl EzApp {
                 true,
             ),
         }
+    }
+
+    /// Keep the music playing where the loop is. The music loops its region
+    /// (the loop window, or the whole song) by itself, seamlessly, and leads
+    /// the clock while it plays: the picture follows it (so slow frames
+    /// can't hold the music back and nothing jumps at the loop point). It
+    /// only jumps when the clock is moved by hand.
+    fn sync_music(&mut self) {
+        let Some(a) = &mut self.audio else {
+            return;
+        };
+        let (start, end) = match self.project.music.mode {
+            MusicMode::LoopWindow => {
+                let start = self.project.music.offset.max(0.0) as f64;
+                (start, start + self.project.timing.loop_seconds() as f64)
+            }
+            MusicMode::FullTrack => (0.0, a.duration()),
+        };
+        let target = self.project.song_seconds(self.time) as f64;
+        let playing = self.playing && self.live.is_none();
+        let seek = std::mem::take(&mut self.music_seek);
+        let Some(heard) = a.sync(playing, target, start, end, seek) else {
+            return;
+        };
+        // Where the clock should be for what is playing, and the short way
+        // there round the loop.
+        let period = self.play_seconds().max(0.01);
+        let want = match self.project.music.mode {
+            MusicMode::LoopWindow => heard - start,
+            MusicMode::FullTrack => heard,
+        };
+        self.time = follow_clock(self.time, want, period);
     }
 
     /// Mutable access to the layer an import was meant for.
@@ -1646,6 +1697,7 @@ impl EzApp {
             }
             if ui.button("⏮").on_hover_text("Back to start").clicked() {
                 self.time = 0.0;
+                self.music_seek = true;
             }
             // Scrubber with beat ticks.
             let reserve = if self.narrow { 110.0 } else { 330.0 };
@@ -1749,6 +1801,7 @@ impl EzApp {
             if let Some(pos) = resp.interact_pointer_pos() {
                 let f = ((pos.x - rect.left()) / rect.width()).clamp(0.0, 0.9999);
                 self.time = f as f64 * play_s;
+                self.music_seek = true;
             }
             let beat = ph * beats as f32;
             if self.narrow {
@@ -2618,10 +2671,7 @@ impl eframe::App for EzApp {
                 live: self.live_frame,
             },
         );
-        let song_t = self.project.song_seconds(self.time);
-        if let Some(a) = &mut self.audio {
-            a.sync(self.playing && self.live.is_none(), song_t);
-        }
+        self.sync_music();
 
         let dropped: Vec<egui::DroppedFileHandle> = ctx.input(|i| i.raw.dropped_files.clone());
         for f in dropped {
@@ -2812,5 +2862,30 @@ fn music_meters(ui: &mut Ui, m: &ez_core::MusicFrame) {
             1.0,
             ACCENT,
         );
+    }
+}
+
+#[cfg(test)]
+mod clock_tests {
+    use super::follow_clock;
+
+    #[test]
+    fn follows_the_music_across_the_loop_point() {
+        let period = 16.0 * 60.0 / 140.0;
+        // The music has wrapped, the clock not yet: step forward over the
+        // loop point, not back through the whole loop.
+        let t = follow_clock(period - 0.01, 0.01, period);
+        assert!(t > period - 0.01 || t < 0.01, "{t}");
+        // And the other way round.
+        let t = follow_clock(0.01, period - 0.01, period);
+        assert!(t < 0.01 || t > period - 0.01, "{t}");
+        // Converges.
+        let mut t = 1.0;
+        for _ in 0..60 {
+            t = follow_clock(t, 1.05, period);
+        }
+        assert!((t - 1.05).abs() < 1e-4);
+        // Far behind (slow frames): straight to the music.
+        assert_eq!(follow_clock(1.0, 3.0, period), 3.0);
     }
 }
