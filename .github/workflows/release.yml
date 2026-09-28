@@ -1,15 +1,24 @@
 name: Release
 
-# Push a tag like v0.2.0 to build installable archives for every platform and
-# attach them to a GitHub release. Windows and Linux archives include ffmpeg
-# (GPL build from BtbN/FFmpeg-Builds) so video/GIF export works out of the box.
+# Builds installable archives for every platform. Windows and Linux archives
+# include ffmpeg (GPL build from BtbN/FFmpeg-Builds) so video/GIF export works
+# out of the box.
+#   push a tag like v0.2.0   attached to that GitHub release
+#   push to main             published as the rolling `desktop-latest` prerelease
+#   run by hand              kept as workflow artifacts only
 on:
   push:
+    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
 
 permissions:
   contents: write
+
+# A newer push to main replaces a running build; tag builds always finish.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -90,3 +99,25 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/EZ2DEMOSCENE-${{ matrix.name }}.*
+
+  # Newest build of main, at a fixed download link.
+  latest:
+    needs: package
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          pattern: EZ2DEMOSCENE-*
+          merge-multiple: true
+      - name: Publish rolling prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          TAG=desktop-latest
+          gh release delete "$TAG" --cleanup-tag --yes || true
+          gh release create "$TAG" out/* --prerelease --target "$GITHUB_SHA" \
+            --title "Desktop builds (latest main)" \
+            --notes "Windows, Linux and macOS builds of \`main\` at ${GITHUB_SHA::7} ($(date -u +%Y-%m-%d)). Updated automatically on every push to main. On macOS, install ffmpeg with \`brew install ffmpeg\` for video export."

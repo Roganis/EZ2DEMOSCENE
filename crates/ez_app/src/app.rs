@@ -77,6 +77,9 @@ pub struct EzApp {
     playing: bool,
     time: f64,
     preview_scale: f32,
+    fps_cap: platform::FpsCap,
+    /// When the next frame is due while playing under an fps limit.
+    next_frame: f64,
     aspect: (u32, u32),
 
     audio: Option<AudioPlayer>,
@@ -122,6 +125,13 @@ pub struct EzApp {
     narrow: bool,
     tab: Tab,
     last_node_selection: Option<usize>,
+    /// The text field being edited and where it was last seen, so the
+    /// on-screen keyboard stays up while it is scrolled out of view.
+    last_ime: Option<(egui::Id, egui::output::IMEOutput)>,
+    /// Scroll the inspector to this text field on the next frame.
+    scroll_to_field: Option<egui::Rect>,
+    /// Screen height last frame (the on-screen keyboard shrinks it).
+    last_screen_h: f32,
     /// Smoothed frame time in milliseconds.
     frame_ms: f32,
 }
@@ -170,6 +180,8 @@ impl EzApp {
             playing: true,
             time: 0.0,
             preview_scale: 1.0,
+            fps_cap: platform::FpsCap::load(),
+            next_frame: 0.0,
             aspect: (16, 9),
             audio: None,
             audio_env: None,
@@ -202,6 +214,9 @@ impl EzApp {
             narrow: false,
             tab: Tab::View,
             last_node_selection: None,
+            last_ime: None,
+            scroll_to_field: None,
+            last_screen_h: 0.0,
             frame_ms: 16.0,
         };
         match initial {
@@ -452,6 +467,65 @@ impl EzApp {
             }
         }
         ctx.request_repaint();
+    }
+
+    /// egui only reports a text field as being edited while it is visible,
+    /// and the web backend hides the on-screen keyboard whenever none is.
+    /// On a phone the keyboard itself shrinks the screen, which can push the
+    /// field out of view: the keyboard then closed and reopened every frame.
+    /// Keep reporting the field while it still has focus, and scroll it back
+    /// into view when the screen shrinks or the user types into it.
+    fn keep_keyboard(&mut self, ctx: &egui::Context) {
+        let focused = ctx.memory(|m| m.focused());
+        let screen_h = ctx.content_rect().height();
+        let shrank = screen_h < self.last_screen_h - 1.0;
+        self.last_screen_h = screen_h;
+        match (ctx.output(|o| o.ime), focused) {
+            (Some(ime), Some(id)) => {
+                self.last_ime = Some((id, ime));
+                if shrank {
+                    self.scroll_to_field = Some(ime.rect);
+                }
+            }
+            (None, Some(id)) if self.last_ime.is_some_and(|(last, _)| last == id) => {
+                let ime = self.last_ime.unwrap().1;
+                ctx.output_mut(|o| o.ime = Some(ime));
+                let typed = ctx.input(|i| {
+                    i.events
+                        .iter()
+                        .any(|e| matches!(e, egui::Event::Text(_) | egui::Event::Ime(_)))
+                });
+                if shrank || typed {
+                    self.scroll_to_field = Some(ime.rect);
+                }
+            }
+            _ => self.last_ime = None,
+        }
+        if self.scroll_to_field.is_some() {
+            ctx.request_repaint();
+        }
+    }
+
+    /// Ask for the next playback frame, no sooner than the fps limit
+    /// allows. Frames drawn early (input) do not move the schedule.
+    fn schedule_next_frame(&mut self, ctx: &egui::Context) {
+        let Some(fps) = self.fps_cap.fps() else {
+            ctx.request_repaint();
+            return;
+        };
+        let period = 1.0 / fps;
+        // Wake a little early: the picture is drawn at the next screen
+        // refresh after the wake-up anyway.
+        const SLACK: f64 = 0.003;
+        if self.now >= self.next_frame - SLACK {
+            self.next_frame += period;
+            if self.next_frame < self.now {
+                // Fell behind (slow frame, or playback just resumed).
+                self.next_frame = self.now + period;
+            }
+        }
+        let wait = (self.next_frame - self.now - SLACK).max(0.0);
+        ctx.request_repaint_after(std::time::Duration::from_secs_f64(wait));
     }
 
     fn save_user_preset(&mut self, name: String) {
@@ -1186,7 +1260,11 @@ impl EzApp {
         let ctx = self.project.ctx_at(self.time, self.audio_env.as_deref());
         let view = self.project.camera.view_point(&ctx);
         ui.data_mut(|d| d.insert_temp(egui::Id::new(inspector::CAMERA_VIEW), view));
+        let scroll_to_field = self.scroll_to_field.take();
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+            if let Some(r) = scroll_to_field {
+                ui.scroll_to_rect(r, Some(egui::Align::Center));
+            }
             ui.add_space(4.0);
             if self.mode == Mode::Nodes {
                 let textures = &mut self.project.textures;
@@ -1596,7 +1674,10 @@ impl EzApp {
     }
 
     fn viewport_ui(&mut self, ui: &mut Ui) {
-        ui.horizontal(|ui| {
+        // Wrap rather than overflow: an overflowing row widens the ui, and
+        // the picture below would then be sized past the screen edge (phones
+        // in portrait).
+        ui.horizontal_wrapped(|ui| {
             ui.label("Preview");
             egui::ComboBox::from_id_salt("aspect")
                 .selected_text(format!("{}:{}", self.aspect.0, self.aspect.1))
@@ -1620,6 +1701,23 @@ impl EzApp {
                 })
                 .response
                 .on_hover_text("Lower the preview resolution if playback stutters");
+            let cap = self.fps_cap;
+            egui::ComboBox::from_id_salt("fps_cap")
+                .selected_text(cap.label())
+                .width(70.0)
+                .show_ui(ui, |ui| {
+                    for c in platform::FpsCap::ALL {
+                        ui.selectable_value(&mut self.fps_cap, c, c.label());
+                    }
+                })
+                .response
+                .on_hover_text(
+                    "Frame rate limit of the preview. 30 or 60 saves battery and heat; \
+                     Display draws as fast as the screen refreshes. Export is not affected.",
+                );
+            if self.fps_cap != cap {
+                self.fps_cap.save();
+            }
             {
                 let st = self.viewport.renderer.stats();
                 let fps = 1000.0 / self.frame_ms.max(0.1);
@@ -1691,7 +1789,11 @@ impl EzApp {
                 }
             }
         });
-        let avail = ui.available_size();
+        // Never size the picture beyond what is actually visible.
+        let mut avail = ui.available_size();
+        let visible = ui.clip_rect().intersect(ui.ctx().content_rect());
+        avail.x = avail.x.min(visible.max.x - ui.cursor().min.x).max(1.0);
+        avail.y = avail.y.min(visible.max.y - ui.cursor().min.y).max(1.0);
         let ar = self.aspect.0 as f32 / self.aspect.1 as f32;
         let mut size = egui::vec2(avail.x, avail.x / ar);
         if size.y > avail.y {
@@ -1745,13 +1847,17 @@ impl EzApp {
             },
         };
         let resp = ui
-            .centered_and_justified(|ui| {
-                ui.add(
-                    egui::Image::new(egui::load::SizedTexture::new(tex, size))
-                        .sense(egui::Sense::click_and_drag())
-                        .corner_radius(4.0),
-                )
-            })
+            .allocate_ui_with_layout(
+                avail,
+                egui::Layout::centered_and_justified(egui::Direction::TopDown),
+                |ui| {
+                    ui.add(
+                        egui::Image::new(egui::load::SizedTexture::new(tex, size))
+                            .sense(egui::Sense::click_and_drag())
+                            .corner_radius(4.0),
+                    )
+                },
+            )
             .inner;
         // Gizmo, picking and mouse camera control.
         let cam_state = self.project.camera.eval(&ctx);
@@ -2427,8 +2533,11 @@ impl eframe::App for EzApp {
             platform::set_title(&ctx, &title);
             self.title = title;
         }
-        if self.playing || self.export.is_running() {
+        self.keep_keyboard(&ctx);
+        if self.export.is_running() {
             ctx.request_repaint();
+        } else if self.playing {
+            self.schedule_next_frame(&ctx);
         }
     }
 }

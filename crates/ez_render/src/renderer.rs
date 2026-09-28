@@ -417,9 +417,13 @@ fn backdrop_load(kind: BackdropKind) -> f32 {
     }
 }
 
+/// Key for a layer's cached instances. Instances carry no colour, so the
+/// colours are left out: a turning colour scheme then keeps the cache.
 fn layer_hash(layer: &Layer) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    serde_json::to_string(layer)
+    let mut layer = layer.clone();
+    layer.kind.for_each_color_mut(|c| *c = [0.0; 3]);
+    serde_json::to_string(&layer)
         .unwrap_or_default()
         .hash(&mut h);
     h.finish()
@@ -3107,7 +3111,7 @@ impl Renderer {
                 TAU * (ctx.phase * ca.speed as f32).rem_euclid(1.0),
                 ca.below,
             ],
-            caus_col: c4(ca.color, fx.wet.clamp(0.0, 1.0)),
+            caus_col: c4(project.scene_color(ca.color, ctx), fx.wet.clamp(0.0, 1.0)),
             extra: [
                 fx.snow.clamp(0.0, 1.0),
                 env.night,
@@ -6091,5 +6095,15 @@ mod cull_tests {
         assert!(!sphere_visible(&planes, Vec3::new(0.0, 0.0, -200.0), 1.0));
         // Partly inside counts as visible.
         assert!(sphere_visible(&planes, Vec3::new(0.0, 0.0, 20.0), 12.0));
+    }
+
+    #[test]
+    fn instance_cache_key_ignores_colours() {
+        let a = Layer::default();
+        let mut b = a.clone();
+        b.kind.for_each_color_mut(|c| *c = [0.1, 0.9, 0.3]);
+        assert_eq!(layer_hash(&a), layer_hash(&b));
+        b.name.push('x');
+        assert_ne!(layer_hash(&a), layer_hash(&b));
     }
 }

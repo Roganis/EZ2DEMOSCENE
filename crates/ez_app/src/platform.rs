@@ -296,6 +296,68 @@ impl GpuBackendPref {
     }
 }
 
+/// Frame rate limit of the preview while it plays.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FpsCap {
+    Fps30,
+    Fps60,
+    /// As fast as the display refreshes (and the GPU keeps up).
+    Display,
+}
+
+#[allow(dead_code)]
+const FPS_CAP_KEY: &str = "ez2_fps_cap";
+
+impl FpsCap {
+    pub const ALL: [FpsCap; 3] = [FpsCap::Fps30, FpsCap::Fps60, FpsCap::Display];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            FpsCap::Fps30 => "30 fps",
+            FpsCap::Fps60 => "60 fps",
+            FpsCap::Display => "Display",
+        }
+    }
+
+    /// Frames per second, or `None` for no limit.
+    pub fn fps(self) -> Option<f64> {
+        match self {
+            FpsCap::Fps30 => Some(30.0),
+            FpsCap::Fps60 => Some(60.0),
+            FpsCap::Display => None,
+        }
+    }
+
+    /// The saved choice (60 fps unless changed; only the browser keeps it).
+    pub fn load() -> FpsCap {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let v = web_sys::window()
+                .and_then(|w| w.local_storage().ok().flatten())
+                .and_then(|s| s.get_item(FPS_CAP_KEY).ok().flatten());
+            match v.as_deref() {
+                Some("30") => FpsCap::Fps30,
+                Some("display") => FpsCap::Display,
+                _ => FpsCap::Fps60,
+            }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        FpsCap::Fps60
+    }
+
+    pub fn save(self) {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(s) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+            let v = match self {
+                FpsCap::Fps30 => "30",
+                FpsCap::Fps60 => "60",
+                FpsCap::Display => "display",
+            };
+            let _ = s.set_item(FPS_CAP_KEY, v);
+        }
+    }
+}
+
 /// True when running in Android's browser or the Android app.
 pub fn is_android() -> bool {
     #[cfg(target_arch = "wasm32")]
