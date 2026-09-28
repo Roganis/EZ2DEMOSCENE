@@ -271,6 +271,15 @@ bottom of the gallery to skip it; it stays one click away under <span class="ui"
 <p>The layer list works like the layers in a paint program. Each row has a <b>visibility</b> tick box and the layer's
 name. Click a row to edit it. Under the list, the buttons <span class="ui">⬆ ⬇ ⧉ 🗑</span> move, duplicate or delete the
 selected layer, and <b>right-clicking</b> a layer shows the same options.</p>
+<table>
+  <tr><th style="width:34%">Keys (with a layer selected)</th><th>Does</th></tr>
+  <tr><td><kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>Ctrl</kbd>+<kbd>X</kbd></td><td>Copy / cut the layer. It goes on the clipboard, so you can also paste it into another project.</td></tr>
+  <tr><td><kbd>Ctrl</kbd>+<kbd>V</kbd></td><td>Paste a copied layer just after the selected one (at the end if none is selected).</td></tr>
+  <tr><td><kbd>Ctrl</kbd>+<kbd>D</kbd></td><td>Duplicate the layer.</td></tr>
+  <tr><td><kbd>Delete</kbd> (or <kbd>Backspace</kbd>)</td><td>Delete the layer. <kbd>Ctrl</kbd>+<kbd>Z</kbd> brings it back.</td></tr>
+</table>
+<p>They work in the <span class="ui">Simple</span> view while you aren't typing in a field. On a Mac, use <kbd>Cmd</kbd> for
+<kbd>Ctrl</kbd>.</p>
 <figure><img src="img/addmenu.jpg" ><figcaption><span class="ui">+ Add</span> offers shapes, particles, backgrounds, terrain, lasers, ribbons, weather, a mirror floor and 3D model files.</figcaption></figure>
 
 <h2>5.1 Backgrounds</h2>
@@ -673,7 +682,8 @@ bloom, god rays, feedback trails, scanlines and the colour grade apply to it, bu
   <b>Circle</b> opening from the middle, with a soft edge.</td></tr>
   <tr><td>Morph</td><td>Melts the logo into another text (same font) or image: 0 is this logo, 1 the other. The shapes blend through their
   outlines, so a quick change reads best; a <span class="ui">~</span> sine with an amplitude above 0.5 holds each end and switches
-  quickly.</td></tr>
+  quickly. An image has its own <span class="ui">Shape from</span> (transparency, bright or dark parts), set apart from this
+  logo's.</td></tr>
   <tr><td>Copper bars</td><td>Amiga-style colour bars scrolling through the letters: two alternating colours, bright in the middle of each
   bar, a whole number of <span class="ui">Scrolls / loop</span>.</td></tr>
   <tr><td>Wobble</td><td><span class="ui">Sway</span> moves each row sideways and <span class="ui">Bob</span> each column up and down along a

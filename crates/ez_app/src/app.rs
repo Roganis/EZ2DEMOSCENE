@@ -138,6 +138,9 @@ pub struct EzApp {
     /// Screen height last frame (the on-screen keyboard shrinks it).
     last_screen_h: f32,
     shape_picker: shape_picker::ShapePicker,
+    /// The last layer copied (Ctrl+C), in case the system clipboard can't
+    /// be read back.
+    layer_clipboard: Option<Layer>,
     /// Frames drawn since start (the desktop app notes a working graphics
     /// backend once a few have been drawn).
     frames_drawn: u32,
@@ -151,6 +154,35 @@ pub struct EzApp {
 }
 
 const AUTOSAVE_SECONDS: f64 = 30.0;
+/// Whether `key` went down this frame with Ctrl/Cmd held (`command`) and
+/// Shift held (`shift`), as they were at that moment (`None`: either way).
+/// The modifiers come with the key press, so a quick tap that is over
+/// within one frame still counts. Holding a key down doesn't repeat it.
+fn pressed(
+    i: &egui::InputState,
+    key: egui::Key,
+    command: Option<bool>,
+    shift: Option<bool>,
+) -> bool {
+    i.events.iter().any(|e| match e {
+        egui::Event::Key {
+            key: k,
+            pressed: true,
+            repeat: false,
+            modifiers,
+            ..
+        } => {
+            *k == key
+                && command.is_none_or(|c| modifiers.command == c)
+                && shift.is_none_or(|s| modifiers.shift == s)
+        }
+        _ => false,
+    })
+}
+
+/// First line of a layer copied to the clipboard (the layer follows as
+/// JSON).
+const LAYER_CLIPBOARD_TAG: &str = "EZ2DEMOSCENE layer";
 /// Setting: "no" keeps the preset gallery closed at start-up.
 const PRESETS_ON_STARTUP: &str = "presets_on_startup";
 /// Layer load above which the layer list shows a warning.
@@ -236,6 +268,7 @@ impl EzApp {
             scroll_to_field: None,
             last_screen_h: 0.0,
             shape_picker: Default::default(),
+            layer_clipboard: None,
             frames_drawn: 0,
             #[cfg(not(target_arch = "wasm32"))]
             native_backend: crate::gpu_choice::load_pref(),
@@ -1240,23 +1273,64 @@ impl EzApp {
                     layers.swap(i, i + 1);
                     self.selection = Selection::Layer(i + 1);
                 }
-                2 => {
-                    let mut c = layers[i].clone();
-                    c.name.push_str(" copy");
-                    layers.insert(i + 1, c);
-                    self.selection = Selection::Layer(i + 1);
-                }
-                3 => {
-                    layers.remove(i);
-                    self.selection = if layers.is_empty() {
-                        Selection::Camera
-                    } else {
-                        Selection::Layer(i.min(layers.len() - 1))
-                    };
-                }
+                2 => self.duplicate_layer(i),
+                3 => self.delete_layer(i),
                 _ => {}
             }
         }
+    }
+
+    fn duplicate_layer(&mut self, i: usize) {
+        if let Some(l) = self.project.layers.get(i) {
+            let mut c = l.clone();
+            c.name.push_str(" copy");
+            self.project.layers.insert(i + 1, c);
+            self.selection = Selection::Layer(i + 1);
+        }
+    }
+
+    fn delete_layer(&mut self, i: usize) {
+        let layers = &mut self.project.layers;
+        if i >= layers.len() {
+            return;
+        }
+        layers.remove(i);
+        self.selection = if layers.is_empty() {
+            Selection::Camera
+        } else {
+            Selection::Layer(i.min(layers.len() - 1))
+        };
+    }
+
+    /// Put a copy of layer `i` on the clipboard (as text, so it can be
+    /// pasted into another project or another window of the app).
+    fn copy_layer(&mut self, ctx: &egui::Context, i: usize) {
+        let Some(l) = self.project.layers.get(i).cloned() else {
+            return;
+        };
+        if let Ok(json) = serde_json::to_string(&l) {
+            ctx.copy_text(format!("{LAYER_CLIPBOARD_TAG}\n{json}"));
+        }
+        self.set_status(format!("Copied '{}'", l.name), false);
+        self.layer_clipboard = Some(l);
+    }
+
+    /// Paste a copied layer after the selected one (or at the end).
+    /// `text` is the system clipboard, when there is one.
+    fn paste_layer(&mut self, text: Option<&str>) {
+        let from_text = text
+            .and_then(|t| t.strip_prefix(LAYER_CLIPBOARD_TAG))
+            .and_then(|json| serde_json::from_str::<Layer>(json.trim()).ok());
+        let Some(layer) = from_text.or_else(|| self.layer_clipboard.clone()) else {
+            return;
+        };
+        let at = match self.selection {
+            Selection::Layer(i) if i < self.project.layers.len() => i + 1,
+            _ => self.project.layers.len(),
+        };
+        self.set_status(format!("Pasted '{}'", layer.name), false);
+        self.project.layers.insert(at, layer);
+        self.selection = Selection::Layer(at);
     }
 
     fn inspector_panel(&mut self, ui: &mut Ui) {
@@ -2367,7 +2441,7 @@ impl EzApp {
             ui.label("• Start from a preset (or Surprise me).\n• Layers are drawn together: backgrounds, a mirror floor, shapes (with copies laid out in rings, grids, walls, swarms…) and particles.\n• Symmetry duplicates a layer around the centre: mirror or kaleidoscope.\n• Click ~ next to a value to animate it: pick a wave and how many times per loop it repeats. Use the number of beats to pulse on every beat.\n• Post effects give the final look: bloom glow, kaleidoscope, retro palettes, pixels, CRT.");
             ui.add_space(6.0);
             ui.label(RichText::new("Shortcuts").strong());
-            ui.label("Space play/pause · Ctrl+S save · Ctrl+O open · Ctrl+E export · Ctrl+Z / Ctrl+Shift+Z undo/redo · drag in the viewport to orbit, scroll to zoom · drop models, images, music or projects onto the window.");
+            ui.label("Space play/pause · Ctrl+S save · Ctrl+O open · Ctrl+E export · Ctrl+Z / Ctrl+Shift+Z undo/redo · with a layer selected: Ctrl+C copy, Ctrl+X cut, Ctrl+V paste, Ctrl+D duplicate, Delete remove · W/E/R move/rotate/scale, G grid · drag in the viewport to orbit, scroll to zoom · drop models, images, music or projects onto the window.");
         });
         self.help_open = open;
     }
@@ -2375,15 +2449,14 @@ impl EzApp {
     fn shortcuts(&mut self, ctx: &egui::Context) {
         let typing = ctx.egui_wants_keyboard_input();
         let (space, save, open, export, undo, redo) = ctx.input(|i| {
-            let cmd = i.modifiers.command;
             (
                 !typing && i.key_pressed(egui::Key::Space),
-                cmd && i.key_pressed(egui::Key::S),
-                cmd && i.key_pressed(egui::Key::O),
-                cmd && i.key_pressed(egui::Key::E),
-                cmd && !i.modifiers.shift && i.key_pressed(egui::Key::Z),
-                cmd && (i.modifiers.shift && i.key_pressed(egui::Key::Z)
-                    || i.key_pressed(egui::Key::Y)),
+                pressed(i, egui::Key::S, Some(true), None),
+                pressed(i, egui::Key::O, Some(true), None),
+                pressed(i, egui::Key::E, Some(true), None),
+                pressed(i, egui::Key::Z, Some(true), Some(false)),
+                pressed(i, egui::Key::Z, Some(true), Some(true))
+                    || pressed(i, egui::Key::Y, Some(true), None),
             )
         });
         if space {
@@ -2406,6 +2479,50 @@ impl EzApp {
                     }
                 }
             });
+        }
+        // Layers: copy, cut, paste, duplicate and delete. Copy and paste
+        // arrive as clipboard events (the browser sends them that way too).
+        if !typing && self.mode == Mode::Simple {
+            let selected = match self.selection {
+                Selection::Layer(i) if i < self.project.layers.len() => Some(i),
+                _ => None,
+            };
+            let (copy, cut, paste, duplicate, delete) = ctx.input(|i| {
+                let mut copy = false;
+                let mut cut = false;
+                let mut paste = None;
+                for e in &i.events {
+                    match e {
+                        egui::Event::Copy => copy = true,
+                        egui::Event::Cut => cut = true,
+                        egui::Event::Paste(t) => paste = Some(t.clone()),
+                        _ => {}
+                    }
+                }
+                (
+                    copy,
+                    cut,
+                    paste,
+                    pressed(i, egui::Key::D, Some(true), None),
+                    pressed(i, egui::Key::Delete, Some(false), None)
+                        || pressed(i, egui::Key::Backspace, Some(false), None),
+                )
+            });
+            if let Some(i) = selected {
+                if copy || cut {
+                    self.copy_layer(ctx, i);
+                }
+                if cut {
+                    self.delete_layer(i);
+                } else if duplicate {
+                    self.duplicate_layer(i);
+                } else if delete {
+                    self.delete_layer(i);
+                }
+            }
+            if let Some(text) = paste {
+                self.paste_layer(Some(&text));
+            }
         }
         if save {
             self.save(false);

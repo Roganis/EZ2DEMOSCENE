@@ -2466,6 +2466,7 @@ impl Renderer {
                 source: g.morph_source,
                 text: g.morph_text.clone(),
                 image: g.morph_image.clone(),
+                mask: g.morph_mask.unwrap_or(g.mask),
                 ..g.clone()
             };
             self.logo_texture(project, &other)
