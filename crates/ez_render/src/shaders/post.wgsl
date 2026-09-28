@@ -64,9 +64,38 @@ fn blur_tap(uv: vec2<f32>, stp: vec2<f32>, k: f32, w: f32) -> vec3<f32> {
 // --- kaleidoscope / mirror split -----------------------------------------
 // P.v[0]: kaleido on, segments, angle (rad), zoom
 // P.v[1]: centre xy, aspect, mirror mode (0 off, 1 LR, 2 TB, 3 quad)
+// Line wobble, as in retro RPG battles. P.v[4]: mode (1 wave, 2
+// interlaced, 3 compression), amount (picture heights), waves, wave turn;
+// P.v[5].x: lines for the interlacing (0 = pixel rows); P.v[1].z: aspect.
+fn line_wobble(uv: vec2<f32>, pos: vec2<f32>) -> vec2<f32> {
+    let mode = i32(P.v[4].x + 0.5);
+    if (mode == 0) {
+        return uv;
+    }
+    let w = P.v[4].y * sin(TAU * (P.v[4].z * uv.y + P.v[4].w));
+    var out = uv;
+    if (mode == 3) {
+        out.y = out.y + w;
+    } else {
+        var dx = w / max(P.v[1].z, 0.01);
+        if (mode == 2) {
+            var line = u32(pos.y);
+            if (P.v[5].x >= 1.0) {
+                line = u32(uv.y * P.v[5].x);
+            }
+            if ((line & 1u) == 1u) {
+                dx = -dx;
+            }
+        }
+        out.x = out.x + dx;
+    }
+    // Mirror at the edges rather than smearing them.
+    return 1.0 - abs(1.0 - (out - 2.0 * floor(out * 0.5)));
+}
+
 @fragment
 fn fs_warp(in: VOut) -> @location(0) vec4<f32> {
-    var uv = in.uv;
+    var uv = line_wobble(in.uv, in.pos.xy);
     let mode = i32(P.v[1].w + 0.5);
     if (mode == 1 || mode == 3) {
         uv.x = 0.5 - abs(uv.x - 0.5);
@@ -328,9 +357,31 @@ fn fs_final(in: VOut) -> FinalOut {
         let roll = sin(TAU * (uv.y * 3.0 + P.v[3].w * 2.0)) * 0.5 + 0.5;
         uv.x = uv.x + jitter * P.v[4].w * 0.006 * (0.5 + roll);
     }
+    // VHS: lines jitter, a noisy band rolls down (P.v[6]: amount, bleed,
+    // bands). Loop-safe: the frame id and the phase wrap with the loop.
+    let vhs = P.v[6].x;
+    var band = 0.0;
+    if (vhs > 0.0) {
+        let line = u32(uv.y * 240.0);
+        let jit = hash1((line * 2654435761u) ^ (frame_id * 97531u)) - 0.5;
+        let centre = fract(P.v[3].w * 3.0) * 1.3 - 0.15;
+        band = smoothstep(0.07, 0.0, abs(uv.y - centre)) * P.v[6].z;
+        let tear = hash1(line ^ (frame_id * 7919u)) - 0.5;
+        uv.x = uv.x + (jit * 0.003 + tear * band * 0.04) * vhs;
+    }
+    // ASCII: one character per cell (P.v[7]: cell height in pixels).
+    let cell_h = P.v[7].x;
+    var cell_sub = vec2<f32>(0.0);
     let pix = P.v[3].x;
     var pcoord = vec2<u32>(in.pos.xy);
-    if (pix > 1.0) {
+    if (cell_h > 0.0) {
+        let cell = vec2<f32>(cell_h * 0.7, cell_h);
+        let p = uv * res;
+        let block = floor(p / cell);
+        cell_sub = fract(p / cell);
+        uv = (block + 0.5) * cell / res;
+        pcoord = vec2<u32>(block);
+    } else if (pix > 1.0) {
         let block = floor(uv * res / pix);
         uv = (block + 0.5) * pix / res;
         pcoord = vec2<u32>(block);
@@ -347,6 +398,13 @@ fn fs_final(in: VOut) -> FinalOut {
         );
     } else {
         col = sample_scene(uv, bloom_k);
+    }
+    if (vhs > 0.0 && P.v[6].y > 0.0) {
+        // Colour smears to the right: red and blue lag behind.
+        let o = vec2<f32>(P.v[6].y * vhs * 0.008, 0.0);
+        let r = (sample_scene(uv - o, bloom_k).r + sample_scene(uv - o * 2.0, bloom_k).r) * 0.5;
+        let b = (sample_scene(uv + o, bloom_k).b + sample_scene(uv - o * 3.0, bloom_k).b) * 0.5;
+        col = vec3<f32>(mix(col.r, r, 0.8), col.g, mix(col.b, b, 0.8));
     }
     col = col * P.v[1].x;
     col = col + vec3<f32>(P.v[2].y * exp(-P.v[5].x * 8.0));
@@ -383,6 +441,16 @@ fn fs_final(in: VOut) -> FinalOut {
         col = best;
     }
 
+    if (cell_h > 0.0) {
+        col = ascii_cell(col, cell_sub);
+    }
+    if (vhs > 0.0) {
+        // Snow, thicker in the band, and a little washed-out colour.
+        let n = hash1(hash_u(u32(in.pos.x) + u32(in.pos.y) * 7919u) ^ (frame_id * 1597334677u));
+        col = col + vec3<f32>((n - 0.5) * vhs * (0.08 + band * 0.5));
+        let l = dot(col, vec3<f32>(0.299, 0.587, 0.114));
+        col = mix(col, vec3<f32>(l), vhs * 0.15);
+    }
     if (crt) {
         let s = 0.5 + 0.5 * cos(uv.y * res.y * PI / 1.5);
         col = col * (1.0 - P.v[4].y * 0.6 * s);
@@ -406,6 +474,57 @@ fn fs_final(in: VOut) -> FinalOut {
     out.output = vec4<f32>(to_linear(c), 1.0);
     out.display = vec4<f32>(c, 1.0);
     return out;
+}
+
+// A character (5×5 bits, row by row from the top left) as dense as the
+// brightness `l`: blank . : - + o 8 # @
+fn ascii_glyph(l: f32) -> u32 {
+    if (l < 0.08) {
+        return 0u;
+    }
+    if (l < 0.16) {
+        return 4194304u;
+    }
+    if (l < 0.25) {
+        return 131200u;
+    }
+    if (l < 0.35) {
+        return 14336u;
+    }
+    if (l < 0.45) {
+        return 145536u;
+    }
+    if (l < 0.55) {
+        return 15254976u;
+    }
+    if (l < 0.67) {
+        return 15252014u;
+    }
+    if (l < 0.8) {
+        return 11512810u;
+    }
+    return 15652782u;
+}
+
+// The cell's colour `col` drawn as a character; `sub` is where in the cell
+// (0..1). P.v[7].y: how much picture shows behind; P.v[24]: fixed ink
+// colour (w = 1) instead of the picture's.
+fn ascii_cell(col: vec3<f32>, sub: vec2<f32>) -> vec3<f32> {
+    // Lifted, so the dark parts of a scene still get characters.
+    let l = sqrt(clamp(dot(col, vec3<f32>(0.299, 0.587, 0.114)), 0.0, 1.0));
+    let n = ascii_glyph(l);
+    // 5 × 5 dots with a one-dot margin.
+    let x = i32(floor(sub.x * 7.0)) - 1;
+    let y = i32(floor(sub.y * 7.0)) - 1;
+    var on = 0.0;
+    if (x >= 0 && x < 5 && y >= 0 && y < 5) {
+        on = f32((n >> u32(x + y * 5)) & 1u);
+    }
+    var ink = col / max(max(col.r, max(col.g, col.b)), 0.2);
+    if (P.v[24].w > 0.5) {
+        ink = P.v[24].rgb * (0.4 + 0.6 * l);
+    }
+    return ink * on + col * P.v[7].y * (1.0 - on);
 }
 
 // Scene transitions: mixes two finished pictures (t_a = the scene going

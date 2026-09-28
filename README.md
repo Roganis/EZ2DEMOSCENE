@@ -26,7 +26,10 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     fractal (3 formulas, fold, zoom), Menger sponge flight (sponge, beam
     lattice, cube field) and a ring corridor. Plus two skies:
     **volumetric clouds** (raymarched, sun-lit, fluffy / overcast / storm)
-    and an **aurora** night sky.
+    and an **aurora** night sky. And a **battle background** in the style
+    of 16-bit RPGs: two tiled patterns (rings, diamonds, zigzags,
+    bricks, plasma, your picture…) scrolling and wobbling line by line
+    (wave, interlaced, compression) while the colours cycle through them.
   - Mirror floor: real planar reflections, blur, a glowing neon grid and
     LED textures.
   - Shapes: 25 built-ins (platonic solids, crystals, shards, beveled tech
@@ -132,7 +135,10 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   echoes that still loop exactly), kaleidoscope, mirror split, chromatic aberration,
   pixelation, palette reduction with Bayer dithering (EGA, CGA, C64, Game
   Boy, PICO-8, Amiga copper, ZX Spectrum, VGA cube, phosphor), CRT
-  scanlines/curvature/VHS wobble, grading, vignette, grain and beat flash.
+  scanlines/curvature/VHS wobble, **line wobble** (retro RPG wave,
+  interlaced or compression), **VHS tape** (jittering lines, a torn
+  tracking band, colour bleed, snow), **ASCII art** (picture colours or
+  green/amber terminal), grading, vignette, grain and beat flash.
 - **Animate anything.** Click `~` next to almost any value, post effects
   included, to pick a shape: LFOs (sine, triangle, saw up/down, square),
   beat fades (pulse, exponential and linear fades in/out, swell) or random

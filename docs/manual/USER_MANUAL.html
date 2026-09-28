@@ -304,6 +304,8 @@ selected layer, and <b>right-clicking</b> a layer shows the same options.</p>
   drift with <span class="ui">Motion / loop</span>. Pair it with <b>God rays</b> for sunbeams. Heavy on phones.</td></tr>
   <tr><td>Aurora night sky</td><td>Stars and rippling northern-lights curtains that fade from colour B at the bottom to colour C at the top.
   Colour A is the night sky.</td></tr>
+  <tr><td>Battle background (retro RPG)</td><td>Flat on the screen like the battles of 16-bit role-playing games: tiled patterns
+  whose lines wobble while the colours A → B → C cycle through them. See below.</td></tr>
 </table>
 <div class="tip"><b>Tip</b>You can stack two backgrounds, but the later one covers the earlier one (and only that one is drawn).
 Usually one is enough.</div>
@@ -341,6 +343,29 @@ that matter for the chosen style are shown, and all of them except Variant, Wall
 </table>
 <div class="tip"><b>Loops</b>Clouds can drift any distance and still loop: two copies of the cloud field, half a loop apart, cross-fade
 into each other, so the jump back at the end of the loop happens while it is invisible.</div>
+
+<h3>Battle background</h3>
+<p>The <b>Battle background</b> style is a flat, retro picture behind everything, made of a <span class="ui">Back layer</span> and an
+optional <span class="ui">Front layer</span> over it. Each layer is a tiled <span class="ui">Pattern</span> (rings, diamonds, checker,
+diagonal stripes, zigzag, dots, swirl, bricks, plasma, or your own <b>picture</b>, whose brightness picks the colour). The colours
+A → B → C → A run round along the pattern and cycle through it, the classic colour-cycling animation.</p>
+<table>
+  <tr><th style="width:24%">Setting</th><th>What it does</th></tr>
+  <tr><td>Lines</td><td>Pixel rows from top to bottom: fat retro pixels (224 is a Super Nintendo screen; 0 = full resolution).</td></tr>
+  <tr><td>Colours</td><td>How many colours the cycling palette has: a few give hard retro bands, 0 is smooth.</td></tr>
+  <tr><td>Tiles</td><td>How many times the pattern repeats from top to bottom.</td></tr>
+  <tr><td>Scroll / loop</td><td>Whole tiles the pattern scrolls per loop, sideways (x) and up (y).</td></tr>
+  <tr><td>Line warp</td><td><b>Wave</b>: each line slides left and right along a wave. <b>Interlaced</b>: odd and even lines slide
+  opposite ways, the shimmering battle look. <b>Compression</b>: lines bunch up and spread out vertically.</td></tr>
+  <tr><td>Amount, Waves, Waves / loop</td><td>How far lines move, how many waves fit from top to bottom, and how many times they roll by per loop.</td></tr>
+  <tr><td>Bands</td><td>How many times the colours go round across one tile.</td></tr>
+  <tr><td>Colour cycles</td><td>How many times the colours cycle through the pattern per loop (negative: the other way).</td></tr>
+  <tr><td>Blend, Opacity</td><td>Front layer only: <b>Mix</b>, <b>Add</b>, <b>Screen</b> or <b>Difference</b> over the back layer, and how much of it shows.</td></tr>
+</table>
+<p>Everything that moves turns a whole number of times per loop, so the loop is seamless, and the numbers have
+<span class="ui">~</span> and 🎵 as usual. The <b>Battle Screen</b> preset puts a spinning crystal foe in front of one.</p>
+<figure><img src="img/battle-background.jpg"><figcaption>Battle Screen: rings cycling through three colours with a wave warp, a
+second pattern added over them, on a CRT.</figcaption></figure>
 
 <h2>5.2 Mirror floor</h2>
 <figure><img src="img/mirror.jpg" ><figcaption>Mirror floor settings.</figcaption></figure>
@@ -1043,12 +1068,23 @@ to force those into a palette.</p>
   (not saved), so frame 0 already has its trails and the loop closes seamlessly.</td></tr>
   <tr><td>Heat haze</td><td>The picture shimmers as if seen through rising hot air: above hot, bright things (lava, fire, the sun), near
   the bottom of the picture (hot ground) or everywhere. <span class="ui">Rises / loop</span> sets its speed.</td></tr>
+  <tr><td>Line wobble</td><td>The lines of the whole picture wobble like a retro RPG battle: <b>Wave</b> (lines slide sideways),
+  <b>Interlaced</b> (odd and even lines slide opposite ways; <span class="ui">Lines</span> sets how fine) or <b>Compression</b> (lines
+  squeeze up and down). <span class="ui">Amount</span>, <span class="ui">Waves</span> and <span class="ui">Waves / loop</span> as for the
+  battle background.</td></tr>
+  <tr><td>VHS tape</td><td>A worn video tape: lines jitter, colour bleeds sideways, snow, faded colour, and a torn
+  <span class="ui">Tracking band</span> rolling down the picture three times per loop.</td></tr>
+  <tr><td>ASCII art</td><td>The picture drawn with text characters, denser where it is brighter. <span class="ui">Rows</span> sets how many
+  lines of text; <span class="ui">Colour</span> keeps the picture's colours or uses a green, amber or white terminal;
+  <span class="ui">Picture behind</span> lets some of the picture show between the characters.</td></tr>
   <tr><td>Chromatic aberration</td><td>An RGB colour split towards the edges, like a cheap lens. Pulse it on the beat.</td></tr>
   <tr><td>Pixelate</td><td>Fat pixels (the size is measured at 1080p, so previews match exports).</td></tr>
   <tr><td>Retro palette</td><td>Reduces the image to a classic computer palette with ordered (Bayer) dithering.</td></tr>
   <tr><td>CRT monitor</td><td>Scanlines, screen curvature and a VHS wobble.</td></tr>
   <tr><td>Colour grading</td><td>Exposure, Contrast, Saturation, Vignette (dark corners), Film grain and Beat flash (a white flash on every beat).</td></tr>
 </table>
+<figure><img src="img/retro-effects.jpg"><figcaption>Neon Arena with an interlaced line wobble, a VHS tape and ASCII art in a green
+terminal.</figcaption></figure>
 <h2>Palettes</h2>
 <table>
   <tr><th style="width:30%">Palette</th><th>Colours</th></tr>

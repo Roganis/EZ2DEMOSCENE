@@ -2143,10 +2143,13 @@ pub enum BackdropKind {
     Clouds,
     /// Night sky with rippling aurora curtains.
     Aurora,
+    /// EarthBound-style battle background: flat patterns whose lines
+    /// wobble, with cycling colours (see [`Battle`]).
+    Battle,
 }
 
 impl BackdropKind {
-    pub const ALL: [BackdropKind; 11] = [
+    pub const ALL: [BackdropKind; 12] = [
         BackdropKind::Gradient,
         BackdropKind::Nebula,
         BackdropKind::Starfield,
@@ -2158,6 +2161,7 @@ impl BackdropKind {
         BackdropKind::Rings,
         BackdropKind::Clouds,
         BackdropKind::Aurora,
+        BackdropKind::Battle,
     ];
     pub fn label(self) -> &'static str {
         match self {
@@ -2172,6 +2176,7 @@ impl BackdropKind {
             BackdropKind::Rings => "Raymarched ring corridor",
             BackdropKind::Clouds => "Volumetric clouds",
             BackdropKind::Aurora => "Aurora night sky",
+            BackdropKind::Battle => "Battle background (retro RPG)",
         }
     }
 
@@ -2214,6 +2219,9 @@ pub struct Backdrop {
     /// raymarched kinds and clouds, slightly softer).
     #[serde(skip_serializing_if = "is_default")]
     pub resolution: BgResolution,
+    /// Settings of the battle background.
+    #[serde(skip_serializing_if = "is_default")]
+    pub battle: Battle,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -2370,6 +2378,216 @@ impl Default for Backdrop {
             texture: None,
             ray: RaySettings::default(),
             resolution: BgResolution::Full,
+            battle: Battle::default(),
+        }
+    }
+}
+
+/// How the lines of a picture are pushed about, as in the battle
+/// backgrounds of 16-bit RPGs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum LineWarp {
+    /// Still.
+    None,
+    /// Each line slides left and right along a wave.
+    #[default]
+    Wave,
+    /// Odd and even lines slide opposite ways.
+    Interlaced,
+    /// Lines bunch up and spread out vertically.
+    Compression,
+}
+
+impl LineWarp {
+    pub const ALL: [LineWarp; 4] = [
+        LineWarp::None,
+        LineWarp::Wave,
+        LineWarp::Interlaced,
+        LineWarp::Compression,
+    ];
+    /// The moving ones (for the line wobble effect).
+    pub const MOVING: [LineWarp; 3] = [LineWarp::Wave, LineWarp::Interlaced, LineWarp::Compression];
+    pub fn label(self) -> &'static str {
+        match self {
+            LineWarp::None => "None",
+            LineWarp::Wave => "Wave (lines slide)",
+            LineWarp::Interlaced => "Interlaced (odd/even opposite)",
+            LineWarp::Compression => "Compression (lines squeeze)",
+        }
+    }
+    pub fn index(self) -> u32 {
+        LineWarp::ALL.iter().position(|e| *e == self).unwrap_or(0) as u32
+    }
+}
+
+/// The pattern of a battle background layer. Each is a ramp of values
+/// that the colours cycle through.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum BattlePattern {
+    #[default]
+    Rings,
+    Diamonds,
+    Checker,
+    Stripes,
+    Zigzag,
+    Dots,
+    Swirl,
+    Bricks,
+    Plasma,
+    /// The backdrop's picture (its brightness picks the colour).
+    Picture,
+}
+
+impl BattlePattern {
+    pub const ALL: [BattlePattern; 10] = [
+        BattlePattern::Rings,
+        BattlePattern::Diamonds,
+        BattlePattern::Checker,
+        BattlePattern::Stripes,
+        BattlePattern::Zigzag,
+        BattlePattern::Dots,
+        BattlePattern::Swirl,
+        BattlePattern::Bricks,
+        BattlePattern::Plasma,
+        BattlePattern::Picture,
+    ];
+    pub fn label(self) -> &'static str {
+        match self {
+            BattlePattern::Rings => "Rings",
+            BattlePattern::Diamonds => "Diamonds",
+            BattlePattern::Checker => "Checker",
+            BattlePattern::Stripes => "Diagonal stripes",
+            BattlePattern::Zigzag => "Zigzag",
+            BattlePattern::Dots => "Dots",
+            BattlePattern::Swirl => "Swirl",
+            BattlePattern::Bricks => "Bricks",
+            BattlePattern::Plasma => "Plasma",
+            BattlePattern::Picture => "Picture (the texture)",
+        }
+    }
+    pub fn index(self) -> u32 {
+        BattlePattern::ALL
+            .iter()
+            .position(|e| *e == self)
+            .unwrap_or(0) as u32
+    }
+}
+
+/// How the front battle layer goes over the back one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum BattleBlend {
+    /// See-through, by its opacity.
+    #[default]
+    Mix,
+    /// Adds light.
+    Add,
+    /// Lightens, softer than add.
+    Screen,
+    /// Colours flip where both are bright.
+    Difference,
+}
+
+impl BattleBlend {
+    pub const ALL: [BattleBlend; 4] = [
+        BattleBlend::Mix,
+        BattleBlend::Add,
+        BattleBlend::Screen,
+        BattleBlend::Difference,
+    ];
+    pub fn label(self) -> &'static str {
+        match self {
+            BattleBlend::Mix => "Mix",
+            BattleBlend::Add => "Add",
+            BattleBlend::Screen => "Screen",
+            BattleBlend::Difference => "Difference",
+        }
+    }
+    pub fn index(self) -> u32 {
+        BattleBlend::ALL
+            .iter()
+            .position(|e| *e == self)
+            .unwrap_or(0) as u32
+    }
+}
+
+/// One layer of a battle background: a tiled pattern that scrolls, whose
+/// lines wobble, coloured by the backdrop's colours cycling through it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BattleLayer {
+    pub enabled: bool,
+    pub pattern: BattlePattern,
+    /// Tiles from the top of the picture to the bottom.
+    pub tiles: Param,
+    /// Tiles scrolled per loop, sideways and up.
+    pub scroll: [i32; 2],
+    pub warp: LineWarp,
+    /// How far lines move (fraction of the picture's height).
+    pub amount: Param,
+    /// Waves from the top of the picture to the bottom.
+    pub waves: Param,
+    /// Times the waves roll by per loop.
+    pub wave_speed: i32,
+    /// Colour bands along the pattern's ramp.
+    pub bands: Param,
+    /// Times the colours cycle through the pattern per loop.
+    pub cycles: i32,
+    /// How much of the layer shows (the front one, over the back).
+    pub opacity: Param,
+}
+
+impl Default for BattleLayer {
+    fn default() -> Self {
+        BattleLayer {
+            enabled: true,
+            pattern: BattlePattern::Rings,
+            tiles: Param::new(3.0),
+            scroll: [1, 0],
+            warp: LineWarp::Wave,
+            amount: Param::new(0.04),
+            waves: Param::new(3.0),
+            wave_speed: 2,
+            bands: Param::new(2.0),
+            cycles: 4,
+            opacity: Param::new(1.0),
+        }
+    }
+}
+
+/// An EarthBound-style battle background: a back layer and an optional
+/// front one over it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Battle {
+    pub back: BattleLayer,
+    pub front: BattleLayer,
+    pub blend: BattleBlend,
+    /// Lines from top to bottom: fat retro pixels (0 = full resolution).
+    pub lines: u32,
+    /// Colours in the cycling palette (0 = smooth).
+    pub steps: u32,
+}
+
+impl Default for Battle {
+    fn default() -> Self {
+        Battle {
+            back: BattleLayer::default(),
+            front: BattleLayer {
+                enabled: false,
+                pattern: BattlePattern::Diamonds,
+                tiles: Param::new(5.0),
+                scroll: [0, -1],
+                warp: LineWarp::Interlaced,
+                amount: Param::new(0.03),
+                waves: Param::new(6.0),
+                wave_speed: -3,
+                bands: Param::new(1.0),
+                cycles: -2,
+                opacity: Param::new(0.5),
+            },
+            blend: BattleBlend::Mix,
+            lines: 224,
+            steps: 8,
         }
     }
 }
@@ -2449,6 +2667,130 @@ pub struct PostStack {
     /// colour.
     #[serde(skip_serializing_if = "is_default")]
     pub feedback: Feedback,
+    /// The lines of the picture wobble, as in retro RPG battles.
+    #[serde(skip_serializing_if = "is_default")]
+    pub wobble: LineWobble,
+    /// Worn video tape: jittering lines, noise bands, colour bleed.
+    #[serde(skip_serializing_if = "is_default")]
+    pub vhs: Vhs,
+    /// The picture drawn with text characters.
+    #[serde(skip_serializing_if = "is_default")]
+    pub ascii: Ascii,
+}
+
+/// Line wobble of the whole picture.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LineWobble {
+    pub enabled: bool,
+    pub mode: LineWarp,
+    /// How far lines move (fraction of the picture's height).
+    pub amount: Param,
+    /// Waves from the top of the picture to the bottom.
+    pub waves: Param,
+    /// Times the waves roll by per loop.
+    pub speed: i32,
+    /// Lines from top to bottom for the interlacing (0 = every pixel row).
+    pub lines: u32,
+}
+
+impl Default for LineWobble {
+    fn default() -> Self {
+        LineWobble {
+            enabled: false,
+            mode: LineWarp::Wave,
+            amount: Param::new(0.02),
+            waves: Param::new(4.0),
+            speed: 2,
+            lines: 240,
+        }
+    }
+}
+
+/// Worn video tape.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Vhs {
+    pub enabled: bool,
+    /// Overall strength.
+    pub amount: Param,
+    /// Colour bleeding sideways.
+    pub bleed: Param,
+    /// Noisy bands rolling through the picture.
+    pub bands: Param,
+}
+
+impl Default for Vhs {
+    fn default() -> Self {
+        Vhs {
+            enabled: false,
+            amount: Param::new(0.5),
+            bleed: Param::new(0.5),
+            bands: Param::new(0.5),
+        }
+    }
+}
+
+/// Colours of the ASCII characters.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum AsciiColor {
+    /// The picture's colours.
+    #[default]
+    Picture,
+    /// Green terminal.
+    Green,
+    /// Amber terminal.
+    Amber,
+    /// White on black.
+    White,
+}
+
+impl AsciiColor {
+    pub const ALL: [AsciiColor; 4] = [
+        AsciiColor::Picture,
+        AsciiColor::Green,
+        AsciiColor::Amber,
+        AsciiColor::White,
+    ];
+    pub fn label(self) -> &'static str {
+        match self {
+            AsciiColor::Picture => "Picture colours",
+            AsciiColor::Green => "Green terminal",
+            AsciiColor::Amber => "Amber terminal",
+            AsciiColor::White => "White",
+        }
+    }
+    pub fn rgb(self) -> Option<[f32; 3]> {
+        match self {
+            AsciiColor::Picture => None,
+            AsciiColor::Green => Some([0.25, 1.0, 0.35]),
+            AsciiColor::Amber => Some([1.0, 0.7, 0.15]),
+            AsciiColor::White => Some([1.0, 1.0, 1.0]),
+        }
+    }
+}
+
+/// The picture as text characters.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Ascii {
+    pub enabled: bool,
+    /// Character rows from top to bottom.
+    pub rows: Param,
+    pub color: AsciiColor,
+    /// How much of the picture shows behind the characters (0..1).
+    pub backdrop: Param,
+}
+
+impl Default for Ascii {
+    fn default() -> Self {
+        Ascii {
+            enabled: false,
+            rows: Param::new(60.0),
+            color: AsciiColor::Picture,
+            backdrop: Param::new(0.0),
+        }
+    }
 }
 
 /// Video feedback trails.

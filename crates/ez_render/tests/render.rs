@@ -2337,3 +2337,75 @@ fn color_scheme_recolours_and_loops() {
     assert!(seam < 0.6, "a turning scheme doesn't loop");
     assert!(moves > 1.0, "a turning scheme doesn't turn");
 }
+
+/// Battle backgrounds loop and move with every pattern and line warp, and
+/// the line wobble, VHS and ASCII effects loop and change the picture.
+#[test]
+fn battle_backgrounds_and_retro_effects_loop() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let target = r.create_target(160, 90);
+    let dir = snapshot_dir();
+    let base = presets::battle_screen();
+    let mut failures: Vec<String> = Vec::new();
+    let check = |r: &mut Renderer, p: &Project, name: &str, failures: &mut Vec<String>| {
+        let at = |phase: f32| EvalCtx::new(&p.timing, phase, None);
+        let a = r.render_image(p, &at(0.0), &target);
+        let b = r.render_image(p, &at(1.0), &target);
+        let mid = r.render_image(p, &at(0.37), &target);
+        a.save(dir.join(format!("battle_{name}.png"))).unwrap();
+        let seam = mean_abs_diff(a.as_raw(), b.as_raw());
+        let motion = mean_abs_diff(a.as_raw(), mid.as_raw());
+        let lum = a.as_raw().iter().map(|v| *v as f32).sum::<f32>() / a.as_raw().len() as f32;
+        eprintln!("{name:<28} seam {seam:.3}  motion {motion:.2}  lum {lum:.1}");
+        if seam > 0.6 || motion < 1.0 || lum < 3.0 {
+            failures.push(format!("{name}: seam {seam} motion {motion} lum {lum}"));
+        }
+        a
+    };
+    for (i, pattern) in BattlePattern::ALL.into_iter().enumerate() {
+        let mut p = base.clone();
+        if let LayerKind::Backdrop(b) = &mut p.layers[0].kind {
+            b.battle.back.pattern = pattern;
+            b.battle.back.warp = LineWarp::ALL[i % 4];
+            b.battle.front.warp = LineWarp::ALL[(i + 1) % 4];
+            b.battle.blend = BattleBlend::ALL[i % 4];
+        }
+        check(&mut r, &p, &format!("{pattern:?}"), &mut failures);
+    }
+    let plain = check(&mut r, &base, "plain", &mut failures);
+    type Effect = (&'static str, fn(&mut PostStack));
+    let effects: [Effect; 5] = [
+        ("wobble_wave", |s| s.wobble.enabled = true),
+        ("wobble_interlaced", |s| {
+            s.wobble.enabled = true;
+            s.wobble.mode = LineWarp::Interlaced;
+        }),
+        ("vhs", |s| {
+            s.vhs.enabled = true;
+            s.vhs.amount = Param::new(1.0);
+        }),
+        ("ascii", |s| s.ascii.enabled = true),
+        ("ascii_green", |s| {
+            s.ascii.enabled = true;
+            s.ascii.color = AsciiColor::Green;
+        }),
+    ];
+    for (name, f) in effects {
+        let mut p = base.clone();
+        f(&mut p.post);
+        let img = check(&mut r, &p, name, &mut failures);
+        let d = mean_abs_diff(img.as_raw(), plain.as_raw());
+        if d < 2.0 {
+            failures.push(format!("{name} barely changes the picture: {d}"));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
