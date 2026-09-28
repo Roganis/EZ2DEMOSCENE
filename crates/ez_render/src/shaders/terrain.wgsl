@@ -2,7 +2,8 @@
 // The height field is periodic noise and the scroll offset wraps after one
 // full period, so the terrain loops seamlessly.
 // D.v[0]: size, cells, height, hills (period of the noise)
-// D.v[1]: roughness, scroll offset (0..1, fraction of the terrain), valley, style
+// D.v[1]: roughness, scroll offset (0..1 in terrain lengths; 0..2 for a mirrored
+//   picture with odd tiles), valley, style
 // D.v[2]: line colour * glow, seed
 // D.v[3]: fill colour, has texture
 // D.v[4]: texture tiles across the terrain, texture on lines

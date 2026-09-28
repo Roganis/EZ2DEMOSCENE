@@ -17,6 +17,8 @@
 @group(2) @binding(0) var t_tex: texture_2d<f32>;
 @group(2) @binding(1) var s_tex: sampler;
 @group(2) @binding(2) var t_relief: texture_2d<f32>;
+// The relief picture's own sampler: it tiles as that picture is set to.
+@group(2) @binding(3) var s_relief: sampler;
 
 fn lum(c: vec3<f32>) -> f32 {
     return dot(c, vec3<f32>(0.299, 0.587, 0.114));
@@ -40,18 +42,18 @@ fn tri_uv(p: vec3<f32>, k: i32) -> vec2<f32> {
     return (vec2<f32>(q.x, -q.y) * 0.5 + 0.5) * D.v[2].z + D.v[3].xy;
 }
 
-fn tri_sample(t: texture_2d<f32>, p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
+fn tri_sample(t: texture_2d<f32>, s: sampler, p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
     let w = tri_weights(n);
-    return textureSample(t, s_tex, tri_uv(p, 0)).rgb * w.x
-        + textureSample(t, s_tex, tri_uv(p, 1)).rgb * w.y
-        + textureSample(t, s_tex, tri_uv(p, 2)).rgb * w.z;
+    return textureSample(t, s, tri_uv(p, 0)).rgb * w.x
+        + textureSample(t, s, tri_uv(p, 1)).rgb * w.y
+        + textureSample(t, s, tri_uv(p, 2)).rgb * w.z;
 }
 
-fn tri_sample_level(t: texture_2d<f32>, p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
+fn tri_sample_level(t: texture_2d<f32>, s: sampler, p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
     let w = tri_weights(n);
-    return textureSampleLevel(t, s_tex, tri_uv(p, 0), 0.0).rgb * w.x
-        + textureSampleLevel(t, s_tex, tri_uv(p, 1), 0.0).rgb * w.y
-        + textureSampleLevel(t, s_tex, tri_uv(p, 2), 0.0).rgb * w.z;
+    return textureSampleLevel(t, s, tri_uv(p, 0), 0.0).rgb * w.x
+        + textureSampleLevel(t, s, tri_uv(p, 1), 0.0).rgb * w.y
+        + textureSampleLevel(t, s, tri_uv(p, 2), 0.0).rgb * w.z;
 }
 
 struct VIn {
@@ -199,10 +201,10 @@ fn vs_main(in: VIn) -> VOut {
     if (D.v[8].y != 0.0 && D.v[8].w > 0.5) {
         var h = 0.0;
         if (D.v[5].y > 0.5) {
-            h = lum(tri_sample_level(t_relief, in.pos, normalize(in.normal)));
+            h = lum(tri_sample_level(t_relief, s_relief, in.pos, normalize(in.normal)));
         } else {
             let duv = in.uv * D.v[2].z + D.v[3].xy;
-            h = lum(textureSampleLevel(t_relief, s_tex, duv, 0.0).rgb);
+            h = lum(textureSampleLevel(t_relief, s_relief, duv, 0.0).rgb);
         }
         pos = pos + normalize(in.normal) * h * D.v[8].y;
     }
@@ -266,11 +268,11 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     // D is uniform, so this branch keeps sampling in uniform control flow.
     if (D.v[5].y > 0.5) {
         let on = normalize(in.obj_n);
-        texel = tri_sample(t_tex, in.obj, on);
-        relief = tri_sample(t_relief, in.obj, on);
+        texel = tri_sample(t_tex, s_tex, in.obj, on);
+        relief = tri_sample(t_relief, s_relief, in.obj, on);
     } else {
         texel = textureSample(t_tex, s_tex, uv).rgb;
-        relief = textureSample(t_relief, s_tex, uv).rgb;
+        relief = textureSample(t_relief, s_relief, uv).rgb;
     }
     let height = lum(relief);
     let dhx = dpdx(height);

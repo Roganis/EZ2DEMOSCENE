@@ -1197,6 +1197,10 @@ impl Renderer {
                     visibility: vf,
                     ..tex_entry(2)
                 },
+                wgpu::BindGroupLayoutEntry {
+                    visibility: vf,
+                    ..sampler_entry(3)
+                },
             ],
         });
         let bgl_floor = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -2939,6 +2943,10 @@ impl Renderer {
                     binding: 2,
                     resource: wgpu::BindingResource::TextureView(&self.textures[relief].view),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(self.sampler_for(relief, nearest)),
+                },
             ],
         });
         self.mesh_tex_bgs.insert(k, bg);
@@ -3892,6 +3900,11 @@ impl Renderer {
                     ls.triangles = (drawn * drawn * 2) as u64 * syms.len() as u64;
                     ls.draws = syms.len() as u32;
                     ls.load = ls.triangles as f32 / 150_000.0 + 0.05;
+                    // A mirrored picture repeats every two tiles: with an odd
+                    // tile count the terrain only repeats every two lengths,
+                    // so scroll by pairs of them and the loop still closes.
+                    let odd = t.tiles.clamp(1, 256) % 2 == 1;
+                    let scroll_tiles = if tex.ends_with(MIRROR_KEY) && odd { 2.0 } else { 1.0 };
                     for sym in syms {
                         let mut blk: Block = Zeroable::zeroed();
                         blk[0] = [
@@ -3902,7 +3915,7 @@ impl Renderer {
                         ];
                         blk[1] = [
                             t.roughness.eval(ctx),
-                            (ctx.phase * t.scroll as f32).rem_euclid(1.0),
+                            (ctx.phase * t.scroll as f32 * scroll_tiles).rem_euclid(scroll_tiles),
                             t.valley.eval(ctx).clamp(0.0, 1.0),
                             t.style.index() as f32,
                         ];
