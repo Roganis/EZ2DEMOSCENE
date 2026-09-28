@@ -17,7 +17,9 @@ fn every_library_model_loads() {
                     .fold(0.0, f32::max);
                 assert!((0.5..=1.01).contains(&r), "{}: radius {r}", e.id);
                 assert!(
-                    m.vertices.iter().all(|v| glam::Vec3::from(v.normal).length() > 0.5),
+                    m.vertices
+                        .iter()
+                        .all(|v| glam::Vec3::from(v.normal).length() > 0.5),
                     "{}: missing normals",
                     e.id
                 );
@@ -25,5 +27,10 @@ fn every_library_model_loads() {
             Err(err) => failures.push(format!("{}: {err:#}", e.id)),
         }
     }
-    assert!(failures.is_empty(), "{} failed:\n{}", failures.len(), failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "{} failed:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
 }
