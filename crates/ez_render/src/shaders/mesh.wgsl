@@ -4,7 +4,8 @@
 // D.v[2]: emissive mode, has texture, texture scale, flat shading
 // D.v[3]: scroll u, scroll v, rim, hue shift
 // D.v[4]: glitch amount, style (0 jitter, 1 slices, 2 shatter), steps per loop, chance
-// D.v[5]: glitch seed
+// D.v[5]: glitch seed, triplanar (textures projected from three sides in
+//         object space: joined models that came without texture coordinates)
 // D.v[6]: pulse mode (4): pulses, head position (0..1), pulse length, pulse glow
 // D.v[7]: pulse mode (4): base glow
 // D.v[8]: relief strength, displacement, relief mode (0 bump, 1 normal map), has relief
@@ -19,6 +20,38 @@
 
 fn lum(c: vec3<f32>) -> f32 {
     return dot(c, vec3<f32>(0.299, 0.587, 0.114));
+}
+
+// Weights of the three projections for a surface facing `n`.
+fn tri_weights(n: vec3<f32>) -> vec3<f32> {
+    let a = pow(abs(n), vec3<f32>(4.0));
+    return a / max(a.x + a.y + a.z, 1e-5);
+}
+
+// Texture coordinates of the three projections of an object-space point
+// (the unit sphere maps to 0..1, like the box coordinates of the mesh).
+fn tri_uv(p: vec3<f32>, k: i32) -> vec2<f32> {
+    var q = p.zy;
+    if (k == 1) {
+        q = p.xz;
+    } else if (k == 2) {
+        q = p.xy;
+    }
+    return (vec2<f32>(q.x, -q.y) * 0.5 + 0.5) * D.v[2].z + D.v[3].xy;
+}
+
+fn tri_sample(t: texture_2d<f32>, p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
+    let w = tri_weights(n);
+    return textureSample(t, s_tex, tri_uv(p, 0)).rgb * w.x
+        + textureSample(t, s_tex, tri_uv(p, 1)).rgb * w.y
+        + textureSample(t, s_tex, tri_uv(p, 2)).rgb * w.z;
+}
+
+fn tri_sample_level(t: texture_2d<f32>, p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
+    let w = tri_weights(n);
+    return textureSampleLevel(t, s_tex, tri_uv(p, 0), 0.0).rgb * w.x
+        + textureSampleLevel(t, s_tex, tri_uv(p, 1), 0.0).rgb * w.y
+        + textureSampleLevel(t, s_tex, tri_uv(p, 2), 0.0).rgb * w.z;
 }
 
 struct VIn {
@@ -41,6 +74,9 @@ struct VOut {
     @location(2) uv: vec2<f32>,
     @location(3) edge: f32,
     @location(4) inst: vec4<f32>,
+    // Object-space position and normal, for triplanar textures.
+    @location(5) obj: vec3<f32>,
+    @location(6) obj_n: vec3<f32>,
 };
 
 fn hash_v3(p: vec3<f32>, salt: u32) -> vec3<f32> {
@@ -161,8 +197,13 @@ fn vs_main(in: VIn) -> VOut {
     var pos = in.pos;
     // Displacement: push the surface out by the relief brightness.
     if (D.v[8].y != 0.0 && D.v[8].w > 0.5) {
-        let duv = in.uv * D.v[2].z + D.v[3].xy;
-        let h = lum(textureSampleLevel(t_relief, s_tex, duv, 0.0).rgb);
+        var h = 0.0;
+        if (D.v[5].y > 0.5) {
+            h = lum(tri_sample_level(t_relief, in.pos, normalize(in.normal)));
+        } else {
+            let duv = in.uv * D.v[2].z + D.v[3].xy;
+            h = lum(textureSampleLevel(t_relief, s_tex, duv, 0.0).rgb);
+        }
         pos = pos + normalize(in.normal) * h * D.v[8].y;
     }
     let d = deform(pos, in.normal);
@@ -173,6 +214,8 @@ fn vs_main(in: VIn) -> VOut {
     out.pos = G.view_proj * world;
     out.uv = in.uv;
     out.edge = in.edge;
+    out.obj = in.pos;
+    out.obj_n = in.normal;
     out.inst = in.inst;
     return out;
 }
@@ -218,8 +261,17 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let face_n = normalize(cross(dpdx(in.world), dpdy(in.world)));
     let edge_w = fwidth(in.edge) * 1.5 + 0.035;
     let uv = in.uv * tex_scale + scroll;
-    let texel = textureSample(t_tex, s_tex, uv).rgb;
-    let relief = textureSample(t_relief, s_tex, uv).rgb;
+    var texel: vec3<f32>;
+    var relief: vec3<f32>;
+    // D is uniform, so this branch keeps sampling in uniform control flow.
+    if (D.v[5].y > 0.5) {
+        let on = normalize(in.obj_n);
+        texel = tri_sample(t_tex, in.obj, on);
+        relief = tri_sample(t_relief, in.obj, on);
+    } else {
+        texel = textureSample(t_tex, s_tex, uv).rgb;
+        relief = textureSample(t_relief, s_tex, uv).rgb;
+    }
     let height = lum(relief);
     let dhx = dpdx(height);
     let dhy = dpdy(height);

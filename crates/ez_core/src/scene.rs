@@ -420,6 +420,11 @@ pub struct ColorScheme {
     pub chroma_match: f32,
     /// The sky, fog, sun and god rays too.
     pub environment: bool,
+    /// Greys take the key's hue too (0 = they stay grey). A new shape's
+    /// default material is grey. Missing in older projects = 0, as they
+    /// looked.
+    #[serde(default)]
+    pub tint_greys: f32,
 }
 
 impl Default for ColorScheme {
@@ -432,6 +437,7 @@ impl Default for ColorScheme {
             hue_pull: 1.0,
             chroma_match: 0.0,
             environment: true,
+            tint_greys: 0.6,
         }
     }
 }
@@ -453,6 +459,7 @@ impl ColorScheme {
                 self.hue_pull,
                 self.chroma_match,
             )
+            .with_grey_tint(self.tint_greys)
         })
     }
 }
@@ -2347,6 +2354,10 @@ impl Default for Backdrop {
 pub struct MirrorFloor {
     /// Half size of the floor square.
     pub size: f32,
+    /// Endless: the floor follows the camera to the horizon and fades into
+    /// the sky there (`size` is not used).
+    #[serde(skip_serializing_if = "is_default")]
+    pub infinite: bool,
     pub base_color: Rgb,
     /// 0 = matte, 1 = perfect mirror.
     pub reflectivity: Param,
@@ -2367,6 +2378,7 @@ impl Default for MirrorFloor {
     fn default() -> Self {
         MirrorFloor {
             size: 40.0,
+            infinite: false,
             base_color: hex(0x080808),
             reflectivity: Param::new(0.6),
             blur: Param::new(0.2),

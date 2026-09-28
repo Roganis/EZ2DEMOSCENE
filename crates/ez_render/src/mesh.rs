@@ -20,6 +20,20 @@ pub struct Vertex {
     pub edge: f32,
 }
 
+/// Box projection of a point of the unit sphere onto the plane its normal
+/// faces most, as texture coordinates in 0..1.
+fn box_uv(p: Vec3, n: Vec3) -> [f32; 2] {
+    let a = n.abs();
+    let (u, v) = if a.x >= a.y && a.x >= a.z {
+        (p.z * n.x.signum(), p.y)
+    } else if a.y >= a.z {
+        (p.x, p.z * n.y.signum())
+    } else {
+        (-p.x * n.z.signum(), p.y)
+    };
+    [u * 0.5 + 0.5, 0.5 - v * 0.5]
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct MeshData {
     pub vertices: Vec<Vertex>,
@@ -153,6 +167,63 @@ impl MeshData {
             }
             self.indices = out;
         }
+    }
+
+    /// Whether every vertex has texture coordinate (0, 0), i.e. the mesh
+    /// came without any.
+    pub fn lacks_uvs(&self) -> bool {
+        self.vertices.iter().all(|v| v.uv == [0.0, 0.0])
+    }
+
+    /// Texture coordinates projected like a box: each vertex takes the
+    /// plane its normal faces most (for meshes that came without any).
+    /// Positions are expected in the unit sphere.
+    pub fn box_uvs(&mut self) {
+        for v in &mut self.vertices {
+            v.uv = box_uv(v.pos.into(), v.normal.into());
+        }
+    }
+
+    /// Merge vertices at the same position (and with the same texture
+    /// coordinates, when `keep_uvs`), then give every vertex the average
+    /// normal of the faces around it. Faceted meshes then hold together
+    /// when displaced along their normals instead of opening at the edges.
+    /// Without `keep_uvs`, coordinates are box-projected again from the
+    /// new normals so neighbours match.
+    pub fn weld_smooth(&mut self, keep_uvs: bool) {
+        let q = |x: f32| (x * 1e5).round() as i64;
+        let mut index: std::collections::HashMap<[i64; 5], u32> = std::collections::HashMap::new();
+        let mut verts: Vec<Vertex> = Vec::new();
+        let mut remap = Vec::with_capacity(self.vertices.len());
+        for v in &self.vertices {
+            let uv = if keep_uvs { v.uv } else { [0.0, 0.0] };
+            let key = [q(v.pos[0]), q(v.pos[1]), q(v.pos[2]), q(uv[0]), q(uv[1])];
+            let i = *index.entry(key).or_insert_with(|| {
+                verts.push(*v);
+                (verts.len() - 1) as u32
+            });
+            remap.push(i);
+        }
+        for i in &mut self.indices {
+            *i = remap[*i as usize];
+        }
+        // Area-weighted face normals.
+        let mut acc = vec![Vec3::ZERO; verts.len()];
+        for t in self.indices.as_chunks::<3>().0 {
+            let [a, b, c] = t.map(|i| Vec3::from(verts[i as usize].pos));
+            let n = (b - a).cross(c - a);
+            for &i in t {
+                acc[i as usize] += n;
+            }
+        }
+        for (v, n) in verts.iter_mut().zip(acc) {
+            let n = n.normalize_or(Vec3::from(v.normal));
+            v.normal = n.into();
+            if !keep_uvs {
+                v.uv = box_uv(v.pos.into(), n);
+            }
+        }
+        self.vertices = verts;
     }
 
     /// Axis-aligned bounds.
@@ -975,6 +1046,39 @@ mod tests {
                 p.label()
             );
         }
+    }
+
+    #[test]
+    fn weld_joins_faceted_corners() {
+        // A faceted cube: every face has its own copies of the corners.
+        let mut m = primitive(&Primitive::Cube);
+        let key = |v: &Vertex| v.pos.map(|x| (x * 1e4).round() as i32);
+        let distinct: std::collections::HashSet<_> = m.vertices.iter().map(key).collect();
+        assert!(m.vertices.len() > distinct.len());
+        m.weld_smooth(false);
+        assert_eq!(m.vertices.len(), distinct.len());
+        for v in &m.vertices {
+            // Corner normals point diagonally out.
+            let n = Vec3::from(v.normal);
+            assert!(n.dot(Vec3::from(v.pos).normalize()) > 0.9);
+            assert!(v.uv.iter().all(|x| (0.0..=1.0).contains(x)));
+        }
+        // With texture coordinates kept, the cube's faces stay apart.
+        let mut m = primitive(&Primitive::Cube);
+        let n = m.vertices.len();
+        m.weld_smooth(true);
+        assert!(m.vertices.len() > 8 && m.vertices.len() <= n);
+    }
+
+    #[test]
+    fn box_uvs_cover_untextured_meshes() {
+        let mut m = primitive(&Primitive::Cube);
+        for v in &mut m.vertices {
+            v.uv = [0.0, 0.0];
+        }
+        assert!(m.lacks_uvs());
+        m.box_uvs();
+        assert!(!m.lacks_uvs());
     }
 
     #[test]

@@ -4,7 +4,8 @@
 // D.v[1]: base rgb, has texture
 // D.v[2]: tint rgb, texture scale
 // D.v[3]: grid rgb (colour * strength), grid scale
-// D.v[4]: grid scroll offset
+// D.v[4]: grid scroll offset, -, -, infinite (follows the camera, fades
+//         into the sky by distance; D.v[0].x is then its radius)
 
 @group(2) @binding(0) var t_tex: texture_2d<f32>;
 @group(2) @binding(1) var s_tex: sampler;
@@ -18,7 +19,10 @@ struct FOut {
 
 @vertex
 fn vs_main(@builtin(vertex_index) vi: u32) -> FOut {
-    let c = quad_corner(vi) * D.v[0].x;
+    var c = quad_corner(vi) * D.v[0].x;
+    if (D.v[4].w > 0.5) {
+        c = c + G.cam_pos.xz;
+    }
     let world = vec3<f32>(c.x, D.v[0].y, c.y);
     var out: FOut;
     out.world = world;
@@ -68,10 +72,21 @@ fn fs_main(in: FOut) -> @location(0) vec4<f32> {
         col = col + D.v[3].rgb * pow(dot(texel, vec3<f32>(0.333)), 3.0) * 0.5;
     }
 
-    // Fade out towards the floor edge so it blends into the backdrop.
-    let edge = max(abs(in.world.x), abs(in.world.z)) / D.v[0].x;
     col = col + refl * rain_rings(in.world) * G.caus_col.w * 0.3 * (1.0 - snow);
     let out_col = apply_fog_at(col, in.world);
+    if (D.v[4].w > 0.5) {
+        // Endless: fade into whatever is behind (the sky) towards the
+        // horizon, the same way in every direction. By distance, and over
+        // the last few degrees below the horizon so the line stays soft
+        // (far floor is only a few pixels tall).
+        let dxz = length(in.world.xz - G.cam_pos.xz);
+        let by_dist = 1.0 - smoothstep(0.3, 0.95, dxz / D.v[0].x);
+        let dip = (G.cam_pos.y - D.v[0].y) / max(dxz, 1e-3);
+        let by_angle = smoothstep(0.0, 0.06, dip);
+        return vec4<f32>(out_col, by_dist * by_angle);
+    }
+    // Fade out towards the floor edge so it blends into the backdrop.
+    let edge = max(abs(in.world.x), abs(in.world.z)) / D.v[0].x;
     let fade = smoothstep(1.0, 0.85, edge);
     return vec4<f32>(mix(G.fog.rgb, out_col, fade), 1.0);
 }

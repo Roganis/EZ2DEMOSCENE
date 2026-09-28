@@ -337,6 +337,8 @@ into each other, so the jump back at the end of the loop happens while it is inv
 <figure><img src="img/mirror.jpg" ><figcaption>Mirror floor settings.</figcaption></figure>
 <p>A large reflective ground plane. The scene is really reflected in it, including particles and the sky.</p>
 <ul>
+  <li><span class="ui">Infinite</span> stretches the floor to the horizon: it follows the camera and fades into the sky there,
+  so no edge or corner ever shows. <span class="ui">Size</span> sets a square floor instead.</li>
   <li><span class="ui">Reflection</span>: 0 is matte, 1 is a perfect mirror. <span class="ui">Blur</span> gives a frosted,
   polished-stone look. <span class="ui">Reflection tint</span> colours the reflection (gold for a gold room).</li>
   <li><span class="ui">Texture</span> and <span class="ui">Tiling</span> put a pattern on the floor. The <code>led_grid</code>
@@ -762,7 +764,9 @@ step for <kbd>Ctrl</kbd>+<kbd>Z</kbd>.</div>
   <tr><td>Subdivide</td><td>Adds geometry detail (each level splits every triangle in four), so displacement can show fine patterns.</td></tr>
 </table>
 <div class="tip"><b>Tip</b>Displacement looks best on smooth shapes (sphere, torus, capsule, rounded cube). Faceted shapes such as the cube or
-the gem open up at their edges, because each face moves along its own direction.</div>
+the gem open up at their edges, because each face moves along its own direction. 3D models (library or your own) are different: they
+stay closed, get the detail they need by themselves, and take textures from all sides. Tick <span class="ui">Faceted</span> in the
+material to light their bumps crisply.</div>
 
 <h2>Glitch</h2>
 <p>The <span class="ui">Glitch</span> section of a shape layer corrupts its geometry, like a broken signal. Set an <span class="ui">Amount</span>
@@ -951,6 +955,8 @@ to force those into a palette.</p>
   either side), <b>Opposites</b>, <b>Split opposites</b>, a <b>Triad</b> or a <b>Square</b>. The swatches show the scheme's hues.</td></tr>
   <tr><td>Hue pull</td><td>How far colours move toward the scheme: 0 changes nothing, 1 puts every hue on it.</td></tr>
   <tr><td>Saturation match</td><td>0 keeps each colour's own saturation; 1 makes them all as saturated as the key.</td></tr>
+  <tr><td>Tint greys</td><td>Greys and whites take the key's hue too. A new shape or 3D model starts grey, so this is what brings it into
+  the scheme; 0 keeps greys neutral. Near-black stays dark either way.</td></tr>
   <tr><td>Turn</td><td>Degrees added to the key's hue. Animate it (<span class="ui">↻ Turn once per loop</span>) and the whole scene goes
   round the colour wheel together.</td></tr>
   <tr><td>Sky, fog, sun and rays too</td><td>Whether the environment follows the scheme.</td></tr>

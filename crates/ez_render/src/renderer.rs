@@ -28,6 +28,9 @@ pub const OUTPUT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSr
 pub const DISPLAY_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 const DRAW_SLOT: u64 = 256;
+/// Radius of an endless mirror floor: just inside the camera's far plane
+/// (500), so it fades out before it is clipped.
+const INFINITE_FLOOR_RADIUS: f32 = 450.0;
 /// A logo's effect settings: three draw slots read as one.
 const LOGO_FX_SIZE: u64 = 3 * DRAW_SLOT;
 const POST_SLOT: u64 = 512;
@@ -867,6 +870,12 @@ pub struct Renderer {
     sampler_clamp: wgpu::Sampler,
 
     meshes: HashMap<String, GpuMesh>,
+    /// Mesh keys of models that came without texture coordinates (they got
+    /// box-projected ones).
+    box_uv_meshes: std::collections::HashSet<String>,
+    /// Displaced models drawn with triplanar textures (joined box-mapped
+    /// models: their coordinates would streak).
+    triplanar_meshes: std::collections::HashSet<String>,
     textures: HashMap<String, GpuTexture>,
     tex_bgs: HashMap<(String, bool), wgpu::BindGroup>,
     mesh_tex_bgs: HashMap<(String, String, bool), wgpu::BindGroup>,
@@ -1795,7 +1804,9 @@ impl Renderer {
                 format: HDR_FORMAT,
                 samples: msaa,
                 depth: Some((true, wgpu::CompareFunction::Less)),
-                blend: None,
+                // Drawn right after the backgrounds: an endless floor fades
+                // into them at the horizon.
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
             },
         );
         let post_pipe = |label: &str, fs: &str, format, blend| {
@@ -1965,6 +1976,8 @@ impl Renderer {
             sampler_nearest,
             sampler_clamp,
             meshes: HashMap::new(),
+            box_uv_meshes: Default::default(),
+            triplanar_meshes: Default::default(),
             textures: HashMap::new(),
             tex_bgs: HashMap::new(),
             mesh_tex_bgs: HashMap::new(),
@@ -2861,8 +2874,15 @@ impl Renderer {
     }
 
     /// Geometry of a mesh source, subdivided `levels` times (cached).
-    fn mesh_key_subdivided(&mut self, source: &MeshSource, levels: u32) -> String {
+    /// `displaced` models (files and library models, usually faceted and
+    /// low-poly) get their corners joined so displacement doesn't tear
+    /// them apart, and enough detail for it even at Subdivide 0.
+    fn mesh_key_subdivided(&mut self, source: &MeshSource, levels: u32, displaced: bool) -> String {
         let base = self.mesh_key(source);
+        let model = matches!(source, MeshSource::File { .. } | MeshSource::Library { .. });
+        if displaced && model {
+            return self.displaced_model_key(source, &base, levels);
+        }
         if levels == 0 {
             return base;
         }
@@ -2883,6 +2903,36 @@ impl Renderer {
         }
         let mut data = self.source_data(source, &base);
         data.subdivide(levels);
+        self.upload_mesh(key.clone(), &data);
+        key
+    }
+
+    fn displaced_model_key(&mut self, source: &MeshSource, base: &str, levels: u32) -> String {
+        let tris = self
+            .meshes
+            .get(base)
+            .map(|g| g.count as u64 / 3)
+            .unwrap_or(1)
+            .max(1);
+        // At least ~30k triangles to carry the relief, at most ~2M.
+        let mut levels = levels.min(4);
+        while levels < 4 && tris * 4u64.pow(levels) < 30_000 {
+            levels += 1;
+        }
+        while levels > 0 && tris * 4u64.pow(levels) > 2_000_000 {
+            levels -= 1;
+        }
+        let key = format!("{base}#d{levels}");
+        if self.meshes.contains_key(&key) {
+            return key;
+        }
+        let mut data = self.source_data(source, base);
+        let box_uv = self.box_uv_meshes.contains(base);
+        data.weld_smooth(!box_uv);
+        data.subdivide(levels);
+        if box_uv {
+            self.triplanar_meshes.insert(key.clone());
+        }
         self.upload_mesh(key.clone(), &data);
         key
     }
@@ -2958,8 +3008,12 @@ impl Renderer {
                 data
             }
             MeshSource::File { path } => match load_mesh_asset(path) {
-                Ok(m) => {
+                Ok(mut m) => {
                     self.errors.remove(key);
+                    if m.lacks_uvs() {
+                        m.box_uvs();
+                        self.box_uv_meshes.insert(key.to_string());
+                    }
                     m
                 }
                 Err(e) => {
@@ -2979,8 +3033,12 @@ impl Renderer {
                     None => Err(anyhow::anyhow!("the model library is loading")),
                 };
                 match result {
-                    Ok(m) => {
+                    Ok(mut m) => {
                         self.errors.remove(&err_key);
+                        if m.lacks_uvs() {
+                            m.box_uvs();
+                            self.box_uv_meshes.insert(key.to_string());
+                        }
                         m
                     }
                     Err(e) => {
@@ -3402,7 +3460,9 @@ impl Renderer {
                     let mesh = if sdf {
                         self.mesh_key(&m.source)
                     } else {
-                        self.mesh_key_subdivided(&m.source, m.subdivide)
+                        let displaced = m.material.relief.displace.is_animated()
+                            || m.material.relief.displace.base != 0.0;
+                        self.mesh_key_subdivided(&m.source, m.subdivide, displaced)
                     };
                     let mat = &m.material;
                     let tex = self.texture_key(project, mat.texture.as_deref());
@@ -3564,7 +3624,8 @@ impl Renderer {
                         g.rate.max(1) as f32,
                         g.chance.eval(ctx).clamp(0.0, 1.0),
                     ];
-                    blk[5] = [g.seed as f32, 0.0, 0.0, 0.0];
+                    let tri = self.triplanar_meshes.contains(&mesh);
+                    blk[5] = [g.seed as f32, if tri { 1.0 } else { 0.0 }, 0.0, 0.0];
                     blk[8] = [
                         rel.bump.eval(ctx),
                         rel.displace.eval(ctx),
@@ -4274,7 +4335,11 @@ impl Renderer {
                     let mut blk: Block = Zeroable::zeroed();
                     let height = layer.transform.position[1];
                     blk[0] = [
-                        f.size.max(0.1),
+                        if f.infinite {
+                            INFINITE_FLOOR_RADIUS
+                        } else {
+                            f.size.max(0.1)
+                        },
                         height,
                         f.reflectivity.eval(ctx).clamp(0.0, 1.0),
                         1.0,
@@ -4285,7 +4350,12 @@ impl Renderer {
                         color::scale(f.grid_color, f.grid.eval(ctx).max(0.0) * flash),
                         f.grid_scale.eval(ctx),
                     );
-                    blk[4] = [-ctx.phase * f.grid_scroll as f32, 0.0, 0.0, 0.0];
+                    blk[4] = [
+                        -ctx.phase * f.grid_scroll as f32,
+                        0.0,
+                        0.0,
+                        if f.infinite { 1.0 } else { 0.0 },
+                    ];
                     floor = Some((blocks.len() as u32, tex, height, f.blur.eval(ctx)));
                     ls.draws = 1;
                     ls.triangles = 2;

@@ -430,6 +430,14 @@ pub fn color_scheme_ui(ui: &mut Ui, s: &mut ColorScheme, ctx: &EvalCtx) {
             &mut s.chroma_match,
             0.0..=1.0,
         );
+        slider(
+            ui,
+            "Tint greys",
+            "Greys and whites (like a new shape or model, which starts grey) take the key's hue. \
+             0 = they stay neutral. Near-black stays dark either way.",
+            &mut s.tint_greys,
+            0.0..=1.0,
+        );
         param(
             ui,
             "Turn",
@@ -1427,7 +1435,8 @@ fn relief_ui(
         ui,
         "Displacement",
         "Really moves the surface out by the texture brightness. Raise Subdivide for detail. \
-         Works best on smooth shapes (sphere, torus, capsule, rounded cube): faceted ones open at their edges.",
+         Works best on smooth shapes (sphere, torus, capsule, rounded cube): faceted built-in ones open at their edges. \
+         3D models get the detail they need by themselves and stay closed; tick Faceted in Material for crisp bumps.",
         &mut r.displace,
         -1.0..=1.0,
     );
@@ -2494,7 +2503,15 @@ fn ribbon_ui(ui: &mut Ui, r: &mut Ribbon) {
 fn mirror_ui(ui: &mut Ui, f: &mut MirrorFloor, textures: &[UserTexture], lref: LayerRef) {
     section(ui, "Mirror floor", true, |ui| {
         ui.label(RichText::new("Only the first mirror floor in the list reflects.").weak());
-        slider(ui, "Size", "", &mut f.size, 1.0..=200.0);
+        check(
+            ui,
+            "Infinite",
+            "Stretch to the horizon and fade into the sky there, with no visible edge",
+            &mut f.infinite,
+        );
+        if !f.infinite {
+            slider(ui, "Size", "", &mut f.size, 1.0..=200.0);
+        }
         color(ui, "Colour", "", &mut f.base_color);
         param(
             ui,
