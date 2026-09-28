@@ -30,7 +30,7 @@ pub mod terrain;
 pub use audio::AudioEnvelope;
 pub use clock::{EvalCtx, Timing};
 pub use music::{AudioSource, MusicFrame, MusicMod, MusicMode, MusicSettings, TimeWarp};
-pub use param::{Curve, EnvPoint, EnvRef, Envelope, Param, Wave, WAVE_GROUPS};
+pub use param::{Curve, EnvPoint, EnvRef, Envelope, Param, Stamp, Wave, WAVE_GROUPS};
 pub use scene::*;
 
 /// File extension used for project files.

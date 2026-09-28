@@ -897,6 +897,7 @@
     "harmony": "Triadic",
     "hue_pull": 1.0,
     "chroma_match": 0.4,
-    "environment": true
+    "environment": true,
+    "tint_greys": 0.0
   }
 }

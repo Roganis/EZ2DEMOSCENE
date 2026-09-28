@@ -411,6 +411,40 @@ pub struct FrameStats {
 
 static TARGET_IDS: AtomicU64 = AtomicU64::new(1);
 
+/// A battle background's settings in draw block slots 8..15 (see
+/// `bg_battle` in backdrop.wgsl). Everything that moves is a whole number
+/// of turns per loop, wrapped, so the loop closes.
+fn battle_block(blk: &mut Block, b: &ez_core::Battle, ctx: &EvalCtx) {
+    let turn = |n: i32| (n as f32 * ctx.phase).rem_euclid(1.0);
+    for (i, l) in [&b.back, &b.front].into_iter().enumerate() {
+        let o = 8 + i * 3;
+        blk[o] = [
+            if l.enabled { 1.0 } else { 0.0 },
+            l.pattern.index() as f32,
+            l.tiles.eval(ctx).max(0.05),
+            l.warp.index() as f32,
+        ];
+        blk[o + 1] = [
+            l.amount.eval(ctx),
+            l.waves.eval(ctx),
+            turn(l.wave_speed),
+            l.bands.eval(ctx).max(0.0),
+        ];
+        blk[o + 2] = [
+            turn(l.scroll[0]),
+            turn(l.scroll[1]),
+            turn(l.cycles),
+            l.opacity.eval(ctx).clamp(0.0, 1.0),
+        ];
+    }
+    blk[14] = [
+        b.blend.index() as f32,
+        b.lines.min(4096) as f32,
+        b.steps.min(256) as f32,
+        0.0,
+    ];
+}
+
 fn backdrop_load(kind: BackdropKind) -> f32 {
     match kind {
         BackdropKind::Fractal => 1.5,
@@ -424,6 +458,7 @@ fn backdrop_load(kind: BackdropKind) -> f32 {
         BackdropKind::Rings => 0.5,
         BackdropKind::Clouds => 1.2,
         BackdropKind::Aurora => 0.4,
+        BackdropKind::Battle => 0.15,
     }
 }
 
@@ -3494,6 +3529,9 @@ impl Renderer {
                         ctx.phase.rem_euclid(1.0),
                         0.0,
                     ];
+                    if b.kind == BackdropKind::Battle {
+                        battle_block(&mut blk, &b.battle, ctx);
+                    }
                     ls.draws = 1;
                     ls.load = backdrop_load(b.kind);
                     cmds.push(Cmd::Backdrop {
@@ -5682,6 +5720,17 @@ impl Renderer {
             ];
         }
 
+        let wb = &post.wobble;
+        if wb.enabled {
+            slots[SLOT_WARP as usize][4] = [
+                (wb.mode.index() as f32).max(1.0),
+                wb.amount.eval(ctx),
+                wb.waves.eval(ctx),
+                (wb.speed as f32 * ctx.phase).rem_euclid(1.0),
+            ];
+            slots[SLOT_WARP as usize][5] = [wb.lines.min(4096) as f32, 0.0, 0.0, 0.0];
+        }
+
         let dof = &post.dof;
         if dof.enabled {
             let cam = project.camera.eval(ctx);
@@ -5812,6 +5861,28 @@ impl Renderer {
         f[5] = [ctx.beat_frac(), frame_id, ctx.loop_beats as f32, 0.0];
         for (i, c) in cols.iter().take(16).enumerate() {
             f[8 + i] = c4(*c, 1.0);
+        }
+        let vhs = &post.vhs;
+        if vhs.enabled {
+            f[6] = [
+                vhs.amount.eval(ctx).max(0.0),
+                vhs.bleed.eval(ctx).max(0.0),
+                vhs.bands.eval(ctx).max(0.0),
+                0.0,
+            ];
+        }
+        let ascii = &post.ascii;
+        if ascii.enabled {
+            let rows = ascii.rows.eval(ctx).clamp(4.0, 400.0);
+            f[7] = [
+                target.height as f32 / rows,
+                ascii.backdrop.eval(ctx).clamp(0.0, 1.0),
+                0.0,
+                0.0,
+            ];
+            if let Some(c) = ascii.color.rgb() {
+                f[24] = [c[0], c[1], c[2], 1.0];
+            }
         }
         for (i, s) in slots.iter().enumerate() {
             self.queue

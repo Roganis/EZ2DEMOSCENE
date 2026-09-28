@@ -185,6 +185,11 @@ pub fn all() -> Vec<Preset> {
             project: colour_wheel_arena(),
         },
         Preset {
+            name: "Battle Screen",
+            description: "A retro RPG battle: two cycling patterns wobbling line by line behind a spinning crystal foe, on a CRT.",
+            project: battle_screen(),
+        },
+        Preset {
             name: "Empty",
             description: "A blank stage with a floor and a sky.",
             project: empty(),
@@ -1079,6 +1084,75 @@ fn neon(color: u32, strength: Param, mode: EmissiveMode) -> Material {
     }
 }
 
+/// A 16-bit RPG battle: a two-layer battle background (rings cycling
+/// through the colours, interlaced diamonds over them) behind a crystal
+/// foe, on a CRT.
+pub fn battle_screen() -> Project {
+    let mut battle = Battle::default();
+    battle.back.amount = Param::new(0.05).osc(Wave::Sine, 0.02, 1);
+    battle.front.enabled = true;
+    battle.front.tiles = Param::new(2.0);
+    battle.front.amount = Param::new(0.015);
+    battle.front.opacity = Param::new(0.3);
+    battle.blend = BattleBlend::Add;
+    Project {
+        name: "Battle Screen".into(),
+        timing: crate::Timing {
+            bpm: 120.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            distance: Param::new(6.0),
+            height: Param::new(0.4),
+            target: [0.0, 0.3, 0.0],
+            ..Default::default()
+        },
+        layers: vec![
+            Layer::new(
+                "Battle background",
+                LayerKind::Backdrop(Backdrop {
+                    kind: BackdropKind::Battle,
+                    color_a: hex(0x0a0418),
+                    color_b: hex(0xc01860),
+                    color_c: hex(0x18b098),
+                    battle,
+                    ..Default::default()
+                }),
+            ),
+            Layer::new(
+                "Foe",
+                LayerKind::Mesh(mesh(
+                    Primitive::Icosahedron,
+                    Material {
+                        base_color: hex(0x9070ff),
+                        metallic: Param::new(0.6),
+                        roughness: Param::new(0.25),
+                        emissive_color: hex(0xff60c0),
+                        emissive: Param::new(0.2).osc(Wave::Pulse, 1.5, 4),
+                        rim: Param::new(0.8),
+                        flat_shading: true,
+                        ..Default::default()
+                    },
+                )),
+            )
+            .scaled(1.3)
+            .at([0.0, 0.3, 0.0])
+            .spin([1, 2, 0])
+            .bobbing(Param::new(0.25)),
+        ],
+        post: PostStack {
+            crt: Crt {
+                enabled: true,
+                scanlines: Param::new(0.2),
+                curvature: Param::new(0.1),
+                noise: Param::new(0.0),
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
 pub fn empty() -> Project {
     Project {
         name: "Empty".into(),
@@ -1145,6 +1219,7 @@ pub fn neon_arena() -> Project {
                 "Red nebula",
                 LayerKind::Backdrop(Backdrop {
                     resolution: BgResolution::Full,
+                    battle: Battle::default(),
                     kind: BackdropKind::Nebula,
                     color_a: hex(0x020001),
                     color_b: hex(0x4a0404),
@@ -1613,6 +1688,7 @@ pub fn orbiting_solid() -> Project {
                 "Deep space",
                 LayerKind::Backdrop(Backdrop {
                     resolution: BgResolution::Full,
+                    battle: Battle::default(),
                     kind: BackdropKind::Starfield,
                     color_a: hex(0x000003),
                     color_b: hex(0x061530),
@@ -1781,6 +1857,7 @@ pub fn retro_tunnel() -> Project {
                 "XOR tunnel",
                 LayerKind::Backdrop(Backdrop {
                     resolution: BgResolution::Full,
+                    battle: Battle::default(),
                     kind: BackdropKind::Tunnel,
                     color_a: hex(0x000000),
                     color_b: hex(0x2040ff),
@@ -1892,6 +1969,7 @@ pub fn plasma_kaleido() -> Project {
                 "Plasma",
                 LayerKind::Backdrop(Backdrop {
                     resolution: BgResolution::Full,
+                    battle: Battle::default(),
                     kind: BackdropKind::Plasma,
                     color_a: hex(0x10003a),
                     color_b: hex(0xff2090),
@@ -2000,6 +2078,7 @@ pub fn synth_sunset() -> Project {
                 "Sunset",
                 LayerKind::Backdrop(Backdrop {
                     resolution: BgResolution::Full,
+                    battle: Battle::default(),
                     kind: BackdropKind::SynthGrid,
                     color_a: hex(0x0a0020),
                     color_b: hex(0xff3080),
@@ -2126,6 +2205,7 @@ pub fn vector_valley() -> Project {
                 "Stars",
                 LayerKind::Backdrop(Backdrop {
                     resolution: BgResolution::Full,
+                    battle: Battle::default(),
                     kind: BackdropKind::Starfield,
                     color_a: hex(0x02000a),
                     color_b: hex(0x301060),
@@ -2238,6 +2318,7 @@ pub fn glitch_shrine() -> Project {
                 "Nebula",
                 LayerKind::Backdrop(Backdrop {
                     resolution: BgResolution::Full,
+                    battle: Battle::default(),
                     kind: BackdropKind::Nebula,
                     color_a: hex(0x020008),
                     color_b: hex(0x3010a0),
@@ -2402,6 +2483,7 @@ pub fn sponge_dive() -> Project {
                 "Sponge",
                 LayerKind::Backdrop(Backdrop {
                     resolution: BgResolution::Full,
+                    battle: Battle::default(),
                     kind: BackdropKind::Sponge,
                     color_a: hex(0x05030a),
                     color_b: hex(0x1c1030),
@@ -2513,6 +2595,7 @@ fn sky(kind: BackdropKind, a: u32, b: u32, c: u32, ray: RaySettings) -> Layer {
             detail: Param::new(1.0),
             texture: None,
             ray,
+            battle: Battle::default(),
         }),
     )
 }

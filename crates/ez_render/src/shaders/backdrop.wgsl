@@ -9,6 +9,10 @@
 // Clouds (9): size = cloud scale, warp = coverage, bend = thickness,
 //         glow = sun glow, fog = haze. Aurora (10): size = height,
 //         twist = sway, warp = ripples, glow = brightness.
+// Battle background (11): D.v[8..10] back layer, D.v[11..13] front layer:
+//         [on, pattern, tiles, line warp], [amount, waves, wave turn, bands],
+//         [scroll x, scroll y (tile fractions), colour turn, opacity];
+//         D.v[14]: blend, lines (0 = full resolution), palette steps, _
 
 @group(2) @binding(0) var t_tex: texture_2d<f32>;
 @group(2) @binding(1) var s_tex: sampler;
@@ -589,6 +593,130 @@ fn bg_aurora(rd: vec3<f32>, speed: f32, detail: f32, ca: vec3<f32>, cb: vec3<f32
     return col + acc * bright * 0.18;
 }
 
+// --- Battle background ----------------------------------------------------
+
+// A pattern's value (0..1 ramp) at `uv`, repeating every whole tile.
+fn battle_pattern(kind: i32, uv: vec2<f32>) -> f32 {
+    let f = fract(uv);
+    let c = f - 0.5;
+    switch kind {
+        case 1: {
+            return (abs(c.x) + abs(c.y)) * 2.0;
+        }
+        case 2: {
+            let cell = floor(uv * 2.0);
+            let odd = f32((i32(cell.x) + i32(cell.y)) & 1);
+            let g = fract(uv * 2.0) - 0.5;
+            return odd * 0.5 + max(abs(g.x), abs(g.y));
+        }
+        case 3: {
+            return fract(f.x + f.y);
+        }
+        case 4: {
+            return fract(f.y + abs(f.x - 0.5) * 2.0);
+        }
+        case 5: {
+            let g = fract(uv * 2.0) - 0.5;
+            return min(length(g) * 2.0, 1.0);
+        }
+        case 6: {
+            return fract(atan2(c.y, c.x) / TAU + length(c) * 2.0);
+        }
+        case 7: {
+            let row = floor(uv.y * 2.0);
+            let bx = fract(uv.x * 2.0 + row * 0.5) - 0.5;
+            let by = fract(uv.y * 2.0) - 0.5;
+            return max(abs(bx), abs(by)) * 2.0;
+        }
+        case 8: {
+            let a = TAU * uv;
+            let v = sin(a.x) + sin(a.y) + sin(a.x + a.y) + sin(2.0 * a.x - a.y);
+            return v * 0.125 + 0.5;
+        }
+        case 9: {
+            let t = textureSampleLevel(t_tex, s_tex, f, 0.0).rgb;
+            return dot(t, vec3<f32>(0.299, 0.587, 0.114));
+        }
+        default: {
+            return length(c) * 2.0;
+        }
+    }
+}
+
+// The cycling palette: round from colour a to b to c and back to a.
+fn battle_ramp(t: f32, ca: vec3<f32>, cb: vec3<f32>, cc: vec3<f32>) -> vec3<f32> {
+    var x = fract(t);
+    let steps = D.v[14].z;
+    if (steps >= 1.0) {
+        x = floor(x * steps) / steps;
+    }
+    let k = x * 3.0;
+    if (k < 1.0) {
+        return mix(ca, cb, k);
+    }
+    if (k < 2.0) {
+        return mix(cb, cc, k - 1.0);
+    }
+    return mix(cc, ca, k - 2.0);
+}
+
+// One layer at `p` (x and y in picture heights from the top left) on
+// line `line`.
+fn battle_layer(o: i32, p_in: vec2<f32>, line: f32, ca: vec3<f32>, cb: vec3<f32>, cc: vec3<f32>) -> vec3<f32> {
+    let head = D.v[o];
+    let wav = D.v[o + 1];
+    let mov = D.v[o + 2];
+    var p = p_in;
+    let w = wav.x * sin(TAU * (wav.y * p_in.y + wav.z));
+    let mode = i32(head.w + 0.5);
+    if (mode == 1) {
+        p.x = p.x + w;
+    } else if (mode == 2) {
+        let odd = (i32(line) & 1) == 1;
+        p.x = p.x + select(w, -w, odd);
+    } else if (mode == 3) {
+        p.y = p.y + w;
+    }
+    let uv = p * head.z + mov.xy;
+    let v = battle_pattern(i32(head.y + 0.5), uv);
+    return battle_ramp(v * max(wav.w, 0.0) + mov.z, ca, cb, cc);
+}
+
+fn bg_battle(ndc: vec2<f32>, ca: vec3<f32>, cb: vec3<f32>, cc: vec3<f32>) -> vec3<f32> {
+    let aspect = G.res.x / max(G.res.y, 1.0);
+    var p = vec2<f32>((ndc.x * 0.5 + 0.5) * aspect, 0.5 - ndc.y * 0.5);
+    var lines = D.v[14].y;
+    if (lines < 1.0) {
+        lines = G.res.y;
+    }
+    // Fat retro pixels: sample at the centre of each one.
+    p = (floor(p * lines) + 0.5) / lines;
+    let line = floor(p.y * lines);
+    var col = vec3<f32>(0.0);
+    if (D.v[8].x > 0.5) {
+        col = battle_layer(8, p, line, ca, cb, cc);
+    }
+    if (D.v[11].x > 0.5) {
+        let f = battle_layer(11, p, line, ca, cb, cc);
+        let o = D.v[13].w;
+        switch i32(D.v[14].x + 0.5) {
+            case 1: {
+                col = col + f * o;
+            }
+            case 2: {
+                col = 1.0 - (1.0 - col) * (1.0 - f * o);
+            }
+            case 3: {
+                col = mix(col, abs(col - f), o);
+            }
+            default: {
+                col = mix(col, f, o);
+            }
+        }
+    }
+    return col;
+}
+
 override BG_KIND: i32 = -1;
 
 @fragment
@@ -665,6 +793,10 @@ fn fs_main(in: FullscreenOut) -> @location(0) vec4<f32> {
         }
         case 10: {
             col = bg_aurora(rd, speed, detail, ca, cb, cc);
+        }
+        case 11: {
+            // Flat on the screen: no fog.
+            return vec4<f32>(max(bg_battle(in.ndc, ca, cb, cc) * intensity, vec3<f32>(0.0)), 1.0);
         }
         default: {}
     }

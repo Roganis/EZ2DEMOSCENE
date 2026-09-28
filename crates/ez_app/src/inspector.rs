@@ -794,6 +794,93 @@ pub fn post_ui(ui: &mut Ui, post: &mut PostStack) {
             -32..=32,
         );
     });
+    toggle_section(ui, "Line wobble", &mut post.wobble.enabled, |ui| {
+        combo(
+            ui,
+            "Mode",
+            "How the lines of the picture move (retro RPG battle style)",
+            &mut post.wobble.mode,
+            &LineWarp::MOVING,
+            |m| m.label(),
+        );
+        param(
+            ui,
+            "Amount",
+            "How far the lines move",
+            &mut post.wobble.amount,
+            0.0..=0.2,
+        );
+        param(
+            ui,
+            "Waves",
+            "Waves from top to bottom",
+            &mut post.wobble.waves,
+            0.0..=30.0,
+        );
+        drag_i(
+            ui,
+            "Waves / loop",
+            "Times the waves roll by per loop",
+            &mut post.wobble.speed,
+            -64..=64,
+        );
+        if post.wobble.mode == LineWarp::Interlaced {
+            drag_u(
+                ui,
+                "Lines",
+                "Line pairs from top to bottom (0 = every pixel row)",
+                &mut post.wobble.lines,
+                0..=1080,
+            );
+        }
+    });
+    toggle_section(ui, "VHS tape", &mut post.vhs.enabled, |ui| {
+        param(
+            ui,
+            "Amount",
+            "Jittering lines, snow and faded colour",
+            &mut post.vhs.amount,
+            0.0..=2.0,
+        );
+        param(
+            ui,
+            "Colour bleed",
+            "Colours smear sideways",
+            &mut post.vhs.bleed,
+            0.0..=2.0,
+        );
+        param(
+            ui,
+            "Tracking band",
+            "A noisy, torn band rolling down the picture",
+            &mut post.vhs.bands,
+            0.0..=2.0,
+        );
+    });
+    toggle_section(ui, "ASCII art", &mut post.ascii.enabled, |ui| {
+        param(
+            ui,
+            "Rows",
+            "Character rows from top to bottom",
+            &mut post.ascii.rows,
+            10.0..=200.0,
+        );
+        combo(
+            ui,
+            "Colour",
+            "",
+            &mut post.ascii.color,
+            &AsciiColor::ALL,
+            |c| c.label(),
+        );
+        param(
+            ui,
+            "Picture behind",
+            "How much of the picture shows between the characters",
+            &mut post.ascii.backdrop,
+            0.0..=1.0,
+        );
+    });
     toggle_section(ui, "Chromatic aberration", &mut post.chroma.enabled, |ui| {
         param(
             ui,
@@ -1968,21 +2055,26 @@ fn backdrop_ui(ui: &mut Ui, b: &mut Backdrop, textures: &[UserTexture], lref: La
         color(ui, "Colour A", "Darkest / base colour", &mut b.color_a);
         color(ui, "Colour B", "", &mut b.color_b);
         color(ui, "Colour C", "Highlight colour", &mut b.color_c);
-        drag_i(
-            ui,
-            "Motion / loop",
-            "Animation cycles per loop",
-            &mut b.speed,
-            -16..=16,
-        );
+        let battle = b.kind == BackdropKind::Battle;
+        if !battle {
+            drag_i(
+                ui,
+                "Motion / loop",
+                "Animation cycles per loop",
+                &mut b.speed,
+                -16..=16,
+            );
+        }
         param(ui, "Brightness", "", &mut b.intensity, 0.0..=4.0);
-        param(
-            ui,
-            "Detail",
-            "Scale of the pattern",
-            &mut b.detail,
-            0.1..=4.0,
-        );
+        if !battle {
+            param(
+                ui,
+                "Detail",
+                "Scale of the pattern",
+                &mut b.detail,
+                0.1..=4.0,
+            );
+        }
         combo(
             ui,
             "Resolution",
@@ -2001,11 +2093,158 @@ fn backdrop_ui(ui: &mut Ui, b: &mut Backdrop, textures: &[UserTexture], lref: La
             );
         }
     });
+    if b.kind == BackdropKind::Battle {
+        let bt = &mut b.battle;
+        section(ui, "Battle background", true, |ui| {
+            ui.label(
+                RichText::new("The colours A, B and C cycle through the patterns.")
+                    .weak()
+                    .small(),
+            );
+            drag_u(
+                ui,
+                "Lines",
+                "Pixel rows from top to bottom: fat retro pixels (0 = full resolution)",
+                &mut bt.lines,
+                0..=1080,
+            );
+            drag_u(
+                ui,
+                "Colours",
+                "Colours in the cycling palette: few give hard retro bands (0 = smooth)",
+                &mut bt.steps,
+                0..=64,
+            );
+        });
+        section(ui, "Back layer", true, |ui| {
+            ui.push_id("battle back", |ui| battle_layer_ui(ui, &mut bt.back, false));
+        });
+        section(ui, "Front layer", false, |ui| {
+            ui.push_id("battle front", |ui| {
+                check(
+                    ui,
+                    "Show",
+                    "A second pattern over the first",
+                    &mut bt.front.enabled,
+                );
+                if bt.front.enabled {
+                    combo(
+                        ui,
+                        "Blend",
+                        "How it goes over the back layer",
+                        &mut bt.blend,
+                        &BattleBlend::ALL,
+                        |m| m.label(),
+                    );
+                    battle_layer_ui(ui, &mut bt.front, true);
+                }
+            });
+        });
+        if [&bt.back, &bt.front]
+            .iter()
+            .any(|l| l.enabled && l.pattern == BattlePattern::Picture)
+        {
+            texture_picker(
+                ui,
+                "Picture",
+                &mut b.texture,
+                textures,
+                Some((lref, TexSlot::Backdrop)),
+            );
+        }
+        return;
+    }
     let labels = RaySettings::labels(b.kind);
     if labels.iter().any(|l| l.is_some()) {
         section(ui, "Raymarching", true, |ui| {
             ray_ui(ui, b.kind, &mut b.ray, b.texture.is_some())
         });
+    }
+}
+
+/// One layer of a battle background.
+fn battle_layer_ui(ui: &mut Ui, l: &mut BattleLayer, front: bool) {
+    combo(
+        ui,
+        "Pattern",
+        "",
+        &mut l.pattern,
+        &BattlePattern::ALL,
+        |p| p.label(),
+    );
+    param(
+        ui,
+        "Tiles",
+        "Pattern repeats from top to bottom",
+        &mut l.tiles,
+        0.5..=16.0,
+    );
+    row(
+        ui,
+        "Scroll / loop",
+        "Tiles scrolled per loop: sideways, up",
+        |ui| {
+            ui.add(
+                egui::DragValue::new(&mut l.scroll[0])
+                    .range(-32..=32)
+                    .speed(0.1)
+                    .prefix("x "),
+            );
+            ui.add(
+                egui::DragValue::new(&mut l.scroll[1])
+                    .range(-32..=32)
+                    .speed(0.1)
+                    .prefix("y "),
+            );
+        },
+    );
+    combo(
+        ui,
+        "Line warp",
+        "How the lines wobble",
+        &mut l.warp,
+        &LineWarp::ALL,
+        |w| w.label(),
+    );
+    if l.warp != LineWarp::None {
+        param(
+            ui,
+            "Amount",
+            "How far the lines move",
+            &mut l.amount,
+            0.0..=0.3,
+        );
+        param(
+            ui,
+            "Waves",
+            "Waves from top to bottom",
+            &mut l.waves,
+            0.0..=20.0,
+        );
+        drag_i(
+            ui,
+            "Waves / loop",
+            "Times the waves roll by per loop",
+            &mut l.wave_speed,
+            -32..=32,
+        );
+    }
+    param(
+        ui,
+        "Bands",
+        "Times the colours go round across one tile",
+        &mut l.bands,
+        0.0..=8.0,
+    );
+    drag_i(
+        ui,
+        "Colour cycles",
+        "Times the colours cycle through the pattern per loop",
+        &mut l.cycles,
+        -32..=32,
+    );
+    if front {
+        param(ui, "Opacity", "", &mut l.opacity, 0.0..=1.0);
     }
 }
 

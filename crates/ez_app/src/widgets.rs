@@ -206,14 +206,21 @@ fn sync_choices(beats: u32) -> Vec<(String, i32)> {
 }
 
 /// The editor of an `Envelope` wave: one cycle of it, with its points.
-/// Click to add a point, drag to move one (snapped to quarter beats; hold
-/// Shift to move freely), right-click (long press) for its curve or to
-/// delete it, double-click to delete it.
+/// With the arrow tool: click to add a point, drag to move one (snapped to
+/// the grid; hold Shift to move freely), right-click (long press) for its
+/// curve or to delete it, double-click to delete it. With a shape tool:
+/// click or drag across the grid to draw that shape into each cell, as
+/// high as the pointer.
 fn envelope_editor(ui: &mut Ui, id: egui::Id, p: &mut Param, clock: Clock) -> bool {
-    use ez_core::{Curve, EnvPoint, EnvRef, Envelope};
+    use ez_core::{Curve, EnvPoint, EnvRef, Envelope, Stamp};
     let mut changed = false;
+    // The tool and grid are shared by every envelope editor.
+    let tool_id = egui::Id::new("ez2_env_tool");
+    let grid_id = egui::Id::new("ez2_env_grid");
+    let mut tool: Option<Stamp> = ui.data(|d| d.get_temp(tool_id)).flatten();
+    let mut div: u32 = ui.data(|d| d.get_temp(grid_id)).unwrap_or(16);
     let (rect, resp) = ui.allocate_exact_size(
-        egui::vec2(ui.available_width().min(320.0), 110.0),
+        egui::vec2(ui.available_width().min(320.0), 130.0),
         egui::Sense::click_and_drag(),
     );
     let inner = rect.shrink2(egui::vec2(6.0, 8.0));
@@ -229,14 +236,10 @@ fn envelope_editor(ui: &mut Ui, id: egui::Id, p: &mut Param, clock: Clock) -> bo
             ((inner.bottom() - pos.y) / inner.height()).clamp(0.0, 1.0),
         )
     };
-    // Beats in one cycle of the envelope: the snapping grid.
+    // Beats in one cycle of the envelope (for the beat lines).
     let cycles = p.cycles.unsigned_abs().max(1);
     let beats = clock.loop_beats as f32 / cycles as f32;
-    let step = if beats >= 1.0 && (beats - beats.round()).abs() < 1e-4 {
-        1.0 / (beats * 4.0)
-    } else {
-        1.0 / 16.0
-    };
+    let step = 1.0 / div as f32;
     let free = ui.input(|i| i.modifiers.shift);
     let snap = |t: f32| {
         if free {
@@ -245,6 +248,34 @@ fn envelope_editor(ui: &mut Ui, id: egui::Id, p: &mut Param, clock: Clock) -> bo
             ((t / step).round() * step).clamp(0.0, 1.0)
         }
     };
+    let cell = |t: f32| ((t * div as f32).floor() as u32).min(div - 1);
+    let mut full = false;
+    if let Some(shape) = tool {
+        // Draw the shape into the cell under the pointer while it's down.
+        let stamp_id = id.with("env stamp");
+        let down = resp.is_pointer_button_down_on() || resp.clicked() || resp.dragged();
+        let primary = ui.input(|i| !i.pointer.secondary_down());
+        match resp.interact_pointer_pos() {
+            Some(pos) if down && primary => {
+                let (t, v) = from_screen(pos);
+                let k = cell(t);
+                let key = (k, (v * 200.0).round() as i32);
+                let last: Option<(u32, i32)> = ui.data(|d| d.get_temp(stamp_id));
+                if last != Some(key) {
+                    let (t0, t1) = (k as f32 * step, (k + 1) as f32 * step);
+                    match p.env.get().stamp(t0, t1, shape, v) {
+                        Some(e) => {
+                            p.env = EnvRef::new(&e);
+                            changed = true;
+                        }
+                        None => full = true,
+                    }
+                    ui.data_mut(|d| d.insert_temp(stamp_id, key));
+                }
+            }
+            _ => ui.data_mut(|d| d.remove::<(u32, i32)>(stamp_id)),
+        }
+    }
     let env = p.env.get();
     let mut pts: Vec<EnvPoint> = env.points().to_vec();
     let near = |pos: egui::Pos2, pts: &[EnvPoint]| {
@@ -257,7 +288,8 @@ fn envelope_editor(ui: &mut Ui, id: egui::Id, p: &mut Param, clock: Clock) -> bo
     };
     let drag_id = id.with("env drag");
     let menu_id = id.with("env menu");
-    if resp.drag_started() {
+    let select = tool.is_none();
+    if select && resp.drag_started() {
         // Where the button went down: a quick flick may already be away.
         let origin = ui
             .input(|i| i.pointer.press_origin())
@@ -283,7 +315,8 @@ fn envelope_editor(ui: &mut Ui, id: egui::Id, p: &mut Param, clock: Clock) -> bo
         ui.data_mut(|d| d.remove::<Option<usize>>(drag_id));
     }
     if let Some(pos) = resp.interact_pointer_pos() {
-        if resp.double_clicked() {
+        if !select {
+        } else if resp.double_clicked() {
             if let Some(i) = near(pos, &pts) {
                 pts.remove(i);
                 changed = true;
@@ -331,6 +364,11 @@ fn envelope_editor(ui: &mut Ui, id: egui::Id, p: &mut Param, clock: Clock) -> bo
                 changed = true;
                 ui.close();
             }
+            if ui.button("Clear (flat at the bottom)").clicked() {
+                pts = vec![EnvPoint::new(0.0, 0.0, Curve::Linear)];
+                changed = true;
+                ui.close();
+            }
         }
     });
     let env = if changed {
@@ -350,11 +388,29 @@ fn envelope_editor(ui: &mut Ui, id: egui::Id, p: &mut Param, clock: Clock) -> bo
             egui::Stroke::new(1.0, Color32::from_gray(if strong { 62 } else { 40 })),
         );
     };
-    if (1.0..=64.0).contains(&beats) {
+    for k in 1..div {
+        grid(k as f32 * step, false);
+    }
+    if (1.0..=64.0).contains(&beats) && (beats - beats.round()).abs() < 1e-4 {
+        // Beats (and bars) a little stronger, where they fall on the grid.
         let n = beats.round() as u32;
         for b in 1..n {
-            grid(b as f32 / beats, b % 4 == 0);
+            let t = b as f32 / beats;
+            if b % 4 == 0 || n <= div / 2 {
+                grid(t, true);
+            }
         }
+    }
+    // The cell a shape tool would draw into.
+    if let (Some(_), Some(pos)) = (tool, resp.hover_pos()) {
+        let k = cell(from_screen(pos).0);
+        let a = to_screen(k as f32 * step, 1.0);
+        let b = to_screen((k + 1) as f32 * step, 0.0);
+        painter.rect_filled(
+            egui::Rect::from_min_max(egui::pos2(a.x, rect.top()), egui::pos2(b.x, rect.bottom())),
+            0.0,
+            ACCENT.gamma_multiply(0.12),
+        );
     }
     for v in [0.0, 1.0] {
         let y = to_screen(0.0, v).y;
@@ -363,12 +419,24 @@ fn envelope_editor(ui: &mut Ui, id: egui::Id, p: &mut Param, clock: Clock) -> bo
             egui::Stroke::new(1.0, Color32::from_gray(48)),
         );
     }
-    let curve: Vec<egui::Pos2> = (0..=160)
+    let curve: Vec<egui::Pos2> = (0..=640)
         .map(|i| {
-            let t = i as f32 / 160.0;
+            let t = i as f32 / 640.0;
             to_screen(t, env.eval(t))
         })
         .collect();
+    let mut fill = egui::Mesh::default();
+    let shade = ACCENT.gamma_multiply(0.22);
+    for (i, c) in curve.iter().enumerate() {
+        fill.colored_vertex(*c, shade);
+        fill.colored_vertex(egui::pos2(c.x, inner.bottom()), shade);
+        if i > 0 {
+            let j = 2 * i as u32;
+            fill.add_triangle(j - 2, j - 1, j);
+            fill.add_triangle(j - 1, j + 1, j);
+        }
+    }
+    painter.add(fill);
     painter.add(egui::Shape::line(curve, egui::Stroke::new(1.5, ACCENT)));
     let hover = resp.hover_pos().and_then(|pos| near(pos, env.points()));
     for (i, q) in env.points().iter().enumerate() {
@@ -406,14 +474,91 @@ fn envelope_editor(ui: &mut Ui, id: egui::Id, p: &mut Param, clock: Clock) -> bo
         font,
         weak,
     );
-    ui.label(
-        RichText::new(
-            "Click to add a point · drag to move (Shift: no snap) · right-click: curve / delete",
-        )
-        .small()
-        .weak(),
-    );
+    // Tools and grid.
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = 3.0;
+        if tool_button(ui, tool.is_none(), None)
+            .on_hover_text("Points: add, move and delete points")
+            .clicked()
+        {
+            tool = None;
+        }
+        for s in Stamp::ALL {
+            if tool_button(ui, tool == Some(s), Some(s))
+                .on_hover_text(s.label())
+                .clicked()
+            {
+                tool = Some(s);
+            }
+        }
+        ui.add_space(6.0);
+        egui::ComboBox::from_id_salt(id.with("env grid"))
+            .width(46.0)
+            .selected_text(format!("{div}"))
+            .show_ui(ui, |ui| {
+                for n in [4, 8, 16, 32] {
+                    ui.selectable_value(&mut div, n, format!("{n} steps"));
+                }
+            })
+            .response
+            .on_hover_text("Grid: steps in one cycle");
+    });
+    ui.data_mut(|d| {
+        d.insert_temp(tool_id, tool);
+        d.insert_temp(grid_id, div);
+    });
+    let help = if full {
+        "Full: remove some points first (right-click → Clear)"
+    } else if tool.is_some() {
+        "Click or drag across the grid: draws the shape, as high as the pointer"
+    } else {
+        "Click to add a point · drag to move (Shift: no snap) · right-click: curve / delete"
+    };
+    ui.label(RichText::new(help).small().weak());
     changed
+}
+
+/// A tool button of the envelope editor, with its shape drawn in it (the
+/// arrow for the point tool).
+fn tool_button(ui: &mut Ui, on: bool, shape: Option<ez_core::Stamp>) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(26.0, 20.0), egui::Sense::click());
+    let painter = ui.painter_at(rect);
+    let v = ui.visuals();
+    let bg = if on {
+        ACCENT.gamma_multiply(0.3)
+    } else if resp.hovered() {
+        v.widgets.hovered.weak_bg_fill
+    } else {
+        v.widgets.inactive.weak_bg_fill
+    };
+    painter.rect_filled(rect, 3.0, bg);
+    let col = if on { ACCENT } else { v.text_color() };
+    let r = rect.shrink2(egui::vec2(7.0, 5.0));
+    let at = |x: f32, y: f32| egui::pos2(r.left() + r.width() * x, r.bottom() - r.height() * y);
+    match shape {
+        None => {
+            let pts = vec![at(0.25, 1.0), at(0.25, 0.1), at(0.45, 0.3), at(0.7, 0.35)];
+            painter.add(egui::Shape::convex_polygon(pts, col, egui::Stroke::NONE));
+        }
+        Some(s) => {
+            let (outline, end) = s.outline();
+            // From the bottom left, through the points (a hold stays level
+            // until the next one), to the bottom right.
+            let mut line = vec![at(0.0, 0.0)];
+            let mut held: Option<f32> = None;
+            for &(u, h, c) in outline {
+                if let Some(prev) = held {
+                    line.push(at(u, prev));
+                }
+                line.push(at(u, h));
+                held = (c == ez_core::Curve::Hold).then_some(h);
+            }
+            line.push(at(1.0, held.unwrap_or(end)));
+            line.push(at(1.0, 0.0));
+            painter.add(egui::Shape::line(line, egui::Stroke::new(1.5, col)));
+        }
+    }
+    resp
 }
 
 /// Small plot of the value over one loop, with the current moment marked.
