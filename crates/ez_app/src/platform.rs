@@ -486,3 +486,33 @@ pub fn fetch_model_library(ctx: &egui::Context) {
     #[cfg(not(target_arch = "wasm32"))]
     let _ = ctx;
 }
+
+/// A small saved setting: `localStorage` in the browser, a text file in the
+/// data folder on desktop.
+pub fn load_setting(key: &str) -> Option<String> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_sys::window()
+            .and_then(|w| w.local_storage().ok().flatten())
+            .and_then(|s| s.get_item(&format!("ez2_{key}")).ok().flatten())
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::fs::read_to_string(crate::library::data_dir().join(format!("{key}.txt")))
+            .ok()
+            .map(|s| s.trim().to_string())
+    }
+}
+
+pub fn save_setting(key: &str, value: &str) {
+    #[cfg(target_arch = "wasm32")]
+    if let Some(s) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+        let _ = s.set_item(&format!("ez2_{key}"), value);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let dir = crate::library::data_dir();
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = std::fs::write(dir.join(format!("{key}.txt")), value);
+    }
+}
