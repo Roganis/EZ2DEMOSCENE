@@ -1834,6 +1834,59 @@ fn logo_field_effects_show_and_loop() {
     assert!(diff < 0.3, "a full morph isn't the other logo");
 }
 
+/// Morphing a logo into an image uses the morph image's own "Shape from":
+/// bright and dark parts give different logos, and unset it follows the
+/// logo's own setting (as projects saved before worked).
+#[test]
+fn logo_morph_image_has_its_own_mask() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let target = r.create_target(240, 136);
+    let mut plain = presets::empty();
+    plain.post.grade.grain = Param::new(0.0);
+    plain.post.bloom.enabled = false;
+    plain
+        .layers
+        .retain(|l| !matches!(l.kind, LayerKind::Mesh(_)));
+    let with = |mask: Option<LogoMask>, own: LogoMask| {
+        let mut p = plain.clone();
+        p.layers.push(Layer::new(
+            "Logo",
+            LayerKind::Logo(LogoLayer {
+                text: "FX".into(),
+                size: Param::new(0.35),
+                mask: own,
+                morph: Param::new(1.0),
+                morph_source: LogoSource::Image,
+                morph_image: Some("xor".into()),
+                morph_mask: mask,
+                ..Default::default()
+            }),
+        ));
+        p
+    };
+    let ctx = EvalCtx::new(&plain.timing, 0.0, None);
+    let mut render = |p: &Project| r.render_image(p, &ctx, &target);
+    let empty = render(&plain);
+    let bright = render(&with(Some(LogoMask::Bright), LogoMask::Alpha));
+    let dark = render(&with(Some(LogoMask::Dark), LogoMask::Alpha));
+    let inherited = render(&with(None, LogoMask::Bright));
+    let shown = mean_abs_diff(bright.as_raw(), empty.as_raw());
+    let differ = mean_abs_diff(bright.as_raw(), dark.as_raw());
+    let same = mean_abs_diff(bright.as_raw(), inherited.as_raw());
+    eprintln!("morph mask: shown {shown:.2}, bright vs dark {differ:.2}, inherited {same:.3}");
+    assert!(shown > 0.5, "morph image not visible");
+    assert!(differ > 0.5, "Shape from makes no difference");
+    assert!(same < 0.01, "unset doesn't follow the logo's own setting");
+}
+
 /// Rasters and distortion on logos: copper bars, wobble, raster glitch
 /// and colour split show, move and loop.
 #[test]

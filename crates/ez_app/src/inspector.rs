@@ -3992,6 +3992,18 @@ fn logo_effects_ui(ui: &mut Ui, g: &mut LogoLayer, textures: &[UserTexture], lre
                     textures,
                     Some((lref, TexSlot::MorphImage)),
                 );
+                let mut mask = g.morph_mask.unwrap_or(g.mask);
+                combo(
+                    ui,
+                    "Shape from",
+                    "Which parts of this image are the logo",
+                    &mut mask,
+                    &LogoMask::ALL,
+                    |m| m.label(),
+                );
+                if mask != g.morph_mask.unwrap_or(g.mask) {
+                    g.morph_mask = Some(mask);
+                }
             }
         }
     });

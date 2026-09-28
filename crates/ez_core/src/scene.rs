@@ -3936,6 +3936,10 @@ pub struct LogoLayer {
     pub morph_source: LogoSource,
     pub morph_text: String,
     pub morph_image: Option<String>,
+    /// Which parts of the morph image are the logo (`None`: as for this
+    /// logo's own image, which is how projects saved before worked).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub morph_mask: Option<LogoMask>,
     // Rasters and distortion.
     /// Copper bars scrolling through the letters (0 = none, 1 = all bars).
     pub copper: Param,
@@ -4098,6 +4102,7 @@ impl Default for LogoLayer {
             morph_source: LogoSource::Text,
             morph_text: "LOOP".into(),
             morph_image: None,
+            morph_mask: None,
             copper: Param::new(0.0),
             copper_bars: 3.0,
             copper_cycles: 1,
