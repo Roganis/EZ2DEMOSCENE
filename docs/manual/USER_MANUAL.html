@@ -875,7 +875,22 @@ Click it to open the animation panel:</p>
   drop on the beat (Exp fade in), or breathing swells.</td></tr>
   <tr><td>Random</td><td>Sample &amp; hold, Smooth random, Drunken walk</td><td>A new random value each cycle (held, or gliding smoothly), or a
   random walk that wanders and always finds its way back by the end of the loop.</td></tr>
+  <tr><td>Custom</td><td>Envelope</td><td>Your own shape over the cycle: points joined by curves, from the slider value (bottom) to
+  the slider value plus the amount (top). See below.</td></tr>
 </table>
+<h2>Envelope: your own shape</h2>
+<p>Pick <span class="ui">Envelope</span> and the graph becomes an editor for one cycle (with ♩ <b>once per loop</b>, the whole
+loop's timeline; with <b>every bar</b>, one bar that repeats):</p>
+<ul>
+  <li><b>Click</b> an empty spot to add a point (up to 16). Points snap to quarter beats; hold <kbd>Shift</kbd> to place them freely.</li>
+  <li><b>Drag</b> a point to move it in time and height.</li>
+  <li><b>Right-click</b> a point (long press on a touch screen) to choose how it goes on to the next point: <b>Straight</b>,
+  <b>Smooth</b>, <b>Ease in</b>, <b>Ease out</b> or <b>Hold, then jump</b>, or to <b>delete</b> it. <b>Double-click</b> also deletes.</li>
+  <li>The last point leads back round to the first, so the loop stays seamless. <span class="ui">offset</span> shifts the whole shape
+  in time.</li>
+</ul>
+<figure><img src="img/envelope.jpg"><figcaption>An envelope on Metallic: a rise, a hold, a peak and a slow fall over the loop.
+The labels are the real values at the bottom and top.</figcaption></figure>
 <p>Almost every number can be animated this way, including <b>post effects</b> (bloom threshold, pixel size, dither, CRT scanlines and
 curvature, contrast, saturation, vignette, grain, beat flash, kaleidoscope angle), materials (metallic, roughness, rim light, tiling),
 light, camera swing and shake, particle speed and area, mirror reflectivity and blur, laser spread, length, width and sweep, terrain
@@ -891,6 +906,8 @@ roughness and valley, and ribbon pulses.</p>
   <li><b>Beat hit:</b> Glow → Exp fade out, ♩ every beat.</li>
   <li><b>Build-up:</b> Bloom threshold → Exp fade in, ♩ every 4 bars (negative amount lowers it towards the drop).</li>
   <li><b>Nervous camera:</b> Camera Height → Drunken walk, ♩ every beat, amount 1.</li>
+  <li><b>Drop:</b> Bloom threshold → Envelope, ♩ once per loop: flat, a slow ease-in over the build-up, then a hold and a jump
+  right on the drop.</li>
 </ul>
 <h2>Shake</h2>
 <p><span class="ui">Placement &amp; motion → Shake</span> jolts a layer in a random direction. <span class="ui">Shake distance</span> and

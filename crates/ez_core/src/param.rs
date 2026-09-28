@@ -41,10 +41,12 @@ pub enum Wave {
     SmoothRandom,
     /// Random walk that wanders and comes back by the end of the loop.
     Drunk,
+    /// Your own shape: points joined by curves (see [`Envelope`]).
+    Envelope,
 }
 
 /// Menu groups for [`Wave`].
-pub const WAVE_GROUPS: [(&str, &[Wave]); 3] = [
+pub const WAVE_GROUPS: [(&str, &[Wave]); 4] = [
     (
         "LFO",
         &[
@@ -67,6 +69,7 @@ pub const WAVE_GROUPS: [(&str, &[Wave]); 3] = [
         ],
     ),
     ("Random", &[Wave::Random, Wave::SmoothRandom, Wave::Drunk]),
+    ("Custom", &[Wave::Envelope]),
 ];
 
 fn step_rand(idx: i64, n: i64, salt: u32) -> f32 {
@@ -107,6 +110,7 @@ impl Wave {
             Wave::Random => "Sample & hold",
             Wave::SmoothRandom => "Smooth random",
             Wave::Drunk => "Drunken walk",
+            Wave::Envelope => "Envelope",
         }
     }
 
@@ -126,6 +130,10 @@ impl Wave {
             Wave::Random => "A new random value each cycle, held until the next",
             Wave::SmoothRandom => "Random values with smooth glides in between",
             Wave::Drunk => "Wanders randomly and finds its way back by the loop's end",
+            Wave::Envelope => {
+                "Draw your own shape: points on the timeline joined by curves \
+                 (click to add, drag to move, right-click for the curve or to delete)"
+            }
         }
     }
 
@@ -139,6 +147,7 @@ impl Wave {
                 | Wave::LinearIn
                 | Wave::LinearOut
                 | Wave::Swell
+                | Wave::Envelope
         )
     }
 
@@ -187,7 +196,263 @@ impl Wave {
                 let t = f * f * (3.0 - 2.0 * f);
                 (pos[k] + (pos[k + 1] - pos[k]) * t) / peak
             }
+            // Its points live in the Param (see `Param::eval_offset`).
+            Wave::Envelope => Envelope::DEFAULT.eval(f),
         }
+    }
+}
+
+/// How an envelope goes from one point to the next.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum Curve {
+    /// Straight line.
+    #[default]
+    Linear,
+    /// Eases out of one point and into the next.
+    Smooth,
+    /// Starts slowly, arrives fast.
+    EaseIn,
+    /// Starts fast, arrives slowly.
+    EaseOut,
+    /// Stays, then jumps at the next point.
+    Hold,
+}
+
+impl Curve {
+    pub const ALL: [Curve; 5] = [
+        Curve::Linear,
+        Curve::Smooth,
+        Curve::EaseIn,
+        Curve::EaseOut,
+        Curve::Hold,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Curve::Linear => "Straight",
+            Curve::Smooth => "Smooth",
+            Curve::EaseIn => "Ease in (slow start)",
+            Curve::EaseOut => "Ease out (slow end)",
+            Curve::Hold => "Hold, then jump",
+        }
+    }
+
+    /// Progress 0..1 along a segment shaped by the curve.
+    fn shape(self, u: f32) -> f32 {
+        let u = u.clamp(0.0, 1.0);
+        match self {
+            Curve::Linear => u,
+            Curve::Smooth => u * u * (3.0 - 2.0 * u),
+            Curve::EaseIn => u * u * u,
+            Curve::EaseOut => 1.0 - (1.0 - u).powi(3),
+            Curve::Hold => 0.0,
+        }
+    }
+}
+
+/// One point of an envelope: where in the cycle (0..1), how high (0..1),
+/// and how it goes on to the next point.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EnvPoint {
+    pub t: f32,
+    pub v: f32,
+    #[serde(default)]
+    pub curve: Curve,
+}
+
+impl EnvPoint {
+    pub const fn new(t: f32, v: f32, curve: Curve) -> Self {
+        EnvPoint { t, v, curve }
+    }
+}
+
+/// A multi-segment envelope: up to [`Envelope::MAX`] points over one cycle,
+/// joined by curves, the last one leading back round to the first so the
+/// loop stays seamless. Values run 0..1 (the Param's amount scales them).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Envelope {
+    points: [EnvPoint; Envelope::MAX],
+    len: u8,
+}
+
+impl Envelope {
+    pub const MAX: usize = 16;
+
+    /// A rise to the top halfway through the cycle and a fall back.
+    pub const DEFAULT: Envelope = {
+        let mut points = [EnvPoint::new(0.0, 0.0, Curve::Linear); Envelope::MAX];
+        points[0] = EnvPoint::new(0.0, 0.0, Curve::Smooth);
+        points[1] = EnvPoint::new(0.5, 1.0, Curve::Smooth);
+        Envelope { points, len: 2 }
+    };
+
+    /// The points, in time order.
+    pub fn points(&self) -> &[EnvPoint] {
+        &self.points[..self.len as usize]
+    }
+
+    /// Replace the points (kept in 0..1, sorted, at most [`Self::MAX`]).
+    pub fn set(&mut self, points: &[EnvPoint]) {
+        let mut v: Vec<EnvPoint> = points
+            .iter()
+            .take(Self::MAX)
+            .map(|p| EnvPoint {
+                t: if p.t.is_finite() {
+                    p.t.clamp(0.0, 1.0)
+                } else {
+                    0.0
+                },
+                v: if p.v.is_finite() {
+                    p.v.clamp(0.0, 1.0)
+                } else {
+                    0.0
+                },
+                curve: p.curve,
+            })
+            .collect();
+        v.sort_by(|a, b| a.t.total_cmp(&b.t));
+        self.len = v.len() as u8;
+        self.points[..v.len()].copy_from_slice(&v);
+    }
+
+    /// The value (0..1) at `f` (0..1) in the cycle.
+    pub fn eval(&self, f: f32) -> f32 {
+        let pts = self.points();
+        let n = pts.len();
+        match n {
+            0 => return 0.0,
+            1 => return pts[0].v,
+            _ => {}
+        }
+        let f = f.rem_euclid(1.0);
+        // The segment `f` falls in: from the last point at or before it
+        // (before the first point, the wrap-around segment from the last).
+        let i = match pts.iter().rposition(|p| p.t <= f) {
+            Some(i) => i,
+            None => n - 1,
+        };
+        let a = pts[i];
+        let b = pts[(i + 1) % n];
+        let (ta, mut tb) = (a.t, b.t);
+        let mut x = f;
+        if i + 1 >= n {
+            // Round the end of the cycle to the first point.
+            tb += 1.0;
+            if x < ta {
+                x += 1.0;
+            }
+        }
+        let len = tb - ta;
+        if len <= 1e-6 {
+            return b.v;
+        }
+        a.v + (b.v - a.v) * a.curve.shape((x - ta) / len)
+    }
+}
+
+impl Default for Envelope {
+    fn default() -> Self {
+        Envelope::DEFAULT
+    }
+}
+
+impl Envelope {
+    /// An envelope of these points (see [`Envelope::set`]).
+    pub fn from_points(points: &[EnvPoint]) -> Envelope {
+        let mut e = Envelope::DEFAULT;
+        e.set(points);
+        e
+    }
+
+    fn key(&self) -> Vec<u32> {
+        self.points()
+            .iter()
+            .flat_map(|p| [p.t.to_bits(), p.v.to_bits(), p.curve as u32])
+            .collect()
+    }
+}
+
+/// A [`Param`]'s envelope: a small handle to its points, which live once in
+/// a shared table. It keeps `Param` small and `Copy` (a project holds
+/// thousands of them, and undo keeps copies of the project), and equal
+/// envelopes get the same handle, so comparing Params still compares the
+/// points.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct EnvRef(u32);
+
+struct EnvTable {
+    list: Vec<Envelope>,
+    index: std::collections::HashMap<Vec<u32>, u32>,
+}
+
+static ENVELOPES: std::sync::LazyLock<std::sync::RwLock<EnvTable>> =
+    std::sync::LazyLock::new(|| {
+        let default = Envelope::DEFAULT;
+        let mut index = std::collections::HashMap::new();
+        index.insert(default.key(), 0);
+        std::sync::RwLock::new(EnvTable {
+            list: vec![default],
+            index,
+        })
+    });
+
+impl EnvRef {
+    /// The handle of these points (the same handle for the same points).
+    pub fn new(env: &Envelope) -> EnvRef {
+        let key = env.key();
+        if let Some(i) = ENVELOPES.read().unwrap().index.get(&key) {
+            return EnvRef(*i);
+        }
+        let mut t = ENVELOPES.write().unwrap();
+        if let Some(i) = t.index.get(&key) {
+            return EnvRef(*i);
+        }
+        let i = t.list.len() as u32;
+        t.list.push(*env);
+        t.index.insert(key, i);
+        EnvRef(i)
+    }
+
+    /// The handle of an envelope made of these points.
+    pub fn from_points(points: &[EnvPoint]) -> EnvRef {
+        EnvRef::new(&Envelope::from_points(points))
+    }
+
+    /// The envelope.
+    pub fn get(self) -> Envelope {
+        ENVELOPES
+            .read()
+            .unwrap()
+            .list
+            .get(self.0 as usize)
+            .copied()
+            .unwrap_or(Envelope::DEFAULT)
+    }
+
+    /// Its value (0..1) at `f` in the cycle.
+    pub fn eval(self, f: f32) -> f32 {
+        let t = ENVELOPES.read().unwrap();
+        match t.list.get(self.0 as usize) {
+            Some(e) => e.eval(f),
+            None => Envelope::DEFAULT.eval(f),
+        }
+    }
+
+    pub fn is_default(&self) -> bool {
+        self.0 == 0
+    }
+}
+
+impl Serialize for EnvRef {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        self.get().points().serialize(s)
+    }
+}
+
+impl<'de> Deserialize<'de> for EnvRef {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let v = Vec::<EnvPoint>::deserialize(d)?;
+        Ok(EnvRef::from_points(&v))
     }
 }
 
@@ -208,6 +473,8 @@ pub struct Param {
     pub audio: f32,
     /// Link to the music (kick, bass, hits, pitch…).
     pub music: MusicMod,
+    /// The points of the `Envelope` wave.
+    pub env: EnvRef,
 }
 
 impl Param {
@@ -227,6 +494,7 @@ impl Param {
                 shape: Wave::ExpOut,
                 length: 0.5,
             },
+            env: EnvRef(0),
         }
     }
 
@@ -282,7 +550,11 @@ impl Param {
                 ctx.phase
             };
             let x = phase * self.cycles as f32 + self.offset + extra;
-            v += self.amp * self.wave.eval(x, self.cycles);
+            v += self.amp
+                * match self.wave {
+                    Wave::Envelope => self.env.eval(x),
+                    w => w.eval(x, self.cycles),
+                };
         }
         if self.audio != 0.0 {
             v += self.audio * ctx.audio;
@@ -310,6 +582,8 @@ struct ParamFull {
     audio: f32,
     #[serde(skip_serializing_if = "music_off")]
     music: MusicMod,
+    #[serde(skip_serializing_if = "EnvRef::is_default")]
+    env: EnvRef,
 }
 
 fn music_off(m: &MusicMod) -> bool {
@@ -327,6 +601,7 @@ impl Default for ParamFull {
             offset: p.offset,
             audio: p.audio,
             music: p.music,
+            env: p.env,
         }
     }
 }
@@ -351,6 +626,7 @@ impl Serialize for Param {
                 offset: self.offset,
                 audio: self.audio,
                 music: self.music,
+                env: self.env,
             }
             .serialize(s)
         }
@@ -369,6 +645,7 @@ impl<'de> Deserialize<'de> for Param {
                 offset: f.offset,
                 audio: f.audio,
                 music: f.music,
+                env: f.env,
             },
         })
     }
@@ -410,6 +687,100 @@ mod tests {
         assert!(Wave::ExpIn.eval(0.0, 1) < 0.01 && Wave::ExpIn.eval(0.999, 1) > 0.97);
         assert!(Wave::LinearOut.eval(0.0, 1) > 0.99);
         assert!(Wave::Swell.eval(0.5, 1) > 0.99);
+    }
+
+    #[test]
+    fn envelope_passes_its_points_and_loops() {
+        let mut e = Envelope::DEFAULT;
+        e.set(&[
+            EnvPoint::new(0.1, 0.2, Curve::Linear),
+            EnvPoint::new(0.4, 1.0, Curve::Hold),
+            EnvPoint::new(0.6, 0.5, Curve::Smooth),
+            EnvPoint::new(0.9, 0.0, Curve::EaseOut),
+        ]);
+        for p in e.points() {
+            assert!((e.eval(p.t) - p.v).abs() < 1e-5, "{p:?}");
+        }
+        // Straight halfway between the first two.
+        assert!((e.eval(0.25) - 0.6).abs() < 1e-5);
+        // Hold keeps the value until the next point.
+        assert!((e.eval(0.59) - 1.0).abs() < 1e-5);
+        // Round the loop: from the last point (0.9, 0) to the first (1.1, 0.2).
+        assert!((e.eval(0.0) - e.eval(1.0)).abs() < 1e-6);
+        let mid = e.eval(0.0);
+        assert!(mid > 0.0 && mid < 0.2, "{mid}");
+        for i in 0..=1000 {
+            let v = e.eval(i as f32 / 1000.0);
+            assert!((0.0..=1.0).contains(&v), "{v}");
+        }
+    }
+
+    #[test]
+    fn envelope_edge_cases_and_saving() {
+        let mut e = Envelope::DEFAULT;
+        e.set(&[]);
+        assert_eq!(e.eval(0.3), 0.0);
+        e.set(&[EnvPoint::new(0.5, 0.7, Curve::Linear)]);
+        assert_eq!(e.eval(0.1), 0.7);
+        // Out of order and out of range: sorted and clamped.
+        e.set(&[
+            EnvPoint::new(0.8, 2.0, Curve::Linear),
+            EnvPoint::new(-1.0, 0.5, Curve::Smooth),
+        ]);
+        assert_eq!(e.points()[0], EnvPoint::new(0.0, 0.5, Curve::Smooth));
+        assert_eq!(e.points()[1], EnvPoint::new(0.8, 1.0, Curve::Linear));
+        // More than MAX points are cut.
+        let many: Vec<EnvPoint> = (0..40)
+            .map(|i| EnvPoint::new(i as f32 / 40.0, 0.5, Curve::Linear))
+            .collect();
+        e.set(&many);
+        assert_eq!(e.points().len(), Envelope::MAX);
+        // A Param with an envelope saves its points and loads them back.
+        let mut p = Param::new(1.0).osc(Wave::Envelope, 2.0, 4);
+        p.env = EnvRef::from_points(&[
+            EnvPoint::new(0.0, 0.0, Curve::Hold),
+            EnvPoint::new(0.3, 1.0, Curve::EaseIn),
+        ]);
+        // The same points: the same handle (Params compare their points).
+        assert_eq!(
+            p.env,
+            EnvRef::from_points(&[
+                EnvPoint::new(0.0, 0.0, Curve::Hold),
+                EnvPoint::new(0.3, 1.0, Curve::EaseIn),
+            ])
+        );
+        assert!(
+            std::mem::size_of::<Param>() < 80,
+            "{}",
+            std::mem::size_of::<Param>()
+        );
+        let json = serde_json::to_string(&p).unwrap();
+        let q: Param = serde_json::from_str(&json).unwrap();
+        assert_eq!(p, q);
+        // Other params don't save the default envelope.
+        let json = serde_json::to_string(&Param::new(1.0).osc(Wave::Sine, 1.0, 1)).unwrap();
+        assert!(!json.contains("env"), "{json}");
+    }
+
+    #[test]
+    fn envelope_param_loops_and_repeats() {
+        let mut p = Param::new(1.0).osc(Wave::Envelope, 2.0, 4).with_offset(0.3);
+        p.env = EnvRef::from_points(&[
+            EnvPoint::new(0.2, 0.0, Curve::Linear),
+            EnvPoint::new(0.7, 1.0, Curve::Smooth),
+        ]);
+        let a = p.eval(&EvalCtx::at(0.0));
+        let b = p.eval(&EvalCtx::at(1.0));
+        assert!((a - b).abs() < 1e-4, "{a} vs {b}");
+        // Four repeats per loop: a quarter of the loop later it's the same.
+        let c = p.eval(&EvalCtx::at(0.1));
+        let d = p.eval(&EvalCtx::at(0.35));
+        assert!((c - d).abs() < 1e-4, "{c} vs {d}");
+        // Values between base and base + amount.
+        for i in 0..=200 {
+            let v = p.eval(&EvalCtx::at(i as f32 / 200.0));
+            assert!((1.0 - 1e-4..=3.0 + 1e-4).contains(&v), "{v}");
+        }
     }
 
     #[test]
