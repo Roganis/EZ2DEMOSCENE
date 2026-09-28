@@ -367,6 +367,7 @@ mod tests {
             name: "logo".into(),
             path: dir.join("logo.png").to_string_lossy().to_string(),
             retro: None,
+            mirror: false,
         });
         p.audio = Some(dir.join("song.wav").to_string_lossy().to_string());
         p
@@ -403,6 +404,7 @@ mod tests {
             name: "gone".into(),
             path: dir.join("missing.png").to_string_lossy().to_string(),
             retro: None,
+            mirror: false,
         });
         let pack_file = dir.join("scene.ez2pack");
         let report = pack(&p, &pack_file).unwrap();
@@ -431,6 +433,7 @@ mod tests {
             name: "logo".into(),
             path: logo.clone(),
             retro: None,
+            mirror: false,
         });
         let (bytes, report) = pack_to_bytes(&p).unwrap();
         assert_eq!(report.packed, 1);

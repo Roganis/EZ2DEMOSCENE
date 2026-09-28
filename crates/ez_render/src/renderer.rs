@@ -107,6 +107,9 @@ struct InstanceRaw {
 }
 
 type Block = [[f32; 4]; 16];
+
+/// Ends the texture key of a picture tiled mirrored.
+const MIRROR_KEY: &str = ":mirror";
 type PostBlock = [[f32; 4]; 32];
 
 struct GpuMesh {
@@ -414,8 +417,11 @@ static TARGET_IDS: AtomicU64 = AtomicU64::new(1);
 /// A battle background's settings in draw block slots 8..15 (see
 /// `bg_battle` in backdrop.wgsl). Everything that moves is a whole number
 /// of turns per loop, wrapped, so the loop closes.
-fn battle_block(blk: &mut Block, b: &ez_core::Battle, ctx: &EvalCtx) {
+fn battle_block(blk: &mut Block, b: &ez_core::Battle, ctx: &EvalCtx, mirror: bool) {
     let turn = |n: i32| (n as f32 * ctx.phase).rem_euclid(1.0);
+    // A mirrored picture repeats every two tiles: it scrolls by pairs.
+    let tiles = if mirror { 2.0 } else { 1.0 };
+    let slide = |n: i32| (n as f32 * ctx.phase * tiles).rem_euclid(tiles);
     for (i, l) in [&b.back, &b.front].into_iter().enumerate() {
         let o = 8 + i * 3;
         blk[o] = [
@@ -431,8 +437,8 @@ fn battle_block(blk: &mut Block, b: &ez_core::Battle, ctx: &EvalCtx) {
             l.bands.eval(ctx).max(0.0),
         ];
         blk[o + 2] = [
-            turn(l.scroll[0]),
-            turn(l.scroll[1]),
+            slide(l.scroll[0]),
+            slide(l.scroll[1]),
             turn(l.cycles),
             l.opacity.eval(ctx).clamp(0.0, 1.0),
         ];
@@ -909,6 +915,9 @@ pub struct Renderer {
 
     sampler_repeat: wgpu::Sampler,
     sampler_nearest: wgpu::Sampler,
+    /// Mirrored tiling, for pictures marked so (see `MIRROR_KEY`).
+    sampler_mirror: wgpu::Sampler,
+    sampler_mirror_nearest: wgpu::Sampler,
     sampler_clamp: wgpu::Sampler,
 
     meshes: HashMap<String, GpuMesh>,
@@ -1973,6 +1982,17 @@ impl Renderer {
             ..Default::default()
         });
         let sampler_clamp = sampler(wgpu::AddressMode::ClampToEdge, wgpu::FilterMode::Linear);
+        let sampler_mirror = sampler(wgpu::AddressMode::MirrorRepeat, wgpu::FilterMode::Linear);
+        let sampler_mirror_nearest = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("mirror nearest"),
+            address_mode_u: wgpu::AddressMode::MirrorRepeat,
+            address_mode_v: wgpu::AddressMode::MirrorRepeat,
+            address_mode_w: wgpu::AddressMode::MirrorRepeat,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
+            ..Default::default()
+        });
 
         let mut r = Renderer {
             device: device.clone(),
@@ -2018,6 +2038,8 @@ impl Renderer {
             rays_add_pipe,
             sampler_repeat,
             sampler_nearest,
+            sampler_mirror,
+            sampler_mirror_nearest,
             sampler_clamp,
             meshes: HashMap::new(),
             box_uv_meshes: Default::default(),
@@ -2828,11 +2850,12 @@ impl Renderer {
             }
             return key;
         }
-        let (path, retro) = match project.find_texture(name) {
-            Some(t) => (t.path.clone(), t.retro.clone()),
-            None => (name.to_string(), None),
+        let (path, retro, mirror) = match project.find_texture(name) {
+            Some(t) => (t.path.clone(), t.retro.clone(), t.mirror),
+            None => (name.to_string(), None, false),
         };
-        let key = format!("u:{path}:{retro:?}");
+        // Mirror tiling is a different sampler, so a different key.
+        let key = format!("u:{path}:{retro:?}{}", if mirror { MIRROR_KEY } else { "" });
         if self.textures.contains_key(&key) {
             return key;
         }
@@ -2862,6 +2885,16 @@ impl Renderer {
         }
     }
 
+    /// The sampler for texture `key`: mirrored tiling when its key says so.
+    fn sampler_for(&self, key: &str, nearest: bool) -> &wgpu::Sampler {
+        match (key.ends_with(MIRROR_KEY), nearest) {
+            (false, false) => &self.sampler_repeat,
+            (false, true) => &self.sampler_nearest,
+            (true, false) => &self.sampler_mirror,
+            (true, true) => &self.sampler_mirror_nearest,
+        }
+    }
+
     fn tex_bind_group(&mut self, key: &str, nearest: bool) {
         let k = (key.to_string(), nearest);
         if self.tex_bgs.contains_key(&k) {
@@ -2878,11 +2911,7 @@ impl Renderer {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Sampler(if nearest {
-                        &self.sampler_nearest
-                    } else {
-                        &self.sampler_repeat
-                    }),
+                    resource: wgpu::BindingResource::Sampler(self.sampler_for(key, nearest)),
                 },
             ],
         });
@@ -2904,11 +2933,7 @@ impl Renderer {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Sampler(if nearest {
-                        &self.sampler_nearest
-                    } else {
-                        &self.sampler_repeat
-                    }),
+                    resource: wgpu::BindingResource::Sampler(self.sampler_for(tex, nearest)),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
@@ -3508,7 +3533,13 @@ impl Renderer {
                     blk[1] = c4(b.color_a, 0.0);
                     blk[2] = c4(b.color_b, 0.0);
                     blk[3] = c4(b.color_c, 0.0);
-                    blk[4] = [if b.texture.is_some() { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0];
+                    let mirror = tex.ends_with(MIRROR_KEY);
+                    blk[4] = [
+                        if b.texture.is_some() { 1.0 } else { 0.0 },
+                        if mirror { 1.0 } else { 0.0 },
+                        0.0,
+                        0.0,
+                    ];
                     let r = &b.ray;
                     blk[5] = [
                         r.variant as f32,
@@ -3530,7 +3561,7 @@ impl Renderer {
                         0.0,
                     ];
                     if b.kind == BackdropKind::Battle {
-                        battle_block(&mut blk, &b.battle, ctx);
+                        battle_block(&mut blk, &b.battle, ctx, mirror);
                     }
                     ls.draws = 1;
                     ls.load = backdrop_load(b.kind);
@@ -3708,9 +3739,12 @@ impl Renderer {
                         mat.texture_scale.eval(ctx),
                         if mat.flat_shading { 1.0 } else { 0.0 },
                     ];
+                    // A mirrored picture repeats every two tiles: scroll
+                    // by pairs so the loop still closes.
+                    let tiles = if tex.ends_with(MIRROR_KEY) { 2.0 } else { 1.0 };
                     blk[3] = [
-                        ctx.phase * mat.scroll[0] as f32,
-                        ctx.phase * mat.scroll[1] as f32,
+                        ctx.phase * mat.scroll[0] as f32 * tiles,
+                        ctx.phase * mat.scroll[1] as f32 * tiles,
                         mat.rim.eval(ctx),
                         mat.hue_shift.eval(ctx),
                     ];
@@ -4697,7 +4731,7 @@ impl Renderer {
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
-                            resource: wgpu::BindingResource::Sampler(&self.sampler_repeat),
+                            resource: wgpu::BindingResource::Sampler(self.sampler_for(tex, false)),
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
@@ -5729,6 +5763,10 @@ impl Renderer {
                 (wb.speed as f32 * ctx.phase).rem_euclid(1.0),
             ];
             slots[SLOT_WARP as usize][5] = [wb.lines.min(4096) as f32, 0.0, 0.0, 0.0];
+        }
+
+        if post.lens.enabled {
+            slots[SLOT_WARP as usize][5][1] = post.lens.amount.eval(ctx).clamp(-1.0, 1.0);
         }
 
         let dof = &post.dof;

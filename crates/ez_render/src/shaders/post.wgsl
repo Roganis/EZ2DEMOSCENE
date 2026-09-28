@@ -89,13 +89,50 @@ fn line_wobble(uv: vec2<f32>, pos: vec2<f32>) -> vec2<f32> {
         }
         out.x = out.x + dx;
     }
-    // Mirror at the edges rather than smearing them.
-    return 1.0 - abs(1.0 - (out - 2.0 * floor(out * 0.5)));
+    return fold(out);
+}
+
+// Mirror at the edges rather than smearing them.
+fn fold(uv: vec2<f32>) -> vec2<f32> {
+    return 1.0 - abs(1.0 - (uv - 2.0 * floor(uv * 0.5)));
+}
+
+// Fisheye lens. P.v[5].y: amount (-1..1): above 0 the middle bulges and
+// the corners stay put; below 0 the middle shrinks and the edges stretch.
+fn lens(uv: vec2<f32>) -> vec2<f32> {
+    let k = P.v[5].y;
+    if (k == 0.0) {
+        return uv;
+    }
+    let aspect = max(P.v[1].z, 0.01);
+    let d = (uv - 0.5) * vec2<f32>(aspect, 1.0);
+    let r = length(d);
+    if (r < 1e-5) {
+        return uv;
+    }
+    var nr = r;
+    if (k > 0.0) {
+        // tan: steeper towards the corners, which map onto themselves.
+        let bind = length(vec2<f32>(aspect * 0.5, 0.5));
+        let power = k * 0.49 * PI / bind;
+        nr = tan(r * power) * bind / tan(bind * power);
+        return fold(0.5 + d / r * nr / vec2<f32>(aspect, 1.0));
+    }
+    // atan: the middle shrinks and the edges stretch, the top and bottom
+    // staying put; on a tall screen the sides can reach past the picture,
+    // which is black there (see fs_warp).
+    let power = -k * 4.0;
+    nr = atan(r * power) * 0.5 / atan(0.5 * power);
+    return 0.5 + d / r * nr / vec2<f32>(aspect, 1.0);
 }
 
 @fragment
 fn fs_warp(in: VOut) -> @location(0) vec4<f32> {
-    var uv = line_wobble(in.uv, in.pos.xy);
+    var uv = lens(line_wobble(in.uv, in.pos.xy));
+    if (any(uv < vec2<f32>(0.0)) || any(uv > vec2<f32>(1.0))) {
+        // Pinched past the picture's edge.
+        return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    }
     let mode = i32(P.v[1].w + 0.5);
     if (mode == 1 || mode == 3) {
         uv.x = 0.5 - abs(uv.x - 0.5);

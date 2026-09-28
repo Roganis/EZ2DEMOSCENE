@@ -874,6 +874,10 @@ instead of smoothing them.</p>
 All your images are listed under <span class="ui">Your images</span>, where you can tick <span class="ui">Retro-ize</span>.
 This shrinks the image to <span class="ui">Max size</span> pixels and remaps it to a classic <span class="ui">Palette</span> with
 <span class="ui">Dithering</span>, turning any photo into a 90s texture.</p>
+<p>A photo usually doesn't tile: where one copy meets the next, its left edge lands against its right edge and you see a seam.
+Tick <span class="ui">Mirror tiling</span> and every other copy is flipped, so edges always meet their own mirror image and the
+seams disappear. It applies everywhere the image is used (shapes, floors, terrain, the tunnel and battle backgrounds). A mirrored
+image repeats every two tiles, so when it scrolls, each scroll step moves it two tiles and the loop still closes.</p>
 
 <!-- ===================================================== 7 -->
 <h1 id="animate"><span class="num">7</span>Animating anything</h1>
@@ -1068,6 +1072,9 @@ to force those into a palette.</p>
   (not saved), so frame 0 already has its trails and the loop closes seamlessly.</td></tr>
   <tr><td>Heat haze</td><td>The picture shimmers as if seen through rising hot air: above hot, bright things (lava, fire, the sun), near
   the bottom of the picture (hot ground) or everywhere. <span class="ui">Rises / loop</span> sets its speed.</td></tr>
+  <tr><td>Fisheye lens</td><td><span class="ui">Amount</span> above 0 is a fisheye: the middle bulges out towards you and the
+  corners stay where they are. Below 0 is the opposite: the middle shrinks away and the edges stretch. Animate it with
+  <span class="ui">~</span> for a lens that breathes, or put it on the kick with 🎵.</td></tr>
   <tr><td>Line wobble</td><td>The lines of the whole picture wobble like a retro RPG battle: <b>Wave</b> (lines slide sideways),
   <b>Interlaced</b> (odd and even lines slide opposite ways; <span class="ui">Lines</span> sets how fine) or <b>Compression</b> (lines
   squeeze up and down). <span class="ui">Amount</span>, <span class="ui">Waves</span> and <span class="ui">Waves / loop</span> as for the

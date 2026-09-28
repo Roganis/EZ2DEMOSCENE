@@ -2409,3 +2409,107 @@ fn battle_backgrounds_and_retro_effects_loop() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+/// The fisheye lens bends the picture both ways and keeps it seamless, and
+/// a picture tiled mirrored flips at every edge (and still loops when it
+/// scrolls).
+#[test]
+fn lens_and_mirrored_tiling() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let target = r.create_target(160, 90);
+    let dir = snapshot_dir();
+    let base = presets::battle_screen();
+    let at = |p: &Project, phase: f32| EvalCtx::new(&p.timing, phase, None);
+    let plain = r.render_image(&base, &at(&base, 0.2), &target);
+    for amount in [0.8, -0.8] {
+        let mut p = base.clone();
+        p.post.lens.enabled = true;
+        p.post.lens.amount = Param::new(amount);
+        let a = r.render_image(&p, &at(&p, 0.0), &target);
+        let b = r.render_image(&p, &at(&p, 1.0), &target);
+        let mid = r.render_image(&p, &at(&p, 0.2), &target);
+        mid.save(dir.join(format!("lens_{amount}.png"))).unwrap();
+        let seam = mean_abs_diff(a.as_raw(), b.as_raw());
+        let bent = mean_abs_diff(mid.as_raw(), plain.as_raw());
+        eprintln!("lens {amount}: seam {seam:.3} bent {bent:.2}");
+        assert!(seam < 0.6, "lens {amount} breaks the loop: {seam}");
+        assert!(
+            bent > 3.0,
+            "lens {amount} barely changes the picture: {bent}"
+        );
+    }
+
+    // A picture that doesn't tile: a gradient from dark (left) to light.
+    let path = dir.join("mirror_tile.png");
+    image::RgbaImage::from_fn(64, 64, |x, y| {
+        image::Rgba([(x * 4) as u8, (y * 4) as u8, 40, 255])
+    })
+    .save(&path)
+    .unwrap();
+    let mut p = base.clone();
+    p.post = PostStack::default();
+    p.layers.truncate(1);
+    if let LayerKind::Backdrop(b) = &mut p.layers[0].kind {
+        b.texture = Some("tile".into());
+        b.color_a = [0.0; 3];
+        b.color_b = [1.0; 3];
+        b.color_c = [1.0; 3];
+        b.battle = Battle {
+            back: BattleLayer {
+                pattern: BattlePattern::Picture,
+                warp: LineWarp::None,
+                tiles: Param::new(2.0),
+                scroll: [1, 0],
+                bands: Param::new(0.45),
+                cycles: 0,
+                ..Default::default()
+            },
+            lines: 0,
+            steps: 0,
+            ..Default::default()
+        };
+    }
+    let seam_jump = |r: &mut Renderer, p: &Project, name: &str| {
+        let img = r.render_image(p, &at(p, 0.0), &target);
+        img.save(dir.join(format!("{name}.png"))).unwrap();
+        // The largest brightness jump along a row: where tiles meet.
+        let y = 20;
+        let lum = |x: u32| {
+            let p = img.get_pixel(x, y);
+            (p[0] as f32 + p[1] as f32 + p[2] as f32) / 3.0
+        };
+        let jump = (1..img.width())
+            .map(|x| (lum(x) - lum(x - 1)).abs())
+            .fold(0.0f32, f32::max);
+        let b = r.render_image(p, &at(p, 1.0), &target);
+        let loop_seam = mean_abs_diff(img.as_raw(), b.as_raw());
+        eprintln!("{name}: largest jump {jump:.1}, loop seam {loop_seam:.3}");
+        (jump, loop_seam)
+    };
+    p.textures = vec![UserTexture {
+        name: "tile".into(),
+        path: path.to_string_lossy().to_string(),
+        retro: None,
+        mirror: false,
+    }];
+    let (jump_repeat, _) = seam_jump(&mut r, &p, "mirror_off");
+    p.textures[0].mirror = true;
+    let (jump_mirror, seam) = seam_jump(&mut r, &p, "mirror_on");
+    assert!(
+        jump_repeat > 40.0,
+        "plain repeat shows its seams: {jump_repeat}"
+    );
+    assert!(
+        jump_mirror < 15.0,
+        "mirrored tiling has no seams: {jump_mirror}"
+    );
+    assert!(seam < 0.6, "mirrored scrolling still loops: {seam}");
+}
