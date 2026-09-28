@@ -1,0 +1,5 @@
+The models in library.zip come from Kenney (www.kenney.nl) and are
+released under Creative Commons Zero (CC0):
+http://creativecommons.org/publicdomain/zero/1.0/
+
+Packs: space-kit, space-station-kit, modular-space-kit, blaster-kit, car-kit, racing-kit, toy-car-kit, train-kit, watercraft-kit, nature-kit, food-kit, holiday-kit, graveyard-kit, pirate-kit, castle-kit, retro-fantasy-kit, fantasy-town-kit, city-kit-commercial, city-kit-suburban, cube-pets, mini-characters, blocky-characters, mini-arcade, survival-kit, prototype-kit

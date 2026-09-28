@@ -1221,56 +1221,33 @@ fn primitive_params_ui(ui: &mut Ui, p: &mut Primitive) {
     }
 }
 
+/// Temp-data key: a shape button asks the app to open the shape picker
+/// for this layer.
+pub const SHAPE_PICKER: &str = "ez2_shape_picker";
+
+/// Name of a shape source, for buttons and labels.
+pub fn shape_label(source: &MeshSource) -> String {
+    match source {
+        MeshSource::Primitive(p) => p.label().to_string(),
+        MeshSource::File { path } => ez_core::store::file_name(path).to_string(),
+        MeshSource::Library { id } => ez_core::models::library()
+            .and_then(|lib| lib.entry(id).map(|e| e.name.clone()))
+            .unwrap_or_else(|| id.rsplit('/').next().unwrap_or(id).to_string()),
+        MeshSource::Text { .. } => "3D text".to_string(),
+        MeshSource::Sdf { form, .. } => form.label().to_string(),
+    }
+}
+
 fn mesh_ui(ui: &mut Ui, m: &mut MeshLayer, textures: &[UserTexture], lref: LayerRef) {
     section(ui, "Shape", true, |ui| {
-        let label = match &m.source {
-            MeshSource::Primitive(p) => p.label().to_string(),
-            MeshSource::File { path } => ez_core::store::file_name(path).to_string(),
-            MeshSource::Text { .. } => "3D text".to_string(),
-            MeshSource::Sdf { form, .. } => form.label().to_string(),
-        };
         row(ui, "Shape", "", |ui| {
-            egui::ComboBox::from_id_salt("shape")
-                .selected_text(label)
-                .width(150.0)
-                .height(400.0)
-                .show_ui(ui, |ui| {
-                    for p in Primitive::all_defaults() {
-                        let same = matches!(&m.source, MeshSource::Primitive(q) if std::mem::discriminant(q) == std::mem::discriminant(&p));
-                        if ui.selectable_label(same, p.label()).clicked() && !same {
-                            m.source = MeshSource::Primitive(p);
-                        }
-                    }
-                    ui.separator();
-                    for f in SdfShape::all_defaults() {
-                        let same = matches!(&m.source, MeshSource::Sdf { form, .. } if form.index() == f.index());
-                        if ui
-                            .selectable_label(same, f.label())
-                            .on_hover_text("Raymarched: smooth, organic surfaces worked out per pixel (heavier than a mesh)")
-                            .clicked()
-                            && !same
-                        {
-                            m.source = MeshSource::Sdf { form: f, cycles: 1 };
-                        }
-                    }
-                    ui.separator();
-                    if ui
-                        .selectable_label(matches!(m.source, MeshSource::Text { .. }), "3D text")
-                        .on_hover_text("Solid letters: a logo with every material, relief and copy option")
-                        .clicked()
-                        && !matches!(m.source, MeshSource::Text { .. })
-                    {
-                        m.source = MeshSource::Text {
-                            text: "EZ2".into(),
-                            font: TextFont::Sans,
-                            font_file: None,
-                            depth: 0.3,
-                        };
-                    }
-                    if ui.button("3D model file (glTF / OBJ)…").clicked() {
-                        platform::pick(Purpose::SetModel(lref));
-                    }
-                });
+            if ui
+                .button(format!("{}…", shape_label(&m.source)))
+                .on_hover_text("Choose a built-in shape or a model from the library")
+                .clicked()
+            {
+                ui.data_mut(|d| d.insert_temp(egui::Id::new(SHAPE_PICKER), Some(lref)));
+            }
         });
         match &mut m.source {
             MeshSource::Primitive(p) => primitive_params_ui(ui, p),
@@ -1370,7 +1347,7 @@ fn mesh_ui(ui: &mut Ui, m: &mut MeshLayer, textures: &[UserTexture], lref: Layer
                         .small(),
                 );
             }
-            MeshSource::File { .. } => {}
+            MeshSource::File { .. } | MeshSource::Library { .. } => {}
         }
     });
     section(ui, "Material", true, |ui| {
@@ -1747,12 +1724,7 @@ fn instancer_ui(ui: &mut Ui, inst: &mut Instancer) {
             align,
             lift,
         } => {
-            let label = match &*shape {
-                MeshSource::Primitive(p) => p.label().to_string(),
-                MeshSource::File { path } => ez_core::store::file_name(path).to_string(),
-                MeshSource::Text { .. } => "3D text".to_string(),
-                MeshSource::Sdf { form, .. } => form.label().to_string(),
-            };
+            let label = shape_label(shape);
             row(
                 ui,
                 "On shape",

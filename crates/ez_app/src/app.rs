@@ -10,6 +10,9 @@ use crate::platform::slug;
 use crate::platform::{self, LayerRef, Purpose};
 use crate::viewport::Viewport;
 use crate::widgets::{self, ACCENT};
+
+#[path = "shape_picker.rs"]
+mod shape_picker;
 use egui::{Color32, RichText, Ui};
 use ez_core::graph::Graph;
 use ez_core::randomize::{randomize, RandomizeOptions};
@@ -132,6 +135,7 @@ pub struct EzApp {
     scroll_to_field: Option<egui::Rect>,
     /// Screen height last frame (the on-screen keyboard shrinks it).
     last_screen_h: f32,
+    shape_picker: shape_picker::ShapePicker,
     /// Frames drawn since start (the desktop app notes a working graphics
     /// backend once a few have been drawn).
     frames_drawn: u32,
@@ -225,6 +229,7 @@ impl EzApp {
             last_ime: None,
             scroll_to_field: None,
             last_screen_h: 0.0,
+            shape_picker: Default::default(),
             frames_drawn: 0,
             #[cfg(not(target_arch = "wasm32"))]
             native_backend: crate::gpu_choice::load_pref(),
@@ -2565,6 +2570,8 @@ impl eframe::App for EzApp {
             }
         }
 
+        self.poll_shape_picker_request(&ctx);
+        self.shape_picker_window(&ctx);
         self.presets_window(&ctx);
         self.recovery_window(&ctx);
         self.preset_name_window(&ctx);
