@@ -204,9 +204,10 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   - Every run also keeps the APK as a workflow artifact, and tagged releases attach it
     (plus a signed release APK when the signing secrets are set).
 
-Tagged releases (`v*`) are built for Windows, Linux and macOS by
-`.github/workflows/release.yml`. The Windows and Linux archives include
-ffmpeg. On macOS, run `brew install ffmpeg`.
+- **Desktop (Windows, Linux, macOS):** built by `.github/workflows/release.yml`.
+  - Newest build of `main`: the [`desktop-latest`](https://github.com/roganis/ez2demoscene/releases/tag/desktop-latest) prerelease.
+  - Tagged releases (`v*`) attach the same archives.
+  - The Windows and Linux archives include ffmpeg. On macOS, run `brew install ffmpeg`.
 
 ## Getting started
 
