@@ -46,7 +46,8 @@ web-sys = { version = "0.3", features = [
     "Storage", "MediaQueryList", "Location", "UrlSearchParams", "console",
     "MediaDevices", "MediaStream", "MediaStreamConstraints", "AudioContext",
     "BaseAudioContext", "AnalyserNode", "AudioNode", "MediaStreamAudioSourceNode",
-    "Response",
+    "Response", "AudioBuffer", "AudioBufferSourceNode", "AudioScheduledSourceNode", "GainNode",
+    "AudioParam", "AudioDestinationNode", "AudioContextState",
 ] }
 idb = "0.6"
 console_error_panic_hook = "0.1"

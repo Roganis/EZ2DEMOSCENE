@@ -205,6 +205,217 @@ fn sync_choices(beats: u32) -> Vec<(String, i32)> {
     v
 }
 
+/// The editor of an `Envelope` wave: one cycle of it, with its points.
+/// Click to add a point, drag to move one (snapped to quarter beats; hold
+/// Shift to move freely), right-click (long press) for its curve or to
+/// delete it, double-click to delete it.
+fn envelope_editor(ui: &mut Ui, id: egui::Id, p: &mut Param, clock: Clock) -> bool {
+    use ez_core::{Curve, EnvPoint, EnvRef, Envelope};
+    let mut changed = false;
+    let (rect, resp) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width().min(320.0), 110.0),
+        egui::Sense::click_and_drag(),
+    );
+    let inner = rect.shrink2(egui::vec2(6.0, 8.0));
+    let to_screen = |t: f32, v: f32| {
+        egui::pos2(
+            inner.left() + inner.width() * t,
+            inner.bottom() - inner.height() * v,
+        )
+    };
+    let from_screen = |pos: egui::Pos2| {
+        (
+            ((pos.x - inner.left()) / inner.width()).clamp(0.0, 1.0),
+            ((inner.bottom() - pos.y) / inner.height()).clamp(0.0, 1.0),
+        )
+    };
+    // Beats in one cycle of the envelope: the snapping grid.
+    let cycles = p.cycles.unsigned_abs().max(1);
+    let beats = clock.loop_beats as f32 / cycles as f32;
+    let step = if beats >= 1.0 && (beats - beats.round()).abs() < 1e-4 {
+        1.0 / (beats * 4.0)
+    } else {
+        1.0 / 16.0
+    };
+    let free = ui.input(|i| i.modifiers.shift);
+    let snap = |t: f32| {
+        if free {
+            t
+        } else {
+            ((t / step).round() * step).clamp(0.0, 1.0)
+        }
+    };
+    let env = p.env.get();
+    let mut pts: Vec<EnvPoint> = env.points().to_vec();
+    let near = |pos: egui::Pos2, pts: &[EnvPoint]| {
+        pts.iter()
+            .enumerate()
+            .map(|(i, q)| (i, to_screen(q.t, q.v).distance(pos)))
+            .filter(|(_, d)| *d < 12.0)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(i, _)| i)
+    };
+    let drag_id = id.with("env drag");
+    let menu_id = id.with("env menu");
+    if resp.drag_started() {
+        // Where the button went down: a quick flick may already be away.
+        let origin = ui
+            .input(|i| i.pointer.press_origin())
+            .or(resp.interact_pointer_pos());
+        let hit = origin.and_then(|pos| near(pos, &pts));
+        ui.data_mut(|d| d.insert_temp(drag_id, hit));
+    }
+    let dragging: Option<usize> = ui.data(|d| d.get_temp(drag_id)).flatten();
+    if resp.dragged() {
+        if let (Some(i), Some(pos)) = (dragging, resp.interact_pointer_pos()) {
+            if i < pts.len() {
+                let (t, v) = from_screen(pos);
+                // Stay between the neighbours.
+                let lo = if i > 0 { pts[i - 1].t } else { 0.0 };
+                let hi = if i + 1 < pts.len() { pts[i + 1].t } else { 1.0 };
+                pts[i].t = snap(t).clamp(lo, hi);
+                pts[i].v = v;
+                changed = true;
+            }
+        }
+    }
+    if resp.drag_stopped() {
+        ui.data_mut(|d| d.remove::<Option<usize>>(drag_id));
+    }
+    if let Some(pos) = resp.interact_pointer_pos() {
+        if resp.double_clicked() {
+            if let Some(i) = near(pos, &pts) {
+                pts.remove(i);
+                changed = true;
+            }
+        } else if resp.clicked() && near(pos, &pts).is_none() && pts.len() < Envelope::MAX {
+            let (t, v) = from_screen(pos);
+            let t = snap(t);
+            // New points keep the curve of the segment they split.
+            let curve = pts
+                .iter()
+                .rev()
+                .find(|q| q.t <= t)
+                .or(pts.last())
+                .map_or(Curve::Linear, |q| q.curve);
+            pts.push(EnvPoint::new(t, v, curve));
+            changed = true;
+        }
+        if resp.secondary_clicked() {
+            let hit = near(pos, &pts);
+            ui.data_mut(|d| d.insert_temp(menu_id, hit));
+        }
+    }
+    let menu_point: Option<usize> = ui.data(|d| d.get_temp(menu_id)).flatten();
+    resp.context_menu(|ui| match menu_point {
+        Some(i) if i < pts.len() => {
+            ui.label(RichText::new("Curve to the next point").small().weak());
+            for c in Curve::ALL {
+                if ui.selectable_label(pts[i].curve == c, c.label()).clicked() {
+                    pts[i].curve = c;
+                    changed = true;
+                    ui.close();
+                }
+            }
+            ui.separator();
+            if ui.button("Delete point").clicked() {
+                pts.remove(i);
+                changed = true;
+                ui.close();
+            }
+        }
+        _ => {
+            ui.label("Right-click a point to change its curve or delete it.");
+            if ui.button("Reset to a rise and fall").clicked() {
+                pts = Envelope::DEFAULT.points().to_vec();
+                changed = true;
+                ui.close();
+            }
+        }
+    });
+    let env = if changed {
+        p.env = EnvRef::from_points(&pts);
+        p.env.get()
+    } else {
+        env
+    };
+
+    // Drawing.
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(rect, 3.0, ui.visuals().extreme_bg_color);
+    let grid = |t: f32, strong: bool| {
+        let x = to_screen(t, 0.0).x;
+        painter.line_segment(
+            [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
+            egui::Stroke::new(1.0, Color32::from_gray(if strong { 62 } else { 40 })),
+        );
+    };
+    if (1.0..=64.0).contains(&beats) {
+        let n = beats.round() as u32;
+        for b in 1..n {
+            grid(b as f32 / beats, b % 4 == 0);
+        }
+    }
+    for v in [0.0, 1.0] {
+        let y = to_screen(0.0, v).y;
+        painter.line_segment(
+            [egui::pos2(inner.left(), y), egui::pos2(inner.right(), y)],
+            egui::Stroke::new(1.0, Color32::from_gray(48)),
+        );
+    }
+    let curve: Vec<egui::Pos2> = (0..=160)
+        .map(|i| {
+            let t = i as f32 / 160.0;
+            to_screen(t, env.eval(t))
+        })
+        .collect();
+    painter.add(egui::Shape::line(curve, egui::Stroke::new(1.5, ACCENT)));
+    let hover = resp.hover_pos().and_then(|pos| near(pos, env.points()));
+    for (i, q) in env.points().iter().enumerate() {
+        let c = to_screen(q.t, q.v);
+        let hot = hover == Some(i) || dragging == Some(i);
+        painter.circle_filled(c, if hot { 6.0 } else { 4.5 }, Color32::WHITE);
+        painter.circle_stroke(
+            c,
+            if hot { 6.0 } else { 4.5 },
+            egui::Stroke::new(1.5, ACCENT),
+        );
+    }
+    // Playhead: where the cycle is now.
+    let now = (clock.phase * p.cycles as f32 + p.offset).rem_euclid(1.0);
+    let x = to_screen(now, 0.0).x;
+    painter.line_segment(
+        [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
+        egui::Stroke::new(1.0, Color32::from_gray(200)),
+    );
+    painter.circle_filled(to_screen(now, env.eval(now)), 3.0, Color32::from_gray(230));
+    // The real values at the top and bottom.
+    let font = egui::FontId::proportional(10.0);
+    let weak = ui.visuals().weak_text_color();
+    painter.text(
+        rect.left_top() + egui::vec2(3.0, 1.0),
+        egui::Align2::LEFT_TOP,
+        format!("{:.2}", p.base + p.amp),
+        font.clone(),
+        weak,
+    );
+    painter.text(
+        rect.left_bottom() + egui::vec2(3.0, -1.0),
+        egui::Align2::LEFT_BOTTOM,
+        format!("{:.2}", p.base),
+        font,
+        weak,
+    );
+    ui.label(
+        RichText::new(
+            "Click to add a point · drag to move (Shift: no snap) · right-click: curve / delete",
+        )
+        .small()
+        .weak(),
+    );
+    changed
+}
+
 /// Small plot of the value over one loop, with the current moment marked.
 fn curve_preview(ui: &mut Ui, p: &Param, clock: Clock, range: &RangeInclusive<f32>) {
     let (rect, _) = ui.allocate_exact_size(
@@ -331,7 +542,7 @@ pub fn param(
                 egui::ComboBox::from_id_salt(id.with("wave"))
                     .selected_text(p.wave.label())
                     .width(118.0)
-                    .height(420.0)
+                    .height(560.0)
                     .show_ui(ui, |ui| {
                         for (gi, (group, waves)) in WAVE_GROUPS.iter().enumerate() {
                             if gi > 0 {
@@ -408,7 +619,9 @@ pub fn param(
             if wake && p.amp == 0.0 {
                 p.amp = span * 0.25;
             }
-            if p.is_animated() {
+            if p.wave == ez_core::Wave::Envelope {
+                changed |= envelope_editor(ui, id, p, clock);
+            } else if p.is_animated() {
                 curve_preview(ui, p, clock, &range);
             }
         });
