@@ -1148,6 +1148,33 @@ pub struct MeshLayer {
     /// Colours spread across the copies (and cycling through them).
     #[serde(skip_serializing_if = "is_default")]
     pub ramp: ColorRamp,
+    /// Melt into another shape (raymarched while on).
+    #[serde(skip_serializing_if = "is_default")]
+    pub morph: ShapeMorph,
+}
+
+/// A liquid morph from the layer's shape into another. While it is on, both
+/// shapes are turned into distance fields and the layer is raymarched as a
+/// blend of the two (smooth, with holes opening and closing); off, the
+/// shape is drawn as the usual sharp mesh.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ShapeMorph {
+    pub enabled: bool,
+    /// The shape it melts into.
+    pub target: MeshSource,
+    /// 0 = the layer's shape, 1 = the target (animatable).
+    pub amount: Param,
+}
+
+impl Default for ShapeMorph {
+    fn default() -> Self {
+        ShapeMorph {
+            enabled: false,
+            target: MeshSource::Primitive(Primitive::Sphere { detail: 3 }),
+            amount: Param::new(0.5),
+        }
+    }
 }
 
 impl Default for MeshLayer {
@@ -1160,6 +1187,7 @@ impl Default for MeshLayer {
             subdivide: 0,
             deform: Deform::default(),
             ramp: ColorRamp::default(),
+            morph: ShapeMorph::default(),
         }
     }
 }

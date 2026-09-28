@@ -9,6 +9,7 @@ pub mod import;
 pub mod logo;
 pub mod mesh;
 mod renderer;
+pub mod sdf_bake;
 pub mod texgen;
 pub mod text;
 

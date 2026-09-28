@@ -977,6 +977,95 @@ fn raymarched_objects_loop_and_cast_shadows() {
     }
 }
 
+/// A shape morph: visible, its amount changes the picture, the ends look
+/// like the two shapes (a cube, a torus with its hole), and turning it off
+/// draws the plain mesh again.
+#[test]
+fn morph_blends_two_shapes() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let target = r.create_target(160, 160);
+    let mut p = presets::empty();
+    p.post.grade.grain = Param::new(0.0);
+    p.layers.retain(|l| !matches!(l.kind, LayerKind::Mesh(_)));
+    let plain = p.clone();
+    p.camera.target = [0.0, 1.2, 0.0];
+    p.camera.distance = Param::new(4.0);
+    p.camera.height = Param::new(3.0);
+    let with = |amount: f32, on: bool| {
+        let mut q = p.clone();
+        let mut layer = Layer::new(
+            "Morph",
+            LayerKind::Mesh(MeshLayer {
+                source: MeshSource::Primitive(Primitive::Cube),
+                morph: ShapeMorph {
+                    enabled: on,
+                    target: MeshSource::Primitive(Primitive::Torus {
+                        thickness: 0.3,
+                        segments: 48,
+                    }),
+                    amount: Param::new(amount),
+                },
+                ..Default::default()
+            }),
+        )
+        .at([0.0, 1.2, 0.0]);
+        layer.transform.scale = Param::new(1.2);
+        q.layers.push(layer);
+        q
+    };
+    let ctx = EvalCtx::new(&p.timing, 0.0, None);
+    let empty = r.render_image(&plain, &ctx, &target);
+    let a = r.render_image(&with(0.0, true), &ctx, &target);
+    let mid = r.render_image(&with(0.5, true), &ctx, &target);
+    let b = r.render_image(&with(1.0, true), &ctx, &target);
+    let mesh = r.render_image(&with(0.5, false), &ctx, &target);
+    mid.save(snapshot_dir().join("morph_mid.png")).unwrap();
+    b.save(snapshot_dir().join("morph_torus.png")).unwrap();
+    let shown = mean_abs_diff(a.as_raw(), empty.as_raw());
+    let changes = mean_abs_diff(a.as_raw(), b.as_raw());
+    let between =
+        mean_abs_diff(mid.as_raw(), a.as_raw()).min(mean_abs_diff(mid.as_raw(), b.as_raw()));
+    // The morph at 0 is a (slightly rounded) cube: close to the mesh cube.
+    let like_cube = mean_abs_diff(a.as_raw(), mesh.as_raw());
+    eprintln!("morph: shown {shown:.2}, changes {changes:.2}, between {between:.2}, like cube {like_cube:.2}");
+    assert!(shown > 1.0, "morph not visible");
+    assert!(changes > 1.0, "amount changes nothing");
+    assert!(between > 0.2, "halfway is one of the ends");
+    assert!(
+        like_cube < changes,
+        "the start doesn't look like the layer's shape"
+    );
+    // The torus's hole: the centre pixel shows the background through it
+    // when seen from above.
+    let mut top = with(1.0, true);
+    top.camera.height = Param::new(4.0);
+    top.camera.distance = Param::new(0.3);
+    let img = r.render_image(&top, &ctx, &target);
+    let bg = r.render_image(
+        &{
+            let mut q = plain.clone();
+            q.camera = top.camera.clone();
+            q
+        },
+        &ctx,
+        &target,
+    );
+    let c = |im: &image::RgbaImage| im.get_pixel(80, 80).0;
+    let (hole, back) = (c(&img), c(&bg));
+    let d: i32 = (0..3)
+        .map(|i| (hole[i] as i32 - back[i] as i32).abs())
+        .sum();
+    assert!(d < 40, "no hole in the torus: {hole:?} vs {back:?}");
+}
+
 /// Sprites in every blend and facing: visible, the sheet plays, and the
 /// loop closes.
 #[test]

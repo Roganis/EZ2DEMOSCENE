@@ -2,7 +2,7 @@
 //! built-in shape and every model of the bundled library.
 
 use super::EzApp;
-use crate::inspector;
+use crate::inspector::{self, ShapeSlot};
 use crate::platform::{self, LayerRef, Purpose};
 use egui::{Color32, RichText};
 use ez_core::{LayerKind, MeshSource, Primitive, SdfShape, TextFont};
@@ -17,7 +17,7 @@ enum Tab {
 /// search.
 pub struct ShapePicker {
     /// The layer being edited while the window is open.
-    target: Option<LayerRef>,
+    target: Option<(LayerRef, ShapeSlot)>,
     tab: Tab,
     /// Library category shown (`None`: all).
     category: Option<String>,
@@ -100,7 +100,7 @@ impl EzApp {
     /// Open the picker when a shape button asked for it.
     pub(super) fn poll_shape_picker_request(&mut self, ctx: &egui::Context) {
         let asked = ctx.data_mut(|d| {
-            d.remove_temp::<Option<LayerRef>>(egui::Id::new(inspector::SHAPE_PICKER))
+            d.remove_temp::<Option<(LayerRef, ShapeSlot)>>(egui::Id::new(inspector::SHAPE_PICKER))
         });
         if let Some(target) = asked.flatten() {
             if matches!(self.current_shape(target), Some(MeshSource::Library { .. })) {
@@ -110,9 +110,12 @@ impl EzApp {
         }
     }
 
-    fn current_shape(&mut self, target: LayerRef) -> Option<MeshSource> {
-        match self.layer_for(target).map(|l| &l.kind) {
-            Some(LayerKind::Mesh(m)) => Some(m.source.clone()),
+    fn current_shape(&mut self, (layer, slot): (LayerRef, ShapeSlot)) -> Option<MeshSource> {
+        match self.layer_for(layer).map(|l| &l.kind) {
+            Some(LayerKind::Mesh(m)) => Some(match slot {
+                ShapeSlot::Main => m.source.clone(),
+                ShapeSlot::MorphTarget => m.morph.target.clone(),
+            }),
             _ => None,
         }
     }
@@ -134,7 +137,12 @@ impl EzApp {
         let mut open = true;
         let mut chosen: Option<MeshSource> = None;
         let mut pick_file = false;
-        egui::Window::new("Choose a shape")
+        let title = match target.1 {
+            ShapeSlot::Main => "Choose a shape",
+            ShapeSlot::MorphTarget => "Morph into…",
+        };
+        egui::Window::new(title)
+            .id(egui::Id::new("shape_picker"))
             .open(&mut open)
             .collapsible(false)
             .fixed_size([width, height])
@@ -243,12 +251,19 @@ impl EzApp {
         if self.viewport.render_shape_thumbs() {
             ctx.request_repaint();
         }
+        let (layer, slot) = target;
         if pick_file {
-            platform::pick(Purpose::SetModel(target));
+            platform::pick(match slot {
+                ShapeSlot::Main => Purpose::SetModel(layer),
+                ShapeSlot::MorphTarget => Purpose::SetMorphModel(layer),
+            });
         }
         if let Some(source) = chosen {
-            if let Some(LayerKind::Mesh(m)) = self.layer_for(target).map(|l| &mut l.kind) {
-                m.source = source;
+            if let Some(LayerKind::Mesh(m)) = self.layer_for(layer).map(|l| &mut l.kind) {
+                match slot {
+                    ShapeSlot::Main => m.source = source,
+                    ShapeSlot::MorphTarget => m.morph.target = source,
+                }
             }
             open = false;
         }

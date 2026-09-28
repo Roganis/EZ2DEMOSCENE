@@ -748,6 +748,19 @@ step for <kbd>Ctrl</kbd>+<kbd>Z</kbd>.</div>
 </table>
 <p><span class="ui">Hue shift</span> rotates all the colours of the layer. Animate it with a Saw wave for rainbow cycling.</p>
 
+<h2>Morph</h2>
+<p>The <span class="ui">Morph</span> section of a shape layer melts its shape into another, like liquid: holes open and close,
+parts bud off and merge. Tick <span class="ui">Morph</span>, click <span class="ui">Into</span> to choose the other shape (any
+built-in shape, a library model or a file of your own) and set <span class="ui">Amount</span>: 0 is the layer's shape, 1 the
+other. Click <span class="ui">~</span> next to Amount to animate it, for example a sine that goes there and back once per
+loop, or a pulse on every beat.</p>
+<figure><img src="img/morph.jpg"><figcaption>A spaceship melting into a torus: Amount 0, 0.25, 0.5, 0.75 and 1.</figcaption></figure>
+<div class="note"><b>Smooth or sharp</b>While Morph is on, the layer is raymarched from two distance fields (a grid of
+64&times;64&times;64 around each shape): edges come out slightly rounded, parts thinner than a grid cell look ragged, and
+textures, relief, deform and glitch don't apply. Colour, metal, glow, rim light, copies and the colour ramp do. Untick it
+and the shape is the usual sharp mesh again. The first time a shape is used in a morph it takes a moment (about half a
+second on a phone) to build its field.</div>
+
 <h2>Relief: bump, normal and displacement maps</h2>
 <p>The <span class="ui">Relief</span> section of a shape layer makes its surface uneven. It uses the material's
 <span class="ui">Tiling</span> and <span class="ui">Scroll</span>, and the colour texture unless you pick a separate

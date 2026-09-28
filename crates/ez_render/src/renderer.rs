@@ -31,6 +31,13 @@ const DRAW_SLOT: u64 = 256;
 /// Radius of an endless mirror floor: just inside the camera's far plane
 /// (500), so it fades out before it is clipped.
 const INFINITE_FLOOR_RADIUS: f32 = 450.0;
+/// Cells per side of a morph's distance fields.
+const MORPH_GRID: u32 = 64;
+
+/// Tiles per row of a morph texture (see `sdf_bake::pack_pair`).
+fn morph_columns() -> u32 {
+    (MORPH_GRID as f32).sqrt().ceil() as u32
+}
 /// A logo's effect settings: three draw slots read as one.
 const LOGO_FX_SIZE: u64 = 3 * DRAW_SLOT;
 const POST_SLOT: u64 = 512;
@@ -873,6 +880,8 @@ pub struct Renderer {
     /// Mesh keys of models that came without texture coordinates (they got
     /// box-projected ones).
     box_uv_meshes: std::collections::HashSet<String>,
+    /// Distance fields of shapes used in morphs, by mesh key.
+    distance_grids: HashMap<String, std::sync::Arc<crate::sdf_bake::DistanceGrid>>,
     /// Displaced models drawn with triplanar textures (joined box-mapped
     /// models: their coordinates would streak).
     triplanar_meshes: std::collections::HashSet<String>,
@@ -1977,6 +1986,7 @@ impl Renderer {
             sampler_clamp,
             meshes: HashMap::new(),
             box_uv_meshes: Default::default(),
+            distance_grids: HashMap::new(),
             triplanar_meshes: Default::default(),
             textures: HashMap::new(),
             tex_bgs: HashMap::new(),
@@ -2974,23 +2984,61 @@ impl Renderer {
                 format!("t:{}", serde_json::to_string(source).unwrap_or_default())
             }
             // Every raymarched shape is drawn in the same box.
-            MeshSource::Sdf { .. } => {
-                let key = "sdf-box".to_string();
-                if !self.meshes.contains_key(&key) {
-                    let mut data = primitive(&Primitive::Cube);
-                    for v in &mut data.vertices {
-                        v.pos = (Vec3::from(v.pos) * 2.04).into();
-                    }
-                    self.upload_mesh(key.clone(), &data);
-                }
-                return key;
-            }
+            MeshSource::Sdf { .. } => return self.sdf_box_key(),
         };
         if self.meshes.contains_key(&key) {
             return key;
         }
         let data = self.source_data(source, &key);
         self.upload_mesh(key.clone(), &data);
+        key
+    }
+
+    /// The box every raymarched shape is drawn in.
+    fn sdf_box_key(&mut self) -> String {
+        let key = "sdf-box".to_string();
+        if !self.meshes.contains_key(&key) {
+            let mut data = primitive(&Primitive::Cube);
+            for v in &mut data.vertices {
+                v.pos = (Vec3::from(v.pos) * 2.04).into();
+            }
+            self.upload_mesh(key.clone(), &data);
+        }
+        key
+    }
+
+    /// Distance field of a shape (baked once, then cached) and its key.
+    fn distance_grid(
+        &mut self,
+        source: &MeshSource,
+    ) -> (String, std::sync::Arc<crate::sdf_bake::DistanceGrid>) {
+        let key = match source {
+            // Raymarched shapes morph as the ball they stand on.
+            MeshSource::Sdf { .. } => "sdf-ball".to_string(),
+            _ => self.mesh_key(source),
+        };
+        if let Some(g) = self.distance_grids.get(&key) {
+            return (key, g.clone());
+        }
+        let data = self.source_data(source, &key);
+        let grid = std::sync::Arc::new(crate::sdf_bake::bake(&data, MORPH_GRID));
+        if self.distance_grids.len() > 32 {
+            self.distance_grids.clear();
+        }
+        self.distance_grids.insert(key.clone(), grid.clone());
+        (key, grid)
+    }
+
+    /// The texture holding the distance fields of a morph's two shapes
+    /// (red: from, green: into), uploaded once per pair.
+    fn morph_texture(&mut self, from: &MeshSource, into: &MeshSource) -> String {
+        let (ka, a) = self.distance_grid(from);
+        let (kb, b) = self.distance_grid(into);
+        let key = format!("morph:{ka}|{kb}");
+        if !self.textures.contains_key(&key) {
+            let (w, h, _, px) = crate::sdf_bake::pack_pair(&a, &b);
+            self.upload_float_texture(key.clone(), w, h, &px);
+        }
         key
     }
 
@@ -3456,8 +3504,13 @@ impl Renderer {
                     blocks.push(blk);
                 }
                 LayerKind::Mesh(m) => {
-                    let sdf = matches!(m.source, MeshSource::Sdf { .. });
-                    let mesh = if sdf {
+                    // A morph is raymarched too: a blend of two distance
+                    // fields, drawn in the same box as the other SDF shapes.
+                    let morph = m.morph.enabled;
+                    let sdf = morph || matches!(m.source, MeshSource::Sdf { .. });
+                    let mesh = if morph {
+                        self.sdf_box_key()
+                    } else if sdf {
                         self.mesh_key(&m.source)
                     } else {
                         let displaced = m.material.relief.displace.is_animated()
@@ -3472,12 +3525,17 @@ impl Renderer {
                         || rel.displace.is_animated()
                         || rel.displace.base != 0.0;
                     let relief_name = rel.texture.as_deref().or(mat.texture.as_deref());
-                    let relief = if relief_on {
+                    let relief = if morph {
+                        // Its relief slot holds the two distance fields.
+                        self.morph_texture(&m.source, &m.morph.target)
+                    } else if relief_on {
                         self.texture_key(project, relief_name)
                     } else {
                         "__white".to_string()
                     };
-                    self.mesh_tex_bind_group(&tex, &relief, mat.pixelated);
+                    // The fields need smooth (linear) sampling.
+                    let pixelated = mat.pixelated && !morph;
+                    self.mesh_tex_bind_group(&tex, &relief, pixelated);
                     let surface = match &m.instancer {
                         Instancer::Surface {
                             shape, count, seed, ..
@@ -3673,7 +3731,15 @@ impl Renderer {
                             df.reach(ctx),
                         ];
                     }
-                    if let MeshSource::Sdf { form, cycles } = &m.source {
+                    if morph {
+                        blk[4] = [4.0, MORPH_GRID as f32, morph_columns() as f32, 0.0];
+                        blk[5] = [m.morph.amount.eval(ctx).clamp(0.0, 1.0), 0.0, 0.0, 0.0];
+                        blk[8] = [0.0; 4];
+                        blk[9] = [0.0; 4];
+                        blk[10] = [0.0; 4];
+                        ls.triangles = 0;
+                        ls.load = count as f32 / 30.0;
+                    } else if let MeshSource::Sdf { form, cycles } = &m.source {
                         // No glitch, relief or deform on raymarched shapes:
                         // their slots hold the shape instead.
                         let [a, b, c] = form.params();
@@ -3696,7 +3762,7 @@ impl Renderer {
                         mesh,
                         tex,
                         relief,
-                        pixelated: mat.pixelated,
+                        pixelated,
                         first,
                         count: count as u32,
                         sdf,
