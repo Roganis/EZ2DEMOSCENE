@@ -3904,7 +3904,11 @@ impl Renderer {
                     // tile count the terrain only repeats every two lengths,
                     // so scroll by pairs of them and the loop still closes.
                     let odd = t.tiles.clamp(1, 256) % 2 == 1;
-                    let scroll_tiles = if tex.ends_with(MIRROR_KEY) && odd { 2.0 } else { 1.0 };
+                    let scroll_tiles = if tex.ends_with(MIRROR_KEY) && odd {
+                        2.0
+                    } else {
+                        1.0
+                    };
                     for sym in syms {
                         let mut blk: Block = Zeroable::zeroed();
                         blk[0] = [
