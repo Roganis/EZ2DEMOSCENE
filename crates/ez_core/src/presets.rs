@@ -340,6 +340,7 @@ pub fn crystal_garden() -> Project {
                     rim: Param::new(0.6),
                     ..Default::default()
                 },
+                ..Default::default()
             }),
         )
         .scaled(2.4)
@@ -987,6 +988,8 @@ pub fn colour_wheel_arena() -> Project {
         hue_pull: 1.0,
         chroma_match: 0.4,
         environment: true,
+        // Greys stay grey: the lights and darks as they were.
+        tint_greys: 0.0,
     };
     p
 }
@@ -1399,6 +1402,7 @@ pub fn gold_room() -> Project {
                     grid_color: hex(0xffd070),
                     grid_scale: Param::new(0.5),
                     grid_scroll: 2,
+                    ..Default::default()
                 }),
             ),
             Layer::new(

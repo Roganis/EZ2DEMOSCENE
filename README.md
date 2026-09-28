@@ -35,6 +35,8 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     1,000 low-poly models** (spaceships, vehicles, trees, food, buildings,
     characters… by Kenney, CC0) picked from tiles with previews, and your
     own **glTF/GLB/OBJ** models.
+  - Morph: any shape or model melts into another like liquid (holes open
+    and close, parts bud off), with an animatable amount.
   - Copies (instancing): grid, radial, scatter, orbit swarm, curved wall,
     spiral. Each has random tilt, size and hue, plus *size waves* and
     *light chases* that travel across the copies.

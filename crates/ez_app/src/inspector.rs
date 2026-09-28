@@ -430,6 +430,14 @@ pub fn color_scheme_ui(ui: &mut Ui, s: &mut ColorScheme, ctx: &EvalCtx) {
             &mut s.chroma_match,
             0.0..=1.0,
         );
+        slider(
+            ui,
+            "Tint greys",
+            "Greys and whites (like a new shape or model, which starts grey) take the key's hue. \
+             0 = they stay neutral. Near-black stays dark either way.",
+            &mut s.tint_greys,
+            0.0..=1.0,
+        );
         param(
             ui,
             "Turn",
@@ -1222,8 +1230,17 @@ fn primitive_params_ui(ui: &mut Ui, p: &mut Primitive) {
 }
 
 /// Temp-data key: a shape button asks the app to open the shape picker
-/// for this layer.
+/// for this layer (an `Option<(LayerRef, ShapeSlot)>`).
 pub const SHAPE_PICKER: &str = "ez2_shape_picker";
+
+/// Which shape of a layer the picker chooses.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShapeSlot {
+    /// The layer's shape.
+    Main,
+    /// The shape it morphs into.
+    MorphTarget,
+}
 
 /// Name of a shape source, for buttons and labels.
 pub fn shape_label(source: &MeshSource) -> String {
@@ -1238,6 +1255,48 @@ pub fn shape_label(source: &MeshSource) -> String {
     }
 }
 
+fn morph_ui(ui: &mut Ui, m: &mut MeshLayer, lref: LayerRef) {
+    check(
+        ui,
+        "Morph",
+        "Melt the shape into another, like liquid: holes open and close, parts bud off and merge. \
+         Off, the shape stays the usual sharp mesh.",
+        &mut m.morph.enabled,
+    );
+    if !m.morph.enabled {
+        return;
+    }
+    row(ui, "Into", "", |ui| {
+        if ui
+            .button(format!("{}…", shape_label(&m.morph.target)))
+            .on_hover_text("The shape it melts into: a built-in shape or a model")
+            .clicked()
+        {
+            ui.data_mut(|d| {
+                d.insert_temp(
+                    egui::Id::new(SHAPE_PICKER),
+                    Some((lref, ShapeSlot::MorphTarget)),
+                )
+            });
+        }
+    });
+    param(
+        ui,
+        "Amount",
+        "0 = this layer's shape, 1 = the other. Click ~ to animate it (loop, beat, music).",
+        &mut m.morph.amount,
+        0.0..=1.0,
+    );
+    ui.label(
+        RichText::new(
+            "Raymarched while on: smooth and rounded, costs per pixel it covers. \
+             Textures, relief, deform and glitch don't apply. The first use of a shape takes a moment.",
+        )
+        .weak()
+        .small(),
+    );
+}
+
 fn mesh_ui(ui: &mut Ui, m: &mut MeshLayer, textures: &[UserTexture], lref: LayerRef) {
     section(ui, "Shape", true, |ui| {
         row(ui, "Shape", "", |ui| {
@@ -1246,7 +1305,9 @@ fn mesh_ui(ui: &mut Ui, m: &mut MeshLayer, textures: &[UserTexture], lref: Layer
                 .on_hover_text("Choose a built-in shape or a model from the library")
                 .clicked()
             {
-                ui.data_mut(|d| d.insert_temp(egui::Id::new(SHAPE_PICKER), Some(lref)));
+                ui.data_mut(|d| {
+                    d.insert_temp(egui::Id::new(SHAPE_PICKER), Some((lref, ShapeSlot::Main)))
+                });
             }
         });
         match &mut m.source {
@@ -1350,6 +1411,7 @@ fn mesh_ui(ui: &mut Ui, m: &mut MeshLayer, textures: &[UserTexture], lref: Layer
             MeshSource::File { .. } | MeshSource::Library { .. } => {}
         }
     });
+    section(ui, "Morph", m.morph.enabled, |ui| morph_ui(ui, m, lref));
     section(ui, "Material", true, |ui| {
         material_ui(ui, &mut m.material, textures, lref)
     });
@@ -1427,7 +1489,8 @@ fn relief_ui(
         ui,
         "Displacement",
         "Really moves the surface out by the texture brightness. Raise Subdivide for detail. \
-         Works best on smooth shapes (sphere, torus, capsule, rounded cube): faceted ones open at their edges.",
+         Works best on smooth shapes (sphere, torus, capsule, rounded cube): faceted built-in ones open at their edges. \
+         3D models get the detail they need by themselves and stay closed; tick Faceted in Material for crisp bumps.",
         &mut r.displace,
         -1.0..=1.0,
     );
@@ -2494,7 +2557,15 @@ fn ribbon_ui(ui: &mut Ui, r: &mut Ribbon) {
 fn mirror_ui(ui: &mut Ui, f: &mut MirrorFloor, textures: &[UserTexture], lref: LayerRef) {
     section(ui, "Mirror floor", true, |ui| {
         ui.label(RichText::new("Only the first mirror floor in the list reflects.").weak());
-        slider(ui, "Size", "", &mut f.size, 1.0..=200.0);
+        check(
+            ui,
+            "Infinite",
+            "Stretch to the horizon and fade into the sky there, with no visible edge",
+            &mut f.infinite,
+        );
+        if !f.infinite {
+            slider(ui, "Size", "", &mut f.size, 1.0..=200.0);
+        }
         color(ui, "Colour", "", &mut f.base_color);
         param(
             ui,

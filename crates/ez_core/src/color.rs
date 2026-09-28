@@ -141,7 +141,8 @@ fn angle_to(a: f32, b: f32) -> f32 {
 
 /// Brings colours into harmony with a key colour: each keeps its
 /// lightness while its hue is pulled toward the nearest of the scheme's
-/// hues and, optionally, its chroma toward the key's. Greys stay grey.
+/// hues and, optionally, its chroma toward the key's. Greys stay grey
+/// unless tinted (see [`Harmoniser::with_grey_tint`]).
 #[derive(Clone, Debug)]
 pub struct Harmoniser {
     /// Scheme hues before the turn (radians).
@@ -157,6 +158,8 @@ pub struct Harmoniser {
     pub pull: f32,
     /// 0 = colours keep their chroma, 1 = all take the key's.
     pub chroma_match: f32,
+    /// 0 = greys stay grey, 1 = they take the key's hue at its chroma.
+    pub grey_tint: f32,
 }
 
 /// Chroma below which a colour counts as grey and is left alone.
@@ -174,7 +177,15 @@ impl Harmoniser {
             key_chroma: c,
             pull: pull.clamp(0.0, 1.0),
             chroma_match: chroma_match.clamp(0.0, 1.0),
+            grey_tint: 0.0,
         }
+    }
+
+    /// Let greys (and whites, and a new shape's default material) take the
+    /// key's hue too: 0 = they stay grey, 1 = as colourful as the key.
+    pub fn with_grey_tint(mut self, tint: f32) -> Self {
+        self.grey_tint = tint.clamp(0.0, 1.0);
+        self
     }
 
     /// `c` brought into the scheme. Colours brighter than 1 (glows) keep
@@ -189,8 +200,15 @@ impl Harmoniser {
         let unit = c.map(|v| v / over);
         let [l, chroma, h] = to_oklch(unit);
         let colourful = smoothstep(GREY[0], GREY[1], chroma);
+        // Greys take the key's hue (turned with the scheme) when tinted.
+        let grey = if self.grey_tint > 0.0 && colourful < 1.0 {
+            let hue = self.hues.first().copied().unwrap_or(0.0) + self.turn;
+            in_gamut(l, self.key_chroma * self.grey_tint, hue).map(|v| v * over)
+        } else {
+            c
+        };
         if colourful <= 0.0 {
-            return c;
+            return grey;
         }
         let nearest = self
             .hues
@@ -200,7 +218,12 @@ impl Harmoniser {
             .unwrap_or(0.0);
         let h2 = h + (nearest * self.pull + self.turn) * colourful;
         let c2 = chroma + (self.key_chroma - chroma) * self.chroma_match * colourful;
-        in_gamut(l, c2, h2).map(|v| v * over)
+        let coloured = in_gamut(l, c2, h2).map(|v| v * over);
+        if colourful >= 1.0 {
+            return coloured;
+        }
+        // Between grey and colourful: blend, so nothing jumps.
+        std::array::from_fn(|i| grey[i] + (coloured[i] - grey[i]) * colourful)
     }
 
     /// The scheme's colours at the key's lightness and chroma (for
@@ -219,6 +242,25 @@ mod tests {
 
     fn close(a: Rgb, b: Rgb, eps: f32) -> bool {
         (0..3).all(|i| (a[i] - b[i]).abs() < eps)
+    }
+
+    #[test]
+    fn grey_tint_colours_greys_only_when_asked() {
+        let key = hex(0x2060ff);
+        let offsets = [0.0];
+        let grey = hex(0xb0b0b8);
+        let plain = Harmoniser::new(key, 0.0, &offsets, 1.0, 0.0);
+        assert!(close(plain.apply(grey), grey, 1e-6));
+        let tinted = plain.clone().with_grey_tint(1.0);
+        let [_, c, h] = to_oklch(tinted.apply(grey));
+        let [_, kc, kh] = to_oklch(key);
+        assert!(c > kc * 0.5, "chroma {c}");
+        assert!(angle_to(h, kh).abs() < 0.15, "hue {h} vs {kh}");
+        // Black stays black.
+        let b = tinted.apply([0.0; 3]);
+        assert!(b.iter().all(|v| *v < 1e-4));
+        // Lightness is kept.
+        assert!((to_oklch(tinted.apply(grey))[0] - to_oklch(grey)[0]).abs() < 0.02);
     }
 
     #[test]

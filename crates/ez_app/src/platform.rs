@@ -38,6 +38,8 @@ pub enum Purpose {
     OpenProject,
     AddModelLayer,
     SetModel(LayerRef),
+    /// A model file for the shape a layer morphs into.
+    SetMorphModel(LayerRef),
     AddImages,
     SetTexture(LayerRef, TexSlot),
     LoadMusic,
@@ -51,7 +53,7 @@ impl Purpose {
     fn filter(self) -> (&'static str, &'static [&'static str]) {
         match self {
             Purpose::OpenProject => ("EZ2 project or pack", &["json", "ez2pack"]),
-            Purpose::AddModelLayer | Purpose::SetModel(_) => {
+            Purpose::AddModelLayer | Purpose::SetModel(_) | Purpose::SetMorphModel(_) => {
                 ("3D models", crate::inspector::MODEL_EXTENSIONS)
             }
             Purpose::AddImages | Purpose::SetTexture(..) => {

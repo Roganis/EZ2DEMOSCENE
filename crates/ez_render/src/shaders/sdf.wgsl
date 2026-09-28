@@ -3,8 +3,11 @@
 // space, and the hit writes its real depth, so the object meets meshes,
 // terrain and floors correctly and casts sun shadows.
 // Material as in mesh.wgsl: D.v[0..3] and the colour ramp D.v[11..15].
-// D.v[4]: shape (0 metaballs, 1 gyroid, 2 bulb, 3 melting box), settings a, b, c
+// D.v[4]: shape (0 metaballs, 1 gyroid, 2 bulb, 3 melting box, 4 morph), settings a, b, c
 // D.v[5]: motion angle (0..2π, whole cycles per loop), motion amount, _, _
+// Morph: D.v[4].y cells per side, D.v[4].z tiles per row; D.v[5].x amount.
+//   t_relief then holds the two distance fields (red: from, green: into),
+//   slice z at tile (z % columns, z / columns); see sdf_bake.rs.
 
 @group(2) @binding(0) var t_tex: texture_2d<f32>;
 @group(2) @binding(1) var s_tex: sampler;
@@ -129,6 +132,28 @@ fn sd_soft_box(p: vec3<f32>, a: f32) -> f32 {
     return smin(bx, balls, D.v[4].y);
 }
 
+// The grid covers -MORPH_EXTENT..MORPH_EXTENT (sdf_bake::EXTENT).
+const MORPH_EXTENT: f32 = 1.1;
+
+fn morph_slice(g: vec2<f32>, z: f32, n: f32, cols: f32) -> vec2<f32> {
+    let rows = ceil(n / cols);
+    let tile = vec2<f32>(z - floor(z / cols) * cols, floor(z / cols));
+    let uv = (tile * n + g + 0.5) / vec2<f32>(cols * n, rows * n);
+    return textureSampleLevel(t_relief, s_tex, uv, 0.0).rg;
+}
+
+// A blend of the two shapes' distance fields: holes open and close, parts
+// bud off and merge.
+fn sd_morph(p: vec3<f32>) -> f32 {
+    let n = D.v[4].y;
+    let cols = D.v[4].z;
+    let g = clamp((p / MORPH_EXTENT * 0.5 + 0.5) * n - 0.5, vec3<f32>(0.0), vec3<f32>(n - 1.0));
+    let z0 = floor(g.z);
+    let z1 = min(z0 + 1.0, n - 1.0);
+    let d = mix(morph_slice(g.xy, z0, n, cols), morph_slice(g.xy, z1, n, cols), g.z - z0);
+    return mix(d.x, d.y, D.v[5].x);
+}
+
 fn map(p: vec3<f32>, seed: u32) -> f32 {
     let a = D.v[5].x;
     switch i32(D.v[4].x + 0.5) {
@@ -140,6 +165,9 @@ fn map(p: vec3<f32>, seed: u32) -> f32 {
         }
         case 3: {
             return sd_soft_box(p, a);
+        }
+        case 4: {
+            return sd_morph(p);
         }
         default: {
             return sd_metaballs(p, a, seed);
@@ -207,8 +235,12 @@ fn march(in: VOut, steps: i32, hit: ptr<function, Hit>) -> bool {
         return false;
     }
     let p = ro + rd * t;
-    // Normal from four samples (tetrahedron).
-    let e = 0.0015;
+    // Normal from four samples (tetrahedron). A morph's fields are a grid:
+    // sample about half a cell apart so its facets don't show.
+    var e = 0.0015;
+    if (i32(D.v[4].x + 0.5) == 4) {
+        e = MORPH_EXTENT / max(D.v[4].y, 1.0);
+    }
     let k0 = vec3<f32>(1.0, -1.0, -1.0);
     let k1 = vec3<f32>(-1.0, -1.0, 1.0);
     let k2 = vec3<f32>(-1.0, 1.0, -1.0);

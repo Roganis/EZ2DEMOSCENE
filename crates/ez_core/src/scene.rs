@@ -420,6 +420,11 @@ pub struct ColorScheme {
     pub chroma_match: f32,
     /// The sky, fog, sun and god rays too.
     pub environment: bool,
+    /// Greys take the key's hue too (0 = they stay grey). A new shape's
+    /// default material is grey. Missing in older projects = 0, as they
+    /// looked.
+    #[serde(default)]
+    pub tint_greys: f32,
 }
 
 impl Default for ColorScheme {
@@ -432,6 +437,7 @@ impl Default for ColorScheme {
             hue_pull: 1.0,
             chroma_match: 0.0,
             environment: true,
+            tint_greys: 0.6,
         }
     }
 }
@@ -453,6 +459,7 @@ impl ColorScheme {
                 self.hue_pull,
                 self.chroma_match,
             )
+            .with_grey_tint(self.tint_greys)
         })
     }
 }
@@ -1141,6 +1148,33 @@ pub struct MeshLayer {
     /// Colours spread across the copies (and cycling through them).
     #[serde(skip_serializing_if = "is_default")]
     pub ramp: ColorRamp,
+    /// Melt into another shape (raymarched while on).
+    #[serde(skip_serializing_if = "is_default")]
+    pub morph: ShapeMorph,
+}
+
+/// A liquid morph from the layer's shape into another. While it is on, both
+/// shapes are turned into distance fields and the layer is raymarched as a
+/// blend of the two (smooth, with holes opening and closing); off, the
+/// shape is drawn as the usual sharp mesh.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ShapeMorph {
+    pub enabled: bool,
+    /// The shape it melts into.
+    pub target: MeshSource,
+    /// 0 = the layer's shape, 1 = the target (animatable).
+    pub amount: Param,
+}
+
+impl Default for ShapeMorph {
+    fn default() -> Self {
+        ShapeMorph {
+            enabled: false,
+            target: MeshSource::Primitive(Primitive::Sphere { detail: 3 }),
+            amount: Param::new(0.5),
+        }
+    }
 }
 
 impl Default for MeshLayer {
@@ -1153,6 +1187,7 @@ impl Default for MeshLayer {
             subdivide: 0,
             deform: Deform::default(),
             ramp: ColorRamp::default(),
+            morph: ShapeMorph::default(),
         }
     }
 }
@@ -2347,6 +2382,10 @@ impl Default for Backdrop {
 pub struct MirrorFloor {
     /// Half size of the floor square.
     pub size: f32,
+    /// Endless: the floor follows the camera to the horizon and fades into
+    /// the sky there (`size` is not used).
+    #[serde(skip_serializing_if = "is_default")]
+    pub infinite: bool,
     pub base_color: Rgb,
     /// 0 = matte, 1 = perfect mirror.
     pub reflectivity: Param,
@@ -2367,6 +2406,7 @@ impl Default for MirrorFloor {
     fn default() -> Self {
         MirrorFloor {
             size: 40.0,
+            infinite: false,
             base_color: hex(0x080808),
             reflectivity: Param::new(0.6),
             blur: Param::new(0.2),

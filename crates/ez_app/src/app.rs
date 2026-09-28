@@ -709,6 +709,13 @@ impl EzApp {
                         };
                     }
                 }
+                Purpose::SetMorphModel(lref) => {
+                    if let Some(LayerKind::Mesh(m)) = self.layer_for(lref).map(|l| &mut l.kind) {
+                        m.morph.target = MeshSource::File {
+                            path: p.path.clone(),
+                        };
+                    }
+                }
                 Purpose::AddImages => {
                     let name =
                         inspector::add_user_texture(&mut self.project.textures, &p.path, &p.name);
