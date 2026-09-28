@@ -62,6 +62,14 @@
     if ("serviceWorker" in navigator && location.protocol !== "file:") {
       navigator.serviceWorker.register("sw.js").catch(() => {});
     }
+    // Ctrl/Cmd+D duplicates a layer and Ctrl/Cmd+E opens Export in the
+    // editor: keep the browser from bookmarking the page or jumping to its
+    // search bar. (The editor still sees the keys.)
+    document.addEventListener("keydown", (e) => {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && ["d", "e"].includes(e.key.toLowerCase())) {
+        e.preventDefault();
+      }
+    }, { capture: true });
   </script>
 </body>
 </html>
