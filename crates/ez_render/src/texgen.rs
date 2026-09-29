@@ -46,6 +46,10 @@ pub const BUILTIN: &[(&str, &str)] = &[
     ("matrix", "Falling green glyph rain"),
     ("sky_far", "Far sky layer: deep purple clouds (two-layer sky)"),
     (
+        "track",
+        "Race track loop on grass with red and white kerbs (Mode 7)",
+    ),
+    (
         "sky_near",
         "Near sky layer: pale clouds with black holes (two-layer sky)",
     ),
@@ -568,6 +572,38 @@ fn pixel(name: &str, x: u32, y: u32, u: f32, v: f32) -> [f32; 3] {
         "clouds" => {
             let t = smooth(0.45, 0.8, fbm(u, v, 4, 5, 55));
             mix(rgb(0x3a7bd5), [1.0, 1.0, 1.0], t)
+        }
+        "track" => {
+            // A rounded-square loop of road around the tile's middle, with
+            // chequered kerbs, on striped grass. Tiles seamlessly (the
+            // road stays inside the tile).
+            let (px, py) = (u - 0.5, v - 0.5);
+            let (r, k) = (0.3, 0.12);
+            let q = [px.abs() - (r - k), py.abs() - (r - k)];
+            let outside = (q[0].max(0.0).powi(2) + q[1].max(0.0).powi(2)).sqrt();
+            let d = (outside + q[0].max(q[1]).min(0.0) - k).abs();
+            let grass = if ((x / 16) + (y / 16)).is_multiple_of(2) {
+                rgb(0x3c9a3c)
+            } else {
+                rgb(0x348a34)
+            };
+            if d < 0.075 {
+                // Asphalt with a dashed middle line.
+                let dash = d < 0.006 && ((x + y) / 8).is_multiple_of(2);
+                if dash {
+                    [0.95, 0.95, 0.9]
+                } else {
+                    mix(rgb(0x5a5a62), rgb(0x505058), h2(x as i32, y as i32, 3))
+                }
+            } else if d < 0.095 {
+                if ((x + y) / 6).is_multiple_of(2) {
+                    rgb(0xe02020)
+                } else {
+                    [0.95, 0.95, 0.95]
+                }
+            } else {
+                grass
+            }
         }
         "sky_far" => {
             // Chunky clouds in a few purple and blue shades.

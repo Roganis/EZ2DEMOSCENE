@@ -162,6 +162,24 @@ impl EvalCtx {
         crate::sim::math::exp(-self.beat_frac() * sharpness)
     }
 
+    /// Length of the loop in seconds.
+    pub fn loop_seconds(&self) -> f32 {
+        self.loop_beats as f32 * self.beat_seconds
+    }
+
+    /// The same moment held to the last of `steps` equal steps per loop
+    /// ("animating on twos"): motion jumps from step to step. A whole
+    /// number of steps keeps the loop seamless.
+    pub fn stepped(&self, steps: u32) -> EvalCtx {
+        let n = steps.max(1) as f32;
+        let hold = |p: f32| (p * n).floor() / n;
+        EvalCtx {
+            phase: hold(self.phase),
+            beat_phase: hold(self.beat_phase),
+            ..*self
+        }
+    }
+
     /// Angle helper: `turns` full rotations over the loop, in radians.
     pub fn turns(&self, turns: f32) -> f32 {
         self.phase * turns * std::f32::consts::TAU

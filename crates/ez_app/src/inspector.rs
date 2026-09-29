@@ -1219,6 +1219,54 @@ fn turbulence_ui(ui: &mut Ui, t: &mut Turbulence) {
     }
 }
 
+/// "Animate on steps": the layer's motion held at a lower frame rate,
+/// snapped to a whole number of steps per loop (shown).
+fn step_ui(ui: &mut Ui, fps: &mut f32) {
+    let secs = loop_seconds(ui);
+    row(
+        ui,
+        "Animate on",
+        "Hold the layer's motion (spins, bobbing, copies moving, deform, glitch, sprite frames) \
+         at a lower frame rate, like stop-motion or games animating \"on twos\"; the camera stays \
+         smooth. Snapped to a whole number of steps per loop so it still loops.",
+        |ui| {
+            let label = |f: f32| {
+                if f <= 0.0 {
+                    "Smooth".to_string()
+                } else {
+                    format!("{f:.0} fps")
+                }
+            };
+            egui::ComboBox::from_id_salt(ui.id().with("animate on"))
+                .selected_text(label(*fps))
+                .width(90.0)
+                .show_ui(ui, |ui| {
+                    for f in [0.0, 30.0, 24.0, 15.0, 12.0, 10.0, 8.0, 6.0, 4.0] {
+                        ui.selectable_value(fps, f, label(f));
+                    }
+                });
+            if *fps > 0.0 {
+                ui.add(
+                    egui::DragValue::new(fps)
+                        .range(1.0..=60.0)
+                        .speed(0.1)
+                        .suffix(" fps"),
+                );
+            }
+        },
+    );
+    if let Some(n) = ez_core::step_count(*fps, secs) {
+        ui.label(
+            RichText::new(format!(
+                "{n} steps per loop ({:.2} fps on this loop)",
+                n as f32 / secs
+            ))
+            .weak()
+            .small(),
+        );
+    }
+}
+
 /// Two numbers (a size in pixels).
 fn size_row(ui: &mut Ui, label: &str, tip: &str, v: &mut [u32; 2]) {
     row(ui, label, tip, |ui| {
@@ -1523,6 +1571,7 @@ pub fn layer_ui(ui: &mut Ui, layer: &mut Layer, textures: &[UserTexture], lref: 
         LayerKind::Sprite(sp) => sprite_ui(ui, sp, textures, lref),
         LayerKind::Arcs(a) => arcs_ui(ui, a),
         LayerKind::Logo(g) => logo_ui(ui, g, &layer.name, textures, lref),
+        LayerKind::Mode7(f) => mode7_ui(ui, f, textures),
     }
     let is_mesh_like = matches!(
         layer.kind,
@@ -1536,6 +1585,7 @@ pub fn layer_ui(ui: &mut Ui, layer: &mut Layer, textures: &[UserTexture], lref: 
     let placed = !matches!(layer.kind, LayerKind::Backdrop(_) | LayerKind::Logo(_));
     if placed {
         section(ui, "Placement & motion", true, |ui| {
+            step_ui(ui, &mut layer.step_fps);
             let t = &mut layer.transform;
             if matches!(layer.kind, LayerKind::Mirror(_)) {
                 slider(ui, "Floor height", "", &mut t.position[1], -10.0..=10.0);
@@ -4446,6 +4496,12 @@ pub fn add_layer_menu(ui: &mut Ui, templates: &[Layer]) -> Option<Layer> {
             }
         }
     });
+    if ui.button("🏁 Mode 7 floor").clicked() {
+        out = Some(Layer::new(
+            "Mode 7 floor",
+            LayerKind::Mode7(Mode7Floor::default()),
+        ));
+    }
     if ui.button("⊞ Mirror floor").clicked() {
         out = Some(Layer::new(
             "Mirror floor",
@@ -4495,7 +4551,70 @@ pub fn layer_icon(l: &Layer) -> &'static str {
         LayerKind::Sprite(_) => "🖼",
         LayerKind::Logo(_) => "🏷",
         LayerKind::Arcs(_) => "⚡",
+        LayerKind::Mode7(_) => "🏁",
     }
+}
+
+fn mode7_ui(ui: &mut Ui, f: &mut Mode7Floor, textures: &[UserTexture]) {
+    section(ui, "Mode 7 floor", true, |ui| {
+        ui.label(
+            RichText::new(
+                "An endless flat picture at the layer's height, up to a hard horizon, like SNES \
+                 racing games and Saturn floors. It turns around the layer's position. Set the \
+                 height with Placement → Position y; Size scales the tiles.",
+            )
+            .weak()
+            .small(),
+        );
+        texture_picker(ui, "Picture", &mut f.texture, textures, None);
+        slider(
+            ui,
+            "Tile size",
+            "World units per tile of the picture",
+            &mut f.tile_size,
+            0.25..=40.0,
+        );
+        drag_i(
+            ui,
+            "Turns / loop",
+            "Whole turns around the layer's position per loop",
+            &mut f.turns,
+            -16..=16,
+        );
+        row(
+            ui,
+            "Scroll / loop",
+            "Tiles scrolled per loop (x, z)",
+            |ui| {
+                ui.add(
+                    egui::DragValue::new(&mut f.scroll[0])
+                        .range(-64..=64)
+                        .speed(0.1)
+                        .prefix("x "),
+                );
+                ui.add(
+                    egui::DragValue::new(&mut f.scroll[1])
+                        .range(-64..=64)
+                        .speed(0.1)
+                        .prefix("z "),
+                );
+            },
+        );
+        color(ui, "Tint", "Multiplies the picture", &mut f.tint);
+        param(ui, "Brightness", "", &mut f.brightness, 0.0..=3.0);
+        check(
+            ui,
+            "Square pixels",
+            "No smoothing between the picture's pixels (the console look)",
+            &mut f.pixelated,
+        );
+        check(
+            ui,
+            "Fade into fog",
+            "Fade into the fog colour in the distance; off keeps the hard, bright horizon",
+            &mut f.fog,
+        );
+    });
 }
 
 pub fn deform_ui(ui: &mut Ui, d: &mut Deform) {

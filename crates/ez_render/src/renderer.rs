@@ -379,6 +379,12 @@ enum Cmd {
         first: u32,
         count: u32,
     },
+    /// Mode 7 floor: one fullscreen triangle writing its own depth.
+    Mode7 {
+        slot: u32,
+        tex: String,
+        pixelated: bool,
+    },
     /// Electric arcs: `count` arcs of `segments` quads each.
     Arcs {
         slot: u32,
@@ -706,6 +712,8 @@ struct ScenePipes {
     falls: wgpu::RenderPipeline,
     text: wgpu::RenderPipeline,
     sdf: wgpu::RenderPipeline,
+    /// Mode 7 floors.
+    mode7: wgpu::RenderPipeline,
     /// Sprites: alpha, additive, cutout.
     sprite: [wgpu::RenderPipeline; 3],
     arcs: wgpu::RenderPipeline,
@@ -1804,6 +1812,7 @@ impl Renderer {
         let sh_text = shader(device, "text", include_str!("shaders/text.wgsl"), true);
         let sh_sdf = shader(device, "sdf", include_str!("shaders/sdf.wgsl"), true);
         let sh_sprite = shader(device, "sprite", include_str!("shaders/sprite.wgsl"), true);
+        let sh_mode7 = shader(device, "mode 7", include_str!("shaders/mode7.wgsl"), true);
         let sh_arcs = shader(device, "arcs", include_str!("shaders/arcs.wgsl"), true);
         let sh_logo = shader(device, "logo", include_str!("shaders/logo.wgsl"), true);
         // Logos go on the picture after depth of field (no depth, no MSAA:
@@ -1912,6 +1921,20 @@ impl Renderer {
                     },
                 )
             }),
+            mode7: make_pipeline(
+                device,
+                PipeDesc {
+                    label: "mode 7",
+                    layout: &scene_layout,
+                    module: &sh_mode7,
+                    fs: "fs_main",
+                    buffers: &[],
+                    format: HDR_FORMAT,
+                    samples,
+                    depth: Some((true, wgpu::CompareFunction::Less)),
+                    blend: None,
+                },
+            ),
             sdf: make_pipeline(
                 device,
                 PipeDesc {
@@ -4855,6 +4878,10 @@ impl Renderer {
                 .bytes(name.as_bytes())
                 .u64(i as u64)
                 .finish();
+            // Read the bake on the layer's steps when it animates on steps.
+            let sim_phase = layer
+                .motion_ctx(ctx)
+                .map_or(ctx.beat_phase, |c| c.beat_phase);
             // Everything a bake depends on, and the bake itself.
             let mut bake_of =
                 |settings: String, music: bool, make: &dyn Fn(&SimClock) -> BakeJob| {
@@ -4900,7 +4927,7 @@ impl Renderer {
                 let Some(bake) = bake_of(json, cloth.uses_music(), &make) else {
                     continue;
                 };
-                bake.sample(ctx.beat_phase, &mut self.sim_frame);
+                bake.sample(sim_phase, &mut self.sim_frame);
                 // A cross-faded cloth is the two halves mixed by weight.
                 let mut pos = vec![Vec3::ZERO; bake.len()];
                 for l in &self.sim_frame.layers {
@@ -4960,7 +4987,7 @@ impl Renderer {
                 continue;
             };
             // The simulation ran in real time: read it at the real phase.
-            bake.sample(ctx.beat_phase, &mut self.sim_frame);
+            bake.sample(sim_phase, &mut self.sim_frame);
             let mut mats = Vec::with_capacity(bake.len() * self.sim_frame.layers.len());
             for l in &self.sim_frame.layers {
                 for b in &l.bodies {
@@ -5340,6 +5367,12 @@ impl Renderer {
             let Some(flash) = layer.blink.eval(ctx.beat_phase) else {
                 continue;
             };
+            // Animating on steps: motion (placement, copies, deform,
+            // glitch, sprite frames) is held on whole steps; `smooth` keeps
+            // what flows on (texture scroll, glow and colour, particles).
+            let smooth = ctx;
+            let stepped = layer.motion_ctx(ctx);
+            let ctx = stepped.as_ref().unwrap_or(smooth);
             let mut ls = LayerStats {
                 index: li,
                 name: layer.name.clone(),
@@ -5594,8 +5627,9 @@ impl Renderer {
                     ls.load = ls.triangles as f32 / 150_000.0 + count as f32 / 20_000.0;
                     let mut blk: Block = Zeroable::zeroed();
                     blk[0] = c4(mat.base_color, mat.metallic.eval(ctx));
-                    let e =
-                        mat.emissive.eval(ctx).max(0.0) * flash * mat.glow_style.eval(ctx.phase);
+                    let e = mat.emissive.eval(smooth).max(0.0)
+                        * flash
+                        * mat.glow_style.eval(smooth.phase);
                     blk[1] = c4(color::scale(mat.emissive_color, e), mat.roughness.eval(ctx));
                     let mode = EmissiveMode::ALL
                         .iter()
@@ -5611,10 +5645,10 @@ impl Renderer {
                     // by pairs so the loop still closes.
                     let tiles = if tex.ends_with(MIRROR_KEY) { 2.0 } else { 1.0 };
                     blk[3] = [
-                        ctx.phase * mat.scroll[0] as f32 * tiles,
-                        ctx.phase * mat.scroll[1] as f32 * tiles,
-                        mat.rim.eval(ctx),
-                        mat.hue_shift.eval(ctx),
+                        smooth.phase * mat.scroll[0] as f32 * tiles,
+                        smooth.phase * mat.scroll[1] as f32 * tiles,
+                        mat.rim.eval(smooth),
+                        mat.hue_shift.eval(smooth),
                     ];
                     let g = &mat.glitch;
                     blk[4] = [
@@ -5624,7 +5658,8 @@ impl Renderer {
                         g.chance.eval(ctx).clamp(0.0, 1.0),
                     ];
                     let tri = self.triplanar_meshes.contains(&mesh);
-                    blk[5] = [g.seed as f32, if tri { 1.0 } else { 0.0 }, 0.0, 0.0];
+                    // The glitch's clock (held on steps like the motion).
+                    blk[5] = [g.seed as f32, if tri { 1.0 } else { 0.0 }, ctx.phase, 0.0];
                     blk[8] = [
                         rel.bump.eval(ctx),
                         rel.displace.eval(ctx),
@@ -5653,7 +5688,7 @@ impl Renderer {
                                 RampMode::Gradient => 0.0,
                                 RampMode::Steps => 1.0,
                             },
-                            (ctx.phase * ramp.cycles as f32).rem_euclid(1.0),
+                            (smooth.phase * ramp.cycles as f32).rem_euclid(1.0),
                             if ramp.glow { 1.0 } else { 0.0 },
                         ];
                     }
@@ -5723,7 +5758,7 @@ impl Renderer {
                         bounds,
                     });
                     blocks.push(blk);
-                    let mut pb = pbr_block(mat, ctx);
+                    let mut pb = pbr_block(mat, smooth);
                     pb[3][0] = filter.index() as f32;
                     pb[3][1] = mat.mesh.eval(ctx).clamp(0.0, 1.0);
                     let tb = &mat.turbulence;
@@ -5731,7 +5766,7 @@ impl Renderer {
                         pb[4] = [
                             tb.amount.eval(ctx),
                             tb.waves.max(0.0),
-                            TAU * (ctx.phase * tb.cycles as f32).rem_euclid(1.0),
+                            TAU * (smooth.phase * tb.cycles as f32).rem_euclid(1.0),
                             0.0,
                         ];
                     }
@@ -5739,6 +5774,8 @@ impl Renderer {
                 }
                 LayerKind::Particles(p) => {
                     let lm = layer_matrix(&layer.transform, ctx);
+                    // The particles themselves keep flowing.
+                    let ctx = smooth;
                     let count = p.count.min(200_000) * (p.trail.min(16) + 1);
                     let syms = symmetry_matrices(&layer.symmetry);
                     ls.particles = count as u64 * syms.len() as u64;
@@ -5987,6 +6024,35 @@ impl Renderer {
                     }
                     blocks.push(blk);
                 }
+                LayerKind::Mode7(f) => {
+                    let tex =
+                        self.texture_key(project, Some(f.texture.as_deref().unwrap_or("checker")));
+                    self.tex_bind_group(&tex, f.pixelated);
+                    let tr = &layer.transform;
+                    let wrap = |n: i32| (ctx.phase * n as f32).rem_euclid(1.0);
+                    let mut blk: Block = Zeroable::zeroed();
+                    blk[0] = [
+                        tr.position[1] + tr.bob.eval(ctx),
+                        f.tile_size.max(0.01) * tr.scale.eval(ctx).abs().max(1e-3),
+                        TAU * wrap(f.turns) + tr.rotation[1].to_radians(),
+                        f.brightness.eval(smooth).max(0.0) * flash,
+                    ];
+                    blk[1] = [
+                        tr.position[0],
+                        tr.position[2],
+                        wrap(f.scroll[0]),
+                        wrap(f.scroll[1]),
+                    ];
+                    blk[2] = c4(f.tint, if f.fog { 1.0 } else { 0.0 });
+                    ls.draws = 1;
+                    ls.load = 0.05;
+                    cmds.push(Cmd::Mode7 {
+                        slot: blocks.len() as u32,
+                        tex,
+                        pixelated: f.pixelated,
+                    });
+                    blocks.push(blk);
+                }
                 LayerKind::Logo(g) => {
                     let Some(at) = logo_places[li] else {
                         continue;
@@ -6186,7 +6252,7 @@ impl Renderer {
                     let mut blk: Block = Zeroable::zeroed();
                     blk[0] = c4(
                         sp.tint,
-                        sp.glow.eval(ctx).max(0.0) * flash * sp.glow_style.eval(ctx.phase),
+                        sp.glow.eval(smooth).max(0.0) * flash * sp.glow_style.eval(smooth.phase),
                     );
                     blk[1] = [
                         cols as f32,
@@ -7018,6 +7084,7 @@ impl Renderer {
             matches!(
                 c,
                 Cmd::Mesh { .. }
+                    | Cmd::Mode7 { .. }
                     | Cmd::Terrain { .. }
                     | Cmd::Sprite {
                         blend: SpriteBlend::Cutout,
@@ -7941,6 +8008,21 @@ impl Renderer {
                     pass.draw(0..6, 0..*beams);
                 }
                 Cmd::Contact { .. } => {}
+                Cmd::Mode7 {
+                    slot,
+                    tex,
+                    pixelated,
+                } => {
+                    // Not in the mirror floor's reflection.
+                    if globals == 1 {
+                        continue;
+                    }
+                    pass.set_pipeline(&pipes.mode7);
+                    pass.set_bind_group(0, &self.globals_bg[globals], &[]);
+                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                    pass.set_bind_group(2, &self.tex_bgs[&(tex.clone(), *pixelated)], &[]);
+                    pass.draw(0..3, 0..1);
+                }
                 Cmd::SkyFx => {
                     for pipe in [&pipes.sky_mul, &pipes.sky_add] {
                         pass.set_pipeline(pipe);

@@ -1573,8 +1573,35 @@ any retro palette works too. 3666 → 34 colours on a lit marble ball.
 square of the particle's colour (discard outside, alpha 1), through the
 15-bit colour when on. Presets **Slipgate Courtyard**, **Slime Falls**;
 one-click *Quake (software)* look (320 × 200, nearest, colormap).
-### ☐ 12.14 Stepped animation ("on 2s")
-### ☐ 12.15 VDP2 / Mode 7 floor layer
+### ☑ 12.14 Stepped animation
+**Done.** *Layer → Placement & motion → Animate on* (fps, 0 = smooth):
+`step_count` rounds fps × loop seconds to whole steps, and
+`EvalCtx::stepped` holds the phase (and beat phase) on them. The
+renderer evaluates each layer's motion with the held context (transform,
+copies on the CPU and in the compute shader, deform, sprite frames, and
+the glitch's clock, now passed per draw instead of read from the
+globals) and keeps the smooth one for texture scroll, glow, hue, colour
+ramps, material values, turbulence and particles; simulation bakes are
+read at the held phase. The camera is untouched. Tested: two moments in
+one step are identical (0.000), a smooth copy moves (2.39), the orbiting
+camera still moves, and it loops. Preset **Stop-Motion Shelf**.
+
+### ☑ 12.15 Mode 7 floor layer
+**Done.** New layer *Mode 7 floor* (`mode7.wgsl`): a fullscreen pass
+meeting each view ray with the plane at the layer's height, discarding
+rays that never reach it (a hard horizon), turning around the layer's
+position (whole turns per loop plus its Y rotation) and scrolling whole
+tiles per loop, unlit, optional fog, and writing `frag_depth` so shapes
+stand on it and vanish below it. Drawn with the solid geometry (in the
+retro low-resolution pass too), not in the mirror floor's reflection.
+New built-in `track` texture. Preset **Mode 7 Circuit**.
+
+### ☑ 12.16 Retro console presets
+**Done.** Presets have a category; the gallery groups them under *Demo
+scenes* and *Retro console* (PSX Crypt, Stage Select, Saturn Ghosts, Fog
+Island, Slipgate Courtyard, Slime Falls, Mode 7 Circuit). One-click
+looks in *Retro 3D*: PlayStation (320 × 240, snap, affine, nearest,
+dithered 15-bit), Saturn, Nintendo 64, Quake.
 
 ---
 
@@ -1584,7 +1611,7 @@ one-click *Quake (software)* look (320 × 200, nearest, colormap).
 4.1 → 4.2 → 5.1 → 5.2 → 6.1 → 6.2 → 6.3 → 7.1 → 7.2 → 7.3 → 8.1 → 8.2 →
 8.3 → 8.4 → 9.1 → 9.2 → 9.3 → 9.4 → 9.5 → 9.6 → 10.1 → 10.2 → 10.3 →
 11.1 → 11.2 → 10.4 → 10.5 → 11.3 → 11.4 → 12.1 → 12.2 → 12.3 → 12.4
-→ 12.5 … 12.15. (Environment light and PBR
+→ 12.5 … 12.16. (Environment light and PBR
 come before rigid bodies and fluids, so the fluid's liquid surface and
 the physics presets are shaded by them.)
 

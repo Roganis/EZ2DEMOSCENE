@@ -1,0 +1,513 @@
+{
+  "version": 2,
+  "name": "Stop-Motion Shelf",
+  "timing": {
+    "bpm": 96.0,
+    "loop_beats": 16
+  },
+  "camera": {
+    "mode": "Pendulum",
+    "target": [
+      0.0,
+      0.9,
+      0.0
+    ],
+    "distance": 6.0,
+    "height": 1.2,
+    "angle": 0.0,
+    "orbit_turns": 1,
+    "swing": 35.0,
+    "fov": 45.0,
+    "roll": 0.0,
+    "beat_shake": 0.0
+  },
+  "environment": {
+    "fog_color": [
+      0.023153365,
+      0.014443844,
+      0.009134057
+    ],
+    "fog_density": 0.01,
+    "sky_color": [
+      0.8713672,
+      0.68668544,
+      0.47932023
+    ],
+    "ground_color": [
+      0.11697067,
+      0.06480328,
+      0.029556833
+    ],
+    "light_dir": [
+      0.4,
+      0.9,
+      0.5
+    ],
+    "light_color": [
+      1.0,
+      0.8713672,
+      0.68668544
+    ],
+    "light_intensity": 1.6,
+    "ambient": 0.5,
+    "shadows": {
+      "enabled": true,
+      "strength": 0.85,
+      "softness": 1.5,
+      "distance": 40.0,
+      "contact": 0.0
+    }
+  },
+  "layers": [
+    {
+      "name": "Wall",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Backdrop",
+        "kind": "Gradient",
+        "color_a": [
+          0.04231141,
+          0.025186857,
+          0.014443844
+        ],
+        "color_b": [
+          0.010329823,
+          0.0060488326,
+          0.003676507
+        ],
+        "color_c": [
+          0.11697067,
+          0.06480328,
+          0.029556833
+        ],
+        "speed": 1,
+        "intensity": 1.0,
+        "detail": 1.0,
+        "texture": null
+      }
+    },
+    {
+      "name": "Shelf",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          7.0,
+          0.2,
+          2.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Cube"
+        },
+        "material": {
+          "base_color": [
+            0.5271152,
+            0.27889434,
+            0.11697067
+          ],
+          "metallic": 0.0,
+          "roughness": 0.8,
+          "emissive_color": [
+            1.0,
+            0.029556833,
+            0.014443844
+          ],
+          "emissive": 0.0,
+          "emissive_mode": "Full",
+          "texture": "wood",
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": false,
+          "rim": 0.0,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Single"
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    },
+    {
+      "name": "Clay star",
+      "enabled": true,
+      "transform": {
+        "position": [
+          -2.2,
+          0.9,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 0.8,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          1,
+          0
+        ],
+        "bob": {
+          "base": 0.0,
+          "amp": 0.35,
+          "wave": "Sine",
+          "cycles": 4,
+          "offset": 0.0,
+          "audio": 0.0
+        }
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "step_fps": 12.0,
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Star",
+          "points": 5,
+          "inner": 0.5,
+          "depth": 0.4
+        },
+        "material": {
+          "base_color": [
+            0.74540436,
+            0.051269468,
+            0.029556833
+          ],
+          "metallic": 0.0,
+          "roughness": 0.75,
+          "emissive_color": [
+            1.0,
+            0.029556833,
+            0.014443844
+          ],
+          "emissive": 0.0,
+          "emissive_mode": "Full",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": false,
+          "rim": 0.2,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Single"
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    },
+    {
+      "name": "Clay ball",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.9,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 0.8,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          1,
+          1,
+          0
+        ],
+        "bob": {
+          "base": 0.0,
+          "amp": 0.35,
+          "wave": "Sine",
+          "cycles": 4,
+          "offset": 0.0,
+          "audio": 0.0
+        }
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "step_fps": 8.0,
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Sphere",
+          "detail": 2
+        },
+        "material": {
+          "base_color": [
+            0.029556833,
+            0.21586053,
+            0.74540436
+          ],
+          "metallic": 0.0,
+          "roughness": 0.75,
+          "emissive_color": [
+            1.0,
+            0.029556833,
+            0.014443844
+          ],
+          "emissive": 0.0,
+          "emissive_mode": "Full",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": false,
+          "rim": 0.2,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Single"
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    },
+    {
+      "name": "Clay gear",
+      "enabled": true,
+      "transform": {
+        "position": [
+          2.2,
+          0.9,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 0.8,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          2
+        ],
+        "bob": {
+          "base": 0.0,
+          "amp": 0.35,
+          "wave": "Sine",
+          "cycles": 4,
+          "offset": 0.0,
+          "audio": 0.0
+        }
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "step_fps": 6.0,
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Gear",
+          "teeth": 8,
+          "depth": 0.4
+        },
+        "material": {
+          "base_color": [
+            0.051269468,
+            0.4341537,
+            0.08021983
+          ],
+          "metallic": 0.0,
+          "roughness": 0.75,
+          "emissive_color": [
+            1.0,
+            0.029556833,
+            0.014443844
+          ],
+          "emissive": 0.0,
+          "emissive_mode": "Full",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": false,
+          "rim": 0.2,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Single"
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    }
+  ],
+  "post": {
+    "bloom": {
+      "enabled": true,
+      "intensity": 0.8,
+      "threshold": 0.8,
+      "radius": 0.7
+    },
+    "kaleido": {
+      "enabled": false,
+      "segments": 6,
+      "angle": 0.0,
+      "turns": 0,
+      "zoom": 1.0,
+      "center": [
+        0.5,
+        0.5
+      ]
+    },
+    "mirror": {
+      "enabled": false,
+      "mode": "LeftToRight"
+    },
+    "chroma": {
+      "enabled": false,
+      "amount": 0.004
+    },
+    "pixelate": {
+      "enabled": false,
+      "size": 4.0
+    },
+    "palette": {
+      "enabled": false,
+      "palette": "Ega",
+      "dither": 0.6
+    },
+    "crt": {
+      "enabled": false,
+      "scanlines": 0.5,
+      "curvature": 0.15,
+      "noise": 0.1
+    },
+    "grade": {
+      "exposure": 1.0,
+      "contrast": 1.05,
+      "saturation": 1.1,
+      "vignette": 0.35,
+      "grain": 0.03,
+      "beat_flash": 0.0
+    }
+  },
+  "textures": [],
+  "audio": null,
+  "graph": null,
+  "use_graph": false
+}

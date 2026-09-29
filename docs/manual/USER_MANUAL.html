@@ -222,7 +222,10 @@ cargo run --release -- my.ez2.json    # opens a saved project</pre>
 program is <code>target/release/ez2demoscene</code> (<code>ez2demoscene.exe</code> on Windows), and you can copy it anywhere.</p>
 <p>The editor opens on an empty stage, paused (press <span class="ui">Space</span> or ▶ to play), with the <b>preset
 gallery</b> on top. Choosing a preset loads it and starts playing. Tick <span class="ui">Don't show on startup</span> at the
-bottom of the gallery to skip it; it stays one click away under <span class="ui">Presets</span> in the menu bar.</p>
+bottom of the gallery to skip it; it stays one click away under <span class="ui">Presets</span> in the menu bar. The built-in presets
+come in two groups: <b>Demo scenes</b>, and <b>Retro console</b> for the PlayStation, Saturn, Nintendo 64, Quake and 16-bit looks
+(<b>PSX Crypt</b>, <b>Stage Select</b>, <b>Saturn Ghosts</b>, <b>Fog Island</b>, <b>Slipgate Courtyard</b>, <b>Slime Falls</b>,
+<b>Mode 7 Circuit</b>).</p>
 <figure><img src="img/gallery.jpg" ><figcaption>The preset gallery appears at start-up. Hover a card for a description, click to load it.</figcaption></figure>
 
 <!-- ===================================================== 3 -->
@@ -541,6 +544,12 @@ glow too.</p>
   <tr><td>Bob</td><td>Up/down offset. Animate it with <span class="ui">~</span> to make objects float.</td></tr>
   <tr><td>Tilt</td><td>Rocks the layer side to side (degrees, around the depth axis). Animate it with a sine to rock a bowl, and give
   a liquid layer the same Tilt so it sloshes inside.</td></tr>
+  <tr><td>Animate on</td><td>Holds the layer's motion at a lower frame rate, like stop-motion or games animating "on twos":
+  <b>Smooth</b> (the default) or 30, 24, 15, 12, 10, 8, 6 or 4 frames a second (or your own). Its spin, bob, shake and tilt,
+  how its copies move (orbits, swarms, flocks, simulations), deform and glitch, and sprite-sheet frames jump from step to step,
+  while the camera, texture scrolling, glow and colour pulses and particles stay smooth. So the loop stays seamless, the rate is
+  snapped to a whole number of steps per loop; the line under it shows the steps and the exact rate on this loop (at 120 bpm
+  and 16 beats, 12 fps is 96 steps). The <b>Stop-Motion Shelf</b> preset animates toys on 12, 8 and 6 fps.</td></tr>
 </table>
 
 <h2>5.4 Symmetry</h2>
@@ -812,7 +821,27 @@ glass letters bending a galaxy, casting shadow rays through its light, with echo
 <div class="tip"><b>Tip</b>The logo's shape is worked out once when you type or pick an image (it becomes a distance field, which keeps the
 edges sharp at any size and gives outlines, glows and bevels for free), so the first frame after a change can take a moment.</div>
 
-<div class="keep"><h2>5.15 Placing objects in the viewport</h2>
+<h2>5.15 Mode 7 floor</h2>
+<p>The endless flat floor of SNES racing games (and the Saturn's VDP2 planes): a picture tiled across the plane at the layer's
+height, drawn per pixel right up to a hard horizon, with nothing underneath. Shapes stand on it and are hidden below it. Add it
+with <span class="ui">+ Add → 🏁 Mode 7 floor</span>.</p>
+<table>
+  <tr><th style="width:24%">Setting</th><th>What it does</th></tr>
+  <tr><td>Picture</td><td>Any built-in texture or your image; <code>track</code> (a race-track loop on grass) and
+  <code>checker</code> are made for it.</td></tr>
+  <tr><td>Tile size</td><td>World units per tile (times the layer's <span class="ui">Size</span>).</td></tr>
+  <tr><td>Turns / loop</td><td>Whole turns per loop around the layer's position (put the position ahead of the camera for
+  a racing turn, under it to spin in place). The layer's Y rotation turns it too.</td></tr>
+  <tr><td>Scroll / loop</td><td>Whole tiles per loop along x and z, so it seems to rush past.</td></tr>
+  <tr><td>Tint, Brightness</td><td>Colour multiplied in and brightness (animatable). The floor is not lit, like the console's.</td></tr>
+  <tr><td>Square pixels</td><td>No smoothing between the picture's pixels.</td></tr>
+  <tr><td>Fade into fog</td><td>Fades into the fog colour in the distance; off keeps the SNES's hard, bright horizon.</td></tr>
+</table>
+<p>Its height is the layer's <span class="ui">Position</span> y. It isn't mirrored by the mirror floor and depth of field
+treats it as far away. With <span class="ui">Animate on</span> it turns and scrolls in steps. The <b>Mode 7 Circuit</b> preset
+races over a turning track at 256 × 224.</p>
+
+<div class="keep"><h2>5.16 Placing objects in the viewport</h2>
 <figure><img src="img/gizmo.jpg"><figcaption>The Dodecahedron is selected: the Move handles appear on it, and the ground grid is on.</figcaption></figure></div>
 <ul>
   <li><b>Select</b> a shape or particle layer by clicking it in the viewport, or in the layer list.</li>
@@ -979,6 +1008,7 @@ Texture</b> for lava.</p>
   <div><img src="../../assets/textures/matrix.png">matrix</div>
   <div><img src="../../assets/textures/sky_far.png">sky_far</div>
   <div><img src="../../assets/textures/sky_near.png">sky_near</div>
+  <div><img src="../../assets/textures/track.png">track</div>
 </div>
 <h2>Your own images &amp; "retro-ize"</h2>
 <p>Import images (PNG, JPG, BMP, GIF, TGA) in any of these ways: from a texture menu (<span class="ui">Import image…</span>), from

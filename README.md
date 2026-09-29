@@ -193,6 +193,14 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   **two-layer scrolling sky**; **palette lighting** (colormap) through our
   own 256-colour palette with fullbrights, or any retro palette; and
   solid **square particles**.
+- **Animate on steps.** Any layer's motion (spins, copies, simulations,
+  deform, sprite frames) can be held at 30, 24, 15, 12, 10, 8 or 6 fps,
+  snapped to a whole number of steps per loop, while the camera stays
+  smooth.
+- **Mode 7 floor.** A SNES / Saturn VDP2 style endless textured plane
+  with a hard horizon that turns and scrolls whole turns and tiles per
+  loop (a race-track texture included). A **Retro console** preset group
+  has PlayStation, Saturn, Nintendo 64, Quake and 16-bit scenes.
 - **Post FX.** Bloom, **god rays** (light shafts from the sun or the
   picture centre) with lens flare, **heat haze**, **depth of field**
   (auto focus, round bokeh), **feedback trails** (zoom/turn/hue-drifting

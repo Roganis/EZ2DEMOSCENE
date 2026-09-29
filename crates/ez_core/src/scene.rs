@@ -890,6 +890,10 @@ pub struct Layer {
     /// Left out of the project's colour scheme (fire stays orange).
     #[serde(skip_serializing_if = "is_default")]
     pub keep_colors: bool,
+    /// Animate on steps: motion held at this many frames per second
+    /// (0 = smooth), snapped to a whole number of steps per loop.
+    #[serde(skip_serializing_if = "is_default")]
+    pub step_fps: f32,
     pub kind: LayerKind,
 }
 
@@ -902,6 +906,7 @@ impl Default for Layer {
             symmetry: Symmetry::None,
             blink: Blink::default(),
             keep_colors: false,
+            step_fps: 0.0,
             kind: LayerKind::Mesh(MeshLayer::default()),
         }
     }
@@ -990,7 +995,19 @@ impl Blink {
     }
 }
 
+/// Whole steps per loop for motion held at `fps` in a loop of
+/// `loop_seconds` (`None`: smooth).
+pub fn step_count(fps: f32, loop_seconds: f32) -> Option<u32> {
+    (fps > 0.0).then(|| ((fps * loop_seconds).round() as u32).max(1))
+}
+
 impl Layer {
+    /// The context its motion is evaluated at: held on whole steps when
+    /// the layer animates on steps.
+    pub fn motion_ctx(&self, ctx: &crate::EvalCtx) -> Option<crate::EvalCtx> {
+        step_count(self.step_fps, ctx.loop_seconds()).map(|n| ctx.stepped(n))
+    }
+
     pub fn new(name: impl Into<String>, kind: LayerKind) -> Self {
         Layer {
             name: name.into(),
@@ -1044,6 +1061,7 @@ impl Layer {
             LayerKind::Sprite(_) => "Sprites",
             LayerKind::Arcs(_) => "Electric arcs",
             LayerKind::Logo(_) => "Logo",
+            LayerKind::Mode7(_) => "Mode 7 floor",
         }
     }
 }
@@ -1065,6 +1083,46 @@ pub enum LayerKind {
     Sprite(SpriteLayer),
     Arcs(ArcLayer),
     Logo(LogoLayer),
+    Mode7(Mode7Floor),
+}
+
+/// A SNES "Mode 7" / Saturn VDP2 floor: an endless flat picture at the
+/// layer's height, drawn per pixel up to a hard horizon. It turns around
+/// the layer's position and scrolls, whole turns and tiles per loop.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Mode7Floor {
+    /// Built-in or your picture (`None`: checker).
+    pub texture: Option<String>,
+    /// World units per tile of the picture.
+    pub tile_size: f32,
+    /// Whole turns per loop around the layer's position.
+    pub turns: i32,
+    /// Tiles scrolled per loop (x, z), before turning.
+    pub scroll: [i32; 2],
+    pub tint: Rgb,
+    /// Brightness (animatable).
+    pub brightness: Param,
+    /// Square texture pixels (the console look).
+    pub pixelated: bool,
+    /// Fade into the fog colour in the distance (off: the hard, bright
+    /// SNES horizon).
+    pub fog: bool,
+}
+
+impl Default for Mode7Floor {
+    fn default() -> Self {
+        Mode7Floor {
+            texture: None,
+            tile_size: 4.0,
+            turns: 1,
+            scroll: [0, 2],
+            tint: [1.0, 1.0, 1.0],
+            brightness: Param::new(1.0),
+            pixelated: true,
+            fog: false,
+        }
+    }
 }
 
 impl LayerKind {
@@ -1122,6 +1180,7 @@ impl LayerKind {
             }
             LayerKind::Sprite(sp) => f(&mut sp.tint),
             LayerKind::Arcs(a) => f(&mut a.color),
+            LayerKind::Mode7(m) => f(&mut m.tint),
             LayerKind::Logo(g) => {
                 for c in [
                     &mut g.tint,

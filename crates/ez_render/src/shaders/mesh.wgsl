@@ -5,7 +5,8 @@
 // D.v[3]: scroll u, scroll v, rim, hue shift
 // D.v[4]: glitch amount, style (0 jitter, 1 slices, 2 shatter), steps per loop, chance
 // D.v[5]: glitch seed, triplanar (textures projected from three sides in
-//         object space: joined models that came without texture coordinates)
+//         object space: joined models that came without texture coordinates),
+//         the layer's loop phase (for the glitch; held on steps), _
 // D.v[6]: pulse mode (4): pulses, head position (0..1), pulse length, pulse glow
 // D.v[7]: pulse mode (4): base glow
 // D.v[8]: relief strength, displacement, relief mode (0 bump, 1 normal map), has relief
@@ -110,7 +111,8 @@ fn glitch(pos: vec3<f32>, normal: vec3<f32>, inst_rand: f32) -> vec3<f32> {
         return pos;
     }
     let steps = max(D.v[4].z, 1.0);
-    let step = u32(floor(fract(G.time.x) * steps));
+    // The layer's clock (held on steps when it animates on steps).
+    let step = u32(floor(fract(D.v[5].z) * steps));
     let seed = u32(D.v[5].x) * 0x9e3779b9u + u32(inst_rand * 65536.0);
     let salt = hash_u(step ^ seed);
     // Only some steps glitch.

@@ -4334,3 +4334,158 @@ fn quake_features_show_and_loop() {
 
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// Animating on steps holds a layer's motion between whole steps (the
+/// camera stays smooth), and the Mode 7 floor draws to a hard horizon,
+/// turns and scrolls, hides what is under it, and loops.
+#[test]
+fn stepped_motion_and_mode7_floor() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let dir = snapshot_dir().join("group4");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let (w, h) = (240u32, 136u32);
+    let target = r.create_target(w, h);
+    let base = |orbit: bool| {
+        let mut p = presets::empty();
+        p.layers.clear();
+        p.camera = Camera {
+            mode: if orbit {
+                CameraMode::Orbit
+            } else {
+                CameraMode::Static
+            },
+            target: [0.0; 3],
+            distance: Param::new(5.0),
+            height: Param::new(2.0),
+            swing: Param::new(0.0),
+            fov: Param::new(50.0),
+            ..Default::default()
+        };
+        p.environment.fog_density = Param::new(0.0);
+        p.post.bloom.enabled = false;
+        p.post.grade.vignette = Param::new(0.0);
+        p.post.grade.grain = Param::new(0.0);
+        p
+    };
+    let at = |p: &Project, ph: f32| EvalCtx::new(&p.timing, ph, None);
+
+    // A spinning, bobbing cube on steps: 16 beats at 120 bpm is 8 s, so
+    // 4 fps is 32 steps per loop. Two moments inside one step match.
+    assert_eq!(step_count(4.0, 8.0), Some(32));
+    assert_eq!(step_count(0.0, 8.0), None);
+    let cube = |fps: f32| {
+        let mut l = Layer::new("Cube", LayerKind::Mesh(MeshLayer::default())).spin([1, 2, 0]);
+        l.transform.bob = Param::new(0.0).osc(Wave::Sine, 0.5, 2);
+        l.step_fps = fps;
+        l
+    };
+    let mut still = base(false);
+    still.layers.push(cube(4.0));
+    let (a, b) = (1.0 / 32.0 + 0.002, 2.0 / 32.0 - 0.002);
+    let s1 = r.render_image(&still, &at(&still, a), &target);
+    let s2 = r.render_image(&still, &at(&still, b), &target);
+    let held = mean_abs_diff(s1.as_raw(), s2.as_raw());
+    let mut smooth = base(false);
+    smooth.layers.push(cube(0.0));
+    let m1 = r.render_image(&smooth, &at(&smooth, a), &target);
+    let m2 = r.render_image(&smooth, &at(&smooth, b), &target);
+    let moved = mean_abs_diff(m1.as_raw(), m2.as_raw());
+    let next = r.render_image(&still, &at(&still, b + 0.004), &target);
+    let stepped = mean_abs_diff(s2.as_raw(), next.as_raw());
+    eprintln!("within a step: stepped {held:.3}, smooth {moved:.3}; across a step {stepped:.3}");
+    assert!(held < 0.01, "a stepped layer moves within a step");
+    assert!(moved > 0.3 && stepped > 0.3, "no motion to step");
+    // The camera keeps moving smoothly.
+    let mut orbit = base(true);
+    orbit.layers.push(cube(4.0));
+    let o1 = r.render_image(&orbit, &at(&orbit, a), &target);
+    let o2 = r.render_image(&orbit, &at(&orbit, b), &target);
+    assert!(
+        mean_abs_diff(o1.as_raw(), o2.as_raw()) > 0.3,
+        "the camera stepped with the layer"
+    );
+    for p in [&still, &orbit] {
+        let first = r.render_image(p, &at(p, 0.0), &target);
+        let last = r.render_image(p, &at(p, 1.0), &target);
+        let seam = mean_abs_diff(first.as_raw(), last.as_raw());
+        assert!(seam < 0.6, "stepped motion doesn't loop: {seam}");
+    }
+
+    // Mode 7: ground below the horizon, the background above it.
+    let floor = |height: f32| {
+        let mut l = Layer::new(
+            "Mode 7",
+            LayerKind::Mode7(Mode7Floor {
+                texture: Some("checker".into()),
+                tile_size: 2.0,
+                turns: 1,
+                scroll: [0, 3],
+                ..Default::default()
+            }),
+        );
+        l.transform.position[1] = height;
+        l
+    };
+    let mut p = base(false);
+    // A level camera: the horizon across the middle.
+    p.camera.height = Param::new(0.0);
+    p.camera.target = [0.0, 1.5, 0.0];
+    let empty = r.render_image(&p, &at(&p, 0.3), &target);
+    p.layers.push(floor(0.0));
+    let img = r.render_image(&p, &at(&p, 0.3), &target);
+    img.save(dir.join("mode7.png")).unwrap();
+    let rows_changed = |y0: u32, y1: u32| {
+        let mut n = 0;
+        let mut t = 0;
+        for y in y0..y1 {
+            for x in 0..w {
+                t += 1;
+                let (a, b) = (img.get_pixel(x, y), empty.get_pixel(x, y));
+                n += (0..3).any(|c| (a[c] as i32 - b[c] as i32).abs() > 8) as u32;
+            }
+        }
+        n as f32 / t as f32
+    };
+    let (top, bottom) = (rows_changed(0, h / 4), rows_changed(h * 3 / 4, h));
+    eprintln!("Mode 7 covers {top:.3} of the top rows, {bottom:.3} of the bottom rows");
+    assert!(top < 0.01, "Mode 7 above the horizon");
+    // (Black squares can match the dark background.)
+    assert!(bottom > 0.6, "Mode 7 floor missing below the horizon");
+    let first = r.render_image(&p, &at(&p, 0.0), &target);
+    let last = r.render_image(&p, &at(&p, 1.0), &target);
+    let later = r.render_image(&p, &at(&p, 0.37), &target);
+    let seam = mean_abs_diff(first.as_raw(), last.as_raw());
+    let motion = mean_abs_diff(first.as_raw(), later.as_raw());
+    eprintln!("Mode 7 seam {seam:.3}, motion {motion:.2}");
+    assert!(
+        seam < 0.6 && motion > 2.0,
+        "Mode 7 doesn't turn, scroll and loop"
+    );
+    // A cube under the floor is hidden; above it, it shows.
+    let with_cube = |y: f32, p: &Project, r: &mut Renderer| {
+        let mut q = p.clone();
+        q.layers.push(
+            Layer::new("Cube", LayerKind::Mesh(MeshLayer::default()))
+                .at([0.0, y, 0.0])
+                .scaled(0.6),
+        );
+        r.render_image(&q, &at(&q, 0.3), &target)
+    };
+    let under = with_cube(-1.0, &p, &mut r);
+    let over = with_cube(1.0, &p, &mut r);
+    let (d_under, d_over) = (
+        mean_abs_diff(under.as_raw(), img.as_raw()),
+        mean_abs_diff(over.as_raw(), img.as_raw()),
+    );
+    eprintln!("cube under the floor changes {d_under:.3}, above it {d_over:.3}");
+    assert!(d_under < 0.05, "the floor doesn't hide what is under it");
+    assert!(d_over > 0.1, "a cube above the floor does not show");
+}
