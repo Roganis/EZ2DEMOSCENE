@@ -70,7 +70,15 @@ pub const BUILTIN: &[(&str, &str)] = &[
         "matcap_candy",
         "Material sphere: pink candy with a cyan rim",
     ),
+    (
+        ENV_MATCAP,
+        "Material sphere: chrome reflecting the environment light (its map, turned with it, seen from the camera)",
+    ),
 ];
+
+/// The material sphere made from the environment light (by the renderer;
+/// chrome where there is no map).
+pub const ENV_MATCAP: &str = "matcap_environment";
 
 /// A built-in material sphere (matcap) for lit logos.
 pub fn is_matcap(name: &str) -> bool {
@@ -625,7 +633,7 @@ fn matcap(name: &str, u: f32, v: f32) -> [f32; 3] {
             let c = env(0xfff0b0, 0xc88a2a, 0x7a4410, 0x1a0c02, 0xfff6d8);
             add(c, rgb(0xfff8e0), spec(40.0) * 1.2)
         }
-        "matcap_chrome" => {
+        "matcap_chrome" | ENV_MATCAP => {
             let c = env(0xe0f0ff, 0x3a6fd0, 0x4a3a30, 0x0a0a0c, 0xffffff);
             add(c, [1.0; 3], spec(60.0) * 1.2)
         }

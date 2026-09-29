@@ -24,6 +24,7 @@ pub mod rng;
 pub mod scene;
 pub mod sequence;
 pub mod signal;
+pub mod sim;
 pub mod store;
 pub mod terrain;
 

@@ -23,8 +23,8 @@ eframe = { version = "0.36", default-features = false, features = ["wgpu", "defa
 egui = "0.36"
 egui-wgpu = "0.36"
 egui-snarl = { version = "0.12", features = ["serde"] }
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif", "tga"] }
-gltf = "1.4"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif", "tga", "hdr"] }
+gltf = { version = "1.4", features = ["KHR_materials_transmission", "KHR_materials_ior", "KHR_materials_emissive_strength"] }
 tobj = "4"
 rodio = { version = "0.22", default-features = false }
 rfd = "0.17"
@@ -36,6 +36,11 @@ directories = "6"
 env_logger = "0.11"
 
 [profile.dev.package."*"]
+opt-level = 2
+
+# Simulations bake whole loops ahead of time: unoptimised, a flock takes
+# twenty times longer (in the editor's dev builds and in the tests).
+[profile.dev.package.ez_core]
 opt-level = 2
 
 [profile.release]

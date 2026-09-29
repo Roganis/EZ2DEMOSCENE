@@ -1,0 +1,480 @@
+{
+  "version": 2,
+  "name": "Beat Demolition",
+  "timing": {
+    "bpm": 120.0,
+    "loop_beats": 16
+  },
+  "camera": {
+    "mode": "Pendulum",
+    "target": [
+      0.0,
+      2.0,
+      -1.0
+    ],
+    "distance": 15.0,
+    "height": 4.0,
+    "angle": 0.0,
+    "orbit_turns": 1,
+    "swing": 20.0,
+    "fov": 55.0,
+    "roll": 0.0,
+    "beat_shake": 0.0
+  },
+  "environment": {
+    "fog_color": [
+      0.002428216,
+      0.001821162,
+      0.005181517
+    ],
+    "fog_density": 0.02,
+    "sky_color": [
+      0.029556833,
+      0.029556833,
+      0.08021983
+    ],
+    "ground_color": [
+      0.005181517,
+      0.005181517,
+      0.009134057
+    ],
+    "light_dir": [
+      0.4,
+      0.9,
+      0.5
+    ],
+    "light_color": [
+      1.0,
+      0.8713672,
+      0.74540436
+    ],
+    "light_intensity": 1.3,
+    "ambient": 0.35,
+    "shadows": {
+      "enabled": true,
+      "strength": 0.85,
+      "softness": 1.5,
+      "distance": 30.0,
+      "contact": 0.0
+    }
+  },
+  "layers": [
+    {
+      "name": "Sky",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Backdrop",
+        "kind": "Nebula",
+        "color_a": [
+          0.051269468,
+          0.005181517,
+          0.029556833
+        ],
+        "color_b": [
+          0.001517635,
+          0.001214108,
+          0.003676507
+        ],
+        "color_c": [
+          0.08021983,
+          0.11697067,
+          0.3515327
+        ],
+        "speed": 1,
+        "intensity": 1.0,
+        "detail": 1.0,
+        "texture": null
+      }
+    },
+    {
+      "name": "Floor",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mirror",
+        "size": 40.0,
+        "base_color": [
+          0.003676507,
+          0.003676507,
+          0.00699541
+        ],
+        "reflectivity": 0.5,
+        "blur": 0.3,
+        "tint": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "texture": null,
+        "texture_scale": 1.0,
+        "grid": 0.0,
+        "grid_color": [
+          1.0,
+          0.014443844,
+          0.051269468
+        ],
+        "grid_scale": 1.0,
+        "grid_scroll": 0
+      }
+    },
+    {
+      "name": "Wall",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Cube"
+        },
+        "material": {
+          "base_color": [
+            0.014443844,
+            0.014443844,
+            0.02121901
+          ],
+          "metallic": 0.3,
+          "roughness": 0.35,
+          "emissive_color": [
+            1.0,
+            0.029556833,
+            0.014443844
+          ],
+          "emissive": 0.9,
+          "emissive_mode": "Edges",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": false,
+          "rim": 0.3,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Physics",
+          "physics": {
+            "scenario": "Stack",
+            "collider": "Box",
+            "extent": 0.5,
+            "count": 60,
+            "life": 4.0,
+            "area": 3.0,
+            "height": 4.0,
+            "vanish": "Shrink",
+            "spin": 3.0,
+            "counts": [
+              8,
+              6,
+              1
+            ],
+            "gap": 0.02,
+            "blast_beat": 2.0,
+            "blast": 12.0,
+            "blast_at": [
+              0.5,
+              1.2,
+              1.2
+            ],
+            "gravity": 9.8,
+            "floor": 0.0,
+            "bounce": 0.2,
+            "friction": 1.0,
+            "seed": 1,
+            "looping": {
+              "close": "PingPong",
+              "blend": 0.25,
+              "guide": true,
+              "warmup": 0,
+              "settle": 0.001
+            }
+          }
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        },
+        "ramp": {
+          "enabled": true,
+          "colors": [
+            [
+              1.0,
+              0.029556833,
+              0.11697067
+            ],
+            [
+              1.0,
+              0.3515327,
+              0.014443844
+            ],
+            [
+              0.029556833,
+              0.5271152,
+              1.0
+            ]
+          ],
+          "mode": "Gradient",
+          "cycles": 1,
+          "glow": true
+        }
+      }
+    },
+    {
+      "name": "Rain",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          -6.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 0.35,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Sphere",
+          "detail": 3
+        },
+        "material": {
+          "base_color": [
+            0.80695236,
+            0.8387991,
+            0.90466136
+          ],
+          "metallic": 0.1,
+          "roughness": 0.25,
+          "emissive_color": [
+            0.5271152,
+            0.68668544,
+            1.0
+          ],
+          "emissive": 0.35,
+          "emissive_mode": "Full",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": false,
+          "rim": 0.3,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Physics",
+          "physics": {
+            "scenario": "Rain",
+            "collider": "Ball",
+            "extent": 1.0,
+            "count": 40,
+            "life": 4.0,
+            "area": 3.0,
+            "height": 5.0,
+            "vanish": "Shrink",
+            "spin": 3.0,
+            "counts": [
+              6,
+              5,
+              1
+            ],
+            "gap": 0.0,
+            "blast_beat": 2.0,
+            "blast": 9.0,
+            "blast_at": [
+              0.0,
+              1.0,
+              1.5
+            ],
+            "gravity": 9.8,
+            "floor": 0.0,
+            "bounce": 0.2,
+            "friction": 1.0,
+            "seed": 1,
+            "looping": {
+              "close": "BlendTail",
+              "blend": 0.5,
+              "guide": true,
+              "warmup": 2,
+              "settle": 0.001
+            }
+          }
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    }
+  ],
+  "post": {
+    "bloom": {
+      "enabled": true,
+      "intensity": 0.7,
+      "threshold": 1.0,
+      "radius": 0.7
+    },
+    "kaleido": {
+      "enabled": false,
+      "segments": 6,
+      "angle": 0.0,
+      "turns": 0,
+      "zoom": 1.0,
+      "center": [
+        0.5,
+        0.5
+      ]
+    },
+    "mirror": {
+      "enabled": false,
+      "mode": "LeftToRight"
+    },
+    "chroma": {
+      "enabled": false,
+      "amount": 0.004
+    },
+    "pixelate": {
+      "enabled": false,
+      "size": 4.0
+    },
+    "palette": {
+      "enabled": false,
+      "palette": "Ega",
+      "dither": 0.6
+    },
+    "crt": {
+      "enabled": false,
+      "scanlines": 0.5,
+      "curvature": 0.15,
+      "noise": 0.1
+    },
+    "grade": {
+      "exposure": 1.0,
+      "contrast": 1.05,
+      "saturation": 1.1,
+      "vignette": 0.35,
+      "grain": 0.03,
+      "beat_flash": 0.0
+    }
+  },
+  "textures": [],
+  "audio": null,
+  "graph": null,
+  "use_graph": false
+}

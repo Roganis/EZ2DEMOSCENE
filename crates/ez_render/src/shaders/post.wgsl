@@ -322,6 +322,30 @@ fn fs_rays_add(in: VOut) -> @location(0) vec4<f32> {
     return vec4<f32>(textureSampleLevel(t_a, s_lin, in.uv, 0.0).rgb, 1.0);
 }
 
+// Screen-space reflections onto the scene: t_a = the reflections, t_b =
+// the distances (both half resolution). A 5×5 blur that stays on one
+// surface (weights fall off with the difference in distance) smooths the
+// march's jitter without bleeding onto what is behind.
+@fragment
+fn fs_ssr_add(in: VOut) -> @location(0) vec4<f32> {
+    let dims = vec2<i32>(textureDimensions(t_a));
+    let c = clamp(vec2<i32>(in.uv * vec2<f32>(dims)), vec2<i32>(0), dims - 1);
+    let d0 = textureLoad(t_b, c, 0).r;
+    let tol = 0.03 * d0 + 0.02;
+    var sum = vec3<f32>(0.0);
+    var wsum = 0.0;
+    for (var y = -2; y <= 2; y = y + 1) {
+        for (var x = -2; x <= 2; x = x + 1) {
+            let p = clamp(c + vec2<i32>(x, y), vec2<i32>(0), dims - 1);
+            let d = textureLoad(t_b, p, 0).r;
+            let w = exp(-f32(x * x + y * y) * 0.25) * exp(-abs(d - d0) / tol);
+            sum = sum + textureLoad(t_a, p, 0).rgb * w;
+            wsum = wsum + w;
+        }
+    }
+    return vec4<f32>(sum / max(wsum, 1e-5), 0.0);
+}
+
 // --- final composite ---------------------------------------------------------
 // P.v[0]: res w, h, 1/w, 1/h
 // P.v[1]: exposure, contrast, saturation, vignette

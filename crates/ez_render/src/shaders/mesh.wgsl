@@ -13,10 +13,22 @@
 // D.v[10]: deform: wobble scale, wobble angle (loop-safe), explode, reach (0 = no deform)
 // D.v[11..14]: colour ramp colours (rgb); D.v[11].w colour count, D.v[12].w glow strength
 // D.v[15]: ramp on, mode (0 gradient, 1 steps), shift along the copies (0..1), colour the glow
+// D2 (the next draw slot), physical material:
+// D2.v[0]: physical shading, has ORM map, has glow map, _
+// D2.v[1]: clearcoat, clearcoat roughness, sheen, transmission
+// D2.v[2]: sheen rgb, index of refraction
+
+@group(1) @binding(1) var<uniform> D2: Draw;
 
 @group(2) @binding(0) var t_tex: texture_2d<f32>;
 @group(2) @binding(1) var s_tex: sampler;
 @group(2) @binding(2) var t_relief: texture_2d<f32>;
+// The relief picture's own sampler: it tiles as that picture is set to.
+@group(2) @binding(3) var s_relief: sampler;
+// Occlusion / roughness / metalness (linear) and glow pictures, on the
+// colour texture's sampler.
+@group(2) @binding(4) var t_orm: texture_2d<f32>;
+@group(2) @binding(5) var t_emit: texture_2d<f32>;
 
 fn lum(c: vec3<f32>) -> f32 {
     return dot(c, vec3<f32>(0.299, 0.587, 0.114));
@@ -40,18 +52,18 @@ fn tri_uv(p: vec3<f32>, k: i32) -> vec2<f32> {
     return (vec2<f32>(q.x, -q.y) * 0.5 + 0.5) * D.v[2].z + D.v[3].xy;
 }
 
-fn tri_sample(t: texture_2d<f32>, p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
+fn tri_sample(t: texture_2d<f32>, s: sampler, p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
     let w = tri_weights(n);
-    return textureSample(t, s_tex, tri_uv(p, 0)).rgb * w.x
-        + textureSample(t, s_tex, tri_uv(p, 1)).rgb * w.y
-        + textureSample(t, s_tex, tri_uv(p, 2)).rgb * w.z;
+    return textureSample(t, s, tri_uv(p, 0)).rgb * w.x
+        + textureSample(t, s, tri_uv(p, 1)).rgb * w.y
+        + textureSample(t, s, tri_uv(p, 2)).rgb * w.z;
 }
 
-fn tri_sample_level(t: texture_2d<f32>, p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
+fn tri_sample_level(t: texture_2d<f32>, s: sampler, p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
     let w = tri_weights(n);
-    return textureSampleLevel(t, s_tex, tri_uv(p, 0), 0.0).rgb * w.x
-        + textureSampleLevel(t, s_tex, tri_uv(p, 1), 0.0).rgb * w.y
-        + textureSampleLevel(t, s_tex, tri_uv(p, 2), 0.0).rgb * w.z;
+    return textureSampleLevel(t, s, tri_uv(p, 0), 0.0).rgb * w.x
+        + textureSampleLevel(t, s, tri_uv(p, 1), 0.0).rgb * w.y
+        + textureSampleLevel(t, s, tri_uv(p, 2), 0.0).rgb * w.z;
 }
 
 struct VIn {
@@ -199,10 +211,10 @@ fn vs_main(in: VIn) -> VOut {
     if (D.v[8].y != 0.0 && D.v[8].w > 0.5) {
         var h = 0.0;
         if (D.v[5].y > 0.5) {
-            h = lum(tri_sample_level(t_relief, in.pos, normalize(in.normal)));
+            h = lum(tri_sample_level(t_relief, s_relief, in.pos, normalize(in.normal)));
         } else {
             let duv = in.uv * D.v[2].z + D.v[3].xy;
-            h = lum(textureSampleLevel(t_relief, s_tex, duv, 0.0).rgb);
+            h = lum(textureSampleLevel(t_relief, s_relief, duv, 0.0).rgb);
         }
         pos = pos + normalize(in.normal) * h * D.v[8].y;
     }
@@ -236,8 +248,27 @@ fn ramp_color(t_in: f32) -> vec3<f32> {
     return mix(a, b, f * f * (3.0 - 2.0 * f));
 }
 
-@fragment
-fn fs_main(in: VOut) -> @location(0) vec4<f32> {
+// A mesh's surface at a fragment: its material after textures, maps,
+// colour ramp, hue and relief. Samples textures and takes derivatives, so
+// it must be called in uniform control flow.
+struct Surf {
+    base: vec3<f32>,
+    metallic: f32,
+    rough: f32,
+    n: vec3<f32>,
+    // Occlusion from the ORM map (1 without one).
+    ao: f32,
+    v: vec3<f32>,
+    emissive: vec3<f32>,
+    // The colour texture (for "glow where: texture") and the glow map.
+    texel: vec3<f32>,
+    emit: vec3<f32>,
+    uv: vec2<f32>,
+    edge_w: f32,
+    hue: f32,
+};
+
+fn surface(in: VOut) -> Surf {
     var base_in = D.v[0].rgb;
     var metallic = D.v[0].w;
     var emissive_in = D.v[1].rgb;
@@ -249,12 +280,10 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
         }
     }
     var rough = clamp(D.v[1].w, 0.02, 1.0);
-    let mode = i32(D.v[2].x + 0.5);
     let has_tex = D.v[2].y > 0.5;
     let tex_scale = D.v[2].z;
     let flat_n = D.v[2].w > 0.5;
     let scroll = D.v[3].xy;
-    let rim_k = D.v[3].z;
     let hue = D.v[3].w + in.inst.x;
 
     // Derivative-based values first (uniform control flow).
@@ -263,14 +292,28 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let uv = in.uv * tex_scale + scroll;
     var texel: vec3<f32>;
     var relief: vec3<f32>;
+    var orm = vec3<f32>(1.0);
+    var emit = vec3<f32>(1.0);
     // D is uniform, so this branch keeps sampling in uniform control flow.
     if (D.v[5].y > 0.5) {
         let on = normalize(in.obj_n);
-        texel = tri_sample(t_tex, in.obj, on);
-        relief = tri_sample(t_relief, in.obj, on);
+        texel = tri_sample(t_tex, s_tex, in.obj, on);
+        relief = tri_sample(t_relief, s_relief, in.obj, on);
+        if (D2.v[0].y > 0.5) {
+            orm = tri_sample(t_orm, s_tex, in.obj, on);
+        }
+        if (D2.v[0].z > 0.5) {
+            emit = tri_sample(t_emit, s_tex, in.obj, on);
+        }
     } else {
         texel = textureSample(t_tex, s_tex, uv).rgb;
-        relief = textureSample(t_relief, s_tex, uv).rgb;
+        relief = textureSample(t_relief, s_relief, uv).rgb;
+        if (D2.v[0].y > 0.5) {
+            orm = textureSample(t_orm, s_tex, uv).rgb;
+        }
+        if (D2.v[0].z > 0.5) {
+            emit = textureSample(t_emit, s_tex, uv).rgb;
+        }
     }
     let height = lum(relief);
     let dhx = dpdx(height);
@@ -279,10 +322,6 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let dpy = dpdy(in.world);
     let duvx = dpdx(uv);
     let duvy = dpdy(uv);
-
-    if (!clip_visible(in.world)) {
-        discard;
-    }
 
     let v = normalize(G.cam_pos.xyz - in.world);
     var n = normalize(in.normal);
@@ -319,20 +358,61 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     if (has_tex) {
         tex = texel;
     }
-    var base = hue_rotate(base_in * tex, hue);
-    var col = lit_surface(base, metallic, rough, n, in.world, v, rim_k, 1.0);
+    var out: Surf;
+    out.base = hue_rotate(base_in * tex, hue);
+    out.metallic = metallic;
+    out.rough = rough;
+    if (D2.v[0].y > 0.5) {
+        out.metallic = metallic * orm.b;
+        out.rough = rough * orm.g;
+    }
+    out.n = n;
+    out.ao = orm.r;
+    out.v = v;
+    out.emissive = emissive_in;
+    out.texel = texel;
+    out.emit = emit;
+    out.uv = uv;
+    out.edge_w = edge_w;
+    out.hue = hue;
+    return out;
+}
+
+fn pbr_layers() -> PbrLayers {
+    var layers: PbrLayers;
+    layers.k = D2.v[1];
+    layers.sheen_ior = D2.v[2];
+    return layers;
+}
+
+@fragment
+fn fs_main(in: VOut) -> @location(0) vec4<f32> {
+    let sf = surface(in);
+    if (!clip_visible(in.world)) {
+        discard;
+    }
+    let mode = i32(D.v[2].x + 0.5);
+    let rim_k = D.v[3].z;
+    var col: vec3<f32>;
+    if (D2.v[0].x > 0.5) {
+        col = physical_surface(sf.base, sf.metallic, sf.rough, sf.n, in.world, sf.v, rim_k, sf.ao, pbr_layers());
+    } else if (D2.v[0].y > 0.5) {
+        col = lit_surface(sf.base, sf.metallic, clamp(sf.rough, 0.02, 1.0), sf.n, in.world, sf.v, rim_k, sf.ao);
+    } else {
+        col = lit_surface(sf.base, sf.metallic, sf.rough, sf.n, in.world, sf.v, rim_k, 1.0);
+    }
 
     var mask = 1.0;
     switch mode {
         case 1: {
-            mask = 1.0 - smoothstep(0.0, edge_w, in.edge);
+            mask = 1.0 - smoothstep(0.0, sf.edge_w, in.edge);
         }
         case 2: {
-            let s = fract(uv.y * 6.0);
+            let s = fract(sf.uv.y * 6.0);
             mask = smoothstep(0.35, 0.45, s) * (1.0 - smoothstep(0.55, 0.65, s));
         }
         case 3: {
-            let lum = dot(texel, vec3<f32>(0.299, 0.587, 0.114));
+            let lum = dot(sf.texel, vec3<f32>(0.299, 0.587, 0.114));
             mask = lum * lum;
         }
         case 4: {
@@ -345,17 +425,25 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
         }
         default: {}
     }
-    let emissive = hue_rotate(emissive_in, hue) * mask * in.inst.y;
+    let emissive = hue_rotate(sf.emissive * sf.emit, sf.hue) * mask * in.inst.y;
     col = col + emissive;
 
     return vec4<f32>(apply_fog_at(col, in.world), 1.0);
 }
 
-// Distance to the camera, for depth of field (a small extra pass).
+// Distance to the camera and what the surface reflects (depth of field
+// and screen-space reflections: a small extra pass).
 @fragment
-fn fs_depth(in: VOut) -> @location(0) vec4<f32> {
+fn fs_depth(in: VOut) -> DistOut {
+    let sf = surface(in);
     if (!clip_visible(in.world)) {
         discard;
     }
-    return vec4<f32>(length(in.world - G.cam_pos.xyz), 0.0, 0.0, 1.0);
+    var m: Mirror;
+    if (D2.v[0].x > 0.5) {
+        m = physical_mirror(sf.base, sf.metallic, sf.rough, sf.n, in.world, sf.v, sf.ao, pbr_layers());
+    } else {
+        m = classic_mirror(sf.base, sf.metallic, clamp(sf.rough, 0.02, 1.0), sf.n, in.world, sf.v, sf.ao);
+    }
+    return dist_out(in.world, m);
 }

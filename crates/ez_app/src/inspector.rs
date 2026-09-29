@@ -457,6 +457,100 @@ pub fn color_scheme_ui(ui: &mut Ui, s: &mut ColorScheme, ctx: &EvalCtx) {
     });
 }
 
+/// Where reflections and ambient light come from.
+fn env_light_ui(ui: &mut Ui, l: &mut EnvLight) {
+    section(ui, "Environment light", false, |ui| {
+        let current = match &l.source {
+            EnvSource::Colours => "The colours above".to_string(),
+            EnvSource::Studio(s) => s.label().to_string(),
+            EnvSource::Hdri(p) => ez_core::store::file_name(p).to_string(),
+            EnvSource::Sky => "From the sky".to_string(),
+        };
+        row(
+            ui,
+            "Light from",
+            "Where reflections and soft light come from: the sky and ground \
+             colours above, a built-in studio, a panorama photo (.hdr) of a \
+             real place, or the scene's own background.",
+            |ui| {
+                egui::ComboBox::from_id_salt("env_light")
+                    .selected_text(current)
+                    .show_ui(ui, |ui| {
+                        if ui
+                            .selectable_label(l.source == EnvSource::Colours, "The colours above")
+                            .clicked()
+                        {
+                            l.source = EnvSource::Colours;
+                        }
+                        for s in Studio::ALL {
+                            let on = l.source == EnvSource::Studio(s);
+                            if ui.selectable_label(on, s.label()).clicked() {
+                                l.source = EnvSource::Studio(s);
+                            }
+                        }
+                        if ui
+                            .selectable_label(l.source == EnvSource::Sky, "From the sky")
+                            .on_hover_text("The background layer, captured all around every frame")
+                            .clicked()
+                        {
+                            l.source = EnvSource::Sky;
+                        }
+                        ui.separator();
+                        if ui.button("Panorama photo (.hdr)…").clicked() {
+                            platform::pick(Purpose::SetEnvMap);
+                        }
+                    });
+            },
+        );
+        if !l.is_on() {
+            return;
+        }
+        param(
+            ui,
+            "Strength",
+            "How strongly the map lights the scene",
+            &mut l.intensity,
+            0.0..=4.0,
+        );
+        param(
+            ui,
+            "Turn",
+            "Turn the map around the vertical, in degrees (a saw of 180° turns \
+             it a whole turn per cycle)",
+            &mut l.rotation,
+            -180.0..=180.0,
+        );
+        match l.source {
+            EnvSource::Sky => {
+                check(
+                    ui,
+                    "Capture once",
+                    "For a sky that doesn't move: capture it once instead of every frame",
+                    &mut l.sky_static,
+                );
+            }
+            _ => {
+                check(
+                    ui,
+                    "Sun from the map",
+                    "Point the sun (and its shadows) at the brightest spot of the \
+                     map, and take that spot out of the map",
+                    &mut l.sun_from_map,
+                );
+            }
+        }
+        ui.label(
+            RichText::new(
+                "Shapes and raymarched objects take the light and reflections. \
+                 To see the map behind the scene, add a background of the kind \
+                 Environment map.",
+            )
+            .weak()
+            .small(),
+        );
+    });
+}
+
 pub fn environment_ui(ui: &mut Ui, e: &mut Environment) {
     ui.heading("Light & atmosphere");
     color(
@@ -501,6 +595,82 @@ pub fn environment_ui(ui: &mut Ui, e: &mut Environment) {
         0.02,
     );
     ui.add_space(6.0);
+    env_light_ui(ui, &mut e.env_light);
+    let rf = &mut e.reflections;
+    toggle_section(ui, "Reflections", &mut rf.enabled, |ui| {
+        param(
+            ui,
+            "Strength",
+            "How much shiny shapes, water and wet ground reflect the scene around them \
+             (instead of only the sky or environment map)",
+            &mut rf.strength,
+            0.0..=1.0,
+        );
+        slider(
+            ui,
+            "Reach",
+            "How far a reflection reaches, in world units",
+            &mut rf.max_distance,
+            1.0..=40.0,
+        );
+        slider(
+            ui,
+            "Up to roughness",
+            "Rougher surfaces keep the plain environment reflection",
+            &mut rf.roughness_cutoff,
+            0.05..=1.0,
+        );
+        ui.label(
+            RichText::new(
+                "Only what is on the screen can be reflected: near the edges, and behind shapes, \
+                 reflections fade back to the environment. The mirror floor has its own exact reflection.",
+            )
+            .weak()
+            .small(),
+        );
+    });
+    let lf = &mut e.shafts;
+    let switched = toggle_section(ui, "Light shafts", &mut lf.enabled, |ui| {
+        param(
+            ui,
+            "Strength",
+            "How brightly the sun lights the fog",
+            &mut lf.strength,
+            0.0..=4.0,
+        );
+        slider(
+            ui,
+            "Scattering",
+            "0: the fog glows the same all round; towards 1: mostly when looking at the sun",
+            &mut lf.scattering,
+            0.0..=0.95,
+        );
+        slider(
+            ui,
+            "Reach",
+            "How far into the fog the light is gathered, in world units",
+            &mut lf.reach,
+            5.0..=200.0,
+        );
+        drag_u(
+            ui,
+            "Quality",
+            "Samples along each view ray (more = smoother, slower)",
+            &mut lf.steps,
+            8..=96,
+        );
+        ui.label(
+            RichText::new(
+                "Needs fog (or mist) and sun shadows: shapes and terrain cut dark bands through the light.",
+            )
+            .weak()
+            .small(),
+        );
+    });
+    // Shafts are made by the shadows: turning them on turns shadows on.
+    if switched && e.shafts.enabled {
+        e.shadows.enabled = true;
+    }
     let sh = &mut e.shadows;
     toggle_section(ui, "Sun shadows", &mut sh.enabled, |ui| {
         slider(
@@ -1022,6 +1192,8 @@ pub fn textures_ui(ui: &mut Ui, textures: &mut Vec<UserTexture>) {
 /// `lref` identifies the layer so file imports can be applied to it later.
 /// egui temp-data key: names of the project's terrain layers.
 pub const TERRAIN_NAMES: &str = "ez2-terrain-names";
+/// Temp data: the selected layer's `Option<SimStatus>` (its bake).
+pub const SIM_STATUS: &str = "ez2-sim-status";
 /// egui temp-data key: names of the shape and sprite layers.
 pub const COPY_LAYER_NAMES: &str = "ez2-copy-layer-names";
 /// Names of the logo layers (what a logo can be attached to).
@@ -1109,6 +1281,14 @@ pub fn layer_ui(ui: &mut Ui, layer: &mut Layer, textures: &[UserTexture], lref: 
                 "Up/down offset (animate it!)",
                 &mut t.bob,
                 -5.0..=5.0,
+            );
+            param(
+                ui,
+                "Tilt",
+                "Rock the layer side to side, in degrees (animate it: a bowl \
+                 of liquid with the same tilt sloshes)",
+                &mut t.tilt,
+                -90.0..=90.0,
             );
             ui.add_space(4.0);
             ui.label(RichText::new("Shake").strong())
@@ -1325,6 +1505,9 @@ fn primitive_params_ui(ui: &mut Ui, p: &mut Primitive) {
         Primitive::Mobius { width } => {
             slider(ui, "Width", "", width, 0.05..=0.9);
         }
+        Primitive::Bowl { thickness } => {
+            slider(ui, "Thickness", "", thickness, 0.005..=0.5);
+        }
         _ => {}
     }
 }
@@ -1352,6 +1535,7 @@ pub fn shape_label(source: &MeshSource) -> String {
             .unwrap_or_else(|| id.rsplit('/').next().unwrap_or(id).to_string()),
         MeshSource::Text { .. } => "3D text".to_string(),
         MeshSource::Sdf { form, .. } => form.label().to_string(),
+        MeshSource::Cloth { cloth, .. } => cloth.kind.label().to_string(),
     }
 }
 
@@ -1412,6 +1596,7 @@ fn mesh_ui(ui: &mut Ui, m: &mut MeshLayer, textures: &[UserTexture], lref: Layer
         });
         match &mut m.source {
             MeshSource::Primitive(p) => primitive_params_ui(ui, p),
+            MeshSource::Cloth { cloth, .. } => cloth_ui(ui, cloth),
             MeshSource::Text {
                 text,
                 font,
@@ -1638,6 +1823,29 @@ fn glitch_ui(ui: &mut Ui, g: &mut Glitch) {
 }
 
 fn material_ui(ui: &mut Ui, mat: &mut Material, textures: &[UserTexture], lref: LayerRef) {
+    row(
+        ui,
+        "Presets",
+        "Ready-made physical materials (keep your textures and glow)",
+        |ui| {
+            ui.horizontal_wrapped(|ui| {
+                for p in MaterialPreset::ALL {
+                    if ui.small_button(p.label()).clicked() {
+                        p.apply(mat);
+                    }
+                }
+            });
+        },
+    );
+    combo(
+        ui,
+        "Shading",
+        "Physical: realistic highlights and reflections, clearcoat, sheen and glass. \
+         Classic: the original look.",
+        &mut mat.pbr.shading,
+        &Shading::ALL,
+        |s| s.label(),
+    );
     color(ui, "Colour", "", &mut mat.base_color);
     param(
         ui,
@@ -1666,6 +1874,9 @@ fn material_ui(ui: &mut Ui, mat: &mut Material, textures: &[UserTexture], lref: 
         &mut mat.rim,
         0.0..=2.0,
     );
+    if mat.pbr.shading == Shading::Physical {
+        physical_ui(ui, &mut mat.pbr);
+    }
     ui.separator();
     color(ui, "Glow colour", "", &mut mat.emissive_color);
     param(
@@ -1724,6 +1935,81 @@ fn material_ui(ui: &mut Ui, mat: &mut Material, textures: &[UserTexture], lref: 
             "Chunky pixels",
             "Nearest-neighbour sampling",
             &mut mat.pixelated,
+        );
+    }
+    texture_picker(
+        ui,
+        "Occlusion/rough/metal",
+        &mut mat.pbr.orm_map,
+        textures,
+        Some((lref, TexSlot::Orm)),
+    );
+    texture_picker(
+        ui,
+        "Glow map",
+        &mut mat.pbr.emissive_map,
+        textures,
+        Some((lref, TexSlot::Emissive)),
+    );
+    if mat.pbr.orm_map.is_some() || mat.pbr.emissive_map.is_some() {
+        ui.label(
+            RichText::new(
+                "Maps use the texture's Tiling and Scroll. The ORM map (red: occlusion, green: roughness, \
+                 blue: metal, as in glTF) multiplies Roughness and Metallic; the glow map multiplies the glow colour.",
+            )
+            .weak()
+            .small(),
+        );
+    }
+}
+
+/// Clearcoat, sheen and glass (physical shading only).
+fn physical_ui(ui: &mut Ui, p: &mut Pbr) {
+    param(
+        ui,
+        "Clearcoat",
+        "A clear lacquer layer on top (car paint, varnish)",
+        &mut p.clearcoat,
+        0.0..=1.0,
+    );
+    if p.clearcoat.base > 0.0 || p.clearcoat.is_animated() {
+        param(
+            ui,
+            "Coat roughness",
+            "",
+            &mut p.clearcoat_roughness,
+            0.0..=1.0,
+        );
+    }
+    param(
+        ui,
+        "Sheen",
+        "Soft light at grazing angles, like velvet",
+        &mut p.sheen,
+        0.0..=1.0,
+    );
+    if p.sheen.base > 0.0 || p.sheen.is_animated() {
+        color(ui, "Sheen colour", "", &mut p.sheen_color);
+    }
+    param(
+        ui,
+        "Glass",
+        "Light passing through (transmission): 1 = clear glass tinted by the colour",
+        &mut p.transmission,
+        0.0..=1.0,
+    );
+    if p.transmission.base > 0.0 || p.transmission.is_animated() {
+        slider(
+            ui,
+            "Refraction",
+            "Index of refraction: 1 = none, 1.33 water, 1.5 glass, 2.4 diamond",
+            &mut p.ior,
+            1.0..=2.5,
+        );
+        ui.label(
+            RichText::new("Glass shows the environment behind it, not other shapes.")
+                .weak()
+                .small(),
         );
     }
 }
@@ -1966,7 +2252,563 @@ fn instancer_ui(ui: &mut Ui, inst: &mut Instancer) {
             check(ui, "Follow the slope", "Tilt copies with the ground", align);
             slider(ui, "Lift", "Raise copies off the ground", lift, -2.0..=10.0);
         }
+        Instancer::Flock { flock, .. } => flock_ui(ui, flock),
+        Instancer::Physics { physics, .. } => physics_ui(ui, physics),
+        Instancer::Fluid { fluid, .. } => fluid_ui(ui, fluid),
     }
+}
+
+fn flock_ui(ui: &mut Ui, f: &mut ez_core::sim::Flock) {
+    use ez_core::sim::{FlockPath, FLOCK_MAX};
+    drag_u(
+        ui,
+        "Count",
+        "Boids in the flock",
+        &mut f.count,
+        1..=FLOCK_MAX,
+    );
+    drag_u(ui, "Seed", "", &mut f.seed, 0..=9999);
+    param(
+        ui,
+        "Speed",
+        "Cruising speed, in units per second",
+        &mut f.speed,
+        0.0..=20.0,
+    );
+    slider(
+        ui,
+        "Area",
+        "How far from the target the boids fly",
+        &mut f.radius,
+        0.5..=40.0,
+    );
+    slider(
+        ui,
+        "Formation",
+        "How firmly each boid keeps its own place in the flock. Free flocking \
+         never repeats, so closing the loop has to catch boids up; holding a \
+         formation makes the flight nearly repeat by itself. 0 = free.",
+        &mut f.formation,
+        0.0..=2.0,
+    );
+    ui.separator();
+    ui.label(RichText::new("Flocking").weak());
+    slider(
+        ui,
+        "Spacing",
+        "Distance boids keep from each other",
+        &mut f.spacing,
+        0.05..=5.0,
+    );
+    slider(
+        ui,
+        "Sight",
+        "How far a boid sees its neighbours",
+        &mut f.sight,
+        0.1..=10.0,
+    );
+    slider(ui, "Keep apart", "", &mut f.separation, 0.0..=3.0);
+    slider(
+        ui,
+        "Fly together",
+        "Match the neighbours' heading",
+        &mut f.alignment,
+        0.0..=3.0,
+    );
+    slider(
+        ui,
+        "Stay close",
+        "Move to the neighbours' middle",
+        &mut f.cohesion,
+        0.0..=3.0,
+    );
+    slider(
+        ui,
+        "Agility",
+        "How hard a boid can steer",
+        &mut f.agility,
+        1.0..=60.0,
+    );
+    slider(
+        ui,
+        "Bank",
+        "Lean into turns (0 = never)",
+        &mut f.bank,
+        0.0..=1.5,
+    );
+    ui.separator();
+    ui.label(RichText::new("Target").weak());
+    for (axis, p) in ["Target x", "Target y", "Target z"]
+        .into_iter()
+        .zip(&mut f.target)
+    {
+        param(
+            ui,
+            axis,
+            "Where the flock gathers, from the layer's origin (animate it or link \
+             it to the music to lead the flock)",
+            p,
+            -20.0..=20.0,
+        );
+    }
+    let mut on_path = f.path.is_some();
+    if check(
+        ui,
+        "Along a curve",
+        "The target also travels a closed curve",
+        &mut on_path,
+    ) {
+        f.path = on_path.then(FlockPath::default);
+    }
+    if let Some(path) = &mut f.path {
+        combo(ui, "Curve", "", &mut path.curve, &RibbonCurve::ALL, |c| {
+            c.label()
+        });
+        row(
+            ui,
+            "Frequencies",
+            "Loops of the curve along x, y, z",
+            |ui| {
+                for v in path.freq.iter_mut() {
+                    ui.add(egui::DragValue::new(v).range(1..=16).speed(0.05));
+                }
+            },
+        );
+        slider(ui, "Curve size", "", &mut path.size, 0.1..=40.0);
+        drag_i(
+            ui,
+            "Laps / loop",
+            "Whole trips around the curve per loop",
+            &mut path.laps,
+            -8..=8,
+        );
+    }
+    param(
+        ui,
+        "Scatter",
+        "Push the boids away from the target (link it to kicks to scatter on hits)",
+        &mut f.scatter,
+        -1.0..=2.0,
+    );
+    ui.separator();
+    sim_loop_ui(
+        ui,
+        &mut f.looping,
+        "Blend the tail: the flock steers back to where it started. \
+         Cross-fade: two copies of the flight half a loop apart, each \
+         shrinking away before it jumps back. Ping-pong: forward, then backward.",
+    );
+}
+
+/// How a simulation closes its loop, and how its bake is doing.
+fn sim_loop_ui(ui: &mut Ui, l: &mut ez_core::sim::SimLoop, close_tip: &str) {
+    use ez_core::sim::LoopClose;
+    ui.separator();
+    ui.label(RichText::new("Closing the loop").weak());
+    combo(
+        ui,
+        "Close by",
+        close_tip,
+        &mut l.close,
+        &LoopClose::ALL,
+        |c| c.label(),
+    );
+    if l.close == LoopClose::BlendTail {
+        slider(
+            ui,
+            "Tail",
+            "Part of the loop spent steering back to the start",
+            &mut l.blend,
+            0.05..=0.5,
+        );
+        check(
+            ui,
+            "Steer back",
+            "Steer to the start during the tail (off: only blend)",
+            &mut l.guide,
+        );
+    }
+    if l.close != LoopClose::PingPong {
+        drag_u(
+            ui,
+            "Warm-up loops",
+            "Loops simulated before the one you see (fewer once it settles)",
+            &mut l.warmup,
+            0..=6,
+        );
+    }
+    let status: Option<ez_render::SimStatus> =
+        ui.data(|d| d.get_temp(egui::Id::new(SIM_STATUS))).flatten();
+    if let Some(st) = status {
+        let text = if !st.ready {
+            "Simulating…".to_string()
+        } else if l.close == LoopClose::PingPong {
+            format!("Baked · {:.1} MB", st.bytes as f32 / 1e6)
+        } else {
+            format!(
+                "Baked · seam {:.2} (largest {:.2}) · {:.1} MB",
+                st.seam.rms,
+                st.seam.max,
+                st.bytes as f32 / 1e6
+            )
+        };
+        ui.label(RichText::new(text).weak()).on_hover_text(
+            "The seam is how far the simulation still is from where it started \
+             when the final blend takes over (average and largest, in world \
+             units): smaller means a smoother loop.",
+        );
+    }
+}
+
+fn physics_ui(ui: &mut Ui, p: &mut ez_core::sim::Physics) {
+    use ez_core::sim::{Collider, LoopClose, Scenario, Vanish, PHYSICS_MAX};
+    let before = p.scenario;
+    combo(
+        ui,
+        "Scene",
+        "Rain: copies drop one after another, pile up and vanish. Stack and \
+         blast: copies start stacked (a wall, a tower) and a blast knocks \
+         them down.",
+        &mut p.scenario,
+        &Scenario::ALL,
+        |s| s.label(),
+    );
+    if p.scenario != before {
+        // Each scene closes its loop its own way.
+        let fresh = match p.scenario {
+            Scenario::Rain => ez_core::sim::Physics::default(),
+            Scenario::Stack => ez_core::sim::Physics::stack(),
+        };
+        p.looping = fresh.looping;
+    }
+    combo(
+        ui,
+        "Collide as",
+        "The shape each copy bumps as",
+        &mut p.collider,
+        &Collider::ALL,
+        |c| c.label(),
+    );
+    slider(
+        ui,
+        "Collider size",
+        "Half the collider's size for a copy of size 1: 0.5 fits the \
+         built-in cube, 1 the sphere",
+        &mut p.extent,
+        0.05..=2.0,
+    );
+    match p.scenario {
+        Scenario::Rain => {
+            drag_u(
+                ui,
+                "Count",
+                "Copies, each dropping once per loop",
+                &mut p.count,
+                1..=PHYSICS_MAX,
+            );
+            slider(
+                ui,
+                "Life",
+                "How long each stays, in beats. Keep it under half the tail, \
+                 so closing the loop hardly moves anything.",
+                &mut p.life,
+                0.5..=32.0,
+            );
+            slider(ui, "Area", "Radius they drop into", &mut p.area, 0.0..=20.0);
+            slider(
+                ui,
+                "Height",
+                "Height they drop from",
+                &mut p.height,
+                0.0..=30.0,
+            );
+            slider(
+                ui,
+                "Spin",
+                "How fast they tumble as they drop",
+                &mut p.spin,
+                0.0..=15.0,
+            );
+            combo(ui, "Leave by", "", &mut p.vanish, &Vanish::ALL, |v| {
+                v.label()
+            });
+        }
+        Scenario::Stack => {
+            row(
+                ui,
+                "Stack",
+                "Copies along x, up and z (a wall: 8, 5, 1)",
+                |ui| {
+                    for (v, a) in p.counts.iter_mut().zip(["x ", "y ", "z "]) {
+                        ui.add(egui::DragValue::new(v).range(1..=40).speed(0.1).prefix(a));
+                    }
+                },
+            );
+            slider(
+                ui,
+                "Gap",
+                "Space between the stacked copies",
+                &mut p.gap,
+                0.0..=1.0,
+            );
+            slider(
+                ui,
+                "Blast at beat",
+                "When the blast goes off (ping-pong rebuilds the stack in \
+                 the second half of the loop)",
+                &mut p.blast_beat,
+                0.0..=64.0,
+            );
+            slider(ui, "Blast", "Its strength", &mut p.blast, 0.0..=40.0);
+            vec3(
+                ui,
+                "Blast from",
+                "From the layer's origin",
+                &mut p.blast_at,
+                0.05,
+            );
+        }
+    }
+    ui.separator();
+    ui.label(RichText::new("World").weak());
+    slider(
+        ui,
+        "Gravity",
+        "0 = floating in space",
+        &mut p.gravity,
+        0.0..=30.0,
+    );
+    slider(
+        ui,
+        "Floor",
+        "Floor height, from the layer's origin",
+        &mut p.floor,
+        -20.0..=20.0,
+    );
+    slider(ui, "Bounce", "", &mut p.bounce, 0.0..=1.0);
+    slider(ui, "Grip", "Friction", &mut p.friction, 0.0..=2.0);
+    drag_u(ui, "Seed", "", &mut p.seed, 0..=9999);
+    ui.label(
+        RichText::new(
+            "Random tilt and size (Variation) turn and size the copies but \
+             not how they collide: keep them at 0.",
+        )
+        .weak()
+        .small(),
+    );
+    let tip = if p.scenario == Scenario::Stack && p.looping.close == LoopClose::PingPong {
+        "Ping-pong: the stack falls, then builds itself back up."
+    } else {
+        "Blend the tail: the bodies steer back to where they started \
+         while still bumping into each other and the floor."
+    };
+    sim_loop_ui(ui, &mut p.looping, tip);
+}
+
+fn fluid_ui(ui: &mut Ui, f: &mut ez_core::sim::Fluid) {
+    use ez_core::sim::{Container, Source, FLUID_MAX};
+    drag_u(
+        ui,
+        "Droplets",
+        "More makes a smoother liquid but takes longer to simulate \
+         (a few thousand bake in seconds)",
+        &mut f.count,
+        1..=FLUID_MAX,
+    );
+    combo(
+        ui,
+        "Container",
+        "What holds it. Tilt the layer (Transform → Tilt) to rock it.",
+        &mut f.container,
+        &Container::ALL,
+        |c| c.label(),
+    );
+    slider(
+        ui,
+        "Container size",
+        "Half its width (a bowl's radius)",
+        &mut f.size,
+        0.2..=10.0,
+    );
+    slider(
+        ui,
+        "Droplet size",
+        "Their spacing at rest: smaller needs more droplets for the same amount",
+        &mut f.spacing,
+        0.03..=1.0,
+    );
+    combo(ui, "Source", "", &mut f.source, &Source::ALL, |s| s.label());
+    if f.source == Source::Pour {
+        slider(
+            ui,
+            "Life",
+            "How long each droplet stays, in beats",
+            &mut f.life,
+            0.5..=64.0,
+        );
+        slider(
+            ui,
+            "Spout height",
+            "Where it pours from, above the layer's origin",
+            &mut f.spout,
+            0.0..=20.0,
+        );
+    }
+    ui.separator();
+    slider(ui, "Gravity", "", &mut f.gravity, 0.0..=30.0);
+    slider(
+        ui,
+        "Viscosity",
+        "0 water, 0.3 honey",
+        &mut f.viscosity,
+        0.0..=1.0,
+    );
+    slider(
+        ui,
+        "Cohesion",
+        "How much droplets hold together (surface tension)",
+        &mut f.cohesion,
+        0.0..=0.5,
+    );
+    param(
+        ui,
+        "Stir",
+        "A swirl around the middle (link it to the music to stir on the beat)",
+        &mut f.stir,
+        -20.0..=20.0,
+    );
+    drag_u(ui, "Seed", "", &mut f.seed, 0..=9999);
+    check(
+        ui,
+        "Liquid surface",
+        "Draw the droplets as one smooth surface in the layer's material \
+         (molten metal, water with Glass) instead of as copies of its shape",
+        &mut f.surface,
+    );
+    let tip = if f.surface {
+        "One liquid layer per scene is drawn as a surface (the last); \
+         the floor's reflection shows its droplets."
+    } else {
+        "Each copy is a droplet: small spheres, or glowing sprites. \
+         The layer's Size sets how big each one is drawn."
+    };
+    ui.label(RichText::new(tip).weak().small());
+    sim_loop_ui(
+        ui,
+        &mut f.looping,
+        "Cross-fade halves: two copies of the liquid half a loop apart \
+         fade into each other, so the loop closes exactly.",
+    );
+}
+
+fn cloth_ui(ui: &mut Ui, c: &mut ez_core::sim::Cloth) {
+    use ez_core::sim::{ClothKind, CLOTH_MAX_DETAIL};
+    combo(
+        ui,
+        "Kind",
+        "What it is and where it hangs from",
+        &mut c.kind,
+        &ClothKind::ALL,
+        |k| k.label(),
+    );
+    row(
+        ui,
+        "Size",
+        "Width and height (a drape: width and depth)",
+        |ui| {
+            for (v, p) in c.size.iter_mut().zip(["w ", "h "]) {
+                ui.add(
+                    egui::DragValue::new(v)
+                        .range(0.1..=40.0)
+                        .speed(0.02)
+                        .prefix(p),
+                );
+            }
+        },
+    );
+    drag_u(
+        ui,
+        "Detail",
+        "Particles across: finer folds, slower to simulate",
+        &mut c.detail,
+        4..=CLOTH_MAX_DETAIL,
+    );
+    slider(
+        ui,
+        "Stiffness",
+        "Resistance to folding: 0 silk, 1 canvas",
+        &mut c.stiffness,
+        0.0..=1.0,
+    );
+    slider(
+        ui,
+        "Damping",
+        "How fast motion dies down",
+        &mut c.damping,
+        0.0..=1.0,
+    );
+    ui.separator();
+    ui.label(RichText::new("Wind").weak());
+    param(
+        ui,
+        "Wind",
+        "Wind speed (link it to the music for gusts on the beat)",
+        &mut c.wind,
+        0.0..=30.0,
+    );
+    param(
+        ui,
+        "Direction",
+        "Where the wind blows to, in degrees around the vertical (0 = along x). \
+         An oscillator of 180° turns it round.",
+        &mut c.wind_direction,
+        -180.0..=180.0,
+    );
+    slider(
+        ui,
+        "Gusts",
+        "How much the wind varies over the cloth and the loop",
+        &mut c.gusts,
+        0.0..=2.0,
+    );
+    ui.separator();
+    ui.label(RichText::new("Bumping into").weak());
+    check(ui, "Floor", "Stop at a floor", &mut c.floor_on);
+    if c.floor_on {
+        slider(
+            ui,
+            "Floor height",
+            "From the layer's origin",
+            &mut c.floor,
+            -20.0..=5.0,
+        );
+    }
+    if c.kind == ClothKind::Drape {
+        row(
+            ui,
+            "Ball",
+            "Where the ball is (from the layer's origin) and its radius",
+            |ui| {
+                for (v, p) in c.ball.iter_mut().zip(["x ", "y ", "z ", "r "]) {
+                    ui.add(egui::DragValue::new(v).speed(0.02).prefix(p));
+                }
+            },
+        );
+    }
+    drag_u(
+        ui,
+        "Seed",
+        "Another pattern of gusts",
+        &mut c.seed,
+        0..=9999,
+    );
+    sim_loop_ui(
+        ui,
+        &mut c.looping,
+        "Blend the tail: the cloth steers back to where it started. \
+         Cross-fade: the loop mixed with itself half a loop apart. \
+         Ping-pong: forward, then backward.",
+    );
 }
 
 fn variation_ui(ui: &mut Ui, v: &mut Variation) {
@@ -2079,7 +2921,23 @@ fn backdrop_ui(ui: &mut Ui, b: &mut Backdrop, textures: &[UserTexture], lref: La
             );
         }
         param(ui, "Brightness", "", &mut b.intensity, 0.0..=4.0);
-        if !battle {
+        if b.kind == BackdropKind::Environment {
+            param(
+                ui,
+                "Sharpness",
+                "1 = the map as it is, 0 = fully blurred",
+                &mut b.detail,
+                0.0..=1.0,
+            );
+            ui.label(
+                RichText::new(
+                    "Shows the environment light's map (Light & fog → Environment light), \
+                     turned with it.",
+                )
+                .weak()
+                .small(),
+            );
+        } else if !battle {
             param(
                 ui,
                 "Detail",

@@ -205,6 +205,11 @@ impl Library {
         self.templates.iter().map(|t| t.layer.clone()).collect()
     }
 
+    /// Folder for pictures taken out of imported models.
+    pub fn imported_dir(&self) -> PathBuf {
+        self.root.join("imported")
+    }
+
     /// Folder where opened packs are extracted.
     pub fn unpack_dir(&self, pack: &Path) -> PathBuf {
         let stem = pack

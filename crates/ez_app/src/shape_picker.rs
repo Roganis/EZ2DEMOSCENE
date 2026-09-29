@@ -78,6 +78,21 @@ fn builtin_tiles() -> Vec<Tile> {
         },
         hint: Some("Solid letters: a logo with every material, relief and copy option".into()),
     });
+    out.push(Tile {
+        name: "Cloth".into(),
+        key: "c".into(),
+        source: MeshSource::Cloth {
+            cloth: Box::new(ez_core::sim::Cloth {
+                size: [1.6, 1.1],
+                ..Default::default()
+            }),
+            mesh: None,
+        },
+        hint: Some(
+            "A flag, curtain, banner or drape, blown by a looping wind (simulated ahead of time)"
+                .into(),
+        ),
+    });
     out
 }
 
@@ -92,6 +107,7 @@ fn same_shape(a: &MeshSource, b: &MeshSource) -> bool {
             f.index() == g.index()
         }
         (MeshSource::Text { .. }, MeshSource::Text { .. }) => true,
+        (MeshSource::Cloth { .. }, MeshSource::Cloth { .. }) => true,
         _ => a == b,
     }
 }

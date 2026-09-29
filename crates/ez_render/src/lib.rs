@@ -4,6 +4,7 @@
 //! into a [`RenderTarget`]; the editor viewport, thumbnails and the offline
 //! exporter all go through this same path.
 
+pub mod envmap;
 pub mod gpu;
 pub mod import;
 pub mod logo;
@@ -14,6 +15,6 @@ pub mod texgen;
 pub mod text;
 
 pub use renderer::{
-    supported_msaa, FrameStats, LayerStats, Readback, RenderTarget, Renderer, DISPLAY_FORMAT,
-    HDR_FORMAT, OUTPUT_FORMAT,
+    supported_msaa, FrameStats, LayerStats, Readback, RenderTarget, Renderer, SimStatus,
+    DISPLAY_FORMAT, HDR_FORMAT, OUTPUT_FORMAT,
 };

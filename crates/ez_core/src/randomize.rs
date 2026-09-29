@@ -264,6 +264,19 @@ fn scale_counts(inst: &mut Instancer, rng: &mut Rng, k: f32) {
             *count = f(rng, *count, 10, 400);
             *seed = rng.next_u32() % 1000;
         }
+        Instancer::Flock { flock, .. } => {
+            flock.count = f(rng, flock.count, 20, crate::sim::FLOCK_MAX);
+            flock.seed = rng.next_u32() % 1000;
+        }
+        Instancer::Physics { physics, .. } => {
+            physics.count = f(rng, physics.count, 10, crate::sim::PHYSICS_MAX);
+            physics.seed = rng.next_u32() % 1000;
+        }
+        Instancer::Fluid { fluid, .. } => {
+            // Keep it quick to bake.
+            fluid.count = f(rng, fluid.count, 200, 2000);
+            fluid.seed = rng.next_u32() % 1000;
+        }
         Instancer::Grid { .. } | Instancer::Single => {}
     }
 }

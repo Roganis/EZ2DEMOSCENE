@@ -306,6 +306,9 @@ selected layer, and <b>right-clicking</b> a layer shows the same options.</p>
   Colour A is the night sky.</td></tr>
   <tr><td>Battle background (retro RPG)</td><td>Flat on the screen like the battles of 16-bit role-playing games: tiled patterns
   whose lines wobble while the colours A → B → C cycle through them. See below.</td></tr>
+  <tr><td>Environment map</td><td>The map of the environment light (<span class="ui">Light &amp; fog → Environment light</span>):
+  the studio or panorama photo that lights the shapes, turned with it. <span class="ui">Sharpness</span> blurs it (lower it to keep the
+  eye on the foreground). With the environment light on Colours it draws the sky and ground colours.</td></tr>
 </table>
 <div class="tip"><b>Tip</b>You can stack two backgrounds, but the later one covers the earlier one (and only that one is drawn).
 Usually one is enough.</div>
@@ -386,7 +389,7 @@ second pattern added over them, on a CRT.</figcaption></figure>
 <h2>5.3 Shapes</h2>
 <figure><img src="img/mesh.jpg"><figcaption>A shape layer (Tech panels): Shape, Material, Copies, Variation, Placement &amp; motion, Symmetry.</figcaption></figure>
 <p>Click the <span class="ui">Shape</span> button to open <span class="ui">Choose a shape</span>, a window of tiles with a
-picture of every shape. The <span class="ui">Built-in</span> tab has the 25 built-in shapes, the raymarched ones, 3D text and
+picture of every shape. The <span class="ui">Built-in</span> tab has the 25 built-in shapes, the raymarched ones, 3D text, cloth and
 <span class="ui">3D model file…</span>; the <span class="ui">Library</span> tab has about 1,000 ready-made low-poly models
 (spaceships, vehicles, nature, food, buildings, characters and more), with categories and a search box.</p>
 <div class="note"><b>Library models</b>The models are by Kenney (kenney.nl) and free to use for anything (CC0). They take the
@@ -408,6 +411,7 @@ search and a preview of every model.</figcaption></figure>
   <tr><td>Plane, Pyramid, Cone</td><td>Simple building blocks.</td></tr>
   <tr><td>Capsule (Length), Rounded cube (Roundness)</td><td>Soft, toy-like objects and pills.</td></tr>
   <tr><td>Torus knot (Loops, Twists), Spring (Turns), Möbius strip</td><td>Twisty tubes and bands. Knots with more loops and twists get more intricate.</td></tr>
+  <tr><td>Bowl (Thickness)</td><td>The lower half of a sphere as an open shell: a container for a Liquid layer.</td></tr>
   <tr><td>Star (Points, Inner radius), Gear (Teeth), Heart</td><td>Flat extruded logos and badges (<span class="ui">Depth</span> sets the thickness).</td></tr>
   <tr><td>Gem (Facets)</td><td>A brilliant-cut diamond. Lovely with <span class="ui">Glow where: Edges</span>.</td></tr>
   <tr><td>Menger sponge (Level 0–3)</td><td>The classic fractal cube. Level 3 has 8,000 cubes, so use it sparingly.</td></tr>
@@ -421,8 +425,19 @@ search and a preview of every model.</figcaption></figure>
   glow). <span class="ui">Motion</span> sets how many times their own movement repeats per loop (0 = still), and copies each get
   their own variation. Textures, relief, deform and glitch don't apply. They cost per pixel they cover, so a few big ones or a dozen
   small ones are fine; the <b>Liquid Metal</b> preset shows both.</td></tr>
-  <tr><td>3D model file</td><td>Your own <code>.gltf</code>, <code>.glb</code> or <code>.obj</code>. It is centred and scaled to fit automatically, and
-  uses the layer's material.</td></tr>
+  <tr><td>Cloth</td><td>A sheet of cloth moved by the wind: a <b>Flag</b> (held by a pole along one side), <b>Curtain</b> (held
+  along the top), <b>Banner</b> (held by its two top corners) or a <b>Drape over a ball</b> (a tablecloth or a ghost's sheet, gripping
+  the ball, with an optional floor). Set its <span class="ui">Size</span>, <span class="ui">Detail</span> (finer folds, slower),
+  <span class="ui">Stiffness</span> (silk to canvas) and the <span class="ui">Wind</span>: speed and direction are animatable and
+  music-linkable (an oscillator on <span class="ui">Direction</span> swings it round; a pulse on the speed gusts on the beat), and
+  <span class="ui">Gusts</span> make it vary over the cloth. The motion is <b>simulated</b> ahead of time into a loop, like flocks
+  (<i>Simulating…</i> in the viewport bar; until then the cloth hangs at rest, and exports wait). The picture on the cloth is the
+  material's texture, stretched once over the sheet; every material, copies, shadows and depth of field apply, so a Grid of one flag
+  makes a row of flags. The <b>Banners</b> preset has five.</td></tr>
+  <tr><td>3D model file</td><td>Your own <code>.gltf</code>, <code>.glb</code> or <code>.obj</code>. It is centred and scaled to fit automatically.
+  A glTF model brings its own material: colour, metal, roughness, glow and glass, and its pictures (colour, occlusion/roughness/metal,
+  glow) are added to <span class="ui">Your images</span>, with <b>Physical</b> shading. Change any of it afterwards. OBJ models use the
+  layer's material.</td></tr>
 </table>
 
 <h3>Copies (instancing)</h3>
@@ -449,6 +464,39 @@ everywhere, then finished on the graphics card.)</p>
   <tr><td>On a terrain</td><td>Terrain (a Terrain layer), Count, Seed, Follow the slope, Lift</td><td>Trees, crystals, lamps and ruins
   standing on the landscape. They ride along as it scrolls, follow its placement and shrink away at its edges where it wraps; on water
   or lava they float.</td></tr>
+  <tr><td>Flock</td><td>Count (up to 2,000), Seed, Speed, Area, Formation; Spacing, Sight, Keep apart, Fly together, Stay close,
+  Agility, Bank; Target x/y/z, Along a curve, Scatter; Close by, Tail, Steer back, Warm-up loops</td><td>Starlings, bats, fish,
+  drones. The copies are <b>simulated</b>: each one steers by its neighbours and heads for the target (animate it, link it to the
+  music or send it along a curve to lead the flock); link <span class="ui">Scatter</span> to kicks to make them burst outward on
+  hits. The flight is worked out ahead of time into a loop. While it is (a few seconds, shown as <i>Simulating…</i> in the viewport
+  bar) the flock shows its previous version or nothing, and exports wait for it. A free flock never repeats, so the end of the loop
+  has to steer every boid back to where it started; <span class="ui">Formation</span> gives each boid a loose place of its own so
+  the flight nearly repeats by itself and the catch-up is gentle. Under the settings, <i>seam</i> says how far the boids still are
+  from their start when the final blend takes over. Use a small, flat shape (a squashed pyramid). The <b>Starling Dusk</b> preset
+  has 600.</td></tr>
+  <tr><td>Physics</td><td>Scene (Rain, Stack and blast), Collide as (Box, Ball), Collider size; Rain: Count, Life, Area, Height,
+  Spin, Leave by; Stack: Stack x/y/z, Gap, Blast at beat, Blast, Blast from; Gravity, Floor, Bounce, Grip, Seed; closing the loop</td>
+  <td>Copies as <b>solid bodies</b> that fall, stack and knock each other about, simulated ahead of time like flocks.
+  <b>Rain</b> drops them one after another from the same places every loop; they pile up on the floor and shrink or sink away at
+  the end of their <span class="ui">Life</span>. Keep the life short (under half of the loop-closing tail) and the loop closes
+  without anything visibly sliding back into place. <b>Stack and blast</b> builds a wall or tower that a blast knocks down on
+  the beat you choose; with ping-pong it builds itself back up in the second half of the loop, and with
+  <span class="ui">Gravity</span> 0 the blocks burst apart in space. <span class="ui">Collider size</span> is half the collider
+  for a copy of size 1: 0.5 for the built-in cube, 1 for the sphere. Random tilt and size under Variation don't change how copies
+  collide, so keep them at 0. Up to 400 bodies. The <b>Beat Demolition</b> preset has a wall and a rain of pearls.</td></tr>
+  <tr><td>Liquid</td><td>Droplets, Container (Box, Bowl, Pool on the floor), Container size, Droplet size, Source (Filled, Poured
+  in: Life, Spout height), Gravity, Viscosity, Cohesion, Stir, Seed, Liquid surface; closing the loop</td>
+  <td>Copies as the <b>droplets of a liquid</b>, simulated ahead of time like flocks. It fills a container around the layer's
+  position (a box or bowl of the container's size, or a round pool on the floor) and settles; animate the layer's
+  <span class="ui">Tilt</span> (Transform) and it sloshes from side to side. Put a <b>Bowl</b> shape on another layer at the same
+  position, with the same Tilt and a Size of the container size ÷ 0.94, and the liquid rocks inside it. <span class="ui">Poured in</span>
+  sends a stream from a spout above, each droplet living its <span class="ui">Life</span>. <span class="ui">Viscosity</span> makes it
+  syrupy, <span class="ui">Cohesion</span> holds drops together, <span class="ui">Stir</span> swirls it (link it to the music).
+  Droplets are copies of the layer's shape (small spheres, or glowing sprites on a sprite layer), sized by the layer's Size.
+  Tick <span class="ui">Liquid surface</span> to draw them as one smooth liquid in the layer's material instead: Gold for molten
+  metal, Glass for water (one liquid surface per scene; the floor's reflection shows its droplets). The loop closes by cross-fading
+  two copies half a loop apart. A few thousand droplets bake in a few seconds; up to 8,000. The <b>Liquid Gold</b> preset rocks a
+  bowl of molten gold.</td></tr>
 </table>
 <p><b>Variation</b> (appears when there are copies) adds life:</p>
 <ul>
@@ -484,6 +532,8 @@ glow too.</p>
   <tr><td>Stretch</td><td>Stretch per axis (make a cube into a slab or a pillar).</td></tr>
   <tr><td>Spin / loop</td><td>Whole turns per loop around x, y and z. Negative numbers spin the other way.</td></tr>
   <tr><td>Bob</td><td>Up/down offset. Animate it with <span class="ui">~</span> to make objects float.</td></tr>
+  <tr><td>Tilt</td><td>Rocks the layer side to side (degrees, around the depth axis). Animate it with a sine to rock a bowl, and give
+  a liquid layer the same Tilt so it sloshes inside.</td></tr>
 </table>
 
 <h2>5.4 Symmetry</h2>
@@ -692,7 +742,9 @@ bloom, god rays, feedback trails, scanlines and the colour grade apply to it, bu
   <span class="ui">Shine</span> and <span class="ui">Gloss</span> the highlights.</td></tr>
   <tr><td>Material</td><td>A picture of a lit sphere (a <i>matcap</i>): each part of the bevel takes the colour of the sphere where it faces the
   same way. Built in: <b>matcap_gold</b>, <b>matcap_chrome</b>, <b>matcap_plastic</b> and <b>matcap_candy</b>, or import your own picture of a
-  sphere. It works without a bevel too, but only shows its middle colour.</td></tr>
+  sphere. <b>matcap_environment</b> is chrome reflecting the scene's <span class="ui">Environment light</span> (a studio or panorama
+  photo): it turns with the map and follows the camera, so the logo matches the shapes around it (without a map it looks like
+  matcap_chrome). A material works without a bevel too, but only shows its middle colour.</td></tr>
   <tr><td>Glint</td><td>A bright band sweeping across the logo, a whole number of <span class="ui">Sweeps / loop</span> (4 = every bar of a
   16-beat loop), with its width, direction and colour.</td></tr>
   <tr><td>Rings &amp; outlines</td><td><span class="ui">Rings</span>: glowing lines following the logo's shape, rippling outward a whole number
@@ -762,13 +814,35 @@ step for <kbd>Ctrl</kbd>+<kbd>Z</kbd>.</div>
 <!-- ===================================================== 6 -->
 <h1 id="materials"><span class="num">6</span>Materials, glow &amp; textures</h1>
 <h2>Surface</h2>
+<p><span class="ui">Presets</span> sets up a ready-made physical material in one click: <b>Gold</b>, <b>Copper</b>, <b>Chrome</b>,
+<b>Brushed steel</b>, <b>Rubber</b>, <b>Car paint</b>, <b>Glass</b>, <b>Velvet</b> and <b>Ceramic</b>. They keep your textures and glow.
+The <b>Material Gallery</b> preset shows all nine.</p>
 <table>
   <tr><th style="width:24%">Setting</th><th>Effect</th></tr>
+  <tr><td>Shading</td><td><b>Classic</b> is the original look (and what older projects keep). <b>Physical</b> lights the surface the way
+  real materials behave: sharper, truer highlights, reflections that get stronger at grazing angles, rough metals that stay bright,
+  and three extra layers below. It shines under an <span class="ui">Environment light</span> (Light &amp; fog), but works with the sky
+  and ground colours too.</td></tr>
   <tr><td>Colour</td><td>The base colour.</td></tr>
   <tr><td>Metallic</td><td>0 looks like plastic or paint. 1 looks like metal, where reflections take on the colour (gold, chrome, copper).</td></tr>
   <tr><td>Roughness</td><td>0 is a glossy mirror-like finish, 1 is matte. The glossy black look of Neon Arena is black + metallic 0.9 + roughness 0.15.</td></tr>
   <tr><td>Faceted</td><td>Flat-shaded, low-poly look. Every face catches light separately.</td></tr>
   <tr><td>Rim light</td><td>A glow along the silhouette that separates objects from dark backgrounds.</td></tr>
+  <tr><td>Clearcoat</td><td>(Physical) A clear lacquer on top, with its own <span class="ui">Coat roughness</span>: car paint, varnished
+  wood, glazed ceramic. A second, sharp reflection over the colour.</td></tr>
+  <tr><td>Sheen</td><td>(Physical) A soft glow at grazing angles in the <span class="ui">Sheen colour</span>, like velvet or felt.</td></tr>
+  <tr><td>Glass</td><td>(Physical) Light passes through, tinted by the colour. <span class="ui">Refraction</span> is how much it bends
+  (1.33 water, 1.5 glass, 2.4 diamond); a glass ball shows the world upside down, like a real one. Glass shows the environment
+  behind it, not the other shapes.</td></tr>
+</table>
+<h2>Material maps</h2>
+<p>Besides the colour <span class="ui">Texture</span>, two pictures fine-tune the surface. Both use the texture's Tiling and Scroll.</p>
+<table>
+  <tr><th style="width:24%">Map</th><th>What it does</th></tr>
+  <tr><td>Occlusion/rough/metal</td><td>One picture holding three maps, as glTF models and material sites ship them: <b>red</b> darkens
+  creases (occlusion), <b>green</b> is roughness and <b>blue</b> metalness. They multiply the Roughness and Metallic sliders, so leave
+  those at 1 to use the map as it is.</td></tr>
+  <tr><td>Glow map</td><td>Where the surface glows: it multiplies the glow colour (white glows fully, black not at all).</td></tr>
 </table>
 <h2>Glow (emission)</h2>
 <p><span class="ui">Glow colour</span> and <span class="ui">Glow</span> (strength) make a surface emit light. Bright glow feeds the
@@ -1009,6 +1083,30 @@ yellow line with numbered points.</p>
   <li><span class="ui">Sky light</span> / <span class="ui">Ground light</span> / <span class="ui">Ambient</span>: soft light from above and below.
   The sky colour is also what glossy surfaces reflect, which gives black gloss its highlights.</li>
   <li><span class="ui">Sun colour</span>, <span class="ui">Sun strength</span>, <span class="ui">Sun direction</span>: the main light.</li>
+  <li><span class="ui">Environment light</span>: what surrounds the scene and lights it from every side, and what shiny things
+  reflect. <b>Colours</b> (the default) uses the sky and ground light above. A <b>studio</b> (<i>Softbox</i>, <i>Overcast</i>,
+  <i>Sunset</i>, <i>Neon room</i>) or a <b>panorama photo</b> (<span class="ui">Panorama photo (.hdr)…</span>, or drop a
+  <code>.hdr</code> file on the window; free ones are on sites like Poly Haven) lights shapes like a photo of a real place: chrome
+  shows the room, rough plastic picks up its colours softly. <b>From the sky</b> uses the scene's own background, so clouds and
+  sunsets light the objects; tick <span class="ui">Capture once</span> for a background that doesn't move (it is cheaper).
+  <span class="ui">Strength</span> brightens it, <span class="ui">Turn</span> spins it (<span class="ui">↻</span> once per loop for a
+  slow sweep of reflections). <span class="ui">Sun from the map</span> finds the brightest spot of the map (the sun in a photo) and
+  makes it the sun, with its shadows, so they line up with the picture. Add the <b>Environment map</b> background to see the map
+  behind the scene. Shapes, 3D models and raymarched shapes are lit this way; terrain, water and the mirror floor keep the classic
+  light. The <b>Chrome Studio</b> preset has chrome, gold and plastic under a turning sunset.</li>
+  <li><span class="ui">Reflections</span>: shiny shapes, water and rain puddles reflect the things around them, not just the sky or
+  the environment map: a chrome ball shows the red box beside it, a lake mirrors its islands. <span class="ui">Strength</span> is how
+  much of that replaces the plain reflection, <span class="ui">Reach</span> how far away things can be (in world units), and
+  <span class="ui">Up to roughness</span> which surfaces take part (rougher ones keep the plain reflection). It can only reflect what
+  is on the screen, so towards the picture's edges and behind shapes it fades back to the environment. The mirror floor keeps its
+  own exact reflection. It costs one extra half-resolution pass (shared with depth of field when both are on).</li>
+  <li><span class="ui">Light shafts</span>: the sun lights the fog wherever it reaches it, so shapes, copies and terrain cut dark
+  bands through the haze, like sunbeams through a window or between trees. Unlike the <b>God rays</b> post effect, they work with
+  the sun off screen, and they follow the day cycle. They need fog or mist (no fog, nothing to light) and the sun's shadows, which
+  turning them on switches on. <span class="ui">Strength</span> is how brightly the fog glows, <span class="ui">Scattering</span>
+  how much more it glows when you look towards the sun (0 the same all round), <span class="ui">Reach</span> how far into the fog
+  the light is gathered, and <span class="ui">Quality</span> the number of samples along each view (fewer is faster, grainier).
+  Beyond the shadows' <span class="ui">Distance</span> the fog counts as lit. The <b>Cathedral Light</b> preset shows them.</li>
   <li><span class="ui">Sun shadows</span>: shapes and terrain cast shadows from the sun (the moon at night) onto shapes, terrain,
   water and the mirror floor. <span class="ui">Darkness</span>, <span class="ui">Softness</span> and <span class="ui">Distance</span>
   (how far around the camera's target shadows reach: smaller is sharper). In dark neon scenes shadows are subtle, because most light

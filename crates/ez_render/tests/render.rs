@@ -31,6 +31,7 @@ fn presets_render_and_loop_seamlessly() {
     };
     eprintln!("adapter: {}", gpu.adapter_name());
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
+    r.set_wait_for_bakes(true);
     let target = r.create_target(320, 180);
     let dir = snapshot_dir();
     for preset in presets::all() {
@@ -2512,4 +2513,1073 @@ fn lens_and_mirrored_tiling() {
         "mirrored tiling has no seams: {jump_mirror}"
     );
     assert!(seam < 0.6, "mirrored scrolling still loops: {seam}");
+}
+
+/// A flock: nothing until baked (and the frame says so), then the same
+/// birds whether the renderer waited or the preview polled; it moves and
+/// loops.
+#[test]
+fn flocks_bake_fly_and_loop() {
+    use ez_core::sim::Flock;
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut p = presets::starling_dusk();
+    for l in &mut p.layers {
+        if let Some(Instancer::Flock { flock, .. }) = l.kind.instancer_mut() {
+            **flock = Flock {
+                count: 150,
+                ..(**flock).clone()
+            };
+        }
+    }
+    let mut empty = p.clone();
+    empty.layers.retain(|l| l.kind.instancer().is_none());
+    let at = |phase: f32| EvalCtx::new(&p.timing, phase, None);
+
+    // The preview: nothing until the bake is ready, and it says so.
+    let mut preview = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let target = preview.create_target(160, 90);
+    let sky = preview.render_image(&empty, &at(0.2), &target);
+    preview.take_inexact();
+    let before = preview.render_image(&p, &at(0.2), &target);
+    assert!(preview.take_inexact());
+    assert!(mean_abs_diff(before.as_raw(), sky.as_raw()) < 0.01);
+    let start = std::time::Instant::now();
+    while preview.bake_progress().is_some() {
+        assert!(start.elapsed().as_secs() < 120, "bake never finished");
+        preview.poll_bakes(|| false);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let polled = preview.render_image(&p, &at(0.2), &target);
+    assert!(!preview.take_inexact());
+
+    // An export waits, and draws the same.
+    let mut export = Renderer::new(&gpu.device, &gpu.queue, 1);
+    export.set_wait_for_bakes(true);
+    let waited = export.render_image(&p, &at(0.2), &target);
+    assert!(!export.take_inexact());
+    assert_eq!(waited.as_raw(), polled.as_raw());
+    let birds = mean_abs_diff(waited.as_raw(), sky.as_raw());
+    assert!(birds > 0.05, "no birds: {birds}");
+
+    // They fly, and the loop closes.
+    let a = export.render_image(&p, &at(0.0), &target);
+    let b = export.render_image(&p, &at(1.0), &target);
+    let later = export.render_image(&p, &at(0.3), &target);
+    let (seam, motion) = (
+        mean_abs_diff(a.as_raw(), b.as_raw()),
+        mean_abs_diff(waited.as_raw(), later.as_raw()),
+    );
+    // The sky also moves: compare with it.
+    let sky_later = export.render_image(&empty, &at(0.3), &target);
+    let sky_motion = mean_abs_diff(sky.as_raw(), sky_later.as_raw());
+    eprintln!("flock: birds {birds:.3}, seam {seam:.4}, motion {motion:.3} (sky {sky_motion:.3})");
+    assert!(seam < 0.05, "seam {seam}");
+    assert!(
+        motion > sky_motion + 0.02,
+        "birds don't move: {motion} vs {sky_motion}"
+    );
+    waited.save(snapshot_dir().join("flock_0.2.png")).unwrap();
+}
+
+/// Cloth: drawn at rest until baked (and the frame says so), then the same
+/// sheet whether the renderer waited or the preview polled; it waves and
+/// loops.
+#[test]
+fn cloth_waves_and_loops() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut p = presets::banners();
+    for l in &mut p.layers {
+        if let LayerKind::Mesh(MeshLayer {
+            source: MeshSource::Cloth { cloth, .. },
+            ..
+        }) = &mut l.kind
+        {
+            cloth.detail = 12;
+        }
+    }
+    let at = |phase: f32| EvalCtx::new(&p.timing, phase, None);
+
+    let mut preview = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let target = preview.create_target(160, 90);
+    preview.take_inexact();
+    let rest = preview.render_image(&p, &at(0.2), &target);
+    assert!(preview.take_inexact());
+    let start = std::time::Instant::now();
+    while preview.bake_progress().is_some() {
+        assert!(start.elapsed().as_secs() < 120, "bake never finished");
+        preview.poll_bakes(|| false);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let polled = preview.render_image(&p, &at(0.2), &target);
+    assert!(!preview.take_inexact());
+
+    let mut export = Renderer::new(&gpu.device, &gpu.queue, 1);
+    export.set_wait_for_bakes(true);
+    let waited = export.render_image(&p, &at(0.2), &target);
+    assert_eq!(waited.as_raw(), polled.as_raw());
+    // Blown by the wind, the flags are not where they rest.
+    let blown = mean_abs_diff(waited.as_raw(), rest.as_raw());
+
+    let a = export.render_image(&p, &at(0.0), &target);
+    let b = export.render_image(&p, &at(1.0), &target);
+    let seam = mean_abs_diff(a.as_raw(), b.as_raw());
+    // They wave: compare with the same scene without the flags (the camera
+    // and the sky move too).
+    let mut still = p.clone();
+    still.layers.retain(|l| l.name != "Flags");
+    let later = export.render_image(&p, &at(0.23), &target);
+    let (s0, s1) = (
+        export.render_image(&still, &at(0.2), &target),
+        export.render_image(&still, &at(0.23), &target),
+    );
+    let (motion, scene_motion) = (
+        mean_abs_diff(waited.as_raw(), later.as_raw()),
+        mean_abs_diff(s0.as_raw(), s1.as_raw()),
+    );
+    eprintln!(
+        "cloth: blown {blown:.3}, seam {seam:.4}, motion {motion:.3} (scene {scene_motion:.3})"
+    );
+    assert!(
+        blown > 0.3,
+        "the flags didn't move off their rest pose: {blown}"
+    );
+    assert!(seam < 0.05, "seam {seam}");
+    assert!(
+        motion > scene_motion + 0.05,
+        "flags don't wave: {motion} vs {scene_motion}"
+    );
+    waited.save(snapshot_dir().join("cloth_0.2.png")).unwrap();
+}
+
+/// Rigid bodies: nothing until baked (and the frame says so), then the
+/// same picture whether the renderer waited or the preview polled; the
+/// wall stands, falls after the blast, and the loop closes.
+#[test]
+fn rigid_bodies_fall_and_loop() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let p = presets::beat_demolition();
+    let mut bare = p.clone();
+    bare.layers.retain(|l| l.kind.instancer().is_none());
+    let at = |phase: f32| EvalCtx::new(&p.timing, phase, None);
+
+    let mut preview = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let target = preview.create_target(160, 90);
+    let empty = preview.render_image(&bare, &at(0.05), &target);
+    preview.take_inexact();
+    let before = preview.render_image(&p, &at(0.05), &target);
+    assert!(preview.take_inexact());
+    assert!(mean_abs_diff(before.as_raw(), empty.as_raw()) < 0.01);
+    let start = std::time::Instant::now();
+    while preview.bake_progress().is_some() {
+        assert!(start.elapsed().as_secs() < 180, "bake never finished");
+        preview.poll_bakes(|| false);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let polled = preview.render_image(&p, &at(0.05), &target);
+
+    let mut export = Renderer::new(&gpu.device, &gpu.queue, 1);
+    export.set_wait_for_bakes(true);
+    let waited = export.render_image(&p, &at(0.05), &target);
+    assert_eq!(waited.as_raw(), polled.as_raw());
+    let shown = mean_abs_diff(waited.as_raw(), empty.as_raw());
+
+    // The wall at the same moment of the camera's swing, standing and
+    // fallen: compared with the scene without it.
+    let fallen = export.render_image(&p, &at(0.4), &target);
+    let bare_late = export.render_image(&bare, &at(0.4), &target);
+    let (standing_vs_bare, fallen_vs_bare) =
+        (shown, mean_abs_diff(fallen.as_raw(), bare_late.as_raw()));
+    let a = export.render_image(&p, &at(0.0), &target);
+    let b = export.render_image(&p, &at(1.0), &target);
+    let seam = mean_abs_diff(a.as_raw(), b.as_raw());
+    eprintln!("physics: shown {standing_vs_bare:.3}, fallen {fallen_vs_bare:.3}, seam {seam:.4}");
+    assert!(shown > 0.5, "no wall: {shown}");
+    // Fallen blocks lie low and scattered: the picture changes a lot.
+    let change = mean_abs_diff(waited.as_raw(), fallen.as_raw());
+    assert!(change > 1.0, "the wall didn't fall: {change}");
+    assert!(seam < 0.05, "seam {seam}");
+    waited
+        .save(snapshot_dir().join("physics_0.05.png"))
+        .unwrap();
+    fallen.save(snapshot_dir().join("physics_0.4.png")).unwrap();
+}
+
+/// Image-based lighting: a white rough sphere vanishes into a uniform
+/// environment (the "furnace" test: no light made or lost), a mirror ball
+/// shows the map the right way round, and a whole turn changes nothing.
+#[test]
+fn environment_maps_light_the_scene() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let dir = snapshot_dir().join("ibl");
+    std::fs::create_dir_all(&dir).unwrap();
+    // Panoramas as .hdr files, read back like a user's.
+    let write = |name: &str, f: &dyn Fn(glam::Vec3) -> [f32; 3]| {
+        let (w, h) = (256u32, 128u32);
+        let img = image::Rgb32FImage::from_fn(w, h, |x, y| {
+            let d =
+                ez_render::envmap::dir_of((x as f32 + 0.5) / w as f32, (y as f32 + 0.5) / h as f32);
+            image::Rgb(f(d))
+        });
+        let path = dir.join(name);
+        image::DynamicImage::ImageRgb32F(img)
+            .save_with_format(&path, image::ImageFormat::Hdr)
+            .unwrap();
+        path.to_string_lossy().to_string()
+    };
+    let uniform = write("uniform.hdr", &|_| [0.4, 0.4, 0.4]);
+    // Colour by the main axis: +x red, -x green, +y white, -y black,
+    // +z blue, -z yellow.
+    let axes = write("axes.hdr", &|d| {
+        let a = d.abs();
+        if a.x >= a.y && a.x >= a.z {
+            if d.x > 0.0 {
+                [1.0, 0.0, 0.0]
+            } else {
+                [0.0, 1.0, 0.0]
+            }
+        } else if a.y >= a.z {
+            if d.y > 0.0 {
+                [1.0, 1.0, 1.0]
+            } else {
+                [0.0, 0.0, 0.0]
+            }
+        } else if d.z > 0.0 {
+            [0.0, 0.0, 1.0]
+        } else {
+            [1.0, 1.0, 0.0]
+        }
+    });
+    let scene = |source: EnvSource, metallic: f32, rough: f32, turn: f32| {
+        let mut p = Project {
+            camera: Camera {
+                mode: CameraMode::Static,
+                target: [0.0; 3],
+                distance: Param::new(3.0),
+                height: Param::new(0.0),
+                angle: Param::new(0.0),
+                fov: Param::new(40.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        p.environment.fog_density = Param::new(0.0);
+        p.environment.light_intensity = Param::new(0.0);
+        // No darkened corners: the sky is compared across the picture.
+        p.post.grade.vignette = Param::new(0.0);
+        p.environment.env_light = EnvLight {
+            source,
+            rotation: Param::new(turn),
+            ..Default::default()
+        };
+        p.layers.push(Layer::new(
+            "Map",
+            LayerKind::Backdrop(Backdrop {
+                kind: BackdropKind::Environment,
+                detail: Param::new(1.0),
+                ..Default::default()
+            }),
+        ));
+        p.layers.push(Layer::new(
+            "Ball",
+            LayerKind::Mesh(MeshLayer {
+                source: MeshSource::Primitive(Primitive::Sphere { detail: 4 }),
+                material: Material {
+                    base_color: [1.0; 3],
+                    metallic: Param::new(metallic),
+                    roughness: Param::new(rough),
+                    rim: Param::new(0.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+        ));
+        p
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let (w, h) = (160u32, 160u32);
+    let target = r.create_target(w, h);
+    let ctx = EvalCtx::at(0.0);
+    let px = |img: &image::RgbaImage, x: f32, y: f32| {
+        let p = img.get_pixel((x * w as f32) as u32, (y * h as f32) as u32);
+        [p[0] as f32, p[1] as f32, p[2] as f32]
+    };
+    // Where a point of the ball lands on the picture.
+    let cam = scene(EnvSource::Colours, 0.0, 1.0, 0.0).camera.eval(&ctx);
+    let screen = |p: glam::Vec3| {
+        let c = cam.proj(1.0) * cam.view() * p.extend(1.0);
+        (c.x / c.w * 0.5 + 0.5, 0.5 - c.y / c.w * 0.5)
+    };
+
+    // Furnace: the rough white ball is as bright as the sky around it.
+    let furnace = r.render_image(
+        &scene(EnvSource::Hdri(uniform.clone()), 0.0, 1.0, 0.0),
+        &ctx,
+        &target,
+    );
+    furnace.save(dir.join("furnace.png")).unwrap();
+    assert!(r.errors.is_empty(), "{:?}", r.errors);
+    let (ball, sky) = (px(&furnace, 0.5, 0.5), px(&furnace, 0.5, 0.08));
+    eprintln!("furnace: ball {ball:?}, sky {sky:?}");
+    assert!(sky[0] > 30.0, "the sky is black: {sky:?}");
+    assert!(
+        (ball[0] / sky[0] - 1.0).abs() < 0.08,
+        "ball {ball:?} vs sky {sky:?}"
+    );
+
+    // A mirror ball: +x on its right, -x on its left, +z (towards the
+    // camera) in its middle.
+    let mirror = r.render_image(
+        &scene(EnvSource::Hdri(axes.clone()), 1.0, 0.0, 0.0),
+        &ctx,
+        &target,
+    );
+    mirror.save(dir.join("mirror.png")).unwrap();
+    let s = 0.5f32.sqrt();
+    let (rx, ry) = screen(glam::Vec3::new(s, 0.0, s));
+    let (lx, ly) = screen(glam::Vec3::new(-s, 0.0, s));
+    let (right, left, middle) = (
+        px(&mirror, rx, ry),
+        px(&mirror, lx, ly),
+        px(&mirror, 0.5, 0.5),
+    );
+    eprintln!("mirror: right {right:?}, left {left:?}, middle {middle:?}");
+    assert!(
+        right[0] > 2.0 * right[1] && right[0] > 2.0 * right[2],
+        "right should be red: {right:?}"
+    );
+    assert!(
+        left[1] > 2.0 * left[0] && left[1] > 2.0 * left[2],
+        "left should be green: {left:?}"
+    );
+    assert!(
+        middle[2] > 2.0 * middle[0] && middle[2] > 2.0 * middle[1],
+        "middle should be blue: {middle:?}"
+    );
+    // The map turns around +y: by -90°, its +x comes round to +z, which
+    // the ball's middle reflects.
+    let turned = r.render_image(
+        &scene(EnvSource::Hdri(axes.clone()), 1.0, 0.0, -90.0),
+        &ctx,
+        &target,
+    );
+    let m = px(&turned, 0.5, 0.5);
+    eprintln!("turned -90°: middle {m:?}");
+    assert!(
+        m[0] > 2.0 * m[1] && m[0] > 2.0 * m[2],
+        "turned, the middle should be red: {m:?}"
+    );
+
+    // A whole turn is no turn.
+    let studio = EnvSource::Studio(Studio::Sunset);
+    let a = r.render_image(&scene(studio.clone(), 1.0, 0.2, 0.0), &ctx, &target);
+    let b = r.render_image(&scene(studio.clone(), 1.0, 0.2, 360.0), &ctx, &target);
+    let d = mean_abs_diff(a.as_raw(), b.as_raw());
+    assert!(d < 0.05, "a whole turn changed the picture by {d}");
+    // From the sky: a mirror ball in a gradient sky (red above, blue
+    // below) shows red near its top and blue near its bottom.
+    let mut sky = scene(EnvSource::Sky, 1.0, 0.0, 0.0);
+    if let LayerKind::Backdrop(b) = &mut sky.layers[0].kind {
+        b.kind = BackdropKind::Gradient;
+        b.color_a = [1.0, 0.1, 0.05];
+        b.color_b = [0.05, 0.1, 1.0];
+        b.color_c = [0.0; 3];
+    }
+    let img = r.render_image(&sky, &ctx, &target);
+    img.save(dir.join("sky.png")).unwrap();
+    let (tx, ty) = screen(glam::Vec3::new(0.0, 0.8, 0.6));
+    let (bx, by) = screen(glam::Vec3::new(0.0, -0.8, 0.6));
+    let (top, bottom) = (px(&img, tx, ty), px(&img, bx, by));
+    eprintln!("sky: top {top:?}, bottom {bottom:?}");
+    assert!(
+        top[0] > 2.0 * top[2],
+        "the ball's top should reflect the red sky: {top:?}"
+    );
+    assert!(
+        bottom[2] > 2.0 * bottom[0],
+        "its bottom the blue ground: {bottom:?}"
+    );
+    // Captured once, it stays as it was.
+    sky.environment.env_light.sky_static = true;
+    let once = r.render_image(&sky, &ctx, &target);
+    assert!(mean_abs_diff(once.as_raw(), img.as_raw()) < 0.05);
+
+    // Colours: no map, the old look.
+    let plain = r.render_image(&scene(EnvSource::Colours, 1.0, 0.2, 0.0), &ctx, &target);
+    assert!(mean_abs_diff(a.as_raw(), plain.as_raw()) > 1.0);
+}
+
+/// Physical shading: a furnace test (rough white and rough metal under a
+/// uniform map are as bright as it), and clearcoat, glass, sheen and the
+/// occlusion/roughness/metal and glow maps each doing their job.
+#[test]
+fn physical_materials_keep_energy() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let dir = snapshot_dir().join("pbr");
+    std::fs::create_dir_all(&dir).unwrap();
+    let write_hdr = |name: &str, f: &dyn Fn(glam::Vec3) -> [f32; 3]| {
+        let (w, h) = (256u32, 128u32);
+        let img = image::Rgb32FImage::from_fn(w, h, |x, y| {
+            let d =
+                ez_render::envmap::dir_of((x as f32 + 0.5) / w as f32, (y as f32 + 0.5) / h as f32);
+            image::Rgb(f(d))
+        });
+        let path = dir.join(name);
+        image::DynamicImage::ImageRgb32F(img)
+            .save_with_format(&path, image::ImageFormat::Hdr)
+            .unwrap();
+        path.to_string_lossy().to_string()
+    };
+    let write_png = |name: &str, c: [u8; 3]| {
+        let img = image::RgbaImage::from_pixel(8, 8, image::Rgba([c[0], c[1], c[2], 255]));
+        let path = dir.join(name);
+        img.save(&path).unwrap();
+        path.to_string_lossy().to_string()
+    };
+    let uniform = write_hdr("uniform.hdr", &|_| [0.4, 0.4, 0.4]);
+    // Blue in front of the ball (+z, towards the camera), yellow behind.
+    let front_back = write_hdr("front_back.hdr", &|d| {
+        if d.z > 0.0 {
+            [0.0, 0.0, 1.0]
+        } else {
+            [1.0, 1.0, 0.0]
+        }
+    });
+    let scene = |source: EnvSource, mat: Material| {
+        let mut p = Project {
+            camera: Camera {
+                mode: CameraMode::Static,
+                target: [0.0; 3],
+                distance: Param::new(3.0),
+                height: Param::new(0.0),
+                angle: Param::new(0.0),
+                fov: Param::new(40.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        p.environment.fog_density = Param::new(0.0);
+        p.environment.light_intensity = Param::new(0.0);
+        p.post.grade.vignette = Param::new(0.0);
+        p.environment.env_light = EnvLight {
+            source,
+            ..Default::default()
+        };
+        p.layers.push(Layer::new(
+            "Map",
+            LayerKind::Backdrop(Backdrop {
+                kind: BackdropKind::Environment,
+                detail: Param::new(1.0),
+                ..Default::default()
+            }),
+        ));
+        p.layers.push(Layer::new(
+            "Ball",
+            LayerKind::Mesh(MeshLayer {
+                source: MeshSource::Primitive(Primitive::Sphere { detail: 4 }),
+                material: mat,
+                ..Default::default()
+            }),
+        ));
+        p
+    };
+    let physical = |color: [f32; 3], metallic: f32, rough: f32| Material {
+        base_color: color,
+        metallic: Param::new(metallic),
+        roughness: Param::new(rough),
+        rim: Param::new(0.0),
+        pbr: Pbr {
+            shading: Shading::Physical,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let (w, h) = (160u32, 160u32);
+    let target = r.create_target(w, h);
+    let ctx = EvalCtx::at(0.0);
+    let px = |img: &image::RgbaImage, x: f32, y: f32| {
+        let p = img.get_pixel((x * w as f32) as u32, (y * h as f32) as u32);
+        [p[0] as f32, p[1] as f32, p[2] as f32]
+    };
+    // Mean brightness of the ball's disc (inside 80% of its radius).
+    let ball_mean = |img: &image::RgbaImage| {
+        let (mut sum, mut n) = (0.0, 0.0);
+        for (x, y, p) in img.enumerate_pixels() {
+            let dx = (x as f32 + 0.5) / w as f32 - 0.5;
+            let dy = (y as f32 + 0.5) / h as f32 - 0.5;
+            if (dx * dx + dy * dy).sqrt() < 0.2 {
+                sum += (p[0] as f32 + p[1] as f32 + p[2] as f32) / 3.0;
+                n += 1.0;
+            }
+        }
+        sum / n
+    };
+
+    // Furnace: rough white plastic and rough and half-rough white metal
+    // keep (nearly) all the light.
+    for (metallic, rough) in [(0.0, 1.0), (0.0, 0.5), (1.0, 1.0), (1.0, 0.5)] {
+        let img = r.render_image(
+            &scene(
+                EnvSource::Hdri(uniform.clone()),
+                physical([1.0; 3], metallic, rough),
+            ),
+            &ctx,
+            &target,
+        );
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+        let (ball, sky) = (ball_mean(&img), px(&img, 0.5, 0.08)[0]);
+        eprintln!("furnace metallic {metallic} rough {rough}: ball {ball:.1}, sky {sky:.1}");
+        img.save(dir.join(format!("furnace_{metallic}_{rough}.png")))
+            .unwrap();
+        assert!(
+            ball / sky > 0.95 && ball / sky < 1.05,
+            "metallic {metallic}, rough {rough}: ball {ball} vs sky {sky}"
+        );
+    }
+
+    // A clearcoat adds a reflection on top of black paint.
+    let black = physical([0.02; 3], 0.0, 0.8);
+    let mut coated = black.clone();
+    coated.pbr.clearcoat = Param::new(1.0);
+    let map = EnvSource::Hdri(front_back.clone());
+    let a = ball_mean(&r.render_image(&scene(map.clone(), black.clone()), &ctx, &target));
+    let b = ball_mean(&r.render_image(&scene(map.clone(), coated), &ctx, &target));
+    eprintln!("clearcoat: {a:.1} -> {b:.1}");
+    assert!(b > a + 5.0, "clearcoat {a} -> {b}");
+
+    // Glass shows what is behind it (yellow) in its middle, where an
+    // opaque mirror shows what is in front (blue).
+    let mut glass = physical([1.0; 3], 0.0, 0.02);
+    MaterialPreset::Glass.apply(&mut glass);
+    let img = r.render_image(&scene(map.clone(), glass), &ctx, &target);
+    img.save(dir.join("glass.png")).unwrap();
+    let mid = px(&img, 0.5, 0.5);
+    eprintln!("glass middle {mid:?}");
+    assert!(
+        mid[0] > 100.0 && mid[1] > 100.0 && mid[2] < mid[0] * 0.6,
+        "glass middle {mid:?}"
+    );
+
+    // Sheen brightens the edges of dark cloth.
+    let cloth = physical([0.05; 3], 0.0, 0.9);
+    let mut velvet = cloth.clone();
+    velvet.pbr.sheen = Param::new(1.0);
+    let uni = EnvSource::Hdri(uniform.clone());
+    let edge = |img: &image::RgbaImage| px(img, 0.5 + 0.19, 0.5)[0];
+    let a = edge(&r.render_image(&scene(uni.clone(), cloth), &ctx, &target));
+    let b = edge(&r.render_image(&scene(uni.clone(), velvet), &ctx, &target));
+    eprintln!("sheen edge: {a:.1} -> {b:.1}");
+    assert!(b > a + 10.0, "sheen edge {a} -> {b}");
+
+    // The ORM map multiplies the material's values: one with no
+    // roughness turns a rough metal ball into a mirror (blue in the
+    // middle).
+    // (Blue only in a small spot straight ahead: a rough ball averages it
+    // away.)
+    let spot = EnvSource::Hdri(write_hdr("spot.hdr", &|d| {
+        if d.z > 0.9 {
+            [0.0, 0.0, 1.0]
+        } else {
+            [1.0, 1.0, 0.0]
+        }
+    }));
+    let mut rough = physical([1.0; 3], 1.0, 1.0);
+    let before = px(
+        &r.render_image(&scene(spot.clone(), rough.clone()), &ctx, &target),
+        0.5,
+        0.5,
+    );
+    rough.pbr.orm_map = Some(write_png("orm.png", [255, 0, 255]));
+    let after = px(
+        &r.render_image(&scene(spot.clone(), rough), &ctx, &target),
+        0.5,
+        0.5,
+    );
+    assert!(r.errors.is_empty(), "{:?}", r.errors);
+    eprintln!("orm: middle {before:?} -> {after:?}");
+    assert!(before[0] > 150.0, "rough middle {before:?}");
+    assert!(after[2] > 200.0 && after[0] < 120.0, "orm middle {after:?}");
+
+    // A glow map: black keeps the glow off, white lets it through.
+    let mut glow = physical([0.0; 3], 0.0, 1.0);
+    glow.emissive = Param::new(1.0);
+    glow.emissive_color = [1.0, 0.0, 0.0];
+    let dark = EnvSource::Hdri(write_hdr("black.hdr", &|_| [0.0; 3]));
+    glow.pbr.emissive_map = Some(write_png("glow_off.png", [0, 0, 0]));
+    let off = px(
+        &r.render_image(&scene(dark.clone(), glow.clone()), &ctx, &target),
+        0.5,
+        0.5,
+    );
+    glow.pbr.emissive_map = Some(write_png("glow_on.png", [255, 255, 255]));
+    let on = px(
+        &r.render_image(&scene(dark.clone(), glow), &ctx, &target),
+        0.5,
+        0.5,
+    );
+    eprintln!("glow map: {off:?} -> {on:?}");
+    assert!(off[0] < 20.0 && on[0] > 150.0, "glow {off:?} -> {on:?}");
+
+    // A logo's environment sphere reflects the map: flat letters face the
+    // camera and mirror what is behind it (blue); turned half a turn,
+    // yellow.
+    let logo = |turn: f32| {
+        let mut p = scene(map.clone(), physical([1.0; 3], 0.0, 1.0));
+        p.layers.pop();
+        p.environment.env_light.rotation = Param::new(turn);
+        let with = p.clone();
+        p.layers.push(Layer::new(
+            "Logo",
+            LayerKind::Logo(LogoLayer {
+                text: "EZ".into(),
+                size: Param::new(0.6),
+                matcap: Some("matcap_environment".into()),
+                ..Default::default()
+            }),
+        ));
+        (with, p)
+    };
+    for (turn, blue) in [(0.0, true), (180.0, false)] {
+        let (bare, lit) = logo(turn);
+        let a = r.render_image(&bare, &ctx, &target);
+        let b = r.render_image(&lit, &ctx, &target);
+        b.save(dir.join(format!("logo_env_{turn}.png"))).unwrap();
+        // The mean colour of the letters (where the logo changed the picture).
+        let (mut sum, mut n) = ([0.0f32; 3], 0.0);
+        for (pa, pb) in a.pixels().zip(b.pixels()) {
+            let d: i32 = (0..3).map(|c| (pa[c] as i32 - pb[c] as i32).abs()).sum();
+            if d > 200 {
+                for c in 0..3 {
+                    sum[c] += pb[c] as f32;
+                }
+                n += 1.0;
+            }
+        }
+        assert!(n > 50.0, "no letters");
+        let m = sum.map(|v| v / n);
+        eprintln!("logo turned {turn}: letters {m:?}");
+        if blue {
+            assert!(m[2] > m[0] + 60.0, "letters {m:?}");
+        } else {
+            assert!(m[0] > m[2] + 60.0, "letters {m:?}");
+        }
+    }
+
+    // Without a map (sky and ground colours) physical shading still
+    // lights the ball.
+    let img = r.render_image(
+        &scene(EnvSource::Colours, physical([0.8; 3], 0.0, 0.5)),
+        &ctx,
+        &target,
+    );
+    assert!(ball_mean(&img) > 20.0);
+}
+
+/// Screen-space reflections: a chrome ball next to a red box shows red on
+/// the side facing it, which goes when the box is hidden; turned off, the
+/// picture is exactly as without them; the loop still closes.
+#[test]
+fn screen_space_reflections_show_neighbours() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let dir = snapshot_dir().join("ssr");
+    std::fs::create_dir_all(&dir).unwrap();
+    let scene = |ssr: bool, with_box: bool| {
+        let mut p = Project {
+            camera: Camera {
+                mode: CameraMode::Static,
+                target: [0.0; 3],
+                distance: Param::new(4.0),
+                height: Param::new(0.0),
+                angle: Param::new(0.0),
+                fov: Param::new(40.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        p.environment.fog_density = Param::new(0.0);
+        p.post.grade.vignette = Param::new(0.0);
+        p.post.bloom.enabled = false;
+        // A plain grey sky, so red in the ball can only come from the box.
+        p.environment.sky_color = [0.3, 0.3, 0.3];
+        p.environment.ground_color = [0.3, 0.3, 0.3];
+        p.environment.reflections.enabled = ssr;
+        p.layers.push(Layer::new(
+            "Ball",
+            LayerKind::Mesh(MeshLayer {
+                source: MeshSource::Primitive(Primitive::Sphere { detail: 4 }),
+                material: Material {
+                    base_color: [0.95; 3],
+                    metallic: Param::new(1.0),
+                    roughness: Param::new(0.03),
+                    rim: Param::new(0.0),
+                    pbr: Pbr {
+                        shading: Shading::Physical,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+        ));
+        let mut red = Layer::new(
+            "Box",
+            LayerKind::Mesh(MeshLayer {
+                source: MeshSource::Primitive(Primitive::Cube),
+                material: Material {
+                    base_color: [0.9, 0.05, 0.05],
+                    emissive_color: [1.0, 0.0, 0.0],
+                    emissive: Param::new(1.0),
+                    metallic: Param::new(0.0),
+                    roughness: Param::new(0.9),
+                    rim: Param::new(0.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+        )
+        // To the right of the ball and a little towards the camera.
+        .at([2.0, 0.0, 0.6])
+        .scaled(0.8);
+        red.enabled = with_box;
+        p.layers.push(red);
+        p
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let (w, h) = (320u32, 180u32);
+    let target = r.create_target(w, h);
+    let ctx = EvalCtx::at(0.0);
+    // The right side of the ball, facing the box.
+    let side = |img: &image::RgbaImage| {
+        let (mut red, mut n) = (0.0, 0.0);
+        for (x, y, p) in img.enumerate_pixels() {
+            let (fx, fy) = (x as f32 / w as f32, y as f32 / h as f32);
+            // The ball's right half (it reaches about 0.7 of the width).
+            if fx > 0.5 && fx < 0.68 && (fy - 0.5).abs() < 0.15 {
+                red += p[0] as f32 - (p[1] as f32 + p[2] as f32) * 0.5;
+                n += 1.0;
+            }
+        }
+        red / n
+    };
+    let off = r.render_image(&scene(false, true), &ctx, &target);
+    let on = r.render_image(&scene(true, true), &ctx, &target);
+    let gone = r.render_image(&scene(true, false), &ctx, &target);
+    assert!(r.errors.is_empty(), "{:?}", r.errors);
+    on.save(dir.join("on.png")).unwrap();
+    off.save(dir.join("off.png")).unwrap();
+    gone.save(dir.join("no_box.png")).unwrap();
+    let (a, b, c) = (side(&off), side(&on), side(&gone));
+    eprintln!("red on the ball's side: off {a:.1}, on {b:.1}, without the box {c:.1}");
+    assert!(b > a + 8.0, "no reflection of the box: {a} -> {b}");
+    assert!(c.abs() < 2.0, "red without the box: {c}");
+
+    // Off: identical to a project that never had the setting (the
+    // default), including with depth of field sharing the pass.
+    let mut dof = scene(false, true);
+    dof.post.dof.enabled = true;
+    let mut dof_on = dof.clone();
+    dof_on.environment.reflections = Reflections {
+        enabled: false,
+        strength: Param::new(0.7),
+        ..Default::default()
+    };
+    let x = r.render_image(&dof, &ctx, &target);
+    let y = r.render_image(&dof_on, &ctx, &target);
+    assert_eq!(x.as_raw(), y.as_raw());
+
+    // A moving camera: the last frame is the first.
+    let mut moving = scene(true, true);
+    moving.camera.mode = CameraMode::Orbit;
+    let first = r.render_image(&moving, &EvalCtx::at(0.0), &target);
+    let last = r.render_image(&moving, &EvalCtx::at(1.0), &target);
+    assert!(mean_abs_diff(first.as_raw(), last.as_raw()) < 0.05);
+}
+
+/// Light shafts: the sun lights the fog only where it reaches it (a roof
+/// over the left half keeps the fog there dark); no fog, no shafts; off
+/// changes nothing; the loop closes.
+#[test]
+fn light_shafts_follow_the_sun_shadows() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let dir = snapshot_dir().join("shafts");
+    std::fs::create_dir_all(&dir).unwrap();
+    let scene = |shafts: bool, fog: f32| {
+        let mut p = Project {
+            camera: Camera {
+                mode: CameraMode::Static,
+                target: [0.0, 2.0, -10.0],
+                distance: Param::new(10.0),
+                height: Param::new(0.0),
+                angle: Param::new(0.0),
+                fov: Param::new(60.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let e = &mut p.environment;
+        e.fog_density = Param::new(fog);
+        e.fog_color = [0.05, 0.05, 0.06];
+        e.light_dir = [0.05, 1.0, 0.02];
+        e.light_color = [1.0, 0.95, 0.85];
+        e.shadows = Shadows {
+            enabled: true,
+            distance: 30.0,
+            ..Default::default()
+        };
+        e.shafts = LightShafts {
+            enabled: shafts,
+            strength: Param::new(1.0),
+            scattering: 0.0,
+            // Within the roof and the shadow map.
+            reach: 20.0,
+            ..Default::default()
+        };
+        p.post.grade.vignette = Param::new(0.0);
+        p.post.bloom.enabled = false;
+        // A roof over the left half of the view.
+        p.layers.push(
+            Layer::new(
+                "Roof",
+                LayerKind::Mesh(MeshLayer {
+                    source: MeshSource::Primitive(Primitive::Cube),
+                    material: Material {
+                        base_color: [0.1; 3],
+                        rim: Param::new(0.0),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }),
+            )
+            .at([-10.0, 6.0, -15.0])
+            .stretched([20.0, 0.3, 40.0]),
+        );
+        p
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let (w, h) = (320u32, 180u32);
+    let target = r.create_target(w, h);
+    let ctx = EvalCtx::at(0.0);
+    // Mean brightness of a band below the roof's edge on each side.
+    let halves = |img: &image::RgbaImage| {
+        let (mut l, mut rr, mut nl, mut nr) = (0.0, 0.0, 0.0, 0.0);
+        for (x, y, p) in img.enumerate_pixels() {
+            let fy = y as f32 / h as f32;
+            if !(0.55..0.8).contains(&fy) {
+                continue;
+            }
+            let v = (p[0] as f32 + p[1] as f32 + p[2] as f32) / 3.0;
+            let fx = x as f32 / w as f32;
+            if fx < 0.35 {
+                l += v;
+                nl += 1.0;
+            } else if fx > 0.65 {
+                rr += v;
+                nr += 1.0;
+            }
+        }
+        (l / nl, rr / nr)
+    };
+    let off = r.render_image(&scene(false, 0.05), &ctx, &target);
+    let on = r.render_image(&scene(true, 0.05), &ctx, &target);
+    assert!(r.errors.is_empty(), "{:?}", r.errors);
+    off.save(dir.join("off.png")).unwrap();
+    on.save(dir.join("on.png")).unwrap();
+    let ((l0, r0), (l1, r1)) = (halves(&off), halves(&on));
+    eprintln!("shafts: left {l0:.1} -> {l1:.1}, right {r0:.1} -> {r1:.1}");
+    assert!(r1 - r0 > 15.0, "no light in the lit fog: {r0} -> {r1}");
+    assert!(
+        (l1 - l0) < (r1 - r0) * 0.4,
+        "the roof's shadow doesn't cut the shafts: left +{}, right +{}",
+        l1 - l0,
+        r1 - r0
+    );
+
+    // No fog: nothing to light, exactly as without shafts.
+    let a = r.render_image(&scene(false, 0.0), &ctx, &target);
+    let b = r.render_image(&scene(true, 0.0), &ctx, &target);
+    assert_eq!(a.as_raw(), b.as_raw());
+
+    // A moving camera: the last frame is the first.
+    let mut moving = scene(true, 0.05);
+    moving.camera.mode = CameraMode::Orbit;
+    let first = r.render_image(&moving, &EvalCtx::at(0.0), &target);
+    let last = r.render_image(&moving, &EvalCtx::at(1.0), &target);
+    assert!(mean_abs_diff(first.as_raw(), last.as_raw()) < 0.05);
+}
+
+/// A simulated liquid: drawn once baked, as droplets and as a surface in
+/// its material, hidden behind what is in front of it, and the loop closes
+/// (cross-fade halves).
+#[test]
+fn liquid_draws_and_loops() {
+    use ez_core::sim::{Container, Fluid};
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let dir = snapshot_dir().join("liquid");
+    std::fs::create_dir_all(&dir).unwrap();
+    let scene = |surface: bool, wall: bool| {
+        let mut p = Project {
+            camera: Camera {
+                mode: CameraMode::Static,
+                target: [0.0, -0.3, 0.0],
+                distance: Param::new(4.0),
+                height: Param::new(2.0),
+                angle: Param::new(0.0),
+                fov: Param::new(40.0),
+                ..Default::default()
+            },
+            timing: Timing {
+                bpm: 120.0,
+                loop_beats: 8,
+            },
+            ..Default::default()
+        };
+        p.environment.fog_density = Param::new(0.0);
+        p.post.grade.vignette = Param::new(0.0);
+        p.post.bloom.enabled = false;
+        let mut liquid = Layer::new(
+            "Liquid",
+            LayerKind::Mesh(MeshLayer {
+                source: MeshSource::Primitive(Primitive::Sphere { detail: 1 }),
+                material: Material {
+                    base_color: [1.0, 0.1, 0.05],
+                    emissive_color: [1.0, 0.1, 0.05],
+                    emissive: Param::new(0.6),
+                    rim: Param::new(0.0),
+                    ..Default::default()
+                },
+                instancer: Instancer::Fluid {
+                    fluid: Box::new(Fluid {
+                        count: 600,
+                        container: Container::Box,
+                        size: 1.0,
+                        spacing: 0.12,
+                        surface,
+                        ..Default::default()
+                    }),
+                    placed: None,
+                },
+                ..Default::default()
+            }),
+        )
+        .scaled(0.08);
+        liquid.transform.tilt = Param::new(0.0).osc(Wave::Sine, 15.0, 1);
+        p.layers.push(liquid);
+        if wall {
+            // A dark wall in front of everything.
+            p.layers.push(
+                Layer::new(
+                    "Wall",
+                    LayerKind::Mesh(MeshLayer {
+                        source: MeshSource::Primitive(Primitive::Cube),
+                        material: Material {
+                            base_color: [0.0; 3],
+                            metallic: Param::new(0.0),
+                            roughness: Param::new(1.0),
+                            rim: Param::new(0.0),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    }),
+                )
+                .at([0.0, 0.5, 2.2])
+                .stretched([6.0, 6.0, 0.1]),
+            );
+        }
+        p
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    r.set_wait_for_bakes(true);
+    let (w, h) = (240u32, 160u32);
+    let target = r.create_target(w, h);
+    let at = |p: &Project, phase: f32| EvalCtx::new(&p.timing, phase, None);
+    // How red the middle of the picture is.
+    let red = |img: &image::RgbaImage| {
+        let (mut sum, mut n) = (0.0, 0.0);
+        for (x, y, p) in img.enumerate_pixels() {
+            let (fx, fy) = (x as f32 / w as f32, y as f32 / h as f32);
+            if (fx - 0.5).abs() < 0.25 && (fy - 0.55).abs() < 0.25 {
+                sum += p[0] as f32 - (p[1] as f32 + p[2] as f32) * 0.5;
+                n += 1.0;
+            }
+        }
+        sum / n
+    };
+    for surface in [false, true] {
+        let p = scene(surface, false);
+        let img = r.render_image(&p, &at(&p, 0.2), &target);
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+        assert!(!r.take_inexact(), "drawn from an old bake");
+        img.save(dir.join(format!("liquid_{surface}.png"))).unwrap();
+        let shown = red(&img);
+        eprintln!("liquid (surface {surface}): red {shown:.1}");
+        assert!(shown > 15.0, "no liquid (surface {surface}): {shown}");
+        // Behind a wall, nothing shows.
+        let hidden = r.render_image(&scene(surface, true), &at(&p, 0.2), &target);
+        let behind = red(&hidden);
+        eprintln!("behind the wall: red {behind:.1}");
+        assert!(
+            behind < 2.0,
+            "seen through the wall (surface {surface}): {behind}"
+        );
+        // The loop closes.
+        let a = r.render_image(&p, &at(&p, 0.0), &target);
+        let b = r.render_image(&p, &at(&p, 1.0), &target);
+        assert!(mean_abs_diff(a.as_raw(), b.as_raw()) < 0.05);
+    }
 }

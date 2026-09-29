@@ -38,6 +38,13 @@ struct Globals {
     // x: strength (0 = off), y: softness (texels), z: texel size (uv),
     // w: normal offset (world units)
     shadow: vec4<f32>,
+    // Environment map: x: intensity (0 = off, the colours light the
+    // scene), y: turn around +y (radians), z: roughest mip, w: 1 when the
+    // diffuse light comes from the map's roughest mip (a captured sky)
+    // instead of `sh`.
+    ibl: vec4<f32>,
+    // Its diffuse light: 9 spherical-harmonic coefficients (rgb).
+    sh: array<vec4<f32>, 9>,
 };
 
 @group(0) @binding(0) var<uniform> G: Globals;
@@ -124,6 +131,39 @@ fn hue_rotate(c: vec3<f32>, turns: f32) -> vec3<f32> {
 // Sun shadow map (bound for meshes, terrain and the mirror floor only).
 @group(3) @binding(0) var t_shadow: texture_depth_2d;
 @group(3) @binding(1) var s_shadow: sampler_comparison;
+// The environment map (prefiltered cube: mip = roughness × roughest mip)
+// and the split-sum BRDF table (n·v across, roughness down).
+@group(3) @binding(2) var t_env: texture_cube<f32>;
+@group(3) @binding(3) var s_env: sampler;
+@group(3) @binding(4) var t_brdf: texture_2d<f32>;
+
+// A world direction in the environment map's own frame (it turns around
+// +y by G.ibl.y).
+fn env_dir(d: vec3<f32>) -> vec3<f32> {
+    let c = cos(G.ibl.y);
+    let s = sin(G.ibl.y);
+    return vec3<f32>(d.x * c - d.z * s, d.y, d.x * s + d.z * c);
+}
+
+// Light falling on a surface facing `n` from the environment map.
+fn env_irradiance(n: vec3<f32>) -> vec3<f32> {
+    let d = env_dir(n);
+    if (G.ibl.w > 0.5) {
+        return textureSampleLevel(t_env, s_env, d, G.ibl.z).rgb * PI;
+    }
+    var e = G.sh[0].rgb * 0.282095;
+    e = e + G.sh[1].rgb * 0.488603 * d.y + G.sh[2].rgb * 0.488603 * d.z + G.sh[3].rgb * 0.488603 * d.x;
+    e = e + G.sh[4].rgb * 1.092548 * d.x * d.y + G.sh[5].rgb * 1.092548 * d.y * d.z;
+    e = e + G.sh[6].rgb * 0.315392 * (3.0 * d.z * d.z - 1.0) + G.sh[7].rgb * 1.092548 * d.x * d.z;
+    e = e + G.sh[8].rgb * 0.546274 * (d.x * d.x - d.y * d.y);
+    return max(e, vec3<f32>(0.0));
+}
+
+// The environment reflected in direction `r` by a surface of roughness
+// `rough`.
+fn env_specular(r: vec3<f32>, rough: f32) -> vec3<f32> {
+    return textureSampleLevel(t_env, s_env, env_dir(r), clamp(rough, 0.0, 1.0) * G.ibl.z).rgb;
+}
 
 // How much sunlight reaches `world` (1 = lit, 0 = fully shadowed), with a
 // 3x3 soft edge. No derivatives, so it may be called anywhere.
@@ -312,9 +352,40 @@ fn beam_quad(a: vec3<f32>, b: vec3<f32>, width: f32, c: vec2<f32>) -> vec3<f32> 
     return mid + ax * 0.5 * c.y * 1.15 + side * width * c.x;
 }
 
+// A surface after the weather: wet and glossy in the rain (puddles on
+// flat tops), snow on everything facing up. `pud` is the puddle amount.
+struct Weathered {
+    base: vec3<f32>,
+    metallic: f32,
+    rough: f32,
+    n: vec3<f32>,
+    pud: f32,
+};
+
+fn weathered(base_in: vec3<f32>, metallic_in: f32, rough_in: f32, n_in: vec3<f32>, world: vec3<f32>) -> Weathered {
+    var w: Weathered;
+    w.base = base_in;
+    w.metallic = metallic_in;
+    w.rough = rough_in;
+    w.n = n_in;
+    let wet = G.caus_col.w * smoothstep(-0.3, 0.5, w.n.y);
+    w.base = w.base * (1.0 - 0.45 * wet);
+    w.rough = mix(w.rough, w.rough * 0.35, wet);
+    w.pud = puddle(world, w.n);
+    if (w.pud > 0.0) {
+        w.rough = mix(w.rough, 0.02, w.pud);
+        w.n = normalize(mix(w.n, vec3<f32>(0.0, 1.0, 0.0), w.pud));
+    }
+    let snow = snow_cover(world, w.n);
+    w.base = mix(w.base, vec3<f32>(0.88, 0.91, 0.96), snow);
+    w.metallic = mix(w.metallic, 0.0, snow);
+    w.rough = mix(w.rough, 0.85, snow);
+    return w;
+}
+
 // Sun, sky, reflections, rim light and the weather on a lit surface
-// (meshes and raymarched objects). `v` points to the camera; `ao` darkens
-// the sky light and reflections in creases.
+// (meshes and raymarched objects), classic shading. `v` points to the
+// camera; `ao` darkens the sky light and reflections in creases.
 fn lit_surface(
     base_in: vec3<f32>,
     metallic_in: f32,
@@ -325,29 +396,17 @@ fn lit_surface(
     rim_k: f32,
     ao: f32,
 ) -> vec3<f32> {
-    var base = base_in;
-    var metallic = metallic_in;
-    var rough = rough_in;
-    var n = n_in;
-    // Weather on the surface: wet and glossy in the rain (puddles on flat
-    // tops), snow on everything facing up.
-    let wet = G.caus_col.w * smoothstep(-0.3, 0.5, n.y);
-    base = base * (1.0 - 0.45 * wet);
-    rough = mix(rough, rough * 0.35, wet);
-    let pud = puddle(world, n);
-    if (pud > 0.0) {
-        rough = mix(rough, 0.02, pud);
-        n = normalize(mix(n, vec3<f32>(0.0, 1.0, 0.0), pud));
-    }
-    let snow = snow_cover(world, n);
-    base = mix(base, vec3<f32>(0.88, 0.91, 0.96), snow);
-    metallic = mix(metallic, 0.0, snow);
-    rough = mix(rough, 0.85, snow);
+    let w = weathered(base_in, metallic_in, rough_in, n_in, world);
+    let base = w.base;
+    let metallic = w.metallic;
+    let rough = w.rough;
+    let n = w.n;
+    let pud = w.pud;
     let l = normalize(G.light_dir.xyz);
     let sun_lit = sun_shadow(world, n);
     let ndl = max(dot(n, l), 0.0) * sun_lit;
     let diffuse = G.light_color.rgb * G.ground.w * ndl;
-    let ambient = mix(G.ground.rgb, G.sky.rgb, n.y * 0.5 + 0.5) * G.sky.w * ao;
+    var ambient = mix(G.ground.rgb, G.sky.rgb, n.y * 0.5 + 0.5) * G.sky.w * ao;
     let h = normalize(l + v);
     let shin = mix(512.0, 8.0, rough);
     let spec = pow(max(dot(n, h), 0.0), shin) * (1.0 - rough) * G.ground.w * sun_lit;
@@ -355,14 +414,301 @@ fn lit_surface(
     let fres = pow(1.0 - ndv, 5.0);
     let f0 = mix(vec3<f32>(0.04), base, metallic);
     let fr = f0 + (vec3<f32>(1.0) - f0) * fres;
-    let env = env_color(reflect(-v, n), rough) * ao;
+    var env = env_color(reflect(-v, n), rough) * ao;
+    var refl = env * (1.0 - rough * 0.6) * fr;
+    if (G.ibl.x > 0.0) {
+        // Image-based light: diffuse light from the map, and its
+        // reflection prefiltered for the roughness, scaled by the
+        // split-sum table.
+        ambient = env_irradiance(n) * (G.ibl.x / PI) * ao;
+        env = env_specular(reflect(-v, n), rough) * G.ibl.x * ao;
+        let ab = textureSampleLevel(t_brdf, s_env, vec2<f32>(ndv, rough), 0.0).rg;
+        refl = env * (f0 * ab.x + ab.y);
+    }
 
     var col = base * (1.0 - metallic) * (diffuse + ambient);
-    col = col + (spec * G.light_color.rgb + env * (1.0 - rough * 0.6)) * fr;
+    col = col + spec * G.light_color.rgb * fr + refl;
     col = col + G.sky.rgb * rim_k * pow(1.0 - ndv, 3.0) * 0.6;
     col = col + base * caustic_light(world, n);
     col = col + env * pud * rain_rings(world) * 0.6;
     return col;
+}
+
+// The extra layers of a physical material.
+struct PbrLayers {
+    // clearcoat, clearcoat roughness, sheen, transmission
+    k: vec4<f32>,
+    // sheen colour, index of refraction
+    sheen_ior: vec4<f32>,
+};
+
+// GGX normal distribution (a = roughness²).
+fn d_ggx(nh: f32, a: f32) -> f32 {
+    let a2 = a * a;
+    let d = nh * nh * (a2 - 1.0) + 1.0;
+    return a2 / (PI * d * d);
+}
+
+// Smith height-correlated visibility (includes the 1 / (4 n·l n·v)).
+fn v_smith(nv: f32, nl: f32, a: f32) -> f32 {
+    let a2 = a * a;
+    let gv = nl * sqrt(nv * nv * (1.0 - a2) + a2);
+    let gl = nv * sqrt(nl * nl * (1.0 - a2) + a2);
+    return 0.5 / max(gv + gl, 1e-5);
+}
+
+fn f_schlick(f0: vec3<f32>, c: f32) -> vec3<f32> {
+    return f0 + (vec3<f32>(1.0) - f0) * pow(1.0 - c, 5.0);
+}
+
+// "Charlie" sheen distribution and its visibility term (cloth).
+fn d_charlie(nh: f32, a: f32) -> f32 {
+    let inv = 1.0 / max(a, 0.05);
+    let sin2 = max(1.0 - nh * nh, 0.0078125);
+    return (2.0 + inv) * pow(sin2, inv * 0.5) / (2.0 * PI);
+}
+
+fn v_neubelt(nv: f32, nl: f32) -> f32 {
+    return 1.0 / max(4.0 * (nl + nv - nl * nv), 1e-4);
+}
+
+// Light arriving at a surface facing `n` (as radiance: a uniform sky of
+// brightness L gives L), from the map or the sky and ground colours.
+fn ambient_light(n: vec3<f32>) -> vec3<f32> {
+    if (G.ibl.x > 0.0) {
+        return env_irradiance(n) * (G.ibl.x / PI);
+    }
+    return mix(G.ground.rgb, G.sky.rgb, n.y * 0.5 + 0.5) * G.sky.w;
+}
+
+// Light arriving from direction `r`, blurred for roughness `rough`.
+fn env_light(r: vec3<f32>, rough: f32) -> vec3<f32> {
+    if (G.ibl.x > 0.0) {
+        return env_specular(r, rough) * G.ibl.x;
+    }
+    return env_color(r, rough);
+}
+
+// Physically based shading: GGX with Smith visibility and Schlick
+// Fresnel for the sun, split-sum image-based light with multiple
+// scattering (rough metals keep their energy), a clearcoat, sheen and
+// transmission. The sun's strength is scaled like the classic shading's
+// (a white matte surface facing it shows light × strength).
+fn physical_surface(
+    base_in: vec3<f32>,
+    metallic_in: f32,
+    rough_in: f32,
+    n_in: vec3<f32>,
+    world: vec3<f32>,
+    v: vec3<f32>,
+    rim_k: f32,
+    ao: f32,
+    layers: PbrLayers,
+) -> vec3<f32> {
+    let w = weathered(base_in, metallic_in, rough_in, n_in, world);
+    let base = w.base;
+    let metallic = clamp(w.metallic, 0.0, 1.0);
+    let rough = clamp(w.rough, 0.045, 1.0);
+    let n = w.n;
+    let a = rough * rough;
+    let ndv = max(dot(n, v), 1e-4);
+    let r = reflect(-v, n);
+    let f0 = mix(vec3<f32>(0.04), base, metallic);
+    let coat = clamp(layers.k.x, 0.0, 1.0);
+    let coat_rough = clamp(layers.k.y, 0.045, 1.0);
+    let sheen = max(layers.k.z, 0.0);
+    let trans = clamp(layers.k.w, 0.0, 1.0) * (1.0 - metallic);
+    let sheen_col = layers.sheen_ior.rgb;
+    let ior = max(layers.sheen_ior.w, 1.0);
+
+    // Split-sum terms and multiple-scattering compensation
+    // (Fdez-Agüera 2019).
+    let ab = textureSampleLevel(t_brdf, s_env, vec2<f32>(ndv, rough), 0.0).rg;
+    let fss_ess = f0 * ab.x + ab.y;
+    let ems = 1.0 - (ab.x + ab.y);
+    let f_avg = f0 + (vec3<f32>(1.0) - f0) / 21.0;
+    let fms_ems = ems * fss_ess * f_avg / (vec3<f32>(1.0) - f_avg * ems);
+    let kd = base * (1.0 - metallic) * (vec3<f32>(1.0) - fss_ess - fms_ems);
+    // The clearcoat reflects on top and lets the rest through.
+    let coat_ab = textureSampleLevel(t_brdf, s_env, vec2<f32>(ndv, coat_rough), 0.0).rg;
+    let coat_f = (0.04 * coat_ab.x + coat_ab.y) * coat;
+    let under = 1.0 - coat_f;
+
+    // Environment.
+    let irr = ambient_light(n) * ao;
+    let pre = env_light(r, rough) * ao;
+    var col = (fss_ess * pre + fms_ems * irr) * under;
+    // Transmission: light from behind, bent by the surface, instead of
+    // the diffuse part.
+    var diffuse_env = kd * irr;
+    if (trans > 0.0) {
+        // In through the surface and out through the back, as if the shape
+        // were a ball here (a flat slab comes out parallel): a glass ball
+        // shows the world upside down, like a real one.
+        let t1 = refract(-v, n, 1.0 / ior);
+        let exit_n = normalize(n - t1 * 2.0 * dot(n, t1));
+        var t2 = refract(t1, -exit_n, ior);
+        if (dot(t2, t2) < 1e-4) {
+            t2 = reflect(t1, -exit_n);
+        }
+        let behind = env_light(t2, rough) * ao;
+        diffuse_env = mix(diffuse_env, behind * base * (vec3<f32>(1.0) - fss_ess), trans);
+    }
+    col = col + diffuse_env * under;
+    if (sheen > 0.0) {
+        // Grazing velvet light (an approximation of the sheen lobe's
+        // response to the environment).
+        let e = mix(0.1, 0.55, pow(1.0 - ndv, 2.0)) * (1.0 - rough * 0.3);
+        col = col + sheen_col * sheen * irr * e * under;
+    }
+    if (coat > 0.0) {
+        col = col + env_light(r, coat_rough) * ao * coat_f;
+    }
+
+    // The sun.
+    let l = normalize(G.light_dir.xyz);
+    let ndl = max(dot(n, l), 0.0);
+    let sun_lit = sun_shadow(world, n);
+    if (ndl > 0.0 && sun_lit > 0.0) {
+        let h = normalize(l + v);
+        let nh = max(dot(n, h), 0.0);
+        let vh = max(dot(v, h), 0.0);
+        // Irradiance in the classic scale: E = light × strength × n·l,
+        // so a Lambert surface shows base × E (the 1/π and π cancel).
+        let e = G.light_color.rgb * G.ground.w * ndl * sun_lit;
+        let f = f_schlick(f0, vh);
+        let spec = f * d_ggx(nh, a) * v_smith(ndv, ndl, a) * PI;
+        // Multiple scattering, as for the environment.
+        let spec_ms = spec * (vec3<f32>(1.0) + f0 * (1.0 / max(ab.x + ab.y, 1e-3) - 1.0));
+        let diff = base * (1.0 - metallic) * (vec3<f32>(1.0) - f) * (1.0 - trans);
+        var sun = (diff + spec_ms) * e * under;
+        if (sheen > 0.0) {
+            sun = sun + sheen_col * sheen * d_charlie(nh, a) * v_neubelt(ndv, ndl) * PI * e * under;
+        }
+        if (coat > 0.0) {
+            let ca = coat_rough * coat_rough;
+            let fc = 0.04 + 0.96 * pow(1.0 - vh, 5.0);
+            sun = sun + vec3<f32>(fc * d_ggx(nh, ca) * v_smith(ndv, ndl, ca) * PI * coat) * e;
+        }
+        col = col + sun;
+    }
+
+    col = col + G.sky.rgb * rim_k * pow(1.0 - ndv, 3.0) * 0.6;
+    col = col + base * caustic_light(world, n);
+    col = col + pre * w.pud * rain_rings(world) * 0.6;
+    return col;
+}
+
+// --- screen-space reflections: what a surface reflects ----------------------
+
+// The environment reflection a surface added to its colour, and how
+// strongly it reflects: `e` = `k` × the environment seen in the mirror
+// direction (already dimmed by fog), so the reflection pass can swap in
+// what the ray really hits (k × hit − e) without counting anything twice.
+struct Mirror {
+    n: vec3<f32>,
+    rough: f32,
+    k: vec3<f32>,
+    e: vec3<f32>,
+};
+
+// Octahedral encoding of a unit vector into two numbers in -1..1.
+fn oct_encode(n: vec3<f32>) -> vec2<f32> {
+    let p = n.xy / (abs(n.x) + abs(n.y) + abs(n.z));
+    if (n.z >= 0.0) {
+        return p;
+    }
+    return (vec2<f32>(1.0) - abs(p.yx)) * select(vec2<f32>(-1.0), vec2<f32>(1.0), p >= vec2<f32>(0.0));
+}
+
+fn oct_decode(e: vec2<f32>) -> vec3<f32> {
+    var n = vec3<f32>(e, 1.0 - abs(e.x) - abs(e.y));
+    if (n.z < 0.0) {
+        let xy = (vec2<f32>(1.0) - abs(n.yx)) * select(vec2<f32>(-1.0), vec2<f32>(1.0), n.xy >= vec2<f32>(0.0));
+        n = vec3<f32>(xy, n.z);
+    }
+    return normalize(n);
+}
+
+// The reflection term of `lit_surface` (classic shading).
+fn classic_mirror(base_in: vec3<f32>, metallic_in: f32, rough_in: f32, n_in: vec3<f32>, world: vec3<f32>, v: vec3<f32>, ao: f32) -> Mirror {
+    let w = weathered(base_in, metallic_in, rough_in, n_in, world);
+    var m: Mirror;
+    m.n = w.n;
+    m.rough = w.rough;
+    let ndv = max(dot(w.n, v), 0.0);
+    let f0 = mix(vec3<f32>(0.04), w.base, w.metallic);
+    let r = reflect(-v, w.n);
+    if (G.ibl.x > 0.0) {
+        let ab = textureSampleLevel(t_brdf, s_env, vec2<f32>(ndv, w.rough), 0.0).rg;
+        m.k = (f0 * ab.x + ab.y) * ao;
+    } else {
+        let fr = f0 + (vec3<f32>(1.0) - f0) * pow(1.0 - ndv, 5.0);
+        m.k = fr * (1.0 - w.rough * 0.6) * ao;
+    }
+    m.e = env_light(r, w.rough) * m.k;
+    return m;
+}
+
+// The reflection terms of `physical_surface` (the base's and the
+// clearcoat's, which is sharper: the pass blurs by the sharper one).
+fn physical_mirror(base_in: vec3<f32>, metallic_in: f32, rough_in: f32, n_in: vec3<f32>, world: vec3<f32>, v: vec3<f32>, ao: f32, layers: PbrLayers) -> Mirror {
+    let w = weathered(base_in, metallic_in, rough_in, n_in, world);
+    let metallic = clamp(w.metallic, 0.0, 1.0);
+    let rough = clamp(w.rough, 0.045, 1.0);
+    let ndv = max(dot(w.n, v), 1e-4);
+    let r = reflect(-v, w.n);
+    let f0 = mix(vec3<f32>(0.04), w.base, metallic);
+    let ab = textureSampleLevel(t_brdf, s_env, vec2<f32>(ndv, rough), 0.0).rg;
+    let coat = clamp(layers.k.x, 0.0, 1.0);
+    let coat_rough = clamp(layers.k.y, 0.045, 1.0);
+    let coat_ab = textureSampleLevel(t_brdf, s_env, vec2<f32>(ndv, coat_rough), 0.0).rg;
+    let coat_f = (0.04 * coat_ab.x + coat_ab.y) * coat;
+    let k_base = (f0 * ab.x + ab.y) * (1.0 - coat_f) * ao;
+    let k_coat = vec3<f32>(coat_f * ao);
+    var m: Mirror;
+    m.n = w.n;
+    m.rough = select(rough, min(rough, coat_rough), coat > 0.0);
+    m.k = k_base + k_coat;
+    m.e = env_light(r, rough) * k_base;
+    if (coat > 0.0) {
+        m.e = m.e + env_light(r, coat_rough) * k_coat;
+    }
+    return m;
+}
+
+// No reflection (matte, glowing or see-through things).
+fn no_mirror(n: vec3<f32>) -> Mirror {
+    var m: Mirror;
+    m.n = n;
+    m.rough = 1.0;
+    m.k = vec3<f32>(0.0);
+    m.e = vec3<f32>(0.0);
+    return m;
+}
+
+// The distance pass's outputs: distance to the camera (depth of field),
+// and what the surface reflects (screen-space reflections).
+struct DistOut {
+    // r: distance to the camera
+    @location(0) dist: vec4<f32>,
+    // xy: normal (octahedral), z: roughness, w: 1 = a surface
+    @location(1) surf: vec4<f32>,
+    // rgb: reflectance
+    @location(2) k: vec4<f32>,
+    // rgb: the reflected environment it already shows
+    @location(3) e: vec4<f32>,
+};
+
+fn dist_out(world: vec3<f32>, m: Mirror) -> DistOut {
+    var o: DistOut;
+    o.dist = vec4<f32>(length(world - G.cam_pos.xyz), 0.0, 0.0, 1.0);
+    // Fog dims the reflection like the rest of the surface.
+    let clear = 1.0 - fog_amount_at(world);
+    o.surf = vec4<f32>(oct_encode(m.n), m.rough, 1.0);
+    o.k = vec4<f32>(m.k * clear, 1.0);
+    o.e = vec4<f32>(m.e * clear, 1.0);
+    return o;
 }
 
 fn clip_visible(world: vec3<f32>) -> bool {

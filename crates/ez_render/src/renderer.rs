@@ -43,6 +43,8 @@ const LOGO_FX_SIZE: u64 = 3 * DRAW_SLOT;
 const POST_SLOT: u64 = 512;
 /// Distance to the camera for depth of field.
 const DOF_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R16Float;
+/// Steps of a screen-space reflection ray (before homing in on a hit).
+const SSR_STEPS: u32 = 32;
 const POST_SLOTS: u64 = 32;
 const BLOOM_LEVELS: usize = 5;
 
@@ -82,6 +84,57 @@ struct GlobalsRaw {
     sun: [f32; 4],
     shadow_vp: [[f32; 4]; 4],
     shadow: [f32; 4],
+    /// Environment map: intensity (0 = off), turn (radians), roughest
+    /// mip, sky mode (see `common.wgsl`).
+    ibl: [f32; 4],
+    /// Its diffuse light (9 spherical-harmonic coefficients, rgb).
+    sh: [[f32; 4]; 9],
+}
+
+/// An environment map on the GPU and what the CPU worked out from it.
+struct EnvMaps {
+    /// What it was made from (see `Renderer::env_key`).
+    key: String,
+    view: wgpu::TextureView,
+    sh: [[f32; 4]; 9],
+    /// Its sun, taken out of the map (when asked for).
+    sun: Option<crate::envmap::Sun>,
+    /// The panorama as a texture, for the Environment map background.
+    pano: Option<String>,
+    /// A small, blurred copy on the CPU (for logos' environment sphere).
+    tiny: Option<crate::envmap::Equirect>,
+}
+
+/// Side of a captured sky's cube faces.
+const SKY_SIZE: u32 = 64;
+
+/// "From the sky": the background captured into a cube each frame, then
+/// blurred into the environment map's roughness mips.
+struct SkyCapture {
+    /// The capture (one mip) and a face view of each side to draw into.
+    src_faces: Vec<wgpu::TextureView>,
+    /// The environment map: a view per face and mip to draw into, and the
+    /// whole cube to light with.
+    dst_faces: Vec<wgpu::TextureView>,
+    dst_cube: wgpu::TextureView,
+    /// Globals of each face's view.
+    globals: Vec<wgpu::Buffer>,
+    globals_bg: Vec<wgpu::BindGroup>,
+    filter_pipe: wgpu::RenderPipeline,
+    /// One bind group per mip and face (its parameters, the capture).
+    filter_bgs: Vec<wgpu::BindGroup>,
+    /// What was captured last (a sky that doesn't move is captured once).
+    captured: Option<u64>,
+}
+
+/// Group 3 of lit surfaces: the sun shadow map, the environment map and
+/// the BRDF table.
+struct Group3 {
+    layout: wgpu::BindGroupLayout,
+    shadow_view: wgpu::TextureView,
+    shadow_sampler: wgpu::Sampler,
+    env_sampler: wgpu::Sampler,
+    lut_view: wgpu::TextureView,
 }
 
 /// Size of the sun shadow map.
@@ -97,6 +150,9 @@ struct FrameEnv {
     wet: f32,
     /// Snow cover (0..1).
     snow: f32,
+    /// Environment map lighting (see `GlobalsRaw::ibl`, `sh`).
+    ibl: [f32; 4],
+    sh: [[f32; 4]; 9],
 }
 
 #[repr(C)]
@@ -107,6 +163,9 @@ struct InstanceRaw {
 }
 
 type Block = [[f32; 4]; 16];
+/// A mesh's pictures: colour, relief, occlusion/roughness/metal, glow,
+/// and whether they are sampled pixelated.
+type MeshTexKey = (String, String, String, String, bool);
 
 /// Ends the texture key of a picture tiled mirrored.
 const MIRROR_KEY: &str = ":mirror";
@@ -162,12 +221,14 @@ enum Cmd {
     BackdropUp {
         res: u32,
     },
+    /// Uses two draw slots: `slot` and the next (the physical material).
     Mesh {
         slot: u32,
         mesh: String,
-        tex: String,
-        relief: String,
-        pixelated: bool,
+        texs: MeshTexKey,
+        /// A liquid drawn as one surface (`liquid.wgsl`): not drawn as
+        /// copies in the main picture (still in shadows and reflections).
+        liquid: bool,
         first: u32,
         count: u32,
         /// A raymarched object in its box proxy (`sdf.wgsl`).
@@ -465,6 +526,7 @@ fn backdrop_load(kind: BackdropKind) -> f32 {
         BackdropKind::Clouds => 1.2,
         BackdropKind::Aurora => 0.4,
         BackdropKind::Battle => 0.15,
+        BackdropKind::Environment => 0.05,
     }
 }
 
@@ -663,6 +725,39 @@ fn gpu_layout(
             locals.extend(placed.iter().map(|m| m4(*m)));
             // Somewhere on the landscape: always drawn.
             g.reach = None;
+        }
+        Instancer::Fluid { ref fluid, .. } => {
+            // Placed on the CPU from the bake.
+            g.layout = 11;
+            g.lay_u[0] = locals.len() as u32;
+            locals.extend(
+                ez_core::eval::instancer_locals(inst, ctx, surface)
+                    .iter()
+                    .map(|m| m4(*m)),
+            );
+            g.reach = Some(fluid.reach() * 1.2);
+        }
+        Instancer::Physics { ref physics, .. } => {
+            // Placed on the CPU from the bake.
+            g.layout = 11;
+            g.lay_u[0] = locals.len() as u32;
+            locals.extend(
+                ez_core::eval::instancer_locals(inst, ctx, surface)
+                    .iter()
+                    .map(|m| m4(*m)),
+            );
+            g.reach = Some(physics.reach(Vec3::ONE) * 4.0);
+        }
+        Instancer::Flock { ref flock, .. } => {
+            // Placed on the CPU from the bake.
+            g.layout = 11;
+            g.lay_u[0] = locals.len() as u32;
+            locals.extend(
+                ez_core::eval::instancer_locals(inst, ctx, surface)
+                    .iter()
+                    .map(|m| m4(*m)),
+            );
+            g.reach = Some(flock.reach());
         }
     }
     g
@@ -892,8 +987,15 @@ pub struct Renderer {
     dof_sdf_pipe: wgpu::RenderPipeline,
     dof_terrain_pipe: wgpu::RenderPipeline,
     dof_floor_pipe: wgpu::RenderPipeline,
-    shadow_view: wgpu::TextureView,
     shadow_bg: wgpu::BindGroup,
+    /// The environment map in use (the black one while the colours light
+    /// the scene).
+    env: EnvMaps,
+    /// What the lit surfaces' group 3 is made of (rebuilt when the
+    /// environment map changes).
+    group3: Group3,
+    sky: Option<SkyCapture>,
+    bgl_globals: wgpu::BindGroupLayout,
     bgl_draw: wgpu::BindGroupLayout,
     draw_buf: wgpu::Buffer,
     draw_cap: u64,
@@ -912,6 +1014,13 @@ pub struct Renderer {
     final_pipe: wgpu::RenderPipeline,
     rays_pipe: wgpu::RenderPipeline,
     rays_add_pipe: wgpu::RenderPipeline,
+    /// Screen-space reflections (`ssr.wgsl`) and its inputs' layout.
+    ssr_pipe: wgpu::RenderPipeline,
+    ssr_add_pipe: wgpu::RenderPipeline,
+    /// Light shafts through the fog (`shafts.wgsl`).
+    shafts_pipe: wgpu::RenderPipeline,
+    liquid_pipes: LiquidPipes,
+    bgl_ssr: wgpu::BindGroupLayout,
 
     sampler_repeat: wgpu::Sampler,
     sampler_nearest: wgpu::Sampler,
@@ -931,7 +1040,12 @@ pub struct Renderer {
     triplanar_meshes: std::collections::HashSet<String>,
     textures: HashMap<String, GpuTexture>,
     tex_bgs: HashMap<(String, bool), wgpu::BindGroup>,
-    mesh_tex_bgs: HashMap<(String, String, bool), wgpu::BindGroup>,
+    mesh_tex_bgs: HashMap<MeshTexKey, wgpu::BindGroup>,
+    bgl_draw_mesh: wgpu::BindGroupLayout,
+    draw_mesh_bg: wgpu::BindGroup,
+    /// What the logos' environment sphere was last made for (map, camera
+    /// axes, turn, strength).
+    env_matcap: Option<(String, [f32; 11])>,
     /// Asset loading problems (shown in the UI), keyed by asset.
     pub errors: HashMap<String, String>,
 
@@ -971,6 +1085,33 @@ pub struct Renderer {
     uploaded: Vec<InstanceRaw>,
     floor_bg_cache: Option<((String, u64), wgpu::BindGroup)>,
     stats: FrameStats,
+    /// Simulations baked into loops (flocks), and what they may depend on.
+    bakes: ez_core::sim::BakeCache,
+    sim_frame: ez_core::sim::Frame,
+    audio: Option<std::sync::Arc<AudioEnvelope>>,
+    /// Changes with every new music envelope (part of bake keys).
+    audio_id: u64,
+    /// Wait for bakes instead of drawing the last one (exports).
+    wait_for_bakes: bool,
+    /// Whether a simulation was drawn from an old bake, or not drawn, in
+    /// frames since the last [`Renderer::take_inexact`].
+    inexact: bool,
+    /// Per simulated layer (by name), how its bake is doing.
+    sim_status: HashMap<String, SimStatus>,
+}
+
+/// How a simulated layer's bake is doing (for the inspector).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SimStatus {
+    /// The bake for the current settings is ready (else an older one, or
+    /// nothing, is drawn).
+    pub ready: bool,
+    /// The gap closing the loop hides (see [`ez_core::sim::Seam`]).
+    pub seam: ez_core::sim::Seam,
+    /// Loops simulated before recording.
+    pub warmup_loops: u32,
+    /// Memory the bake takes.
+    pub bytes: usize,
 }
 
 /// All size-dependent GPU resources for one output image.
@@ -1013,6 +1154,22 @@ pub struct RenderTarget {
     bg_low: Vec<(u32, wgpu::TextureView, wgpu::BindGroup)>,
     bg_rays: wgpu::BindGroup,
     bg_rays_add: wgpu::BindGroup,
+    /// The distance pass's G-buffer (half resolution): normal and
+    /// roughness, reflectance, the reflected environment shown.
+    gbuf: [wgpu::TextureView; 3],
+    /// Screen-space reflections to add (half resolution), their inputs,
+    /// and adding them onto the scene.
+    ssr: wgpu::TextureView,
+    bg_ssr: wgpu::BindGroup,
+    bg_ssr_add: wgpu::BindGroup,
+    /// Light shafts to add (half resolution), and adding them.
+    shafts: wgpu::TextureView,
+    bg_shafts_add: wgpu::BindGroup,
+    /// Liquid surfaces (half resolution): splatted distances and
+    /// thickness, the blur between and the smoothed surface; the inputs
+    /// of each pass.
+    liquid: [wgpu::TextureView; 4],
+    bg_liquid: [wgpu::BindGroup; 4],
     rays: wgpu::TextureView,
     /// Depth of field: distance to the camera (half resolution) and its
     /// depth buffer.
@@ -1035,6 +1192,43 @@ fn v4(v: Vec3, w: f32) -> [f32; 4] {
 
 fn c4(c: [f32; 3], w: f32) -> [f32; 4] {
     [c[0], c[1], c[2], w]
+}
+
+/// Liquid surfaces (`liquid.wgsl`): splatting droplets, blurring, and
+/// shading the surface onto the picture.
+struct LiquidPipes {
+    splat_dist: wgpu::RenderPipeline,
+    splat_thick: wgpu::RenderPipeline,
+    blur_h: wgpu::RenderPipeline,
+    blur_v: wgpu::RenderPipeline,
+    composite: wgpu::RenderPipeline,
+    layout: wgpu::BindGroupLayout,
+}
+
+/// Dynamic offsets of a mesh draw: its slot and the next.
+fn mesh_offsets(slot: u32) -> [u32; 2] {
+    [slot * DRAW_SLOT as u32, (slot + 1) * DRAW_SLOT as u32]
+}
+
+/// The physical-material slot of a mesh draw (see mesh.wgsl's D2).
+fn pbr_block(mat: &Material, ctx: &EvalCtx) -> Block {
+    let p = &mat.pbr;
+    let mut b: Block = Zeroable::zeroed();
+    let on = |x: bool| if x { 1.0 } else { 0.0 };
+    b[0] = [
+        on(p.shading == Shading::Physical),
+        on(p.orm_map.is_some()),
+        on(p.emissive_map.is_some()),
+        0.0,
+    ];
+    b[1] = [
+        p.clearcoat.eval(ctx).clamp(0.0, 1.0),
+        p.clearcoat_roughness.eval(ctx).clamp(0.0, 1.0),
+        p.sheen.eval(ctx).max(0.0),
+        p.transmission.eval(ctx).clamp(0.0, 1.0),
+    ];
+    b[2] = c4(p.sheen_color, p.ior.max(1.0));
+    b
 }
 
 fn uniform_entry(binding: u32, dynamic: bool, size: u64) -> wgpu::BindGroupLayoutEntry {
@@ -1177,6 +1371,15 @@ impl Renderer {
             label: Some("draw"),
             entries: &[uniform_entry(0, true, DRAW_SLOT)],
         });
+        // Meshes and raymarched shapes read two draw slots: theirs and the
+        // next (the physical material).
+        let bgl_draw_mesh = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("draw mesh"),
+            entries: &[
+                uniform_entry(0, true, DRAW_SLOT),
+                uniform_entry(1, true, DRAW_SLOT),
+            ],
+        });
         let bgl_tex = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("tex"),
             entries: &[tex_entry(0), sampler_entry(1)],
@@ -1197,6 +1400,12 @@ impl Renderer {
                     visibility: vf,
                     ..tex_entry(2)
                 },
+                wgpu::BindGroupLayoutEntry {
+                    visibility: vf,
+                    ..sampler_entry(3)
+                },
+                tex_entry(4),
+                tex_entry(5),
             ],
         });
         let bgl_floor = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -1237,6 +1446,33 @@ impl Renderer {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
                     count: None,
                 },
+                // The environment map, its sampler and the BRDF table.
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::Cube,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         });
         let globals_buf = [0, 1, 2].map(|i| {
@@ -1260,6 +1496,7 @@ impl Renderer {
         let draw_cap = 64;
         let draw_buf = Self::make_draw_buf(device, draw_cap);
         let draw_bg = Self::make_draw_bg(device, &bgl_draw, &draw_buf);
+        let draw_mesh_bg = Self::make_draw_mesh_bg(device, &bgl_draw_mesh, &draw_buf);
         let post_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("post params"),
             size: POST_SLOT * POST_SLOTS,
@@ -1276,7 +1513,11 @@ impl Renderer {
         });
         let mesh_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("mesh"),
-            bind_group_layouts: &[Some(&bgl_globals), Some(&bgl_draw), Some(&bgl_mesh_tex)],
+            bind_group_layouts: &[
+                Some(&bgl_globals),
+                Some(&bgl_draw_mesh),
+                Some(&bgl_mesh_tex),
+            ],
             immediate_size: 0,
         });
         // Lit surfaces also read the sun shadow map (group 3).
@@ -1284,7 +1525,7 @@ impl Renderer {
             label: Some("mesh lit"),
             bind_group_layouts: &[
                 Some(&bgl_globals),
-                Some(&bgl_draw),
+                Some(&bgl_draw_mesh),
                 Some(&bgl_mesh_tex),
                 Some(&bgl_shadow),
             ],
@@ -1790,18 +2031,26 @@ impl Renderer {
                     module,
                     entry_point: Some("fs_depth"),
                     compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: DOF_FORMAT,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
+                    // Distance, then the G-buffer for screen-space
+                    // reflections (see `DistOut` in common.wgsl).
+                    targets: &[
+                        Some(wgpu::ColorTargetState {
+                            format: DOF_FORMAT,
+                            blend: None,
+                            write_mask: wgpu::ColorWrites::ALL,
+                        }),
+                        Some(HDR_FORMAT.into()),
+                        Some(HDR_FORMAT.into()),
+                        Some(HDR_FORMAT.into()),
+                    ],
                 }),
                 multiview_mask: None,
                 cache: None,
             })
         };
-        let dof_mesh_pipe = dof_pipe("dof mesh", &mesh_layout, &sh_mesh, &mesh_buffers);
-        let dof_sdf_pipe = dof_pipe("dof sdf", &mesh_layout, &sh_sdf, &mesh_buffers);
+        // What surfaces reflect needs the split-sum table (group 3).
+        let dof_mesh_pipe = dof_pipe("dof mesh", &mesh_lit_layout, &sh_mesh, &mesh_buffers);
+        let dof_sdf_pipe = dof_pipe("dof sdf", &mesh_lit_layout, &sh_sdf, &mesh_buffers);
         let dof_terrain_pipe = dof_pipe("dof terrain", &scene_layout, &sh_terrain, &[]);
         let dof_floor_pipe = dof_pipe("dof floor", &particle_layout, &sh_floor, &[]);
         let shadow_view = device
@@ -1830,20 +2079,66 @@ impl Renderer {
             compare: Some(wgpu::CompareFunction::LessEqual),
             ..Default::default()
         });
-        let shadow_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("shadow"),
-            layout: &bgl_shadow,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&shadow_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&shadow_sampler),
-                },
-            ],
+        let env_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("environment"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
+            ..Default::default()
         });
+        // No environment map yet: a black one (unused while the colours
+        // light the scene).
+        let env_none = Self::make_env_cube(device, queue, 1, &[vec![vec![[0.0f32; 4]]; 6]]);
+        let lut_view = {
+            let lut = crate::envmap::brdf_lut();
+            let n = crate::envmap::LUT_SIZE;
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("brdf table"),
+                size: wgpu::Extent3d {
+                    width: n,
+                    height: n,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba16Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+            let bytes: Vec<u8> = lut
+                .iter()
+                .flat_map(|[a, b]| [*a, *b, 0.0, 1.0])
+                .flat_map(|c| crate::logo::f16_bits(c).to_le_bytes())
+                .collect();
+            queue.write_texture(
+                texture.as_image_copy(),
+                &bytes,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(8 * n),
+                    rows_per_image: Some(n),
+                },
+                wgpu::Extent3d {
+                    width: n,
+                    height: n,
+                    depth_or_array_layers: 1,
+                },
+            );
+            texture.create_view(&Default::default())
+        };
+        let shadow_bg = Self::make_group3(
+            device,
+            &bgl_shadow,
+            &shadow_view,
+            &shadow_sampler,
+            &env_none,
+            &env_sampler,
+            &lut_view,
+        );
         let main_pipes = scene_pipes(msaa);
         let refl_pipes = scene_pipes(1);
         let floor_pipe = make_pipeline(
@@ -1880,6 +2175,175 @@ impl Renderer {
         };
         let blur_pipe = post_pipe("blur", "fs_blur", HDR_FORMAT, None);
         let warp_pipe = post_pipe("warp", "fs_warp", HDR_FORMAT, None);
+        let ssr_add_pipe = post_pipe("ssr add", "fs_ssr_add", HDR_FORMAT, Some(ADDITIVE));
+        // Screen-space reflections: the G-buffer, the distances and the
+        // scene in (group 2), the environment for what they replace
+        // (group 3).
+        let bgl_ssr = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("ssr"),
+            entries: &[
+                tex_entry(0),
+                tex_entry(1),
+                tex_entry(2),
+                tex_entry(3),
+                tex_entry(4),
+                sampler_entry(5),
+            ],
+        });
+        let ssr_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("ssr"),
+            bind_group_layouts: &[
+                Some(&bgl_globals),
+                Some(&bgl_draw),
+                Some(&bgl_ssr),
+                Some(&bgl_shadow),
+            ],
+            immediate_size: 0,
+        });
+        let sh_ssr = shader(device, "ssr", include_str!("shaders/ssr.wgsl"), true);
+        // Light shafts read the distances (group 2 as the reflections'),
+        // the fog in the globals and the shadow map (group 3).
+        let sh_shafts = shader(device, "shafts", include_str!("shaders/shafts.wgsl"), true);
+        let shafts_pipe = make_pipeline(
+            device,
+            PipeDesc {
+                label: "light shafts",
+                layout: &ssr_layout,
+                module: &sh_shafts,
+                fs: "fs_main",
+                buffers: &[],
+                format: HDR_FORMAT,
+                samples: 1,
+                depth: None,
+                blend: None,
+            },
+        );
+        // Liquid surfaces: droplet splats, blurs and the composite, all
+        // with the droplet layer's material (group 1) and the environment
+        // (group 3).
+        let bgl_liquid = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("liquid"),
+            entries: &[tex_entry(0), tex_entry(1)],
+        });
+        let liquid_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("liquid"),
+            bind_group_layouts: &[
+                Some(&bgl_globals),
+                Some(&bgl_draw_mesh),
+                Some(&bgl_liquid),
+                Some(&bgl_shadow),
+            ],
+            immediate_size: 0,
+        });
+        let sh_liquid = shader(device, "liquid", include_str!("shaders/liquid.wgsl"), true);
+        let splat_buffers = [Some(wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<InstanceRaw>() as u64,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &wgpu::vertex_attr_array![4 => Float32x4, 5 => Float32x4, 6 => Float32x4, 7 => Float32x4, 8 => Float32x4],
+        })];
+        let liquid_pipe = |label: &str,
+                           vs: &str,
+                           fs: &str,
+                           buffers: &[Option<wgpu::VertexBufferLayout>],
+                           blend: Option<wgpu::BlendState>,
+                           scene: bool| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&liquid_layout),
+                vertex: wgpu::VertexState {
+                    module: &sh_liquid,
+                    entry_point: Some(vs),
+                    compilation_options: Default::default(),
+                    buffers,
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    cull_mode: None,
+                    ..Default::default()
+                },
+                // The composite is drawn in the scene's pass, against its
+                // depth.
+                depth_stencil: scene.then(|| wgpu::DepthStencilState {
+                    format: DEPTH_FORMAT,
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(wgpu::CompareFunction::Less),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: wgpu::MultisampleState {
+                    count: if scene { msaa } else { 1 },
+                    ..Default::default()
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &sh_liquid,
+                    entry_point: Some(fs),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: HDR_FORMAT,
+                        blend,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        // The nearest droplet wins.
+        let nearest = wgpu::BlendState {
+            color: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::One,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Min,
+            },
+            alpha: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::One,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Min,
+            },
+        };
+        let liquid_pipes = LiquidPipes {
+            splat_dist: liquid_pipe(
+                "liquid splat distance",
+                "vs_splat",
+                "fs_splat_dist",
+                &splat_buffers,
+                Some(nearest),
+                false,
+            ),
+            splat_thick: liquid_pipe(
+                "liquid splat thickness",
+                "vs_splat",
+                "fs_splat_thick",
+                &splat_buffers,
+                Some(ADDITIVE),
+                false,
+            ),
+            blur_h: liquid_pipe("liquid blur h", "vs_full", "fs_blur_h", &[], None, false),
+            blur_v: liquid_pipe("liquid blur v", "vs_full", "fs_blur_v", &[], None, false),
+            composite: liquid_pipe(
+                "liquid composite",
+                "vs_full",
+                "fs_composite",
+                &[],
+                Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                true,
+            ),
+            layout: bgl_liquid,
+        };
+        let ssr_pipe = make_pipeline(
+            device,
+            PipeDesc {
+                label: "ssr",
+                layout: &ssr_layout,
+                module: &sh_ssr,
+                fs: "fs_main",
+                buffers: &[],
+                format: HDR_FORMAT,
+                samples: 1,
+                depth: None,
+                blend: None,
+            },
+        );
         let bloom_down_pipe = post_pipe("bloom down", "fs_bloom_down", HDR_FORMAT, None);
         let bloom_up_pipe = post_pipe("bloom up", "fs_bloom_up", HDR_FORMAT, Some(ADDITIVE));
         // The final pass writes the export image and the display image.
@@ -2017,8 +2481,24 @@ impl Renderer {
             dof_sdf_pipe,
             dof_terrain_pipe,
             dof_floor_pipe,
-            shadow_view,
             shadow_bg,
+            env: EnvMaps {
+                key: String::new(),
+                view: env_none,
+                sh: [[0.0; 4]; 9],
+                sun: None,
+                pano: None,
+                tiny: None,
+            },
+            sky: None,
+            bgl_globals: bgl_globals.clone(),
+            group3: Group3 {
+                layout: bgl_shadow,
+                shadow_view,
+                shadow_sampler,
+                env_sampler,
+                lut_view,
+            },
             bgl_draw,
             draw_buf,
             draw_cap,
@@ -2036,6 +2516,11 @@ impl Renderer {
             final_pipe,
             rays_pipe,
             rays_add_pipe,
+            ssr_pipe,
+            ssr_add_pipe,
+            shafts_pipe,
+            liquid_pipes,
+            bgl_ssr,
             sampler_repeat,
             sampler_nearest,
             sampler_mirror,
@@ -2048,6 +2533,9 @@ impl Renderer {
             textures: HashMap::new(),
             tex_bgs: HashMap::new(),
             mesh_tex_bgs: HashMap::new(),
+            bgl_draw_mesh,
+            draw_mesh_bg,
+            env_matcap: None,
             errors: HashMap::new(),
             instance_cache: HashMap::new(),
             seq_targets: None,
@@ -2070,6 +2558,13 @@ impl Renderer {
             uploaded: Vec::new(),
             floor_bg_cache: None,
             stats: FrameStats::default(),
+            bakes: ez_core::sim::BakeCache::new(),
+            sim_frame: Default::default(),
+            audio: None,
+            audio_id: 0,
+            wait_for_bakes: false,
+            inexact: false,
+            sim_status: HashMap::new(),
         };
         let white = RgbaImage::from_pixel(1, 1, image::Rgba([255, 255, 255, 255]));
         r.upload_texture("__white".into(), &white);
@@ -2095,6 +2590,28 @@ impl Renderer {
         buf: &wgpu::Buffer,
     ) -> wgpu::BindGroup {
         Self::make_draw_bg_sized(device, layout, buf, DRAW_SLOT)
+    }
+
+    /// The draw buffer seen twice, one slot at a time: a draw's own slot
+    /// and the next.
+    fn make_draw_mesh_bg(
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+        buf: &wgpu::Buffer,
+    ) -> wgpu::BindGroup {
+        let entry = |binding| wgpu::BindGroupEntry {
+            binding,
+            resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                buffer: buf,
+                offset: 0,
+                size: wgpu::BufferSize::new(DRAW_SLOT),
+            }),
+        };
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("draw mesh"),
+            layout,
+            entries: &[entry(0), entry(1)],
+        })
     }
 
     /// The draw buffer seen `size` bytes at a time (several slots).
@@ -2207,7 +2724,7 @@ impl Renderer {
         self.logo_bgs
             .retain(|(a, b, c), _| *a != key && *b != key && *c != key);
         self.mesh_tex_bgs
-            .retain(|(k, r, _), _| *k != key && *r != key);
+            .retain(|(k, r, o, e, _), _| ![k, r, o, e].contains(&&key));
         self.textures.insert(
             key,
             GpuTexture {
@@ -2514,7 +3031,12 @@ impl Renderer {
         blk[13] = c4(g.glint_color, 0.0);
         blk[14] = [fit.far[0], fit.far[1], fit.far[2], 0.0];
         blk[15] = [fit.far[3], fit.far[4], 0.0, 0.0];
-        let matcap = self.texture_key(project, g.matcap.as_deref());
+        let matcap = match g.matcap.as_deref() {
+            Some(crate::texgen::ENV_MATCAP) => self
+                .env_matcap(project, ctx)
+                .unwrap_or_else(|| self.texture_key(project, g.matcap.as_deref())),
+            name => self.texture_key(project, name),
+        };
         // The logo it morphs into: the same layer made of the
         // morph source.
         let morph_t = g.morph.eval(ctx).clamp(0.0, 1.0);
@@ -2839,14 +3361,26 @@ impl Renderer {
 
     /// Resolve a material texture name to a loaded GPU texture key.
     fn texture_key(&mut self, project: &Project, name: Option<&str>) -> String {
+        self.texture_key_as(project, name, false)
+    }
+
+    /// Like [`Self::texture_key`]; `linear` pictures hold data (such as
+    /// roughness), not colours, and are read without sRGB decoding.
+    fn texture_key_as(&mut self, project: &Project, name: Option<&str>, linear: bool) -> String {
         let Some(name) = name.filter(|n| !n.is_empty()) else {
             return "__white".into();
         };
+        let format = if linear {
+            wgpu::TextureFormat::Rgba8Unorm
+        } else {
+            wgpu::TextureFormat::Rgba8UnormSrgb
+        };
+        let lin = if linear { ":lin" } else { "" };
         if texgen::is_builtin(name) {
-            let key = format!("b:{name}");
+            let key = format!("b:{name}{lin}");
             if !self.textures.contains_key(&key) {
                 let img = texgen::generate(name);
-                self.upload_texture(key.clone(), &img);
+                self.upload_texture_as(key.clone(), &img, format);
             }
             return key;
         }
@@ -2855,7 +3389,10 @@ impl Renderer {
             None => (name.to_string(), None, false),
         };
         // Mirror tiling is a different sampler, so a different key.
-        let key = format!("u:{path}:{retro:?}{}", if mirror { MIRROR_KEY } else { "" });
+        let key = format!(
+            "u:{path}:{retro:?}{lin}{}",
+            if mirror { MIRROR_KEY } else { "" }
+        );
         if self.textures.contains_key(&key) {
             return key;
         }
@@ -2869,7 +3406,7 @@ impl Renderer {
                     img = texgen::retroize(&img, r);
                 }
                 self.errors.remove(&key);
-                self.upload_texture(key.clone(), &img);
+                self.upload_texture_as(key.clone(), &img, format);
                 key
             }
             Err(e) => {
@@ -2918,9 +3455,9 @@ impl Renderer {
         self.tex_bgs.insert(k, bg);
     }
 
-    fn mesh_tex_bind_group(&mut self, tex: &str, relief: &str, nearest: bool) {
-        let k = (tex.to_string(), relief.to_string(), nearest);
-        if self.mesh_tex_bgs.contains_key(&k) {
+    fn mesh_tex_bind_group(&mut self, k: &MeshTexKey) {
+        let (tex, relief, orm, emit, nearest) = (&k.0[..], &k.1[..], &k.2[..], &k.3[..], k.4);
+        if self.mesh_tex_bgs.contains_key(k) {
             return;
         }
         let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -2939,9 +3476,21 @@ impl Renderer {
                     binding: 2,
                     resource: wgpu::BindingResource::TextureView(&self.textures[relief].view),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(self.sampler_for(relief, nearest)),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(&self.textures[orm].view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::TextureView(&self.textures[emit].view),
+                },
             ],
         });
-        self.mesh_tex_bgs.insert(k, bg);
+        self.mesh_tex_bgs.insert(k.clone(), bg);
     }
 
     /// Geometry of a mesh source, subdivided `levels` times (cached).
@@ -2950,6 +3499,10 @@ impl Renderer {
     /// them apart, and enough detail for it even at Subdivide 0.
     fn mesh_key_subdivided(&mut self, source: &MeshSource, levels: u32, displaced: bool) -> String {
         let base = self.mesh_key(source);
+        // A cloth's sheet changes every frame: it is as fine as it is.
+        if matches!(source, MeshSource::Cloth { .. }) {
+            return base;
+        }
         let model = matches!(source, MeshSource::File { .. } | MeshSource::Library { .. });
         if displaced && model {
             return self.displaced_model_key(source, &base, levels);
@@ -3046,6 +3599,15 @@ impl Renderer {
             }
             // Every raymarched shape is drawn in the same box.
             MeshSource::Sdf { .. } => return self.sdf_box_key(),
+            // Cloth: this frame's sheet from its bake, or lying at rest
+            // until it is baked.
+            MeshSource::Cloth { cloth, mesh } => match mesh {
+                Some(k) if self.meshes.contains_key(k) => return k.clone(),
+                _ => format!(
+                    "cloth-rest:{}",
+                    serde_json::to_string(&**cloth).unwrap_or_default()
+                ),
+            },
         };
         if self.meshes.contains_key(&key) {
             return key;
@@ -3108,6 +3670,12 @@ impl Renderer {
     fn source_data(&mut self, source: &MeshSource, key: &str) -> MeshData {
         match source {
             MeshSource::Primitive(p) => primitive(p),
+            MeshSource::Cloth { cloth, .. } => {
+                use ez_core::sim::Sim;
+                let pos: Vec<Vec3> = cloth.sim().bodies().iter().map(|b| b.pos).collect();
+                let (cols, rows) = cloth.grid();
+                crate::mesh::cloth_sheet(&pos, cols as usize, rows as usize)
+            }
             // Copies on a raymarched shape stand on a ball of about its size.
             MeshSource::Sdf { .. } => {
                 let mut data = primitive(&Primitive::Sphere { detail: 3 });
@@ -3240,6 +3808,815 @@ impl Renderer {
     }
 
     // ------------------------------------------------------------------
+    // Simulations
+
+    // ------------------------------------------------------------------
+    // Environment light
+
+    /// A cube texture from per-mip, per-face texels (`size` the largest
+    /// face's side).
+    fn make_env_cube(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        size: u32,
+        mips: &[Vec<Vec<[f32; 4]>>],
+    ) -> wgpu::TextureView {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("environment map"),
+            size: wgpu::Extent3d {
+                width: size,
+                height: size,
+                depth_or_array_layers: 6,
+            },
+            mip_level_count: mips.len() as u32,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba16Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        for (mip, faces) in mips.iter().enumerate() {
+            let n = (size >> mip).max(1);
+            for (face, texels) in faces.iter().enumerate() {
+                let bytes: Vec<u8> = texels
+                    .iter()
+                    .flatten()
+                    .flat_map(|c| crate::logo::f16_bits(*c).to_le_bytes())
+                    .collect();
+                queue.write_texture(
+                    wgpu::TexelCopyTextureInfo {
+                        texture: &texture,
+                        mip_level: mip as u32,
+                        origin: wgpu::Origin3d {
+                            x: 0,
+                            y: 0,
+                            z: face as u32,
+                        },
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    &bytes,
+                    wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(8 * n),
+                        rows_per_image: Some(n),
+                    },
+                    wgpu::Extent3d {
+                        width: n,
+                        height: n,
+                        depth_or_array_layers: 1,
+                    },
+                );
+            }
+        }
+        texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::Cube),
+            ..Default::default()
+        })
+    }
+
+    fn make_group3(
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+        shadow_view: &wgpu::TextureView,
+        shadow_sampler: &wgpu::Sampler,
+        env_view: &wgpu::TextureView,
+        env_sampler: &wgpu::Sampler,
+        lut_view: &wgpu::TextureView,
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("shadow and environment"),
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(shadow_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(shadow_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(env_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(env_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(lut_view),
+                },
+            ],
+        })
+    }
+
+    /// What an environment map is made from (its cache key).
+    fn env_key(light: &EnvLight) -> Option<String> {
+        let sun = if light.sun_from_map { ":sun" } else { "" };
+        match &light.source {
+            EnvSource::Colours | EnvSource::Sky => None,
+            EnvSource::Studio(k) => Some(format!("studio:{k:?}{sun}")),
+            EnvSource::Hdri(path) => Some(format!("hdri:{path}{sun}")),
+        }
+    }
+
+    /// Makes the environment map for `key` (from `light`) the current one.
+    fn load_env(&mut self, key: String, light: &EnvLight) {
+        let eq = match &light.source {
+            EnvSource::Studio(k) => Ok(crate::envmap::studio(*k)),
+            EnvSource::Hdri(path) => ez_core::store::read(path)
+                .map_err(|e| e.to_string())
+                .and_then(|b| crate::envmap::load_hdr(&b)),
+            _ => return,
+        };
+        let mut eq = match eq {
+            Ok(eq) => {
+                self.errors.remove(&key);
+                eq
+            }
+            Err(e) => {
+                self.errors
+                    .insert(key.clone(), format!("environment map: {e}"));
+                crate::envmap::Equirect::new(4, 2, |_| [0.0; 3])
+            }
+        };
+        let sun = if light.sun_from_map {
+            crate::envmap::extract_sun(&mut eq)
+        } else {
+            None
+        };
+        let cube = crate::envmap::prefilter(&eq);
+        let sh = crate::envmap::irradiance_sh(&eq).map(|c| [c[0], c[1], c[2], 0.0]);
+        let view = Self::make_env_cube(&self.device, &self.queue, crate::envmap::CUBE_SIZE, &cube);
+        // The panorama for the background (a smaller copy: it is blurred
+        // or far away).
+        let small = eq.at_most(2048);
+        let px: Vec<[f32; 4]> = small.px.iter().map(|c| [c[0], c[1], c[2], 1.0]).collect();
+        let pano = format!("env-pano:{key}");
+        self.upload_float_texture(pano.clone(), small.w as u32, small.h as u32, &px);
+        self.set_env(EnvMaps {
+            key,
+            view,
+            sh,
+            sun,
+            pano: Some(pano),
+            tiny: Some(small.clone().at_most(64)),
+        });
+    }
+
+    /// The logos' environment sphere: a mirror ball reflecting the
+    /// environment light's map as the camera sees it now. `None` without a
+    /// map (Colours, or the sky, which has no copy on the CPU).
+    fn env_matcap(&mut self, project: &Project, ctx: &EvalCtx) -> Option<String> {
+        let light = &project.environment.env_light;
+        let key = Self::env_key(light)?;
+        if self.env.key != key {
+            self.load_env(key, &light.clone());
+        }
+        let eq = self.env.tiny.as_ref()?;
+        let inv = project.camera.eval(ctx).view().inverse();
+        let (right, up, back) = (
+            inv.x_axis.truncate(),
+            inv.y_axis.truncate(),
+            inv.z_axis.truncate(),
+        );
+        let turn = light.rotation.eval(ctx).to_radians();
+        let strength = light.intensity.eval(ctx).max(0.0);
+        let state = [
+            right.x, right.y, right.z, up.x, up.y, up.z, back.x, back.y, back.z, turn, strength,
+        ];
+        let tex = "env-matcap".to_string();
+        let made = (self.env.key.clone(), state);
+        if self.env_matcap.as_ref() != Some(&made) || !self.textures.contains_key(&tex) {
+            let px = crate::envmap::matcap(eq, right, up, back, turn, strength, 64);
+            self.upload_float_texture(tex.clone(), 64, 64, &px);
+            self.env_matcap = Some(made);
+        }
+        Some(tex)
+    }
+
+    /// Makes `env` the environment map lit surfaces see.
+    fn set_env(&mut self, env: EnvMaps) {
+        if let Some(old) = self.env.pano.take() {
+            if env.pano.as_ref() != Some(&old) {
+                self.textures.remove(&old);
+                self.tex_bgs.retain(|(k, _), _| *k != old);
+            }
+        }
+        self.env = env;
+        self.shadow_bg = Self::make_group3(
+            &self.device,
+            &self.group3.layout,
+            &self.group3.shadow_view,
+            &self.group3.shadow_sampler,
+            &self.env.view,
+            &self.group3.env_sampler,
+            &self.group3.lut_view,
+        );
+    }
+
+    /// Makes the sky capture's textures and pipeline (once).
+    fn ensure_sky(&mut self) {
+        if self.sky.is_some() {
+            return;
+        }
+        let device = &self.device;
+        let cube = |label: &str, mips: u32| {
+            device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size: wgpu::Extent3d {
+                    width: SKY_SIZE,
+                    height: SKY_SIZE,
+                    depth_or_array_layers: 6,
+                },
+                mip_level_count: mips,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: HDR_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+        };
+        let face_view = |t: &wgpu::Texture, face: u32, mip: u32| {
+            t.create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D2),
+                base_array_layer: face,
+                array_layer_count: Some(1),
+                base_mip_level: mip,
+                mip_level_count: Some(1),
+                ..Default::default()
+            })
+        };
+        let cube_view = |t: &wgpu::Texture| {
+            t.create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::Cube),
+                ..Default::default()
+            })
+        };
+        let mips = crate::envmap::CUBE_MIPS;
+        let src = cube("sky capture", 1);
+        let dst = cube("sky environment map", mips);
+        let src_faces = (0..6).map(|f| face_view(&src, f, 0)).collect();
+        let dst_faces = (0..mips)
+            .flat_map(|m| (0..6).map(move |f| (m, f)))
+            .map(|(m, f)| face_view(&dst, f, m))
+            .collect();
+        let (src_cube, dst_cube) = (cube_view(&src), cube_view(&dst));
+        let globals: Vec<wgpu::Buffer> = (0..6)
+            .map(|_| {
+                device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("globals sky face"),
+                    size: std::mem::size_of::<GlobalsRaw>() as u64,
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                })
+            })
+            .collect();
+        let globals_bg = globals
+            .iter()
+            .map(|b| {
+                device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("globals sky face"),
+                    layout: &self.bgl_globals,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: b.as_entire_binding(),
+                    }],
+                })
+            })
+            .collect();
+        // The blur: its parameters per mip and face, fixed.
+        let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("sky filter"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::Cube,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        const SLOT: u64 = 256;
+        let mut params = vec![0u8; (SLOT * 6 * mips as u64) as usize];
+        for m in 0..mips {
+            for f in 0..6u32 {
+                let at = ((m * 6 + f) as u64 * SLOT) as usize;
+                let v = [
+                    f as f32,
+                    (SKY_SIZE >> m).max(1) as f32,
+                    m as f32 / (mips - 1) as f32,
+                    0.0,
+                ];
+                params[at..at + 16].copy_from_slice(bytemuck::cast_slice(&v));
+            }
+        }
+        let param_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("sky filter params"),
+            contents: &params,
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+        let filter_bgs = (0..6 * mips as u64)
+            .map(|i| {
+                device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("sky filter"),
+                    layout: &bgl,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                                buffer: &param_buf,
+                                offset: i * SLOT,
+                                size: wgpu::BufferSize::new(16),
+                            }),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(&src_cube),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::Sampler(&self.group3.env_sampler),
+                        },
+                    ],
+                })
+            })
+            .collect();
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("sky filter"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/env_filter.wgsl").into()),
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("sky filter"),
+            bind_group_layouts: &[Some(&bgl)],
+            immediate_size: 0,
+        });
+        let filter_pipe = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("sky filter"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &module,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &module,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(HDR_FORMAT.into())],
+            }),
+            primitive: Default::default(),
+            depth_stencil: None,
+            multisample: Default::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+        self.sky = Some(SkyCapture {
+            src_faces,
+            dst_faces,
+            dst_cube,
+            globals,
+            globals_bg,
+            filter_pipe,
+            filter_bgs,
+            captured: None,
+        });
+    }
+
+    /// "From the sky": draws the background all around (`main` is the
+    /// frame's globals, `bg` its background: draw slot, texture, kind) and
+    /// blurs it into the environment map.
+    fn capture_sky(
+        &mut self,
+        enc: &mut wgpu::CommandEncoder,
+        main: &GlobalsRaw,
+        bg: (u32, &str, i32),
+        once: bool,
+    ) {
+        let (slot, tex, kind) = bg;
+        // A sky that doesn't move is captured once per look.
+        let key = ez_core::sim::KeyHasher::new()
+            .u64(slot as u64)
+            .bytes(tex.as_bytes())
+            .u64(kind as u64)
+            .bytes(bytemuck::bytes_of(&main.sky))
+            .bytes(bytemuck::bytes_of(&main.fog))
+            .finish();
+        self.ensure_bg_pipe(kind, 1, true);
+        let Some(sky) = self.sky.as_mut() else {
+            return;
+        };
+        if once && sky.captured == Some(key) {
+            return;
+        }
+        sky.captured = Some(key);
+        // Each face's view: rays through its pixels, as the cube is read.
+        let eye = Vec3::new(main.cam_pos[0], main.cam_pos[1], main.cam_pos[2]);
+        let frames = [
+            (Vec3::X, Vec3::NEG_Z, Vec3::Y),
+            (Vec3::NEG_X, Vec3::Z, Vec3::Y),
+            (Vec3::Y, Vec3::X, Vec3::NEG_Z),
+            (Vec3::NEG_Y, Vec3::X, Vec3::Z),
+            (Vec3::Z, Vec3::X, Vec3::Y),
+            (Vec3::NEG_Z, Vec3::NEG_X, Vec3::Y),
+        ];
+        for (f, (fwd, right, up)) in frames.iter().enumerate() {
+            // Clip (x, y, z) → eye + (right x + up y + fwd) / (a - b z):
+            // near at 1/a, far at 1/(a - b).
+            let (a, b) = (10.0, 9.999);
+            let inv = Mat4::from_cols(
+                right.extend(0.0),
+                up.extend(0.0),
+                (-eye * b).extend(-b),
+                (*fwd + eye * a).extend(a),
+            );
+            let mut g = *main;
+            g.inv_view_proj = m4(inv);
+            g.view_proj = m4(inv.inverse());
+            g.cam_right = v4(*right, 0.0);
+            g.cam_up = v4(*up, 0.0);
+            g.res = [
+                SKY_SIZE as f32,
+                SKY_SIZE as f32,
+                1.0 / SKY_SIZE as f32,
+                1.0 / SKY_SIZE as f32,
+            ];
+            g.clip = [0.0; 4];
+            self.queue
+                .write_buffer(&sky.globals[f], 0, bytemuck::bytes_of(&g));
+        }
+        let pipe = &self.bg_pipes[&(kind, 1, true)];
+        let Some(tex_bg) = self.tex_bgs.get(&(tex.to_string(), false)) else {
+            return;
+        };
+        fn clear(view: &wgpu::TextureView) -> wgpu::RenderPassColorAttachment<'_> {
+            wgpu::RenderPassColorAttachment {
+                view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            }
+        }
+        for f in 0..6 {
+            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("sky capture"),
+                color_attachments: &[Some(clear(&sky.src_faces[f]))],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(pipe);
+            pass.set_bind_group(0, &sky.globals_bg[f], &[]);
+            pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+            pass.set_bind_group(2, tex_bg, &[]);
+            pass.draw(0..3, 0..1);
+        }
+        for (i, view) in sky.dst_faces.iter().enumerate() {
+            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("sky filter"),
+                color_attachments: &[Some(clear(view))],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&sky.filter_pipe);
+            pass.set_bind_group(0, &sky.filter_bgs[i], &[]);
+            pass.draw(0..3, 0..1);
+        }
+    }
+
+    /// Environment light for this frame: the map (loaded when it changed),
+    /// its turn and strength into `fx`, and its sun into `env`.
+    fn apply_env_light(
+        &mut self,
+        project: &Project,
+        ctx: &EvalCtx,
+        env: &mut EnvState,
+        fx: &mut FrameEnv,
+    ) {
+        let light = &project.environment.env_light;
+        if light.source == EnvSource::Sky {
+            self.ensure_sky();
+            if self.env.key != "sky" {
+                let view = self.sky.as_ref().expect("made above").dst_cube.clone();
+                self.set_env(EnvMaps {
+                    key: "sky".into(),
+                    view,
+                    sh: [[0.0; 4]; 9],
+                    sun: None,
+                    pano: None,
+                    tiny: None,
+                });
+            }
+            fx.ibl = [
+                light.intensity.eval(ctx).max(0.0).max(1e-6),
+                light.rotation.eval(ctx).to_radians(),
+                (crate::envmap::CUBE_MIPS - 1) as f32,
+                1.0,
+            ];
+            return;
+        }
+        let Some(key) = Self::env_key(light) else {
+            fx.ibl = [0.0; 4];
+            return;
+        };
+        if self.env.key != key {
+            let light = light.clone();
+            self.load_env(key, &light);
+        }
+        let light = &project.environment.env_light;
+        let turn = light.rotation.eval(ctx).to_radians();
+        let strength = light.intensity.eval(ctx).max(0.0);
+        fx.ibl = [
+            strength.max(1e-6),
+            turn,
+            (crate::envmap::CUBE_MIPS - 1) as f32,
+            0.0,
+        ];
+        fx.sh = self.env.sh;
+        if let Some(sun) = self.env.sun {
+            // The map turns by `turn` around +y; so does its sun.
+            let (sa, ca) = turn.sin_cos();
+            let d = sun.dir;
+            let dir =
+                Vec3::new(d.x * ca + d.z * sa, d.y, -d.x * sa + d.z * ca).normalize_or(Vec3::Y);
+            let l = sun.light * strength;
+            let lum = (0.2126 * l.x + 0.7152 * l.y + 0.0722 * l.z).max(1e-6);
+            env.light_dir = dir.into();
+            env.sun_dir = dir.into();
+            env.light_color = (l / lum).into();
+            // Our sun light has no 1/π: match the map's diffuse light.
+            env.light_intensity = lum / std::f32::consts::PI;
+        }
+    }
+
+    /// The music simulations may follow (the loop window of the song).
+    pub fn set_audio(&mut self, audio: Option<std::sync::Arc<AudioEnvelope>>) {
+        let same = match (&self.audio, &audio) {
+            (Some(a), Some(b)) => std::sync::Arc::ptr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        };
+        if !same {
+            self.audio = audio;
+            self.audio_id += 1;
+        }
+    }
+
+    /// Wait for simulations to bake before drawing them (exports, stills),
+    /// instead of drawing their last bake meanwhile.
+    pub fn set_wait_for_bakes(&mut self, wait: bool) {
+        self.wait_for_bakes = wait;
+    }
+
+    /// Call once per frame: collects finished bakes and runs bakes that
+    /// can't have a thread (the browser) while `more()` allows.
+    pub fn poll_bakes(&mut self, more: impl FnMut() -> bool) {
+        self.bakes.poll(more);
+        self.bakes.end_frame();
+    }
+
+    /// Progress of the running bakes (0..1), `None` when none runs.
+    pub fn bake_progress(&self) -> Option<f32> {
+        self.bakes.progress()
+    }
+
+    /// Whether a simulation was drawn from an old bake (or not at all)
+    /// since the last call; clears the flag.
+    pub fn take_inexact(&mut self) -> bool {
+        std::mem::take(&mut self.inexact)
+    }
+
+    /// How the bake of the simulated layer `name` is doing.
+    pub fn sim_status(&self, name: &str) -> Option<SimStatus> {
+        self.sim_status.get(name).copied()
+    }
+
+    /// Fills in the copies of flock layers from their bakes, starting the
+    /// bakes they need.
+    fn link_sims(&mut self, project: &Project, ctx: &EvalCtx, layers: &mut Cow<'_, [Layer]>) {
+        use ez_core::sim::{BakeJob, KeyHasher, SimClock};
+        let wants = |l: &Layer| {
+            l.enabled
+                && (matches!(
+                    l.kind.instancer(),
+                    Some(
+                        Instancer::Flock { .. }
+                            | Instancer::Physics { .. }
+                            | Instancer::Fluid { .. }
+                    )
+                ) || matches!(&l.kind, LayerKind::Mesh(m) if matches!(m.source, MeshSource::Cloth { .. })))
+        };
+        if !layers.iter().any(wants) {
+            return;
+        }
+        for (i, layer) in layers.to_mut().iter_mut().enumerate() {
+            if !wants(layer) {
+                continue;
+            }
+            let name = layer.name.clone();
+            let slot = KeyHasher::new()
+                .bytes(name.as_bytes())
+                .u64(i as u64)
+                .finish();
+            // Everything a bake depends on, and the bake itself.
+            let mut bake_of =
+                |settings: String, music: bool, make: &dyn Fn(&SimClock) -> BakeJob| {
+                    let key = KeyHasher::new()
+                        .bytes(settings.as_bytes())
+                        .json(&project.timing)
+                        .u64(if music { self.audio_id } else { 0 })
+                        .json(&if music { Some(&project.music) } else { None })
+                        .finish();
+                    let clock = SimClock::with_music(
+                        project.timing,
+                        project.music.clone(),
+                        if music { self.audio.clone() } else { None },
+                    );
+                    let job = || make(&clock);
+                    let mut bake = self.bakes.get(slot, key, job);
+                    if self.wait_for_bakes && !self.bakes.is_ready(key) {
+                        self.bakes.finish_all();
+                        bake = self.bakes.get(slot, key, job);
+                    }
+                    let ready = self.bakes.is_ready(key);
+                    self.inexact |= !ready;
+                    self.sim_status.insert(
+                        name.clone(),
+                        bake.as_ref().map_or(SimStatus::default(), |b| SimStatus {
+                            ready,
+                            seam: b.seam(),
+                            warmup_loops: b.warmup_loops(),
+                            bytes: b.bytes(),
+                        }),
+                    );
+                    bake
+                };
+            if let LayerKind::Mesh(MeshLayer {
+                source: MeshSource::Cloth { cloth, mesh },
+                ..
+            }) = &mut layer.kind
+            {
+                let make = |clock: &SimClock| {
+                    BakeJob::new(Box::new(cloth.sim()), clock.clone(), cloth.looping.clone())
+                };
+                let json = serde_json::to_string(&**cloth).unwrap_or_default();
+                let Some(bake) = bake_of(json, cloth.uses_music(), &make) else {
+                    continue;
+                };
+                bake.sample(ctx.beat_phase, &mut self.sim_frame);
+                // A cross-faded cloth is the two halves mixed by weight.
+                let mut pos = vec![Vec3::ZERO; bake.len()];
+                for l in &self.sim_frame.layers {
+                    for (p, b) in pos.iter_mut().zip(&l.bodies) {
+                        *p += b.pos * l.weight;
+                    }
+                }
+                let (cols, rows) = cloth.grid();
+                let data = crate::mesh::cloth_sheet(&pos, cols as usize, rows as usize);
+                let key = format!("cloth:{slot:016x}");
+                self.upload_dynamic_mesh(&key, &data);
+                *mesh = Some(key);
+                continue;
+            }
+            // Rigid bodies collide as the copies are drawn: at the
+            // layer's (resting) size.
+            let scale = Vec3::from(layer.transform.stretch) * layer.transform.scale.base;
+            // A liquid's container turns with the layer.
+            let transform = layer.transform.clone();
+            let (bake, placed) = match layer.kind.instancer_mut() {
+                Some(Instancer::Flock { flock, placed }) => {
+                    let make = |clock: &SimClock| {
+                        let sim = flock.sim(&clock.ctx(0.0));
+                        BakeJob::new(Box::new(sim), clock.clone(), flock.looping.clone())
+                    };
+                    let json = serde_json::to_string(&**flock).unwrap_or_default();
+                    (bake_of(json, flock.uses_music(), &make), placed)
+                }
+                Some(Instancer::Physics { physics, placed }) => {
+                    let make = |clock: &SimClock| {
+                        let sim = physics.sim(scale);
+                        BakeJob::new(Box::new(sim), clock.clone(), physics.looping.clone())
+                    };
+                    let json =
+                        serde_json::to_string(&(&**physics, scale.to_array())).unwrap_or_default();
+                    (bake_of(json, false, &make), placed)
+                }
+                Some(Instancer::Fluid { fluid, placed }) => {
+                    let make = |clock: &SimClock| {
+                        let sim = fluid.sim(ez_core::sim::layer_tilt(&transform));
+                        BakeJob::new(Box::new(sim), clock.clone(), fluid.looping.clone())
+                    };
+                    // The turning parts of the transform move the liquid.
+                    let turning = (
+                        &**fluid,
+                        transform.rotation,
+                        transform.spin,
+                        &transform.tilt,
+                    );
+                    let json = serde_json::to_string(&turning).unwrap_or_default();
+                    let music = fluid.uses_music() || transform.tilt.uses_music();
+                    (bake_of(json, music, &make), placed)
+                }
+                _ => continue,
+            };
+            let Some(bake) = bake else {
+                continue;
+            };
+            // The simulation ran in real time: read it at the real phase.
+            bake.sample(ctx.beat_phase, &mut self.sim_frame);
+            let mut mats = Vec::with_capacity(bake.len() * self.sim_frame.layers.len());
+            for l in &self.sim_frame.layers {
+                for b in &l.bodies {
+                    // Cross-faded halves shrink away as they fade.
+                    let size = b.size * l.weight;
+                    if size > 1e-3 {
+                        let rot = glam::Quat::from_array(b.rot).normalize();
+                        mats.push(Mat4::from_scale_rotation_translation(
+                            Vec3::splat(size),
+                            rot,
+                            b.pos,
+                        ));
+                    }
+                }
+            }
+            *placed = Some(std::sync::Arc::new(mats));
+        }
+    }
+
+    /// Uploads a mesh that changes every frame (same size: rewritten in
+    /// place).
+    fn upload_dynamic_mesh(&mut self, key: &str, data: &MeshData) {
+        let bytes: &[u8] = bytemuck::cast_slice(&data.vertices);
+        if let Some(m) = self.meshes.get_mut(key) {
+            if m.vbuf.size() == bytes.len() as u64 && m.count == data.indices.len() as u32 {
+                self.queue.write_buffer(&m.vbuf, 0, bytes);
+                m.radius = data
+                    .vertices
+                    .iter()
+                    .map(|v| Vec3::from(v.pos).length())
+                    .fold(0.0, f32::max);
+                return;
+            }
+        }
+        let vbuf = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("dynamic mesh vertices"),
+                contents: bytes,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            });
+        let ibuf = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("dynamic mesh indices"),
+                contents: bytemuck::cast_slice(&data.indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+        self.meshes.insert(
+            key.to_string(),
+            GpuMesh {
+                vbuf,
+                ibuf,
+                count: data.indices.len() as u32,
+                radius: data
+                    .vertices
+                    .iter()
+                    .map(|v| Vec3::from(v.pos).length())
+                    .fold(0.0, f32::max),
+            },
+        );
+    }
+
+    // ------------------------------------------------------------------
     // Frame
 
     #[allow(clippy::too_many_arguments)]
@@ -3312,6 +4689,8 @@ impl Renderer {
             sun: v4(Vec3::from(env.sun_dir), 0.0),
             shadow_vp: m4(Mat4::IDENTITY),
             shadow: [0.0; 4],
+            ibl: fx.ibl,
+            sh: fx.sh,
         }
     }
 
@@ -3473,7 +4852,8 @@ impl Renderer {
 
     /// Render one scene (no sequence).
     fn render_scene(&mut self, project: &Project, ctx: &EvalCtx, target: &RenderTarget) {
-        let layers = project.scene_layers(ctx);
+        let mut layers = project.scene_layers(ctx);
+        self.link_sims(project, ctx, &mut layers);
         let (w, h) = (target.width, target.height);
         let cam = project.camera.eval(ctx);
         let view = cam.view();
@@ -3494,7 +4874,8 @@ impl Renderer {
             lightning: (0.0, [1.0; 3]),
             ..Default::default()
         };
-        let env = project.scene_environment(ctx).eval(ctx);
+        let mut env = project.scene_environment(ctx).eval(ctx);
+        self.apply_env_light(project, ctx, &mut env, &mut fx);
 
         // Logos placed against the screen or each other.
         let logo_places = self.place_logos(project, &layers, ctx, w as f32, h as f32);
@@ -3521,7 +4902,20 @@ impl Renderer {
             };
             match &layer.kind {
                 LayerKind::Backdrop(b) => {
-                    let tex = self.texture_key(project, b.texture.as_deref());
+                    // The environment map background shows the map's
+                    // panorama (none while the colours light the scene).
+                    let pano = if b.kind == BackdropKind::Environment {
+                        self.env
+                            .pano
+                            .clone()
+                            .filter(|k| fx.ibl[0] > 0.0 && self.textures.contains_key(k))
+                    } else {
+                        None
+                    };
+                    let tex = match &pano {
+                        Some(k) => k.clone(),
+                        None => self.texture_key(project, b.texture.as_deref()),
+                    };
                     self.tex_bind_group(&tex, false);
                     let mut blk: Block = Zeroable::zeroed();
                     blk[0] = [
@@ -3535,7 +4929,11 @@ impl Renderer {
                     blk[3] = c4(b.color_c, 0.0);
                     let mirror = tex.ends_with(MIRROR_KEY);
                     blk[4] = [
-                        if b.texture.is_some() { 1.0 } else { 0.0 },
+                        if b.texture.is_some() || pano.is_some() {
+                            1.0
+                        } else {
+                            0.0
+                        },
                         if mirror { 1.0 } else { 0.0 },
                         0.0,
                         0.0,
@@ -3605,7 +5003,11 @@ impl Renderer {
                     };
                     // The fields need smooth (linear) sampling.
                     let pixelated = mat.pixelated && !morph;
-                    self.mesh_tex_bind_group(&tex, &relief, pixelated);
+                    let pbr = &mat.pbr;
+                    let orm = self.texture_key_as(project, pbr.orm_map.as_deref(), true);
+                    let emit = self.texture_key(project, pbr.emissive_map.as_deref());
+                    let texs = (tex.clone(), relief, orm, emit, pixelated);
+                    self.mesh_tex_bind_group(&texs);
                     let surface = match &m.instancer {
                         Instancer::Surface {
                             shape, count, seed, ..
@@ -3830,12 +5232,24 @@ impl Renderer {
                         ls.triangles = 0;
                         ls.load = count as f32 / 40.0;
                     }
+                    // A liquid surface: splat size, blur tolerance and
+                    // absorption (see liquid.wgsl).
+                    let liquid = match &m.instancer {
+                        Instancer::Fluid { fluid, .. } if fluid.surface && !sdf => {
+                            let size = layer_scale(&layer.transform, ctx).max_element().max(1e-4);
+                            let d = fluid.spacing.max(0.01);
+                            blk[7][1] = d * 1.1 / size;
+                            blk[7][2] = d * 2.0;
+                            blk[7][3] = 1.5 / d.max(0.05);
+                            true
+                        }
+                        _ => false,
+                    };
                     cmds.push(Cmd::Mesh {
                         slot: blocks.len() as u32,
                         mesh,
-                        tex,
-                        relief,
-                        pixelated,
+                        texs,
+                        liquid,
                         first,
                         count: count as u32,
                         sdf,
@@ -3843,6 +5257,7 @@ impl Renderer {
                         bounds,
                     });
                     blocks.push(blk);
+                    blocks.push(pbr_block(mat, ctx));
                 }
                 LayerKind::Particles(p) => {
                     let lm = layer_matrix(&layer.transform, ctx);
@@ -3892,6 +5307,15 @@ impl Renderer {
                     ls.triangles = (drawn * drawn * 2) as u64 * syms.len() as u64;
                     ls.draws = syms.len() as u32;
                     ls.load = ls.triangles as f32 / 150_000.0 + 0.05;
+                    // A mirrored picture repeats every two tiles: with an odd
+                    // tile count the terrain only repeats every two lengths,
+                    // so scroll by pairs of them and the loop still closes.
+                    let odd = t.tiles.clamp(1, 256) % 2 == 1;
+                    let scroll_tiles = if tex.ends_with(MIRROR_KEY) && odd {
+                        2.0
+                    } else {
+                        1.0
+                    };
                     for sym in syms {
                         let mut blk: Block = Zeroable::zeroed();
                         blk[0] = [
@@ -3902,7 +5326,7 @@ impl Renderer {
                         ];
                         blk[1] = [
                             t.roughness.eval(ctx),
-                            (ctx.phase * t.scroll as f32).rem_euclid(1.0),
+                            (ctx.phase * t.scroll as f32 * scroll_tiles).rem_euclid(scroll_tiles),
                             t.valley.eval(ctx).clamp(0.0, 1.0),
                             t.style.index() as f32,
                         ];
@@ -4339,7 +5763,8 @@ impl Renderer {
                 LayerKind::Ribbon(r) => {
                     let mesh = self.ribbon_key(r);
                     let tex = self.texture_key(project, None);
-                    self.mesh_tex_bind_group(&tex, &tex, false);
+                    let texs = (tex.clone(), tex.clone(), tex.clone(), tex, false);
+                    self.mesh_tex_bind_group(&texs);
                     let lm = layer_matrix(&layer.transform, ctx);
                     let first = instances.len() as u32;
                     let syms = symmetry_matrices(&layer.symmetry);
@@ -4372,9 +5797,8 @@ impl Renderer {
                     cmds.push(Cmd::Mesh {
                         slot: blocks.len() as u32,
                         mesh,
-                        tex: tex.clone(),
-                        relief: tex,
-                        pixelated: false,
+                        texs,
+                        liquid: false,
                         first,
                         count: syms.len() as u32,
                         sdf: false,
@@ -4382,6 +5806,7 @@ impl Renderer {
                         bounds: None,
                     });
                     blocks.push(blk);
+                    blocks.push(Zeroable::zeroed());
                 }
                 LayerKind::Weather(wx) => {
                     let count = if wx.kind == Precipitation::None {
@@ -4594,6 +6019,43 @@ impl Renderer {
             }
         }
 
+        // Screen-space reflections: their settings, when something could
+        // reflect (shapes, terrain).
+        let refl = &project.environment.reflections;
+        let ssr_slot = (refl.enabled
+            && refl.strength.eval(ctx) > 0.0
+            && cmds
+                .iter()
+                .any(|c| matches!(c, Cmd::Mesh { .. } | Cmd::Terrain { .. })))
+        .then(|| {
+            let mut blk: Block = Zeroable::zeroed();
+            blk[0] = [
+                refl.strength.eval(ctx).clamp(0.0, 1.0),
+                refl.max_distance.max(0.1),
+                refl.roughness_cutoff.clamp(0.01, 1.0),
+                SSR_STEPS as f32,
+            ];
+            blk[1] = [0.3, 0.25, 0.0, 0.0];
+            blocks.push(blk);
+            blocks.len() as u32 - 1
+        });
+
+        // Light shafts: their settings, when there is fog to light.
+        let sh = &project.environment.shafts;
+        let fog_on = project.environment.fog_density.eval(ctx) > 0.0
+            || project.environment.height_fog.density.eval(ctx) > 0.0;
+        let shafts_slot = (sh.enabled && fog_on && sh.strength.eval(ctx) > 0.0).then(|| {
+            let mut blk: Block = Zeroable::zeroed();
+            blk[0] = [
+                sh.strength.eval(ctx).max(0.0),
+                sh.scattering.clamp(-0.95, 0.95),
+                sh.steps.clamp(4, 96) as f32,
+                sh.reach.max(1.0),
+            ];
+            blocks.push(blk);
+            blocks.len() as u32 - 1
+        });
+
         // --- uploads -------------------------------------------------------
         if blocks.is_empty() {
             blocks.push(Zeroable::zeroed());
@@ -4602,6 +6064,8 @@ impl Renderer {
             self.draw_cap = (blocks.len() as u64).next_power_of_two();
             self.draw_buf = Self::make_draw_buf(&self.device, self.draw_cap);
             self.draw_bg = Self::make_draw_bg(&self.device, &self.bgl_draw, &self.draw_buf);
+            self.draw_mesh_bg =
+                Self::make_draw_mesh_bg(&self.device, &self.bgl_draw_mesh, &self.draw_buf);
             self.logo_fx_bg = Self::make_draw_bg_sized(
                 &self.device,
                 &self.bgl_logo_fx,
@@ -4746,15 +6210,30 @@ impl Renderer {
                 self.floor_bg_cache = Some((key, bg));
             }
         }
-        let floor_bg = floor
-            .as_ref()
-            .and(self.floor_bg_cache.as_ref().map(|(_, bg)| bg));
-
         let mut enc = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("ez2 frame"),
             });
+
+        // --- the sky as the environment map ------------------------------------
+        let light = &project.environment.env_light;
+        if light.source == EnvSource::Sky {
+            let bg = cmds.iter().find_map(|c| match c {
+                Cmd::Backdrop {
+                    slot, tex, kind, ..
+                } => Some((*slot, tex.clone(), *kind)),
+                _ => None,
+            });
+            if let Some((slot, tex, kind)) = bg {
+                let once = light.sky_static;
+                self.capture_sky(&mut enc, &main_globals, (slot, &tex, kind), once);
+            }
+        }
+
+        let floor_bg = floor
+            .as_ref()
+            .and(self.floor_bg_cache.as_ref().map(|(_, bg)| bg));
 
         // --- big swarms: copies placed by the compute shader ------------------
         if let (Some(sw), false) = (self.swarm.as_mut(), swarm_jobs.is_empty()) {
@@ -4792,7 +6271,7 @@ impl Renderer {
                 label: Some("sun shadow"),
                 color_attachments: &[],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.shadow_view,
+                    view: &self.group3.shadow_view,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Store,
@@ -4907,6 +6386,79 @@ impl Renderer {
             }
         }
 
+        // One liquid is drawn as a surface (the last); any others show
+        // their droplets.
+        let mut last_liquid = true;
+        for c in cmds.iter_mut().rev() {
+            if let Cmd::Mesh { liquid, .. } = c {
+                if *liquid && !std::mem::take(&mut last_liquid) {
+                    *liquid = false;
+                }
+            }
+        }
+        // The liquid drawn as a surface: (slot, first copy, copies, on the
+        // GPU).
+        let liquids: Vec<(u32, u32, u32, bool)> = cmds
+            .iter()
+            .filter_map(|c| match c {
+                Cmd::Mesh {
+                    slot,
+                    first,
+                    count,
+                    gpu,
+                    liquid: true,
+                    ..
+                } if *count > 0 => Some((*slot, *first, *count, *gpu)),
+                _ => None,
+            })
+            .collect();
+        // --- liquid surfaces: droplets splatted and smoothed ----------------------
+        for &(slot, first, count, gpu) in &liquids {
+            let lp = &self.liquid_pipes;
+            let far = wgpu::Color {
+                r: 60_000.0,
+                g: 0.0,
+                b: 0.0,
+                a: 1.0,
+            };
+            let clear = wgpu::Color::TRANSPARENT;
+            let steps = [
+                (&target.liquid[0], far, &lp.splat_dist, 0, true),
+                (&target.liquid[1], clear, &lp.splat_thick, 0, true),
+                (&target.liquid[2], clear, &lp.blur_h, 1, false),
+                (&target.liquid[3], clear, &lp.blur_v, 2, false),
+            ];
+            for (view, clear, pipe, bg, splat) in steps {
+                let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("liquid"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(clear),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                pass.set_pipeline(pipe);
+                pass.set_bind_group(0, &self.globals_bg[0], &[]);
+                pass.set_bind_group(1, &self.draw_mesh_bg, &mesh_offsets(slot));
+                pass.set_bind_group(2, &target.bg_liquid[bg], &[]);
+                pass.set_bind_group(3, &self.shadow_bg, &[]);
+                if splat {
+                    pass.set_vertex_buffer(0, self.mesh_instances(gpu).slice(..));
+                    pass.draw(0..6, first..first + count);
+                } else {
+                    pass.draw(0..3, 0..1);
+                }
+            }
+        }
+
         // --- main scene -------------------------------------------------------
         {
             let (view_tex, resolve) = match &target.msaa_color {
@@ -5016,28 +6568,54 @@ impl Renderer {
                 )
             });
             self.draw_scene(&mut pass, &self.main_pipes, 0, &solid);
+            // The liquid surface, with its own depth.
+            if let Some(&(slot, ..)) = liquids.last() {
+                pass.set_pipeline(&self.liquid_pipes.composite);
+                pass.set_bind_group(0, &self.globals_bg[0], &[]);
+                pass.set_bind_group(1, &self.draw_mesh_bg, &mesh_offsets(slot));
+                pass.set_bind_group(2, &target.bg_liquid[3], &[]);
+                pass.set_bind_group(3, &self.shadow_bg, &[]);
+                pass.draw(0..3, 0..1);
+            }
             self.draw_scene(&mut pass, &self.main_pipes, 0, &clear);
         }
 
-        // --- depth of field: distance to the camera --------------------------
-        if project.post.dof.enabled {
-            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("dof distance"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &target.dof_dist,
+        // --- distance to the camera (depth of field) and what surfaces
+        // reflect (screen-space reflections) ----------------------------------
+        if project.post.dof.enabled || ssr_slot.is_some() || shafts_slot.is_some() {
+            let gbuf = |view| {
+                Some(wgpu::RenderPassColorAttachment {
+                    view,
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        // Nothing drawn = very far (the sky).
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 60_000.0,
-                            g: 0.0,
-                            b: 0.0,
-                            a: 1.0,
-                        }),
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                         store: wgpu::StoreOp::Store,
                     },
-                })],
+                })
+            };
+            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("dof distance"),
+                color_attachments: &[
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &target.dof_dist,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            // Nothing drawn = very far (the sky).
+                            load: wgpu::LoadOp::Clear(wgpu::Color {
+                                r: 60_000.0,
+                                g: 0.0,
+                                b: 0.0,
+                                a: 1.0,
+                            }),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                    gbuf(&target.gbuf[0]),
+                    gbuf(&target.gbuf[1]),
+                    gbuf(&target.gbuf[2]),
+                ],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &target.dof_z,
                     depth_ops: Some(wgpu::Operations {
@@ -5051,6 +6629,78 @@ impl Renderer {
                 multiview_mask: None,
             });
             self.draw_distance(&mut pass, &cmds, floor.as_ref().map(|f| f.0));
+        }
+        // --- screen-space reflections, added onto the scene -----------------------
+        if let Some(slot) = ssr_slot {
+            {
+                let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("ssr"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &target.ssr,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                pass.set_pipeline(&self.ssr_pipe);
+                pass.set_bind_group(0, &self.globals_bg[0], &[]);
+                pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                pass.set_bind_group(2, &target.bg_ssr, &[]);
+                pass.set_bind_group(3, &self.shadow_bg, &[]);
+                pass.draw(0..3, 0..1);
+            }
+            self.post_pass(
+                &mut enc,
+                "ssr add",
+                &self.ssr_add_pipe,
+                &target.hdr,
+                &target.bg_ssr_add,
+                SLOT_WARP,
+                true,
+            );
+        }
+        // --- sunlight scattered by the fog, added onto the scene ------------------
+        if let Some(slot) = shafts_slot {
+            {
+                let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("light shafts"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &target.shafts,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                pass.set_pipeline(&self.shafts_pipe);
+                pass.set_bind_group(0, &self.globals_bg[0], &[]);
+                pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                pass.set_bind_group(2, &target.bg_ssr, &[]);
+                pass.set_bind_group(3, &self.shadow_bg, &[]);
+                pass.draw(0..3, 0..1);
+            }
+            self.post_pass(
+                &mut enc,
+                "light shafts add",
+                &self.ssr_add_pipe,
+                &target.hdr,
+                &target.bg_shafts_add,
+                SLOT_WARP,
+                true,
+            );
         }
 
         // --- post ---------------------------------------------------------------
@@ -5407,9 +7057,7 @@ impl Renderer {
                 Cmd::Mesh {
                     slot,
                     mesh,
-                    tex,
-                    relief,
-                    pixelated,
+                    texs,
                     first,
                     count,
                     sdf,
@@ -5423,12 +7071,8 @@ impl Renderer {
                         &self.shadow_mesh_pipe
                     });
                     pass.set_bind_group(0, &self.globals_bg[2], &[]);
-                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
-                    pass.set_bind_group(
-                        2,
-                        &self.mesh_tex_bgs[&(tex.clone(), relief.clone(), *pixelated)],
-                        &[],
-                    );
+                    pass.set_bind_group(1, &self.draw_mesh_bg, &mesh_offsets(*slot));
+                    pass.set_bind_group(2, &self.mesh_tex_bgs[texs], &[]);
                     pass.set_vertex_buffer(0, m.vbuf.slice(..));
                     pass.set_vertex_buffer(1, self.mesh_instances(*gpu).slice(..));
                     pass.set_index_buffer(m.ibuf.slice(..), wgpu::IndexFormat::Uint32);
@@ -5464,13 +7108,12 @@ impl Renderer {
                 Cmd::Mesh {
                     slot,
                     mesh,
-                    tex,
-                    relief,
-                    pixelated,
+                    texs,
                     first,
                     count,
                     sdf,
                     gpu,
+                    liquid: false,
                     ..
                 } if *count > 0 => {
                     let m = &self.meshes[mesh];
@@ -5480,12 +7123,9 @@ impl Renderer {
                         &self.dof_mesh_pipe
                     });
                     pass.set_bind_group(0, &self.globals_bg[0], &[]);
-                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
-                    pass.set_bind_group(
-                        2,
-                        &self.mesh_tex_bgs[&(tex.clone(), relief.clone(), *pixelated)],
-                        &[],
-                    );
+                    pass.set_bind_group(1, &self.draw_mesh_bg, &mesh_offsets(*slot));
+                    pass.set_bind_group(3, &self.shadow_bg, &[]);
+                    pass.set_bind_group(2, &self.mesh_tex_bgs[texs], &[]);
                     pass.set_vertex_buffer(0, m.vbuf.slice(..));
                     pass.set_vertex_buffer(1, self.mesh_instances(*gpu).slice(..));
                     pass.set_index_buffer(m.ibuf.slice(..), wgpu::IndexFormat::Uint32);
@@ -5576,27 +7216,24 @@ impl Renderer {
                 Cmd::Mesh {
                     slot,
                     mesh,
-                    tex,
-                    relief,
-                    pixelated,
+                    texs,
                     first,
                     count,
                     sdf,
                     gpu,
+                    liquid,
                     ..
                 } => {
-                    if *count == 0 {
+                    // A liquid surface is drawn by its own passes (its
+                    // droplets still show in the floor's reflection).
+                    if *count == 0 || (*liquid && std::ptr::eq(pipes, &self.main_pipes)) {
                         continue;
                     }
                     let m = &self.meshes[mesh];
                     pass.set_pipeline(if *sdf { &pipes.sdf } else { &pipes.mesh });
                     pass.set_bind_group(0, &self.globals_bg[globals], &[]);
-                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
-                    pass.set_bind_group(
-                        2,
-                        &self.mesh_tex_bgs[&(tex.clone(), relief.clone(), *pixelated)],
-                        &[],
-                    );
+                    pass.set_bind_group(1, &self.draw_mesh_bg, &mesh_offsets(*slot));
+                    pass.set_bind_group(2, &self.mesh_tex_bgs[texs], &[]);
                     pass.set_bind_group(3, &self.shadow_bg, &[]);
                     pass.set_vertex_buffer(0, m.vbuf.slice(..));
                     pass.set_vertex_buffer(1, self.mesh_instances(*gpu).slice(..));
@@ -6112,6 +7749,77 @@ impl Renderer {
         let (dw, dh) = ((w / 2).max(1), (h / 2).max(1));
         let dof_dist = tex("dof distance", dw, dh, DOF_FORMAT, 1, sampled);
         let dof_z = tex("dof depth", dw, dh, DEPTH_FORMAT, 1, none);
+        let gbuf = [
+            "g-buffer surface",
+            "g-buffer reflectance",
+            "g-buffer environment",
+        ]
+        .map(|l| tex(l, dw, dh, HDR_FORMAT, 1, sampled));
+        let ssr = tex("ssr", dw, dh, HDR_FORMAT, 1, sampled);
+        let bg_ssr = dev.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("ssr"),
+            layout: &self.bgl_ssr,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&gbuf[0]),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&gbuf[1]),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&gbuf[2]),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&dof_dist),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(&hdr),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler_clamp),
+                },
+            ],
+        });
+        let bg_ssr_add = post_bg(&ssr, &dof_dist);
+        let shafts = tex("light shafts", dw, dh, HDR_FORMAT, 1, sampled);
+        let bg_shafts_add = post_bg(&shafts, &dof_dist);
+        let liquid = [
+            "liquid distance",
+            "liquid thickness",
+            "liquid blur",
+            "liquid surface",
+        ]
+        .map(|l| tex(l, dw, dh, HDR_FORMAT, 1, sampled));
+        let liquid_bg = |a: &wgpu::TextureView, b: &wgpu::TextureView| {
+            dev.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("liquid"),
+                layout: &self.liquid_pipes.layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(a),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(b),
+                    },
+                ],
+            })
+        };
+        // Splat (reads nothing), blur across (the splats), blur down (the
+        // first blur), composite (the surface).
+        let bg_liquid = [
+            liquid_bg(&liquid[3], &liquid[3]),
+            liquid_bg(&liquid[0], &liquid[1]),
+            liquid_bg(&liquid[2], &liquid[2]),
+            liquid_bg(&liquid[3], &liquid[3]),
+        ];
         let bg_warp = post_bg(&hdr, &dof_dist);
         let bg_bloom_down = (0..BLOOM_LEVELS)
             .map(|i| {
@@ -6181,6 +7889,14 @@ impl Renderer {
             bg_low,
             bg_rays,
             bg_rays_add,
+            gbuf,
+            ssr,
+            bg_ssr,
+            bg_ssr_add,
+            shafts,
+            bg_shafts_add,
+            liquid,
+            bg_liquid,
             rays,
             dof_dist,
             dof_z,

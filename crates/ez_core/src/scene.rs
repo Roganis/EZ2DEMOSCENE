@@ -347,6 +347,154 @@ pub struct Environment {
     /// Shadows cast by the sun, and soft contact shadows on floors.
     #[serde(skip_serializing_if = "is_default")]
     pub shadows: Shadows,
+    /// Where reflections and ambient light come from: the colours above,
+    /// or an environment map (a built-in studio, a photo of a real place,
+    /// the scene's own sky).
+    #[serde(skip_serializing_if = "is_default")]
+    pub env_light: EnvLight,
+    /// Shiny things reflecting the scene around them (screen-space
+    /// reflections).
+    #[serde(skip_serializing_if = "is_default")]
+    pub reflections: Reflections,
+    /// Sunbeams in the fog, cut by the sun's shadows.
+    #[serde(skip_serializing_if = "is_default")]
+    pub shafts: LightShafts,
+}
+
+/// Light shafts: the fog lit by the sun where the sun reaches it, so
+/// shadows cut dark bands through it. Uses the sun shadow map.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LightShafts {
+    pub enabled: bool,
+    pub strength: Param,
+    /// How much the light scatters forward, towards someone looking at
+    /// the sun (0 = the same all round, 0.9 = a tight glow around it).
+    pub scattering: f32,
+    /// Samples along each view ray (quality).
+    pub steps: u32,
+    /// How far along the view the fog is sampled, in world units.
+    pub reach: f32,
+}
+
+impl Default for LightShafts {
+    fn default() -> Self {
+        LightShafts {
+            enabled: false,
+            strength: Param::new(1.0),
+            scattering: 0.6,
+            steps: 32,
+            reach: 60.0,
+        }
+    }
+}
+
+/// Screen-space reflections: shiny shapes, water and wet ground reflect
+/// what is on the screen (the environment elsewhere). The mirror floor
+/// keeps its own exact reflection.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Reflections {
+    pub enabled: bool,
+    /// How much of the environment reflection the scene replaces (0..1).
+    pub strength: Param,
+    /// How far a reflection reaches, in world units.
+    pub max_distance: f32,
+    /// Rougher surfaces than this keep the environment reflection.
+    pub roughness_cutoff: f32,
+}
+
+impl Default for Reflections {
+    fn default() -> Self {
+        Reflections {
+            enabled: false,
+            strength: Param::new(1.0),
+            max_distance: 12.0,
+            roughness_cutoff: 0.6,
+        }
+    }
+}
+
+/// Built-in environment maps (generated, no files).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Studio {
+    /// A dark studio with big soft lights: crisp highlights on shiny things.
+    #[default]
+    Softbox,
+    /// A bright, even grey sky.
+    Overcast,
+    /// A low sun over warm clouds and a blue sky.
+    Sunset,
+    /// A dark room with magenta and cyan neon tubes.
+    NeonRoom,
+}
+
+impl Studio {
+    pub const ALL: [Studio; 4] = [
+        Studio::Softbox,
+        Studio::Overcast,
+        Studio::Sunset,
+        Studio::NeonRoom,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Studio::Softbox => "Softbox studio",
+            Studio::Overcast => "Overcast",
+            Studio::Sunset => "Sunset",
+            Studio::NeonRoom => "Neon room",
+        }
+    }
+}
+
+/// Where the environment light comes from.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub enum EnvSource {
+    /// The sky and ground colours (and fake studio bands), as always.
+    #[default]
+    Colours,
+    Studio(Studio),
+    /// A panorama (`.hdr` Radiance file): light from a photo of a real
+    /// place.
+    Hdri(String),
+    /// The scene's own background, captured all around.
+    Sky,
+}
+
+/// Lighting from an environment map (image-based lighting).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EnvLight {
+    pub source: EnvSource,
+    /// Turn around the vertical, in degrees (a saw of ±180° turns it a
+    /// whole turn per cycle).
+    pub rotation: Param,
+    pub intensity: Param,
+    /// Point the sun (and its shadows) at the brightest spot of the map,
+    /// and take that spot out of the map so it isn't counted twice.
+    pub sun_from_map: bool,
+    /// From the sky: capture it once instead of every frame (for skies
+    /// that don't move).
+    pub sky_static: bool,
+}
+
+impl Default for EnvLight {
+    fn default() -> Self {
+        EnvLight {
+            source: EnvSource::Colours,
+            rotation: Param::new(0.0),
+            intensity: Param::new(1.0),
+            sun_from_map: false,
+            sky_static: false,
+        }
+    }
+}
+
+impl EnvLight {
+    /// Whether a map lights the scene (not just the colours).
+    pub fn is_on(&self) -> bool {
+        self.source != EnvSource::Colours
+    }
 }
 
 /// How a colour scheme's hues sit around its key colour.
@@ -710,6 +858,9 @@ impl Default for Environment {
             rainbow: Param::new(0.0),
             day_cycle: DayCycle::default(),
             shadows: Shadows::default(),
+            env_light: EnvLight::default(),
+            reflections: Reflections::default(),
+            shafts: LightShafts::default(),
         }
     }
 }
@@ -923,6 +1074,7 @@ impl LayerKind {
             LayerKind::Mesh(m) => {
                 f(&mut m.material.base_color);
                 f(&mut m.material.emissive_color);
+                f(&mut m.material.pbr.sheen_color);
                 m.ramp.colors.iter_mut().for_each(&mut f);
             }
             LayerKind::Particles(p) => {
@@ -1012,6 +1164,10 @@ pub struct Transform {
     /// Random jolts on a rhythm.
     #[serde(skip_serializing_if = "is_default")]
     pub shake: Shake,
+    /// Tilt around the world's z axis in degrees (animatable: rock a bowl
+    /// and the liquid in it sloshes).
+    #[serde(skip_serializing_if = "is_no_tilt")]
+    pub tilt: Param,
 }
 
 /// Loop-safe random jolts: a new random direction `per_loop` times per
@@ -1049,6 +1205,10 @@ impl Shake {
     }
 }
 
+fn is_no_tilt(p: &Param) -> bool {
+    *p == Param::new(0.0)
+}
+
 impl Default for Transform {
     fn default() -> Self {
         Transform {
@@ -1059,6 +1219,7 @@ impl Default for Transform {
             spin: [0; 3],
             bob: Param::new(0.0),
             shake: Shake::default(),
+            tilt: Param::new(0.0),
         }
     }
 }
@@ -1315,6 +1476,15 @@ pub enum MeshSource {
         /// Thickness, in letter heights.
         depth: f32,
     },
+    /// A sheet of cloth (a flag, curtain, banner or drape) moved by a
+    /// simulation baked into a loop (see [`crate::sim::Cloth`]).
+    Cloth {
+        cloth: Box<crate::sim::Cloth>,
+        /// The renderer's mesh of the sheet at the moment being drawn,
+        /// filled in before rendering; none until the cloth is baked.
+        #[serde(skip)]
+        mesh: Option<String>,
+    },
 }
 
 /// Raymarched distance-field shapes (see `sdf.wgsl`).
@@ -1474,6 +1644,11 @@ pub enum Primitive {
     Mobius {
         width: f32,
     },
+    /// The lower half of a sphere as a shell, open at the top (holds a
+    /// liquid layer's Bowl at the same place and size).
+    Bowl {
+        thickness: f32,
+    },
 }
 
 impl Primitive {
@@ -1529,6 +1704,7 @@ impl Primitive {
             Primitive::Gem { facets: 8 },
             Primitive::Heart { depth: 0.3 },
             Primitive::Mobius { width: 0.35 },
+            Primitive::Bowl { thickness: 0.06 },
         ]
     }
 
@@ -1572,6 +1748,7 @@ impl Primitive {
             Primitive::Gem { .. } => "Gem",
             Primitive::Heart { .. } => "Heart",
             Primitive::Mobius { .. } => "Möbius strip",
+            Primitive::Bowl { .. } => "Bowl",
         }
     }
 
@@ -1677,6 +1854,33 @@ pub enum Instancer {
         #[serde(skip)]
         ground: Option<Box<(Terrain, Transform)>>,
     },
+    /// A flock: copies that fly together, simulated ahead of time into a
+    /// loop (see [`crate::sim::Flock`]).
+    Flock {
+        flock: Box<crate::sim::Flock>,
+        /// Where every copy is at the moment being drawn (from the bake),
+        /// filled in before rendering; none until the flock is baked.
+        #[serde(skip)]
+        placed: Option<std::sync::Arc<Vec<glam::Mat4>>>,
+    },
+    /// Rigid bodies: copies that fall, stack, collide and get blown apart,
+    /// simulated ahead of time into a loop (see [`crate::sim::Physics`]).
+    Physics {
+        physics: Box<crate::sim::Physics>,
+        /// Where every copy is at the moment being drawn (from the bake),
+        /// filled in before rendering; none until it is baked.
+        #[serde(skip)]
+        placed: Option<std::sync::Arc<Vec<glam::Mat4>>>,
+    },
+    /// A liquid: copies are its droplets, sloshing in a container,
+    /// simulated ahead of time into a loop (see [`crate::sim::Fluid`]).
+    Fluid {
+        fluid: Box<crate::sim::Fluid>,
+        /// Where every droplet is at the moment being drawn (from the
+        /// bake), filled in before rendering; none until it is baked.
+        #[serde(skip)]
+        placed: Option<std::sync::Arc<Vec<glam::Mat4>>>,
+    },
 }
 
 impl Instancer {
@@ -1693,6 +1897,9 @@ impl Instancer {
             Instancer::Curve { .. } => "Along a curve",
             Instancer::Surface { .. } => "On a shape's surface",
             Instancer::OnTerrain { .. } => "On a terrain",
+            Instancer::Flock { .. } => "Flock",
+            Instancer::Physics { .. } => "Physics",
+            Instancer::Fluid { .. } => "Liquid",
         }
     }
 
@@ -1763,6 +1970,18 @@ impl Instancer {
                 align: false,
                 lift: 0.0,
                 ground: None,
+            },
+            Instancer::Flock {
+                flock: Box::default(),
+                placed: None,
+            },
+            Instancer::Physics {
+                physics: Box::default(),
+                placed: None,
+            },
+            Instancer::Fluid {
+                fluid: Box::default(),
+                placed: None,
             },
         ]
     }
@@ -1871,6 +2090,157 @@ pub struct Material {
     /// Surface relief: bump / normal map / displacement.
     #[serde(skip_serializing_if = "is_default")]
     pub relief: Relief,
+    /// Physically based shading and its extra layers and maps.
+    #[serde(skip_serializing_if = "is_default")]
+    pub pbr: Pbr,
+}
+
+/// How a surface reacts to light.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum Shading {
+    /// The original look: a Blinn highlight and a simple reflection.
+    #[default]
+    Classic,
+    /// Physically based (GGX highlights, energy-conserving reflections,
+    /// clearcoat, sheen and transmission).
+    Physical,
+}
+
+impl Shading {
+    pub const ALL: [Shading; 2] = [Shading::Classic, Shading::Physical];
+    pub fn label(self) -> &'static str {
+        match self {
+            Shading::Classic => "Classic",
+            Shading::Physical => "Physical",
+        }
+    }
+}
+
+/// Physically based settings of a material (used with
+/// [`Shading::Physical`]; the maps work in both).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Pbr {
+    pub shading: Shading,
+    /// Occlusion (red), roughness (green) and metalness (blue) in one
+    /// picture, as glTF packs them; multiplies the material's values.
+    pub orm_map: Option<String>,
+    /// Glow picture: multiplies the glow colour.
+    pub emissive_map: Option<String>,
+    /// A clear lacquer layer on top (car paint), 0..1.
+    pub clearcoat: Param,
+    pub clearcoat_roughness: Param,
+    /// Soft velvet glow at grazing angles (cloth), 0..1.
+    pub sheen: Param,
+    pub sheen_color: Rgb,
+    /// Light passing through (glass, liquids), 0..1.
+    pub transmission: Param,
+    /// Index of refraction: how much light bends going through.
+    pub ior: f32,
+}
+
+impl Default for Pbr {
+    fn default() -> Self {
+        Pbr {
+            shading: Shading::Classic,
+            orm_map: None,
+            emissive_map: None,
+            clearcoat: Param::new(0.0),
+            clearcoat_roughness: Param::new(0.05),
+            sheen: Param::new(0.0),
+            sheen_color: [1.0, 1.0, 1.0],
+            transmission: Param::new(0.0),
+            ior: 1.5,
+        }
+    }
+}
+
+/// Ready-made physical materials.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MaterialPreset {
+    Gold,
+    Copper,
+    Chrome,
+    BrushedSteel,
+    Rubber,
+    CarPaint,
+    Glass,
+    Velvet,
+    Ceramic,
+}
+
+impl MaterialPreset {
+    pub const ALL: [MaterialPreset; 9] = [
+        MaterialPreset::Gold,
+        MaterialPreset::Copper,
+        MaterialPreset::Chrome,
+        MaterialPreset::BrushedSteel,
+        MaterialPreset::Rubber,
+        MaterialPreset::CarPaint,
+        MaterialPreset::Glass,
+        MaterialPreset::Velvet,
+        MaterialPreset::Ceramic,
+    ];
+    pub fn label(self) -> &'static str {
+        match self {
+            MaterialPreset::Gold => "Gold",
+            MaterialPreset::Copper => "Copper",
+            MaterialPreset::Chrome => "Chrome",
+            MaterialPreset::BrushedSteel => "Brushed steel",
+            MaterialPreset::Rubber => "Rubber",
+            MaterialPreset::CarPaint => "Car paint",
+            MaterialPreset::Glass => "Glass",
+            MaterialPreset::Velvet => "Velvet",
+            MaterialPreset::Ceramic => "Ceramic",
+        }
+    }
+
+    /// Set the look of `m` (colour, metal, roughness and the physical
+    /// layers), leaving textures, glow and geometry settings alone.
+    pub fn apply(self, m: &mut Material) {
+        // (colour, metallic, roughness)
+        let (color, metallic, rough) = match self {
+            MaterialPreset::Gold => (0xffc35a, 1.0, 0.22),
+            MaterialPreset::Copper => (0xf2946a, 1.0, 0.3),
+            MaterialPreset::Chrome => (0xf4f4f6, 1.0, 0.04),
+            MaterialPreset::BrushedSteel => (0xc4c6ca, 1.0, 0.42),
+            MaterialPreset::Rubber => (0x26262a, 0.0, 0.9),
+            MaterialPreset::CarPaint => (0xb0101a, 0.3, 0.45),
+            MaterialPreset::Glass => (0xf2f8fa, 0.0, 0.03),
+            MaterialPreset::Velvet => (0x6a1238, 0.0, 0.85),
+            MaterialPreset::Ceramic => (0xf0ece2, 0.0, 0.25),
+        };
+        m.base_color = hex(color);
+        m.metallic = Param::new(metallic);
+        m.roughness = Param::new(rough);
+        m.rim = Param::new(0.0);
+        let keep = (m.pbr.orm_map.take(), m.pbr.emissive_map.take());
+        m.pbr = Pbr {
+            shading: Shading::Physical,
+            orm_map: keep.0,
+            emissive_map: keep.1,
+            ..Default::default()
+        };
+        match self {
+            MaterialPreset::CarPaint => {
+                m.pbr.clearcoat = Param::new(1.0);
+                m.pbr.clearcoat_roughness = Param::new(0.03);
+            }
+            MaterialPreset::Glass => {
+                m.pbr.transmission = Param::new(1.0);
+                m.pbr.ior = 1.5;
+            }
+            MaterialPreset::Velvet => {
+                m.pbr.sheen = Param::new(1.0);
+                m.pbr.sheen_color = hex(0xff8ab8);
+            }
+            MaterialPreset::Ceramic => {
+                m.pbr.clearcoat = Param::new(0.6);
+                m.pbr.clearcoat_roughness = Param::new(0.08);
+            }
+            _ => {}
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -1996,6 +2366,7 @@ impl Default for Material {
             hue_shift: Param::new(0.0),
             glitch: Glitch::default(),
             relief: Relief::default(),
+            pbr: Pbr::default(),
         }
     }
 }
@@ -2146,10 +2517,13 @@ pub enum BackdropKind {
     /// EarthBound-style battle background: flat patterns whose lines
     /// wobble, with cycling colours (see [`Battle`]).
     Battle,
+    /// The environment map (Light & fog → Environment light) all around,
+    /// turned with it; *Detail* blurs it.
+    Environment,
 }
 
 impl BackdropKind {
-    pub const ALL: [BackdropKind; 12] = [
+    pub const ALL: [BackdropKind; 13] = [
         BackdropKind::Gradient,
         BackdropKind::Nebula,
         BackdropKind::Starfield,
@@ -2162,6 +2536,7 @@ impl BackdropKind {
         BackdropKind::Clouds,
         BackdropKind::Aurora,
         BackdropKind::Battle,
+        BackdropKind::Environment,
     ];
     pub fn label(self) -> &'static str {
         match self {
@@ -2177,6 +2552,7 @@ impl BackdropKind {
             BackdropKind::Clouds => "Volumetric clouds",
             BackdropKind::Aurora => "Aurora night sky",
             BackdropKind::Battle => "Battle background (retro RPG)",
+            BackdropKind::Environment => "Environment map",
         }
     }
 
@@ -3719,24 +4095,41 @@ impl RibbonCurve {
 
     /// Point at `t` (0..1 around the closed curve), fitting a unit sphere.
     pub fn point(self, freq: [u32; 3], t: f32) -> [f32; 3] {
+        self.point_by(freq, t, |x| x.sin(), |x| x.cos())
+    }
+
+    /// [`RibbonCurve::point`] with the same result on every platform (for
+    /// simulations, see [`crate::sim::math`]).
+    pub fn point_exact(self, freq: [u32; 3], t: f32) -> [f32; 3] {
+        use crate::sim::math;
+        self.point_by(freq, t, math::sin, math::cos)
+    }
+
+    fn point_by(
+        self,
+        freq: [u32; 3],
+        t: f32,
+        sin: impl Fn(f32) -> f32,
+        cos: impl Fn(f32) -> f32,
+    ) -> [f32; 3] {
         use std::f32::consts::{PI, TAU};
         let [a, b, c] = freq.map(|f| f.clamp(1, 16) as f32);
         let x = t * TAU;
         match self {
             RibbonCurve::Lissajous => [
-                (a * x + 0.5 * PI).sin(),
-                (b * x).sin() * 0.6,
-                (c * x + 0.25 * PI).sin(),
+                sin(a * x + 0.5 * PI),
+                sin(b * x) * 0.6,
+                sin(c * x + 0.25 * PI),
             ],
             RibbonCurve::Knot => {
-                let rr = 0.62 + 0.28 * (b * x).cos();
-                [rr * (a * x).cos(), 0.28 * (b * x).sin(), rr * (a * x).sin()]
+                let rr = 0.62 + 0.28 * cos(b * x);
+                [rr * cos(a * x), 0.28 * sin(b * x), rr * sin(a * x)]
             }
-            RibbonCurve::Infinity => [x.sin(), 0.15 * (a * x).sin(), x.sin() * x.cos()],
-            RibbonCurve::Wave => [x.cos(), 0.3 * (a * x).sin(), x.sin()],
+            RibbonCurve::Infinity => [sin(x), 0.15 * sin(a * x), sin(x) * cos(x)],
+            RibbonCurve::Wave => [cos(x), 0.3 * sin(a * x), sin(x)],
             RibbonCurve::Rose => {
-                let rr = (a * x).cos();
-                [rr * x.cos(), 0.1 * (b * x).sin(), rr * x.sin()]
+                let rr = cos(a * x);
+                [rr * cos(x), 0.1 * sin(b * x), rr * sin(x)]
             }
         }
     }

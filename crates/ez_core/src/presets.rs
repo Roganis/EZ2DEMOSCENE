@@ -155,6 +155,41 @@ pub fn all() -> Vec<Preset> {
             project: galaxy_swarm(),
         },
         Preset {
+            name: "Chrome Studio",
+            description: "Chrome, gold and plastic lit by a sunset panorama that turns once per loop, with the sun and its shadows taken from the map.",
+            project: chrome_studio(),
+        },
+        Preset {
+            name: "Liquid Gold",
+            description: "A rocking bowl of molten gold sloshing from side to side under a studio sky, simulated ahead of time into a loop.",
+            project: liquid_gold(),
+        },
+        Preset {
+            name: "Cathedral Light",
+            description: "Low sunlight streaming between stone columns through hazy air onto a polished marble floor, under a sunset sky; a golden orb turns in the light.",
+            project: cathedral_light(),
+        },
+        Preset {
+            name: "Material Gallery",
+            description: "The nine physical material presets on spinning shapes in a softbox studio: metals, rubber, car paint, glass, velvet and ceramic.",
+            project: material_gallery(),
+        },
+        Preset {
+            name: "Banners",
+            description: "A row of flags on poles, flapping in a turning, gusting wind: simulated cloth that loops.",
+            project: banners(),
+        },
+        Preset {
+            name: "Beat Demolition",
+            description: "A wall of glowing blocks blown apart on the beat and rebuilt, with pearls raining behind: rigid bodies that loop.",
+            project: beat_demolition(),
+        },
+        Preset {
+            name: "Starling Dusk",
+            description: "A flock of 600 starlings wheeling through a sunset, scattering on every bar: simulated, and looping.",
+            project: starling_dusk(),
+        },
+        Preset {
             name: "Sunset Title",
             description: "Synth Sunset with a title card: a bevelled chrome logo pulsing to the beat with a glint on every bar, and a pixel tag in the corner.",
             project: sunset_title(),
@@ -2822,6 +2857,795 @@ pub fn lava_world() -> Project {
             grade: Grade {
                 vignette: Param::new(0.6),
                 ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+/// A murmuration at dusk: a simulated flock of dark birds following a
+/// looping curve in front of a sunset, scattering on every bar.
+pub fn starling_dusk() -> Project {
+    use crate::sim::{Flock, FlockPath};
+    let flock = Flock {
+        count: 600,
+        seed: 7,
+        speed: Param::new(4.0),
+        spacing: 0.5,
+        sight: 1.4,
+        radius: 6.0,
+        path: Some(FlockPath {
+            curve: RibbonCurve::Lissajous,
+            freq: [1, 2, 1],
+            size: 6.0,
+            laps: 1,
+        }),
+        // A burst outward on every bar (4 per loop).
+        scatter: Param::new(0.0).osc(Wave::Pulse, 0.7, 4),
+        ..Default::default()
+    };
+    let mut birds = Layer::new(
+        "Starlings",
+        LayerKind::Mesh(MeshLayer {
+            instancer: Instancer::Flock {
+                flock: Box::new(flock),
+                placed: None,
+            },
+            variation: Variation {
+                scale: 0.3,
+                ..Default::default()
+            },
+            ..mesh(
+                Primitive::Pyramid,
+                Material {
+                    base_color: hex(0x050406),
+                    metallic: Param::new(0.0),
+                    roughness: Param::new(1.0),
+                    rim: Param::new(0.0),
+                    ..Default::default()
+                },
+            )
+        }),
+    )
+    .scaled(0.17)
+    .at([0.0, 6.0, 0.0]);
+    // Flat and wide: wings, pointing where they fly.
+    birds.transform.stretch = [2.2, 0.25, 1.0];
+    Project {
+        name: "Starling Dusk".into(),
+        timing: crate::Timing {
+            bpm: 100.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Pendulum,
+            swing: Param::new(12.0),
+            target: [0.0, 6.0, 0.0],
+            distance: Param::new(20.0),
+            height: Param::new(1.0),
+            fov: Param::new(55.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0xc07a6a),
+            fog_density: Param::new(0.004),
+            sky_color: hex(0xe09070),
+            ground_color: hex(0x2a1830),
+            light_dir: [-0.4, 0.12, -1.0],
+            light_color: hex(0xffb070),
+            light_intensity: Param::new(1.2),
+            ambient: Param::new(0.15),
+            ..Default::default()
+        },
+        layers: vec![
+            sky(
+                BackdropKind::Clouds,
+                0x40305a,
+                0xf0a070,
+                0x906080,
+                RaySettings {
+                    variant: 0,
+                    size: Param::new(1.2),
+                    warp: Param::new(1.0),
+                    bend: Param::new(1.0),
+                    glow: Param::new(1.6),
+                    fog: Param::new(1.0),
+                    ..Default::default()
+                },
+            ),
+            birds,
+        ],
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                intensity: Param::new(0.5),
+                threshold: Param::new(1.2),
+                radius: Param::new(0.7),
+            },
+            rays: GodRays {
+                enabled: true,
+                intensity: Param::new(0.8),
+                length: Param::new(0.6),
+                threshold: Param::new(0.8),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+/// Shiny things lit by an environment map (image-based lighting): the
+/// sunset panorama turns once per loop, its sun lights and shadows.
+pub fn chrome_studio() -> Project {
+    let thing = |name: &str, prim: Primitive, base: u32, metallic: f32, rough: f32, x: f32| {
+        Layer::new(
+            name,
+            LayerKind::Mesh(mesh(
+                prim,
+                Material {
+                    base_color: hex(base),
+                    metallic: Param::new(metallic),
+                    roughness: Param::new(rough),
+                    rim: Param::new(0.0),
+                    ..Default::default()
+                },
+            )),
+        )
+        .at([x, 1.1, 0.0])
+        .spin([0, 1, 0])
+    };
+    Project {
+        name: "Chrome Studio".into(),
+        timing: crate::Timing {
+            bpm: 100.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Pendulum,
+            swing: Param::new(25.0),
+            target: [0.0, 1.0, 0.0],
+            distance: Param::new(7.5),
+            height: Param::new(1.5),
+            fov: Param::new(45.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_density: Param::new(0.0),
+            shadows: Shadows {
+                enabled: true,
+                distance: 20.0,
+                ..Default::default()
+            },
+            reflections: Reflections {
+                enabled: true,
+                ..Default::default()
+            },
+            env_light: EnvLight {
+                source: EnvSource::Studio(Studio::Sunset),
+                // One whole turn per loop.
+                rotation: Param::new(0.0).osc(Wave::Saw, 180.0, 1),
+                intensity: Param::new(1.0),
+                sun_from_map: true,
+                sky_static: false,
+            },
+            ..Default::default()
+        },
+        layers: vec![
+            Layer::new(
+                "Sky",
+                LayerKind::Backdrop(Backdrop {
+                    kind: BackdropKind::Environment,
+                    detail: Param::new(0.85),
+                    ..Default::default()
+                }),
+            ),
+            Layer::new(
+                "Floor",
+                LayerKind::Mirror(MirrorFloor {
+                    base_color: hex(0x2a2826),
+                    reflectivity: Param::new(0.15),
+                    blur: Param::new(0.6),
+                    ..Default::default()
+                }),
+            ),
+            thing(
+                "Chrome knot",
+                Primitive::TorusKnot {
+                    p: 2,
+                    q: 3,
+                    thickness: 0.12,
+                },
+                0xf0f0f4,
+                1.0,
+                0.04,
+                -2.3,
+            ),
+            thing(
+                "Gold ball",
+                Primitive::Sphere { detail: 4 },
+                0xffc860,
+                1.0,
+                0.3,
+                0.0,
+            ),
+            thing("Plastic block", Primitive::Cube, 0xe8e8e0, 0.0, 0.7, 2.3),
+        ],
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                intensity: Param::new(0.4),
+                threshold: Param::new(1.5),
+                radius: Param::new(0.6),
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+/// A bowl of molten gold rocking back and forth: a simulated liquid in a
+/// bowl shape, both tilted by the same swing.
+pub fn liquid_gold() -> Project {
+    // Both layers rock together: the liquid sloshes in the bowl's frame.
+    let rock = Param::new(0.0).osc(Wave::Sine, 22.0, 2);
+    let size = 1.5;
+    let mut gold = Material::default();
+    MaterialPreset::Gold.apply(&mut gold);
+    gold.roughness = Param::new(0.12);
+    let mut bowl_mat = Material::default();
+    MaterialPreset::Ceramic.apply(&mut bowl_mat);
+    bowl_mat.base_color = hex(0x1c1c22);
+    let at = [0.0, 1.6, 0.0];
+    let mut bowl = Layer::new(
+        "Bowl",
+        LayerKind::Mesh(mesh(Primitive::Bowl { thickness: 0.06 }, bowl_mat)),
+    )
+    .at(at)
+    .scaled(size / 0.94);
+    bowl.transform.tilt = rock;
+    let mut liquid = Layer::new(
+        "Molten gold",
+        LayerKind::Mesh(MeshLayer {
+            source: MeshSource::Primitive(Primitive::Sphere { detail: 1 }),
+            material: gold,
+            instancer: Instancer::Fluid {
+                fluid: Box::new(crate::sim::Fluid {
+                    count: 2500,
+                    size,
+                    spacing: 0.1,
+                    viscosity: 0.15,
+                    surface: true,
+                    ..Default::default()
+                }),
+                placed: None,
+            },
+            ..Default::default()
+        }),
+    )
+    .at(at)
+    .scaled(0.075);
+    liquid.transform.tilt = rock;
+    Project {
+        name: "Liquid Gold".into(),
+        timing: crate::Timing {
+            bpm: 90.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Pendulum,
+            swing: Param::new(20.0),
+            target: [0.0, 1.2, 0.0],
+            distance: Param::new(6.5),
+            height: Param::new(2.6),
+            fov: Param::new(45.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_density: Param::new(0.0),
+            light_intensity: Param::new(0.8),
+            light_dir: [0.4, 1.0, 0.3],
+            shadows: Shadows {
+                enabled: true,
+                distance: 12.0,
+                ..Default::default()
+            },
+            env_light: EnvLight {
+                source: EnvSource::Studio(Studio::Softbox),
+                intensity: Param::new(1.1),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        layers: vec![
+            Layer::new(
+                "Studio",
+                LayerKind::Backdrop(Backdrop {
+                    kind: BackdropKind::Environment,
+                    detail: Param::new(0.3),
+                    ..Default::default()
+                }),
+            ),
+            Layer::new(
+                "Floor",
+                LayerKind::Mirror(MirrorFloor {
+                    base_color: hex(0x202024),
+                    reflectivity: Param::new(0.3),
+                    blur: Param::new(0.35),
+                    ..Default::default()
+                }),
+            ),
+            bowl,
+            liquid,
+        ],
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                intensity: Param::new(0.35),
+                threshold: Param::new(1.5),
+                radius: Param::new(0.6),
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+/// Shafts of low sunlight through a colonnade: fog lit where the sun
+/// reaches it, cut by the columns' shadows, over a marble mirror floor.
+pub fn cathedral_light() -> Project {
+    let mut stone = Material {
+        base_color: hex(0xd8cfc0),
+        ..Default::default()
+    };
+    MaterialPreset::Ceramic.apply(&mut stone);
+    stone.base_color = hex(0xd8cfc0);
+    stone.roughness = Param::new(0.55);
+    stone.pbr.clearcoat = Param::new(0.0);
+    let mut gold = Material::default();
+    MaterialPreset::Gold.apply(&mut gold);
+    Project {
+        name: "Cathedral Light".into(),
+        timing: crate::Timing {
+            bpm: 80.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Pendulum,
+            swing: Param::new(8.0),
+            target: [0.0, 2.2, -4.0],
+            distance: Param::new(13.0),
+            height: Param::new(0.6),
+            fov: Param::new(50.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0x3a3028),
+            fog_density: Param::new(0.04),
+            light_dir: [0.8, 0.3, -1.0],
+            light_color: hex(0xffd9a0),
+            light_intensity: Param::new(2.2),
+            shadows: Shadows {
+                enabled: true,
+                distance: 28.0,
+                softness: 1.0,
+                ..Default::default()
+            },
+            env_light: EnvLight {
+                source: EnvSource::Studio(Studio::Sunset),
+                intensity: Param::new(0.7),
+                ..Default::default()
+            },
+            shafts: LightShafts {
+                enabled: true,
+                strength: Param::new(1.1),
+                scattering: 0.6,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        layers: vec![
+            Layer::new(
+                "Sky",
+                LayerKind::Backdrop(Backdrop {
+                    kind: BackdropKind::Environment,
+                    detail: Param::new(0.6),
+                    ..Default::default()
+                }),
+            ),
+            Layer::new(
+                "Marble floor",
+                LayerKind::Mirror(MirrorFloor {
+                    base_color: hex(0xcfc6b8),
+                    texture: Some("marble".into()),
+                    texture_scale: 6.0,
+                    reflectivity: Param::new(0.35),
+                    blur: Param::new(0.25),
+                    ..Default::default()
+                }),
+            ),
+            // Two rows of columns: the layer is stretched tall and thin,
+            // so the spacing is divided by the same amounts.
+            Layer::new(
+                "Columns",
+                LayerKind::Mesh(MeshLayer {
+                    source: MeshSource::Primitive(Primitive::Cylinder { segments: 24 }),
+                    material: stone,
+                    instancer: Instancer::Grid {
+                        counts: [2, 1, 7],
+                        spacing: [8.0 / 0.7, 0.0, 3.6 / 0.7],
+                    },
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, 3.5, -6.0])
+            .stretched([0.7, 7.0, 0.7]),
+            Layer::new(
+                "Orb",
+                LayerKind::Mesh(mesh(Primitive::Sphere { detail: 4 }, gold)),
+            )
+            .at([0.0, 1.6, -3.0])
+            .scaled(0.9)
+            .spin([0, 1, 0]),
+        ],
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                intensity: Param::new(0.35),
+                threshold: Param::new(1.4),
+                radius: Param::new(0.6),
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+/// Every material preset (physical shading) on its own shape, lit by the
+/// softbox studio, which turns once per loop.
+pub fn material_gallery() -> Project {
+    let shapes = [
+        Primitive::Sphere { detail: 4 },
+        Primitive::TorusKnot {
+            p: 2,
+            q: 3,
+            thickness: 0.12,
+        },
+        Primitive::Sphere { detail: 4 },
+    ];
+    let mut layers = vec![
+        Layer::new(
+            "Studio",
+            LayerKind::Backdrop(Backdrop {
+                kind: BackdropKind::Environment,
+                detail: Param::new(0.35),
+                ..Default::default()
+            }),
+        ),
+        Layer::new(
+            "Floor",
+            LayerKind::Mirror(MirrorFloor {
+                base_color: hex(0x303236),
+                reflectivity: Param::new(0.25),
+                blur: Param::new(0.4),
+                ..Default::default()
+            }),
+        ),
+    ];
+    for (i, preset) in MaterialPreset::ALL.iter().enumerate() {
+        let (col, row) = ((i % 3) as f32, (i / 3) as f32);
+        let mut material = Material::default();
+        preset.apply(&mut material);
+        layers.push(
+            Layer::new(
+                preset.label(),
+                LayerKind::Mesh(mesh(shapes[(i + i / 3) % 3].clone(), material)),
+            )
+            .at([(col - 1.0) * 2.6, 0.7, (row - 1.0) * 2.6])
+            .scaled(0.75)
+            .spin([0, 1, 0]),
+        );
+    }
+    Project {
+        name: "Material Gallery".into(),
+        timing: crate::Timing {
+            bpm: 96.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Orbit,
+            target: [0.0, 0.6, 0.0],
+            distance: Param::new(9.0),
+            height: Param::new(4.0),
+            fov: Param::new(40.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_density: Param::new(0.0),
+            light_intensity: Param::new(0.0),
+            reflections: Reflections {
+                enabled: true,
+                ..Default::default()
+            },
+            env_light: EnvLight {
+                source: EnvSource::Studio(Studio::Softbox),
+                rotation: Param::new(0.0).osc(Wave::Saw, 180.0, 1),
+                intensity: Param::new(1.2),
+                sun_from_map: false,
+                sky_static: false,
+            },
+            ..Default::default()
+        },
+        layers,
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                intensity: Param::new(0.3),
+                threshold: Param::new(1.6),
+                radius: Param::new(0.5),
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+/// A row of flags in a gusting wind that swings round: simulated cloth.
+pub fn banners() -> Project {
+    use crate::sim::{Cloth, ClothKind};
+    let row = Instancer::Grid {
+        counts: [5, 1, 1],
+        spacing: [4.5, 1.0, 1.0],
+    };
+    let cloth = Cloth {
+        kind: ClothKind::Flag,
+        size: [3.0, 2.0],
+        detail: 24,
+        stiffness: 0.25,
+        // A gust on every bar, the wind swinging ±35° over the loop.
+        wind: Param::new(9.0).osc(Wave::Pulse, 5.0, 4),
+        wind_direction: Param::new(-20.0).osc(Wave::Sine, 35.0, 1),
+        gusts: 0.5,
+        ..Default::default()
+    };
+    let mut flags = Layer::new(
+        "Flags",
+        LayerKind::Mesh(MeshLayer {
+            source: MeshSource::Cloth {
+                cloth: Box::new(cloth),
+                mesh: None,
+            },
+            instancer: row.clone(),
+            variation: Variation {
+                hue: 0.35,
+                ..Default::default()
+            },
+            material: Material {
+                base_color: hex(0xe8e0d0),
+                roughness: Param::new(0.85),
+                texture: Some("rings".into()),
+                ..Default::default()
+            },
+            ..Default::default()
+        }),
+    )
+    .at([0.0, 4.2, 0.0]);
+    flags.transform.position[0] = -1.5;
+    let mut poles = Layer::new(
+        "Poles",
+        LayerKind::Mesh(MeshLayer {
+            instancer: row,
+            ..mesh(
+                Primitive::Cylinder { segments: 12 },
+                Material {
+                    base_color: hex(0xb8bcc4),
+                    metallic: Param::new(0.9),
+                    roughness: Param::new(0.25),
+                    ..Default::default()
+                },
+            )
+        }),
+    )
+    .at([-1.5, 2.6, 0.0]);
+    poles.transform.stretch = [0.06, 2.6, 0.06];
+    Project {
+        name: "Banners".into(),
+        timing: crate::Timing {
+            bpm: 110.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Pendulum,
+            swing: Param::new(25.0),
+            target: [0.0, 3.2, 0.0],
+            distance: Param::new(17.0),
+            height: Param::new(2.5),
+            fov: Param::new(55.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0xa8bcd4),
+            fog_density: Param::new(0.01),
+            sky_color: hex(0x88aee0),
+            ground_color: hex(0x40464c),
+            light_dir: [0.5, 0.8, 0.6],
+            light_color: hex(0xfff4e0),
+            light_intensity: Param::new(1.5),
+            ambient: Param::new(0.5),
+            shadows: Shadows {
+                enabled: true,
+                distance: 40.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        layers: vec![
+            sky(
+                BackdropKind::Clouds,
+                0x3a70c0,
+                0xc8d8ec,
+                0x8898b0,
+                RaySettings {
+                    variant: 0,
+                    size: Param::new(1.0),
+                    warp: Param::new(1.0),
+                    bend: Param::new(1.0),
+                    glow: Param::new(1.0),
+                    fog: Param::new(1.0),
+                    ..Default::default()
+                },
+            ),
+            Layer::new(
+                "Ground",
+                LayerKind::Mirror(MirrorFloor {
+                    base_color: hex(0x3a4048),
+                    reflectivity: Param::new(0.25),
+                    blur: Param::new(0.5),
+                    ..Default::default()
+                }),
+            ),
+            poles,
+            flags,
+        ],
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                intensity: Param::new(0.3),
+                threshold: Param::new(1.4),
+                radius: Param::new(0.6),
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+/// A wall of blocks knocked down by a blast and rebuilt (ping-pong), with
+/// a rain of pearls behind it: simulated rigid bodies.
+pub fn beat_demolition() -> Project {
+    use crate::sim::{Collider, Physics};
+    let wall = Layer::new(
+        "Wall",
+        LayerKind::Mesh(MeshLayer {
+            instancer: Instancer::Physics {
+                physics: Box::new(Physics {
+                    counts: [8, 6, 1],
+                    gap: 0.02,
+                    blast_beat: 2.0,
+                    blast: 12.0,
+                    blast_at: [0.5, 1.2, 1.2],
+                    ..Physics::stack()
+                }),
+                placed: None,
+            },
+            ramp: ColorRamp {
+                enabled: true,
+                colors: vec![hex(0xff3060), hex(0xffa020), hex(0x30c0ff)],
+                cycles: 1,
+                ..Default::default()
+            },
+            ..mesh(
+                Primitive::Cube,
+                Material {
+                    base_color: hex(0x202028),
+                    metallic: Param::new(0.3),
+                    roughness: Param::new(0.35),
+                    emissive: Param::new(0.9),
+                    emissive_mode: EmissiveMode::Edges,
+                    ..Default::default()
+                },
+            )
+        }),
+    );
+    let rain = Layer::new(
+        "Rain",
+        LayerKind::Mesh(MeshLayer {
+            instancer: Instancer::Physics {
+                physics: Box::new(Physics {
+                    collider: Collider::Ball,
+                    extent: 1.0,
+                    count: 40,
+                    area: 3.0,
+                    height: 5.0,
+                    ..Physics::default()
+                }),
+                placed: None,
+            },
+            ..mesh(
+                Primitive::Sphere { detail: 3 },
+                Material {
+                    base_color: hex(0xe8ecf4),
+                    metallic: Param::new(0.1),
+                    roughness: Param::new(0.25),
+                    emissive: Param::new(0.35),
+                    emissive_color: hex(0xc0d8ff),
+                    ..Default::default()
+                },
+            )
+        }),
+    )
+    .scaled(0.35)
+    .at([0.0, 0.0, -6.0]);
+    Project {
+        name: "Beat Demolition".into(),
+        timing: crate::Timing {
+            bpm: 120.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Pendulum,
+            swing: Param::new(20.0),
+            target: [0.0, 2.0, -1.0],
+            distance: Param::new(15.0),
+            height: Param::new(4.0),
+            fov: Param::new(55.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0x080610),
+            fog_density: Param::new(0.02),
+            sky_color: hex(0x303050),
+            ground_color: hex(0x101018),
+            light_dir: [0.4, 0.9, 0.5],
+            light_color: hex(0xfff0e0),
+            light_intensity: Param::new(1.3),
+            ambient: Param::new(0.35),
+            shadows: Shadows {
+                enabled: true,
+                distance: 30.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        layers: vec![
+            Layer::new(
+                "Sky",
+                LayerKind::Backdrop(Backdrop {
+                    kind: BackdropKind::Nebula,
+                    color_a: hex(0x401030),
+                    color_b: hex(0x05040c),
+                    ..Default::default()
+                }),
+            ),
+            Layer::new(
+                "Floor",
+                LayerKind::Mirror(MirrorFloor {
+                    base_color: hex(0x0c0c14),
+                    reflectivity: Param::new(0.5),
+                    blur: Param::new(0.3),
+                    ..Default::default()
+                }),
+            ),
+            wall,
+            rain,
+        ],
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                intensity: Param::new(0.7),
+                threshold: Param::new(1.0),
+                radius: Param::new(0.7),
             },
             ..Default::default()
         },

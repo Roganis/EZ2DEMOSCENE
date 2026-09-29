@@ -676,6 +676,28 @@ fn capsule(length: f32, segments: u32) -> MeshData {
     m
 }
 
+/// The lower half of the unit sphere as a shell `thickness` thick: the
+/// outside from the bottom up to the rim, across the rim, and the inside
+/// back down.
+fn bowl(thickness: f32) -> MeshData {
+    let seg = 48;
+    let rows = 12u32;
+    let inner = 1.0 - thickness.clamp(0.005, 0.5);
+    let mut m = MeshData::default();
+    m.grid(seg, 2 * rows + 1, |u, v| {
+        let a = u * TAU;
+        let k = (v * (2 * rows + 1) as f32).round() as u32;
+        let (phi, r, sign) = if k <= rows {
+            (-0.5 * PI + 0.5 * PI * k as f32 / rows as f32, 1.0, 1.0)
+        } else {
+            (-0.5 * PI * (k - rows - 1) as f32 / rows as f32, inner, -1.0)
+        };
+        let n = Vec3::new(a.cos() * phi.cos(), phi.sin(), a.sin() * phi.cos());
+        (n * r, n * sign)
+    });
+    m
+}
+
 fn torus_knot(p: u32, q: u32, thickness: f32) -> MeshData {
     let (p, q) = (p.clamp(1, 12) as f32, q.clamp(1, 12) as f32);
     let curve = |t: f32| {
@@ -1007,7 +1029,45 @@ pub fn primitive(p: &Primitive) -> MeshData {
         Primitive::Gem { facets } => gem(*facets),
         Primitive::Heart { depth } => heart(*depth),
         Primitive::Mobius { width } => mobius(*width),
+        Primitive::Bowl { thickness } => bowl(*thickness),
     }
+}
+
+/// A sheet of cloth from its particles (`cols` across, row by row from
+/// the top): normals from the neighbours, texture coordinates over the
+/// whole sheet, and the outline at its border (for edge glows). Drawn from
+/// both sides (the mesh shader turns normals to the viewer).
+pub fn cloth_sheet(pos: &[Vec3], cols: usize, rows: usize) -> MeshData {
+    let mut data = MeshData {
+        vertices: Vec::with_capacity(cols * rows),
+        indices: Vec::with_capacity((cols - 1) * (rows - 1) * 6),
+    };
+    if cols < 2 || rows < 2 || pos.len() < cols * rows {
+        return data;
+    }
+    let p = |i: usize, j: usize| pos[j * cols + i];
+    for j in 0..rows {
+        for i in 0..cols {
+            let dx = p((i + 1).min(cols - 1), j) - p(i.saturating_sub(1), j);
+            let dy = p(i, (j + 1).min(rows - 1)) - p(i, j.saturating_sub(1));
+            let n = dy.cross(dx).normalize_or(Vec3::Z);
+            let border = i == 0 || j == 0 || i == cols - 1 || j == rows - 1;
+            data.vertices.push(Vertex {
+                pos: p(i, j).into(),
+                normal: n.into(),
+                uv: [i as f32 / (cols - 1) as f32, j as f32 / (rows - 1) as f32],
+                edge: if border { 0.0 } else { 1.0 },
+            });
+        }
+    }
+    for j in 0..rows - 1 {
+        for i in 0..cols - 1 {
+            let a = (j * cols + i) as u32;
+            let (b, c, d) = (a + cols as u32, a + 1, a + cols as u32 + 1);
+            data.indices.extend_from_slice(&[a, b, c, c, b, d]);
+        }
+    }
+    data
 }
 
 #[cfg(test)]

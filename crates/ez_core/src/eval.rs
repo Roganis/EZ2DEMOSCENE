@@ -220,6 +220,10 @@ pub fn layer_frame(t: &Transform, ctx: &EvalCtx) -> Mat4 {
     );
     let mut pos = Vec3::from(t.position) + Vec3::Y * t.bob.eval(ctx);
     let mut rot = base * spin;
+    let tilt = t.tilt.eval(ctx);
+    if tilt != 0.0 {
+        rot = Quat::from_rotation_z(tilt.to_radians()) * rot;
+    }
     if t.shake.is_active() {
         let (offset, turn) = shake_offset(&t.shake, ctx);
         pos += offset;
@@ -372,6 +376,9 @@ pub fn layout_count(inst: &Instancer, surface: Option<&[SurfacePoint]>) -> u32 {
         Instancer::Wall { cols, rows, .. } => cols.clamp(1, 128) * rows.clamp(1, 128),
         Instancer::Spiral { count, .. } | Instancer::Curve { count, .. } => count.clamp(1, 4096),
         Instancer::Surface { .. } => surface.map_or(0, |s| s.len() as u32),
+        Instancer::Flock { ref placed, .. }
+        | Instancer::Physics { ref placed, .. }
+        | Instancer::Fluid { ref placed, .. } => placed.as_ref().map_or(0, |p| p.len() as u32),
     }
 }
 
@@ -582,6 +589,9 @@ pub fn instancer_locals(
                 })
                 .collect()
         }
+        Instancer::Flock { ref placed, .. }
+        | Instancer::Physics { ref placed, .. }
+        | Instancer::Fluid { ref placed, .. } => placed.as_deref().cloned().unwrap_or_default(),
     }
 }
 
@@ -663,9 +673,15 @@ pub fn instances_are_static(layer: &Layer, mesh: &MeshLayer) -> bool {
         && !t.shake.is_active()
         && !t.scale.is_animated()
         && !t.bob.is_animated()
+        && !t.tilt.is_animated()
         && !matches!(
             mesh.instancer,
-            Instancer::Orbit { .. } | Instancer::Swarm { .. } | Instancer::OnTerrain { .. }
+            Instancer::Orbit { .. }
+                | Instancer::Swarm { .. }
+                | Instancer::OnTerrain { .. }
+                | Instancer::Flock { .. }
+                | Instancer::Physics { .. }
+                | Instancer::Fluid { .. }
         )
         && !matches!(mesh.instancer, Instancer::Curve { laps, .. } if laps != 0)
         && v.spin == 0

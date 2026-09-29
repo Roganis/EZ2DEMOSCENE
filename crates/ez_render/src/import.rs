@@ -69,9 +69,12 @@ pub fn load_mesh(path: &Path) -> Result<MeshData> {
 }
 
 fn load_gltf(path: &Path) -> Result<MeshData> {
-    let (doc, buffers, _images) =
-        gltf::import(path).with_context(|| format!("reading {}", path.display()))?;
-    gltf_to_mesh(&doc, &buffers)
+    // Buffers only: pictures (materials) are read separately, so a missing
+    // texture file doesn't stop the shape from loading.
+    let gltf = gltf::Gltf::open(path).with_context(|| format!("reading {}", path.display()))?;
+    let buffers = gltf::import_buffers(&gltf.document, path.parent(), gltf.blob.clone())
+        .context("reading glTF buffers")?;
+    gltf_to_mesh(&gltf.document, &buffers)
 }
 
 fn gltf_to_mesh(doc: &gltf::Document, buffers: &[gltf::buffer::Data]) -> Result<MeshData> {
@@ -198,6 +201,150 @@ fn fill_missing_normals(m: &mut MeshData) {
     }
 }
 
+/// The physical material of a glTF model (its first textured or coloured
+/// one), with its pictures decoded. Maps follow glTF: the ORM picture
+/// holds occlusion (red), roughness (green) and metalness (blue).
+#[derive(Clone, Debug)]
+pub struct ModelMaterial {
+    pub base_color: [f32; 3],
+    pub metallic: f32,
+    pub roughness: f32,
+    /// Glow colour times its strength.
+    pub emissive: [f32; 3],
+    pub transmission: f32,
+    pub ior: f32,
+    pub color_map: Option<image::RgbaImage>,
+    pub orm_map: Option<image::RgbaImage>,
+    pub emissive_map: Option<image::RgbaImage>,
+}
+
+/// Read the material of a glTF / GLB model by asset path. `None` for
+/// other formats and for models without materials.
+pub fn load_model_material(path: &str) -> Result<Option<ModelMaterial>> {
+    let ext = ez_core::store::extension(path);
+    if ext != "gltf" && ext != "glb" {
+        return Ok(None);
+    }
+    let bytes = ez_core::store::read(path).with_context(|| format!("reading {path}"))?;
+    let gltf = gltf::Gltf::from_slice(&bytes).context("reading glTF")?;
+    // Files next to a model on disk can be read; in memory only embedded
+    // data can.
+    let dir = (!ez_core::store::is_mem(path) && !cfg!(target_arch = "wasm32"))
+        .then(|| std::path::Path::new(path).parent().map(|d| d.to_path_buf()))
+        .flatten();
+    let buffers = gltf::import_buffers(&gltf.document, dir.as_deref(), gltf.blob.clone())
+        .context("reading glTF buffers")?;
+    // A picture that can't be read is skipped, not fatal.
+    let images: Vec<Option<gltf::image::Data>> = gltf
+        .document
+        .images()
+        .map(|i| gltf::image::Data::from_source(i.source(), dir.as_deref(), &buffers).ok())
+        .collect();
+    Ok(model_material(&gltf.document, &images))
+}
+
+fn model_material(
+    doc: &gltf::Document,
+    images: &[Option<gltf::image::Data>],
+) -> Option<ModelMaterial> {
+    // The material of the first primitive that has one.
+    let mat = doc
+        .meshes()
+        .flat_map(|m| m.primitives().collect::<Vec<_>>())
+        .map(|p| p.material())
+        .find(|m| m.index().is_some())?;
+    let pbr = mat.pbr_metallic_roughness();
+    let image = |t: Option<gltf::texture::Texture>| {
+        t.and_then(|t| images.get(t.source().index())?.as_ref())
+            .and_then(to_rgba)
+    };
+    let color_map = image(pbr.base_color_texture().map(|t| t.texture()));
+    let mr = image(pbr.metallic_roughness_texture().map(|t| t.texture()));
+    let occ = image(mat.occlusion_texture().map(|t| t.texture()));
+    let orm_map = orm_picture(mr, occ);
+    let emissive_map = image(mat.emissive_texture().map(|t| t.texture()));
+    let [r, g, b, _] = pbr.base_color_factor();
+    let strength = mat.emissive_strength().unwrap_or(1.0);
+    let e = mat.emissive_factor();
+    Some(ModelMaterial {
+        base_color: [r, g, b],
+        metallic: pbr.metallic_factor(),
+        roughness: pbr.roughness_factor(),
+        emissive: [e[0] * strength, e[1] * strength, e[2] * strength],
+        transmission: mat
+            .transmission()
+            .map(|t| t.transmission_factor())
+            .unwrap_or(0.0),
+        ior: mat.ior().unwrap_or(1.5),
+        color_map,
+        orm_map,
+        emissive_map,
+    })
+}
+
+/// One ORM picture from glTF's metal/roughness picture (green, blue) and
+/// occlusion picture (red), which may be separate or missing.
+fn orm_picture(
+    mr: Option<image::RgbaImage>,
+    occ: Option<image::RgbaImage>,
+) -> Option<image::RgbaImage> {
+    match (mr, occ) {
+        (None, None) => None,
+        (Some(mut mr), occ) => {
+            let occ = occ.map(|o| {
+                image::imageops::resize(
+                    &o,
+                    mr.width(),
+                    mr.height(),
+                    image::imageops::FilterType::Triangle,
+                )
+            });
+            for (x, y, p) in mr.enumerate_pixels_mut() {
+                p[0] = occ.as_ref().map(|o| o.get_pixel(x, y)[0]).unwrap_or(255);
+                p[3] = 255;
+            }
+            Some(mr)
+        }
+        (None, Some(mut occ)) => {
+            for p in occ.pixels_mut() {
+                *p = image::Rgba([p[0], 255, 255, 255]);
+            }
+            Some(occ)
+        }
+    }
+}
+
+fn to_rgba(d: &gltf::image::Data) -> Option<image::RgbaImage> {
+    use gltf::image::Format;
+    let n = (d.width * d.height) as usize;
+    let px: Vec<u8> = match d.format {
+        Format::R8G8B8A8 => d.pixels.clone(),
+        Format::R8G8B8 => d
+            .pixels
+            .chunks(3)
+            .flat_map(|c| [c[0], c[1], c[2], 255])
+            .collect(),
+        Format::R8G8 => d
+            .pixels
+            .chunks(2)
+            .flat_map(|c| [c[0], c[0], c[0], c[1]])
+            .collect(),
+        Format::R8 => d.pixels.iter().flat_map(|&v| [v, v, v, 255]).collect(),
+        // 16-bit: keep the high byte (little-endian pairs).
+        Format::R16G16B16A16 => d.pixels.chunks(2).map(|c| c[1]).collect(),
+        Format::R16G16B16 => d
+            .pixels
+            .chunks(6)
+            .flat_map(|c| [c[1], c[3], c[5], 255])
+            .collect(),
+        _ => return None,
+    };
+    if px.len() != n * 4 {
+        return None;
+    }
+    image::RgbaImage::from_raw(d.width, d.height, px)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -224,5 +371,63 @@ mod tests {
             .iter()
             .all(|v| Vec3::from(v.pos).length() <= 1.0001));
         assert!(Vec3::from(m.vertices[0].normal).z.abs() > 0.99);
+    }
+
+    #[test]
+    fn reads_gltf_materials() {
+        let dir = std::env::temp_dir().join("ez2_gltf_material_test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let tri: Vec<u8> = [0.0f32, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+            .iter()
+            .flat_map(|f| f.to_le_bytes())
+            .collect();
+        std::fs::write(dir.join("tri.bin"), tri).unwrap();
+        // Metal/roughness in green and blue, occlusion (red) separate.
+        image::RgbaImage::from_pixel(4, 4, image::Rgba([0, 100, 200, 255]))
+            .save(dir.join("mr.png"))
+            .unwrap();
+        image::RgbaImage::from_pixel(2, 2, image::Rgba([50, 0, 0, 255]))
+            .save(dir.join("occ.png"))
+            .unwrap();
+        let json = r#"{
+            "asset": {"version": "2.0"},
+            "scene": 0,
+            "scenes": [{"nodes": [0]}],
+            "nodes": [{"mesh": 0}],
+            "meshes": [{"primitives": [{"attributes": {"POSITION": 0}, "material": 0}]}],
+            "buffers": [{"uri": "tri.bin", "byteLength": 36}],
+            "bufferViews": [{"buffer": 0, "byteOffset": 0, "byteLength": 36}],
+            "accessors": [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3",
+                           "min": [0, 0, 0], "max": [1, 1, 0]}],
+            "images": [{"uri": "mr.png"}, {"uri": "occ.png"}, {"uri": "missing.png"}],
+            "textures": [{"source": 0}, {"source": 1}, {"source": 2}],
+            "materials": [{
+                "pbrMetallicRoughness": {
+                    "baseColorFactor": [1, 0.5, 0.25, 1],
+                    "metallicFactor": 0.8,
+                    "roughnessFactor": 0.6,
+                    "metallicRoughnessTexture": {"index": 0}
+                },
+                "occlusionTexture": {"index": 1},
+                "emissiveTexture": {"index": 2},
+                "emissiveFactor": [1, 0, 0]
+            }]
+        }"#;
+        let path = dir.join("model.gltf");
+        std::fs::write(&path, json).unwrap();
+        let m = load_model_material(path.to_str().unwrap())
+            .unwrap()
+            .expect("a material");
+        assert_eq!(m.base_color, [1.0, 0.5, 0.25]);
+        assert_eq!((m.metallic, m.roughness), (0.8, 0.6));
+        assert_eq!(m.emissive, [1.0, 0.0, 0.0]);
+        let orm = m.orm_map.expect("an ORM picture");
+        assert_eq!(orm.dimensions(), (4, 4));
+        assert_eq!(orm.get_pixel(1, 1).0, [50, 100, 200, 255]);
+        // The missing glow picture is skipped.
+        assert!(m.emissive_map.is_none() && m.color_map.is_none());
+        // The mesh still loads, and OBJ files have no material here.
+        assert!(load_mesh(&path).is_ok());
+        assert!(load_model_material("x.obj").unwrap().is_none());
     }
 }

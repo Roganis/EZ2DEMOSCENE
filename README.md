@@ -38,6 +38,10 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     1,000 low-poly models** (spaceships, vehicles, trees, food, buildings,
     characters… by Kenney, CC0) picked from tiles with previews, and your
     own **glTF/GLB/OBJ** models.
+  - **Cloth**: flags, curtains, banners or a sheet draped over a ball,
+    blown by a wind that can turn and gust on the beat. Position-based
+    dynamics simulated ahead of time into a loop (like flocks), drawn as a
+    shape with every material, texture, copy and shadow option.
   - Morph: any shape or model melts into another like liquid (holes open
     and close, parts bud off), with an animatable amount.
   - Copies (instancing): grid, radial, scatter, orbit swarm, curved wall,
@@ -71,6 +75,26 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     wall, spiral, curve, big swarms of up to 250,000 in orbits, a cloud,
     a shell or a spiral galaxy) is placed with its variation by a compute
     shader on desktop and WebGPU; WebGL2 runs the same maths on the CPU.
+  - **Flocks** (a copy layout): boids that keep apart, fly together and
+    follow a target (still, animated, music-linked or travelling a
+    curve), bank into turns and scatter on hits. Simulated ahead of time
+    into a loop (on a thread; in the browser a slice per frame) with the
+    same result on every platform: each boid keeps a loose place in a
+    formation so the flight nearly repeats, and the end of the loop steers
+    back to its start. Exports wait for the simulation.
+  - **Physics** (a copy layout): rigid boxes or balls. *Rain* drops them
+    on a schedule that repeats every loop; they pile up, then shrink or
+    sink away. *Stack and blast* builds a wall or tower that a blast
+    knocks down on a chosen beat and that rebuilds itself (ping-pong);
+    with no gravity it bursts apart in space. Simulated ahead of time,
+    with the same result everywhere.
+  - **Liquid** (a copy layout): position-based fluid droplets in a box, a
+    bowl or a pool, filled or poured in from a spout, sloshing as the
+    layer tilts (a new animatable *Tilt*; the new *Bowl* shape rocks
+    with it) and stirrable by the music. Drawn as droplets (any shape or
+    glowing sprites) or as one smooth **liquid surface** in the layer's
+    material; the loop closes by cross-fading. *Liquid Gold* rocks a bowl
+    of molten gold.
   - **Logos**: text or an image laid flat on the screen (snapped to a
     part of the screen or against another logo, which it then follows,
     like a photo editor's reference points; size and turn animatable),
@@ -108,6 +132,21 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     the scheme can turn round the colour wheel a whole number of times
     per loop.
   - **Sun shadows** (soft shadow map) and contact shadows on floors.
+  - **Environment light** (image-based lighting): shapes are lit and
+    reflect a panorama photo (a `.hdr` file), one of four built-in
+    studios (softbox, overcast, sunset, neon room) or the scene's own
+    background. The map turns (whole turns per loop), its brightest spot
+    can become the sun with shadows, and a background can show it.
+    Blurred for rough surfaces ahead of time (split-sum GGX, spherical
+    harmonics for diffuse light); the *Chrome Studio* preset shows it off.
+  - **Reflections** (screen-space): shiny shapes, water and rain puddles
+    reflect what is around them on the screen, blending back to the
+    environment where the screen runs out; the mirror floor keeps its own
+    exact reflection. Half resolution, no history, so it loops.
+  - **Light shafts**: the fog (and mist) lit by the sun wherever the sun
+    reaches it, so shapes and terrain cut dark bands through the haze,
+    even with the sun off screen (marched through the sun shadow map).
+    The *Cathedral Light* preset streams low sunlight between columns.
   - Atmosphere: **mist** pooling in valleys, underwater **caustics**, a
     **rainbow**, and a **day & night cycle** with sunsets, stars and a
     moon.
@@ -117,8 +156,14 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     or rose curves, with light pulses running along them.
   - Blink / strobe on any layer: rhythmic or random blinking and beat
     flashes.
-- **Materials.** Glossy/metallic surfaces with fake studio reflections,
-  flat-shaded facets, rim light, and neon glow on the whole surface, along
+- **Materials.** Classic or **physical** shading (GGX highlights,
+  split-sum reflections with multiple scattering, so rough metals keep
+  their energy), clearcoat, sheen and glass, occlusion/roughness/metal and
+  glow maps, and nine one-click presets (gold, copper, chrome, brushed
+  steel, rubber, car paint, glass, velvet, ceramic). glTF models bring
+  their own PBR material and pictures (Classic keeps the original fake
+  studio reflections). Flat-shaded facets, rim light, and neon glow on
+  the whole surface, along
   polygon edges (Tron look), in stripes, or from a texture. **Relief**
   adds bump maps, normal maps and real displacement (with subdivision).
   **Glitch**

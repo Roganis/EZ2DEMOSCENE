@@ -751,6 +751,88 @@ impl EzApp {
         }
     }
 
+    /// Give a model layer the physical material of its glTF file: factors,
+    /// and its pictures added as images. Returns a note for the status
+    /// line ("" when the file has no material).
+    fn apply_model_material(&mut self, lref: LayerRef, path: &str, name: &str) -> String {
+        let mm = match ez_render::import::load_model_material(path) {
+            Ok(Some(mm)) => mm,
+            Ok(None) => return String::new(),
+            Err(e) => {
+                log::warn!("reading the material of {name}: {e:#}");
+                return String::new();
+            }
+        };
+        let stem = name
+            .rsplit_once('.')
+            .map(|(s, _)| s)
+            .unwrap_or(name)
+            .to_string();
+        let mut picture = |img: &Option<image::RgbaImage>, kind: &str| -> Option<String> {
+            let file = format!("{stem}_{kind}.png");
+            let path = self.store_picture(img.as_ref()?, &file)?;
+            Some(inspector::add_user_texture(
+                &mut self.project.textures,
+                &path,
+                &file,
+            ))
+        };
+        let color = picture(&mm.color_map, "colour");
+        let orm = picture(&mm.orm_map, "orm");
+        let glow = picture(&mm.emissive_map, "glow");
+        let Some(LayerKind::Mesh(m)) = self.layer_for(lref).map(|l| &mut l.kind) else {
+            return String::new();
+        };
+        let mat = &mut m.material;
+        mat.base_color = mm.base_color;
+        mat.metallic = Param::new(mm.metallic);
+        mat.roughness = Param::new(mm.roughness);
+        mat.rim = Param::new(0.0);
+        mat.texture = color;
+        mat.texture_scale = Param::new(1.0);
+        let e = mm.emissive;
+        let strength = e[0].max(e[1]).max(e[2]);
+        if strength > 0.0 {
+            mat.emissive_color = [e[0] / strength, e[1] / strength, e[2] / strength];
+            mat.emissive = Param::new(strength);
+            mat.emissive_mode = EmissiveMode::Full;
+        }
+        mat.pbr = Pbr {
+            shading: Shading::Physical,
+            orm_map: orm,
+            emissive_map: glow,
+            transmission: Param::new(mm.transmission),
+            ior: mm.ior,
+            ..Default::default()
+        };
+        " with its material".into()
+    }
+
+    /// Keep a picture made by the app (taken out of a model) as a PNG
+    /// asset: a file in the app's data folder, or in memory on the web.
+    fn store_picture(&self, img: &image::RgbaImage, file: &str) -> Option<String> {
+        let mut png = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .ok()?;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let dir = self.library.imported_dir();
+            std::fs::create_dir_all(&dir).ok()?;
+            let mut path = dir.join(file);
+            let mut k = 2;
+            while path.exists() {
+                path = dir.join(format!("{k}_{file}"));
+                k += 1;
+            }
+            std::fs::write(&path, png).ok()?;
+            Some(path.to_string_lossy().to_string())
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            Some(ez_core::store::insert_new(file, png))
+        }
+    }
+
     /// Apply files picked in a dialog or dropped on the window.
     fn handle_picked(&mut self) {
         for p in platform::take_picked() {
@@ -772,6 +854,8 @@ impl EzApp {
                         Purpose::LoadMusic
                     } else if MIDI_EXTENSIONS.contains(&ext.as_str()) {
                         Purpose::LoadMidi
+                    } else if ext == "hdr" {
+                        Purpose::SetEnvMap
                     } else {
                         self.set_status(format!("Don't know what to do with {}", p.name), true);
                         continue;
@@ -783,14 +867,20 @@ impl EzApp {
                 Purpose::OpenProject => self.open_asset(&p.path, &p.name),
                 Purpose::AddModelLayer => {
                     self.project.layers.push(inspector::model_layer(&p.path));
-                    self.selection = Selection::Layer(self.project.layers.len() - 1);
-                    self.set_status(format!("Added model {}", p.name), false);
+                    let i = self.project.layers.len() - 1;
+                    self.selection = Selection::Layer(i);
+                    let with = self.apply_model_material(LayerRef::Layer(i), &p.path, &p.name);
+                    self.set_status(format!("Added model {}{with}", p.name), false);
                 }
                 Purpose::SetModel(lref) => {
                     if let Some(LayerKind::Mesh(m)) = self.layer_for(lref).map(|l| &mut l.kind) {
                         m.source = MeshSource::File {
                             path: p.path.clone(),
                         };
+                    }
+                    let with = self.apply_model_material(lref, &p.path, &p.name);
+                    if !with.is_empty() {
+                        self.set_status(format!("Loaded {}{with}", p.name), false);
                     }
                 }
                 Purpose::SetMorphModel(lref) => {
@@ -813,6 +903,12 @@ impl EzApp {
                             (LayerKind::Mesh(m), platform::TexSlot::Relief) => {
                                 m.material.relief.texture = Some(name.clone())
                             }
+                            (LayerKind::Mesh(m), platform::TexSlot::Orm) => {
+                                m.material.pbr.orm_map = Some(name.clone())
+                            }
+                            (LayerKind::Mesh(m), platform::TexSlot::Emissive) => {
+                                m.material.pbr.emissive_map = Some(name.clone())
+                            }
                             (LayerKind::Mesh(m), _) => m.material.texture = Some(name.clone()),
                             (LayerKind::Backdrop(b), _) => b.texture = Some(name.clone()),
                             (LayerKind::Mirror(f), _) => f.texture = Some(name.clone()),
@@ -831,6 +927,11 @@ impl EzApp {
                     self.set_status(format!("Added image '{name}'"), false);
                 }
                 Purpose::LoadMusic => self.set_audio(Some(p.path.clone())),
+                Purpose::SetEnvMap => {
+                    let light = &mut self.project.environment.env_light;
+                    light.source = EnvSource::Hdri(p.path.clone());
+                    self.set_status(format!("{} lights the scene", p.name), false);
+                }
                 Purpose::LoadMidi => {
                     self.project.music.midi = Some(p.path.clone());
                     self.reload_audio();
@@ -1394,6 +1495,16 @@ impl EzApp {
             .map(|l| l.name.clone())
             .collect();
         ui.data_mut(|d| d.insert_temp(egui::Id::new(inspector::TERRAIN_NAMES), terrains));
+        // How the selected layer's simulation bake is doing.
+        let sim = match self.selection {
+            Selection::Layer(i) => self
+                .project
+                .layers
+                .get(i)
+                .and_then(|l| self.viewport.renderer.sim_status(&l.name)),
+            _ => None,
+        };
+        ui.data_mut(|d| d.insert_temp(egui::Id::new(inspector::SIM_STATUS), sim));
         // Shape and sprite layers that arcs can reach for.
         let copy_layers: Vec<String> = self
             .project
@@ -1937,6 +2048,15 @@ impl EzApp {
                 ui.label(format!("Analysing music… {:.0}%", task.progress() * 100.0))
                     .on_hover_text("Music-driven settings react once this finishes.");
             }
+            if let Some(p) = self.viewport.renderer.bake_progress() {
+                ui.spinner();
+                ui.label(format!("Simulating… {:.0}%", p * 100.0))
+                    .on_hover_text(
+                        "Flocks are simulated ahead of time into a loop. Until this \
+                     finishes they show their previous version (or nothing); \
+                     exports wait for it.",
+                    );
+            }
             if let Some((msg, err, t)) = &self.status {
                 if self.now - t < 6.0 || (*err && self.now - t < 20.0) {
                     ui.label(RichText::new(msg).color(if *err {
@@ -1992,6 +2112,10 @@ impl EzApp {
             Some(_) => (false, ctx),
             None => (true, ctx),
         };
+        // Simulations: their music, and some baking (in the browser, which
+        // has no threads, a slice of each frame).
+        self.viewport.renderer.set_audio(self.audio_env.clone());
+        self.viewport.renderer.poll_bakes(bake_budget());
         // While exporting, keep showing the last picture: the GPU time goes
         // to the export instead (this matters a lot on phones).
         let tex = match self.viewport.last_texture() {
@@ -2862,6 +2986,21 @@ fn music_meters(ui: &mut Ui, m: &ez_core::MusicFrame) {
             1.0,
             ACCENT,
         );
+    }
+}
+
+/// How long simulations may bake per frame: in the browser (no threads)
+/// about 8 ms; elsewhere bakes run on threads and polling only collects
+/// them.
+fn bake_budget() -> impl FnMut() -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let start = js_sys::Date::now();
+        move || js_sys::Date::now() - start < 8.0
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        || false
     }
 }
 

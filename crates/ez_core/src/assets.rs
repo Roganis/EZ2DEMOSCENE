@@ -107,6 +107,9 @@ impl Project {
         if let Some(m) = &mut self.music.midi {
             f(m);
         }
+        if let EnvSource::Hdri(p) = &mut self.environment.env_light.source {
+            f(p);
+        }
     }
 
     /// All distinct asset paths.

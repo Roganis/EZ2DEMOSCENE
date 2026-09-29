@@ -1,0 +1,463 @@
+{
+  "version": 2,
+  "name": "Liquid Gold",
+  "timing": {
+    "bpm": 90.0,
+    "loop_beats": 16
+  },
+  "camera": {
+    "mode": "Pendulum",
+    "target": [
+      0.0,
+      1.2,
+      0.0
+    ],
+    "distance": 6.5,
+    "height": 2.6,
+    "angle": 0.0,
+    "orbit_turns": 1,
+    "swing": 20.0,
+    "fov": 45.0,
+    "roll": 0.0,
+    "beat_shake": 0.0
+  },
+  "environment": {
+    "fog_color": [
+      0.005181517,
+      0.005181517,
+      0.009134057
+    ],
+    "fog_density": 0.0,
+    "sky_color": [
+      0.21586053,
+      0.27889434,
+      0.4341537
+    ],
+    "ground_color": [
+      0.014443844,
+      0.014443844,
+      0.014443844
+    ],
+    "light_dir": [
+      0.4,
+      1.0,
+      0.3
+    ],
+    "light_color": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "light_intensity": 0.8,
+    "ambient": 0.3,
+    "shadows": {
+      "enabled": true,
+      "strength": 0.85,
+      "softness": 1.5,
+      "distance": 12.0,
+      "contact": 0.0
+    },
+    "env_light": {
+      "source": {
+        "Studio": "Softbox"
+      },
+      "rotation": 0.0,
+      "intensity": 1.1,
+      "sun_from_map": false,
+      "sky_static": false
+    }
+  },
+  "layers": [
+    {
+      "name": "Studio",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Backdrop",
+        "kind": "Environment",
+        "color_a": [
+          0.001517635,
+          0.001517635,
+          0.00303527
+        ],
+        "color_b": [
+          0.029556833,
+          0.014443844,
+          0.051269468
+        ],
+        "color_c": [
+          0.08021983,
+          0.11697067,
+          0.3515327
+        ],
+        "speed": 1,
+        "intensity": 1.0,
+        "detail": 0.3,
+        "texture": null
+      }
+    },
+    {
+      "name": "Floor",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mirror",
+        "size": 40.0,
+        "base_color": [
+          0.014443844,
+          0.014443844,
+          0.017641952
+        ],
+        "reflectivity": 0.3,
+        "blur": 0.35,
+        "tint": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "texture": null,
+        "texture_scale": 1.0,
+        "grid": 0.0,
+        "grid_color": [
+          1.0,
+          0.014443844,
+          0.051269468
+        ],
+        "grid_scale": 1.0,
+        "grid_scroll": 0
+      }
+    },
+    {
+      "name": "Bowl",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          1.6,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.5957447,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0,
+        "tilt": {
+          "base": 0.0,
+          "amp": 22.0,
+          "wave": "Sine",
+          "cycles": 2,
+          "offset": 0.0,
+          "audio": 0.0
+        }
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Bowl",
+          "thickness": 0.06
+        },
+        "material": {
+          "base_color": [
+            0.011612245,
+            0.011612245,
+            0.015996292
+          ],
+          "metallic": 0.0,
+          "roughness": 0.25,
+          "emissive_color": [
+            1.0,
+            0.029556833,
+            0.014443844
+          ],
+          "emissive": 0.0,
+          "emissive_mode": "Full",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": false,
+          "rim": 0.0,
+          "hue_shift": 0.0,
+          "pbr": {
+            "shading": "Physical",
+            "orm_map": null,
+            "emissive_map": null,
+            "clearcoat": 0.6,
+            "clearcoat_roughness": 0.08,
+            "sheen": 0.0,
+            "sheen_color": [
+              1.0,
+              1.0,
+              1.0
+            ],
+            "transmission": 0.0,
+            "ior": 1.5
+          }
+        },
+        "instancer": {
+          "type": "Single"
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    },
+    {
+      "name": "Molten gold",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          1.6,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 0.075,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0,
+        "tilt": {
+          "base": 0.0,
+          "amp": 22.0,
+          "wave": "Sine",
+          "cycles": 2,
+          "offset": 0.0,
+          "audio": 0.0
+        }
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Sphere",
+          "detail": 1
+        },
+        "material": {
+          "base_color": [
+            1.0,
+            0.5457246,
+            0.10224175
+          ],
+          "metallic": 1.0,
+          "roughness": 0.12,
+          "emissive_color": [
+            1.0,
+            0.029556833,
+            0.014443844
+          ],
+          "emissive": 0.0,
+          "emissive_mode": "Full",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": false,
+          "rim": 0.0,
+          "hue_shift": 0.0,
+          "pbr": {
+            "shading": "Physical",
+            "orm_map": null,
+            "emissive_map": null,
+            "clearcoat": 0.0,
+            "clearcoat_roughness": 0.05,
+            "sheen": 0.0,
+            "sheen_color": [
+              1.0,
+              1.0,
+              1.0
+            ],
+            "transmission": 0.0,
+            "ior": 1.5
+          }
+        },
+        "instancer": {
+          "type": "Fluid",
+          "fluid": {
+            "count": 2500,
+            "container": "Bowl",
+            "size": 1.5,
+            "spacing": 0.1,
+            "source": "Fill",
+            "life": 8.0,
+            "spout": 3.0,
+            "gravity": 9.8,
+            "viscosity": 0.15,
+            "cohesion": 0.05,
+            "stir": 0.0,
+            "seed": 1,
+            "surface": true,
+            "looping": {
+              "close": "CrossFade",
+              "blend": 0.25,
+              "guide": true,
+              "warmup": 1,
+              "settle": 0.001
+            }
+          }
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    }
+  ],
+  "post": {
+    "bloom": {
+      "enabled": true,
+      "intensity": 0.35,
+      "threshold": 1.5,
+      "radius": 0.6
+    },
+    "kaleido": {
+      "enabled": false,
+      "segments": 6,
+      "angle": 0.0,
+      "turns": 0,
+      "zoom": 1.0,
+      "center": [
+        0.5,
+        0.5
+      ]
+    },
+    "mirror": {
+      "enabled": false,
+      "mode": "LeftToRight"
+    },
+    "chroma": {
+      "enabled": false,
+      "amount": 0.004
+    },
+    "pixelate": {
+      "enabled": false,
+      "size": 4.0
+    },
+    "palette": {
+      "enabled": false,
+      "palette": "Ega",
+      "dither": 0.6
+    },
+    "crt": {
+      "enabled": false,
+      "scanlines": 0.5,
+      "curvature": 0.15,
+      "noise": 0.1
+    },
+    "grade": {
+      "exposure": 1.0,
+      "contrast": 1.05,
+      "saturation": 1.1,
+      "vignette": 0.35,
+      "grain": 0.03,
+      "beat_flash": 0.0
+    }
+  },
+  "textures": [],
+  "audio": null,
+  "graph": null,
+  "use_graph": false
+}

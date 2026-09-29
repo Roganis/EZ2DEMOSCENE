@@ -30,6 +30,10 @@ pub enum TexSlot {
     Matcap,
     /// The image a logo morphs into.
     MorphImage,
+    /// A material's occlusion / roughness / metal map.
+    Orm,
+    /// A material's glow map.
+    Emissive,
 }
 
 /// What a picked file is for.
@@ -45,6 +49,8 @@ pub enum Purpose {
     LoadMusic,
     LoadMidi,
     SetFont(LayerRef),
+    /// A panorama (`.hdr`) for the environment light.
+    SetEnvMap,
     /// Dropped on the window: what it is depends on the file extension.
     Dropped,
 }
@@ -62,6 +68,7 @@ impl Purpose {
             Purpose::LoadMusic => ("Audio", crate::app::AUDIO_EXTENSIONS),
             Purpose::LoadMidi => ("MIDI", crate::app::MIDI_EXTENSIONS),
             Purpose::SetFont(_) => ("Fonts", crate::inspector::FONT_EXTENSIONS),
+            Purpose::SetEnvMap => ("HDR panoramas", &["hdr"]),
             Purpose::Dropped => ("Any file", &[]),
         }
     }
