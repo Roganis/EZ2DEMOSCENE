@@ -683,7 +683,9 @@ styles.</p>
   <tr><td>Facing</td><td><b>Face the camera</b> (always square on), <b>Upright</b> (stands up and only turns around, like trees or
   flames) or <b>Fixed plane</b> (a flat picture you place and turn like any layer).</td></tr>
   <tr><td>Blend</td><td><b>Alpha</b>: soft edges from the image's transparency (copies are drawn far to near). <b>Additive</b>: light adds up,
-  for glows and fire. <b>Cutout</b>: hard edges at half transparency, solid like a shape (best for pixel art).</td></tr>
+  for glows and fire. <b>Cutout</b>: hard edges at half transparency, solid like a shape (best for pixel art). <b>Mesh (Saturn)</b>: a cutout
+  with every other pixel left out in a checkerboard, the Sega Saturn's way of drawing see-through things (see
+  <a href="#retro3d">Retro 3D</a>).</td></tr>
   <tr><td>Size, Opacity, Tint, Glow</td><td>Height (the width follows the picture), transparency, a colour multiplied in, and brightness
   (above 1 it blooms). All but Tint have <span class="ui">~</span> and 🎵.</td></tr>
   <tr><td>Animation</td><td>For a sprite sheet (frames in a grid, left to right, top to bottom): <span class="ui">Columns</span>,
@@ -856,6 +858,10 @@ The <b>Material Gallery</b> preset shows all nine.</p>
   <tr><td>Texture</td><td>Bright parts of the texture glow (LED grids, circuits, tech-panel slits).</td></tr>
 </table>
 <p><span class="ui">Hue shift</span> rotates all the colours of the layer. Animate it with a Saw wave for rainbow cycling.</p>
+<p><span class="ui">See-through (mesh)</span> makes a shape see-through the Sega Saturn way: instead of blending, a share of its
+pixels is simply left out in a fixed screen pattern. 0.5 is the Saturn's checkerboard "mesh" (ghosts, water, shadows); other
+values leave out more or fewer pixels, so animating it fades a shape in or out in dithered steps. With a low
+<a href="#retro3d">Retro 3D</a> resolution the pattern is as chunky as the console's.</p>
 
 <h2>Morph</h2>
 <p>The <span class="ui">Morph</span> section of a shape layer melts its shape into another, like liquid: holes open and close,
@@ -1203,8 +1209,15 @@ terminal.</figcaption></figure>
 <h2 id="retro3d">Retro 3D: 5th-generation consoles</h2>
 <p><span class="ui">🕹 Retro 3D</span> (left panel) draws the whole 3D scene the way the PlayStation, Saturn and Nintendo 64 did.
 Unlike the post effects above, it changes how shapes are drawn, not the finished picture. Click a <span class="ui">Look</span> to
-turn on a console's bundle of settings (<b>PlayStation</b>: 320 × 240, wobbling vertices, fully warped textures and square
-texture pixels), then fine-tune it. <b>Modern (off)</b> resets it.</p>
+turn on a console's bundle of settings, then fine-tune it:</p>
+<ul>
+  <li><b>PlayStation</b>: 320 × 240, wobbling vertices, fully warped textures, square texture pixels, dithered 15-bit colour.</li>
+  <li><b>Saturn</b>: 320 × 224, wobbling vertices, milder warp, square texture pixels, 15-bit colour without dither. Add
+  <span class="ui">See-through (mesh)</span> to materials or the <b>Mesh</b> blend to sprites for its transparency.</li>
+  <li><b>Nintendo 64</b>: 320 × 240, no wobble or warp (the N64 corrected perspective), soft 3-point filtered textures, fog
+  starting close to the camera, dithered 15-bit colour smoothed by the video blur.</li>
+</ul>
+<p> <b>Modern (off)</b> resets it.</p>
 <table>
   <tr><th style="width:24%">Setting</th><th>What it does</th></tr>
   <tr><td>Draw the scene at</td><td>Draws the 3D scene small (<b>256 × 224</b>, <b>320 × 240</b>, <b>640 × 480</b> or your own size)
@@ -1221,6 +1234,21 @@ texture pixels), then fine-tune it. <b>Modern (off)</b> resets it.</p>
   <tr><td>Each material's filter / Texture filter</td><td>Untick <span class="ui">Each material's filter</span> to give every
   shape and the terrain one texture <span class="ui">Filter</span> (see <a href="#materials">Textures</a>), e.g. Nearest for
   the whole PlayStation look at once. Terrain has only square or smooth pixels.</td></tr>
+  <tr><td>Near-plane culling</td><td>Triangles with a corner closer to the camera than this distance (world units) vanish
+  whole, as on the PlayStation, which dropped them instead of cutting them: walls and floors pop open when the camera gets
+  close. Big polygons (a floor made of two triangles) vanish as soon as a corner is behind the camera, which is why games
+  split them up: <span class="ui">Subdivide</span> them. 0 is off; animatable.</td></tr>
+  <tr><td>15-bit colour</td><td>Every shape, the terrain and sprites round their colours to 32 levels per channel as they are
+  drawn, as the consoles' frame buffers stored them, so smooth shading turns into bands. This happens per polygon, before
+  post effects, and is far subtler than the <b>Retro palette</b> post effect.</td></tr>
+  <tr><td>Dither</td><td>A fixed 4 × 4 pattern added before the rounding hides the bands in a fine grid of dots (the PlayStation's
+  and N64's look; the Saturn didn't). 0..1, animatable. At a low resolution the dots are console pixels.</td></tr>
+  <tr><td>N64 fog</td><td>Instead of the scene's fog, fog that begins at <span class="ui">Starts at</span> (close to the
+  camera) and thickens in a straight line to solid fog at <span class="ui">Solid at</span>, in the scene's fog colour, like
+  the Nintendo 64's short draw distances. Height fog still adds on top. Both distances are animatable (roll the fog in).</td></tr>
+  <tr><td>Video blur</td><td>The Nintendo 64's video output filter: neighbouring pixels that differ by less than a dither step
+  are averaged (dither dots melt away) and the picture is softened sideways, one console pixel wide. It is what makes N64
+  pictures look soft. 0..1, animatable.</td></tr>
   <tr><td>Texture warp</td><td>0..1 (animatable). The PlayStation and Saturn stretched textures straight across each triangle on
   the screen instead of in perspective ("affine" mapping), so textures on big polygons bend and swim as the view changes, most
   of all on floors and walls seen at an angle. To make it smaller, do what PlayStation games did: split the shape into smaller
@@ -1230,7 +1258,8 @@ texture pixels), then fine-tune it. <b>Modern (off)</b> resets it.</p>
 <p>None of these animate by themselves, so loops stay seamless: the wobble and warp depend only on where things are, and a
 moving camera or spinning shape produces the same wobble at the end of the loop as at the start. The <b>PSX Crypt</b> preset
 shows the PlayStation look (warped brick walls and wooden floor, a wobbling idol); <b>Stage Select</b> flies over checkered
-hills at 256 × 224 with a sharp stage title.</p>
+hills at 256 × 224 with a sharp stage title; <b>Fog Island</b> is the Nintendo 64 (soft textures, close fog, video blur) and
+<b>Saturn Ghosts</b> the Saturn (checkerboard see-through ghosts and wisps, pillars vanishing as the camera brushes them).</p>
 <h2>Palettes</h2>
 <table>
   <tr><th style="width:30%">Palette</th><th>Colours</th></tr>

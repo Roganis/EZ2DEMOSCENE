@@ -76,17 +76,54 @@ pub fn fit_to_output(size: [u32; 2], out: (u32, u32)) -> (u32, u32) {
 pub enum RetroStyle {
     /// Everything off.
     Modern,
-    /// Wobbly vertices, warped textures, chunky pixels at 320 × 240.
+    /// Wobbly vertices, warped textures, square texture pixels, 15-bit
+    /// dithered colour, chunky pixels at 320 × 240.
     Ps1,
+    /// Like the PlayStation but steadier warp, 320 × 224 and no dither.
+    Saturn,
+    /// Soft 3-point filtered textures, thick fog close to the camera,
+    /// dithered 15-bit colour smoothed by the video blur.
+    N64,
 }
 
 impl RetroStyle {
-    pub const ALL: [RetroStyle; 2] = [RetroStyle::Modern, RetroStyle::Ps1];
+    pub const ALL: [RetroStyle; 4] = [
+        RetroStyle::Modern,
+        RetroStyle::Ps1,
+        RetroStyle::Saturn,
+        RetroStyle::N64,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
             RetroStyle::Modern => "Modern (off)",
             RetroStyle::Ps1 => "PlayStation",
+            RetroStyle::Saturn => "Saturn",
+            RetroStyle::N64 => "Nintendo 64",
+        }
+    }
+}
+
+/// Nintendo 64 style fog: nothing before `near`, then thickening in a
+/// straight line to solid fog at `far` (distances from the camera, in
+/// world units). Replaces the scene's distance fog while on; the fog
+/// colour stays the scene's.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct N64Fog {
+    pub enabled: bool,
+    /// Where it starts (animatable).
+    pub near: Param,
+    /// Where it is solid (animatable).
+    pub far: Param,
+}
+
+impl Default for N64Fog {
+    fn default() -> Self {
+        N64Fog {
+            enabled: false,
+            near: Param::new(1.0),
+            far: Param::new(24.0),
         }
     }
 }
@@ -120,6 +157,19 @@ pub struct Retro3d {
     /// One texture filter for every shape and terrain (`None`: each
     /// material's own).
     pub filter: Option<TexFilter>,
+    /// Fog thickening straight from near the camera (Nintendo 64).
+    pub fog: N64Fog,
+    /// Colours rounded to 32 levels per channel (15-bit colour), per
+    /// polygon as it is drawn.
+    pub color_15bit: bool,
+    /// Ordered 4 × 4 dither before the rounding, 0..1 (animatable).
+    pub dither: Param,
+    /// The Nintendo 64's video output filter, 0..1 (animatable): smooths
+    /// dither patterns away and softens the picture sideways.
+    pub vi_blur: Param,
+    /// Triangles with a corner closer to the camera than this vanish
+    /// (world units, 0 = off, animatable), as on the PlayStation.
+    pub near_cull: Param,
 }
 
 impl Default for Retro3d {
@@ -134,6 +184,11 @@ impl Default for Retro3d {
             snap_amount: Param::new(1.0),
             affine: Param::new(0.0),
             filter: None,
+            fog: N64Fog::default(),
+            color_15bit: false,
+            dither: Param::new(1.0),
+            vi_blur: Param::new(0.0),
+            near_cull: Param::new(0.0),
         }
     }
 }
@@ -178,6 +233,28 @@ impl Retro3d {
                 self.snap_res = [320, 240];
                 self.affine = Param::new(1.0);
                 self.filter = Some(TexFilter::Nearest);
+                self.color_15bit = true;
+                self.dither = Param::new(1.0);
+            }
+            RetroStyle::Saturn => {
+                self.enabled = true;
+                self.resolution = RetroRes::Custom;
+                self.custom = [320, 224];
+                self.snap = true;
+                self.snap_res = [320, 224];
+                self.affine = Param::new(0.6);
+                self.filter = Some(TexFilter::Nearest);
+                self.color_15bit = true;
+                self.dither = Param::new(0.0);
+            }
+            RetroStyle::N64 => {
+                self.enabled = true;
+                self.resolution = RetroRes::R320x240;
+                self.filter = Some(TexFilter::ThreePoint);
+                self.fog.enabled = true;
+                self.color_15bit = true;
+                self.dither = Param::new(1.0);
+                self.vi_blur = Param::new(1.0);
             }
         }
     }
@@ -192,15 +269,16 @@ impl Retro3d {
 
     /// Whether anything is switched on.
     pub fn is_active(&self) -> bool {
+        let on = |p: &Param| p.base != 0.0 || p.is_animated();
         self.enabled
-            && *self
-                != Retro3d {
-                    enabled: true,
-                    sharp_overlays: self.sharp_overlays,
-                    custom: self.custom,
-                    snap_res: self.snap_res,
-                    ..Default::default()
-                }
+            && (self.resolution != RetroRes::Full
+                || self.snap
+                || on(&self.affine)
+                || self.filter.is_some()
+                || self.fog.enabled
+                || self.color_15bit
+                || on(&self.vi_blur)
+                || on(&self.near_cull))
     }
 }
 

@@ -28,8 +28,9 @@ struct TOut {
     @location(4) hraw: f32,
     // Steepness of the ground: 0 flat, 1 vertical.
     @location(5) slope: f32,
-    // Grid coordinates times w, and w (affine warp, see affine_uv).
-    @location(6) aff: vec3<f32>,
+    // Grid coordinates times w, and w (affine warp, see affine_uv);
+    // w: near-plane culling flag (see retro_near_flag).
+    @location(6) aff: vec4<f32>,
 };
 
 fn t_hash(x: i32, y: i32, seed: u32) -> f32 {
@@ -238,7 +239,7 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> TOut {
     out.world = world.xyz;
     out.normal = normalize((model * vec4<f32>(local_n, 0.0)).xyz);
     out.grid = vec2<f32>(g.x, g.y - scroll * n);
-    out.aff = vec3<f32>(out.grid * out.pos.w, out.pos.w);
+    out.aff = vec4<f32>(out.grid * out.pos.w, out.pos.w, retro_near_flag(out.pos));
     let edge = min(min(g.x, n - g.x), min(g.y, n - g.y));
     out.border = clamp(edge / max(n * 0.12, 1.0), 0.0, 1.0);
     out.hraw = h;
@@ -438,14 +439,14 @@ fn fs_main(in: TOut) -> @location(0) vec4<f32> {
     var line = 1.0 - clamp(min(d.x, d.y) - 0.5, 0.0, 1.0);
     let style = i32(D.v[1].w + 0.5);
     // The texture moves with the landscape; whole tiles keep the loop seamless.
-    let uv = affine_uv(in.grid, in.aff) / max(D.v[0].y, 1.0) * D.v[4].x;
+    let uv = affine_uv(in.grid, in.aff.xyz) / max(D.v[0].y, 1.0) * D.v[4].x;
     let texel = textureSample(t_tex, s_tex, uv).rgb;
     let has_tex = D.v[3].w > 0.5;
     let liquid_kind = i32(D.v[5].z + 0.5);
     let depth = D.v[5].w - in.hraw;
     let in_liquid = liquid_kind > 0 && depth > 0.0;
 
-    if (!clip_visible(in.world)) {
+    if (!clip_visible(in.world) || in.aff.w > 1e-4) {
         discard;
     }
     // Wireframe: only the lines are drawn (and liquids).
@@ -459,7 +460,7 @@ fn fs_main(in: TOut) -> @location(0) vec4<f32> {
         var col = shade_liquid(in, depth, q);
         // Grid lines shine faintly through the surface.
         col = col + D.v[2].rgb * line * in.border * select(0.15, 0.0, style == 1);
-        return vec4<f32>(apply_fog_at(col, in.world), 1.0);
+        return vec4<f32>(retro_color(apply_fog_at(col, in.world), in.pos.xy), 1.0);
     }
     var glow = D.v[2].rgb * line * in.border;
     if (has_tex && D.v[4].y > 0.5) {
@@ -521,7 +522,7 @@ fn fs_main(in: TOut) -> @location(0) vec4<f32> {
             col = col + glow;
         }
     }
-    return vec4<f32>(apply_fog_at(col, in.world), 1.0);
+    return vec4<f32>(retro_color(apply_fog_at(col, in.world), in.pos.xy), 1.0);
 }
 
 // What a liquid's surface reflects (as `shade_liquid` mirrors the sky).

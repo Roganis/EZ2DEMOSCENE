@@ -2087,6 +2087,11 @@ pub struct Material {
     /// How the texture is smoothed between its pixels (retro filters).
     #[serde(skip_serializing_if = "is_default")]
     pub filter: crate::retro::TexFilter,
+    /// See-through the Saturn way, 0..1 (animatable): a share of the
+    /// pixels is left out in a fixed screen pattern instead of blending;
+    /// 0.5 is the Saturn's checkerboard "mesh".
+    #[serde(skip_serializing_if = "is_off")]
+    pub mesh: Param,
     /// Faceted look (normals from the triangle faces).
     pub flat_shading: bool,
     /// Rim / fresnel light strength.
@@ -2371,6 +2376,7 @@ impl Default for Material {
             scroll: [0, 0],
             pixelated: false,
             filter: Default::default(),
+            mesh: Param::new(0.0),
             flat_shading: false,
             rim: Param::new(0.3),
             hue_shift: Param::new(0.0),
@@ -4367,13 +4373,17 @@ pub enum SpriteBlend {
     Additive,
     /// Hard edges at half alpha; solid, so no sorting is needed.
     Cutout,
+    /// Cutout with every other pixel left out in a checkerboard: the
+    /// Saturn's see-through "mesh".
+    Mesh,
 }
 
 impl SpriteBlend {
-    pub const ALL: [SpriteBlend; 3] = [
+    pub const ALL: [SpriteBlend; 4] = [
         SpriteBlend::Alpha,
         SpriteBlend::Additive,
         SpriteBlend::Cutout,
+        SpriteBlend::Mesh,
     ];
 
     pub fn label(self) -> &'static str {
@@ -4381,6 +4391,7 @@ impl SpriteBlend {
             SpriteBlend::Alpha => "Alpha",
             SpriteBlend::Additive => "Additive (glow)",
             SpriteBlend::Cutout => "Cutout",
+            SpriteBlend::Mesh => "Mesh (Saturn)",
         }
     }
 }

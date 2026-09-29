@@ -1237,6 +1237,55 @@ pub fn retro_ui(ui: &mut Ui, r: &mut Retro3d, out: (u32, u32)) {
                 &mut r.affine,
                 0.0..=1.0,
             );
+            param(
+                ui,
+                "Near-plane culling",
+                "Triangles with a corner closer to the camera than this (world units) vanish, \
+                 as on the PlayStation: walls pop open when you get close. 0 = off.",
+                &mut r.near_cull,
+                0.0..=3.0,
+            );
+        });
+        section(ui, "Colour", true, |ui| {
+            check(
+                ui,
+                "15-bit colour",
+                "Round every polygon's colours to 32 levels per channel as it is drawn, like the \
+                 consoles' frame buffers (subtler than the Retro palette post effect)",
+                &mut r.color_15bit,
+            );
+            ui.add_enabled_ui(r.color_15bit, |ui| {
+                param(
+                    ui,
+                    "Dither",
+                    "A fixed 4 × 4 pattern that hides the steps between the levels \
+                     (PlayStation: on, Saturn: off)",
+                    &mut r.dither,
+                    0.0..=1.0,
+                );
+            });
+        });
+        section(ui, "Nintendo 64", true, |ui| {
+            let f = &mut r.fog;
+            check(
+                ui,
+                "N64 fog",
+                "Fog that starts close to the camera and thickens in a straight line to solid \
+                 fog (in the scene's fog colour), instead of the scene's fog",
+                &mut f.enabled,
+            );
+            ui.add_enabled_ui(f.enabled, |ui| {
+                param(ui, "Starts at", "Distance where the fog begins", &mut f.near, 0.0..=40.0);
+                param(ui, "Solid at", "Distance where nothing shows through", &mut f.far, 1.0..=200.0);
+            });
+            param(
+                ui,
+                "Video blur",
+                "The N64's video output filter: smooths dither patterns away and softens the \
+                 picture sideways, one console pixel wide",
+                &mut r.vi_blur,
+                0.0..=1.0,
+            );
         });
     });
 }
@@ -2016,6 +2065,14 @@ fn material_ui(ui: &mut Ui, mat: &mut Material, textures: &[UserTexture], lref: 
         "Rotate the colours (in turns)",
         &mut mat.hue_shift,
         -1.0..=1.0,
+    );
+    param(
+        ui,
+        "See-through (mesh)",
+        "The Saturn's transparency: pixels are left out in a fixed pattern instead of \
+         blending. 0.5 is its checkerboard; animate it to fade a shape in or out.",
+        &mut mat.mesh,
+        0.0..=1.0,
     );
     ui.separator();
     texture_picker(

@@ -3661,6 +3661,8 @@ fn retro_3d_is_chunky_wobbly_and_loops() {
     let ps1 = || {
         let mut r = Retro3d::default();
         r.apply_style(RetroStyle::Ps1);
+        // Dithering breaks up flat areas on purpose (tested on its own).
+        r.color_15bit = false;
         r
     };
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
@@ -3790,4 +3792,259 @@ fn retro_3d_is_chunky_wobbly_and_loops() {
     let d_text = mean_abs_diff(sharp.as_raw(), chunky.as_raw());
     eprintln!("sharp vs chunky text: {d_text:.3}");
     assert!(d_text > 0.05, "sharp text setting does nothing: {d_text}");
+}
+
+/// Retro 3D console quirks: N64 fog, 15-bit colour and dither, the N64
+/// video blur, Saturn mesh transparency (shapes and sprites) and
+/// near-plane culling each do what they say, and the N64 look loops.
+#[test]
+fn retro_console_quirks_show_and_loop() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let dir = snapshot_dir().join("retro_quirks");
+    std::fs::create_dir_all(&dir).unwrap();
+    // A box `dist` away from a still camera, over the fog colour (no
+    // background).
+    let scene = |dist: f32, retro: Retro3d, material: Material| {
+        let mut p = presets::empty();
+        p.layers.clear();
+        p.retro = retro;
+        p.camera = Camera {
+            mode: CameraMode::Static,
+            target: [0.0; 3],
+            distance: Param::new(dist),
+            height: Param::new(0.0),
+            angle: Param::new(30.0),
+            fov: Param::new(40.0),
+            ..Default::default()
+        };
+        p.environment.fog_color = [0.02, 0.02, 0.02];
+        p.environment.fog_density = Param::new(0.0);
+        p.post.bloom.enabled = false;
+        p.post.grade.vignette = Param::new(0.0);
+        p.post.grade.grain = Param::new(0.0);
+        p.layers.push(
+            Layer::new(
+                "Box",
+                LayerKind::Mesh(MeshLayer {
+                    source: MeshSource::Primitive(Primitive::Sphere { detail: 4 }),
+                    material,
+                    ..Default::default()
+                }),
+            )
+            .scaled(1.2),
+        );
+        p
+    };
+    let lit = || Material {
+        base_color: [0.9, 0.7, 0.5],
+        metallic: Param::new(0.0),
+        roughness: Param::new(0.6),
+        rim: Param::new(0.0),
+        ..Default::default()
+    };
+    let on = |f: &dyn Fn(&mut Retro3d)| {
+        let mut r = Retro3d {
+            enabled: true,
+            ..Default::default()
+        };
+        f(&mut r);
+        r
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let (w, h) = (320u32, 180u32);
+    let target = r.create_target(w, h);
+    let ctx = EvalCtx::at(0.0);
+    let empty = {
+        let mut p = scene(6.0, Retro3d::default(), lit());
+        p.layers.clear();
+        r.render_image(&p, &ctx, &target)
+    };
+    // Share of pixels that differ from the empty background.
+    let cover = |img: &image::RgbaImage| {
+        img.pixels()
+            .zip(empty.pixels())
+            .filter(|(p, e)| (0..3).any(|c| (p[c] as i32 - e[c] as i32).abs() > 12))
+            .count() as f32
+            / (w * h) as f32
+    };
+
+    // N64 fog: solid at 6, so a ball 12 away is gone; 3 away it shows.
+    let fog = |near: f32, far: f32| {
+        on(&|r: &mut Retro3d| {
+            r.fog.enabled = true;
+            r.fog.near = Param::new(near);
+            r.fog.far = Param::new(far);
+        })
+    };
+    let plain = r.render_image(&scene(12.0, Retro3d::default(), lit()), &ctx, &target);
+    let fogged = r.render_image(&scene(12.0, fog(1.0, 6.0), lit()), &ctx, &target);
+    let clear = r.render_image(&scene(12.0, fog(20.0, 40.0), lit()), &ctx, &target);
+    plain.save(dir.join("fog_off.png")).unwrap();
+    fogged.save(dir.join("fog_n64.png")).unwrap();
+    let (c_plain, c_fog, c_clear) = (cover(&plain), cover(&fogged), cover(&clear));
+    eprintln!("ball coverage: no fog {c_plain:.3}, N64 fog {c_fog:.3}, fog starting behind it {c_clear:.3}");
+    assert!(c_plain > 0.01, "ball not drawn: {c_plain}");
+    assert!(c_fog < 0.002, "N64 fog doesn't hide the far ball: {c_fog}");
+    assert!(
+        (c_clear - c_plain).abs() < 0.002,
+        "fog starting behind the ball touches it"
+    );
+
+    // 15-bit colour: fewer colours; dither changes the picture; the video
+    // blur smooths the dither away.
+    let unique = |img: &image::RgbaImage| {
+        img.pixels()
+            .map(|p| (p[0], p[1], p[2]))
+            .collect::<std::collections::HashSet<_>>()
+            .len()
+    };
+    let rough = |img: &image::RgbaImage| {
+        let mut s = 0.0;
+        for y in 0..h {
+            for x in 0..w - 1 {
+                let (a, b) = (img.get_pixel(x, y), img.get_pixel(x + 1, y));
+                s += (0..3)
+                    .map(|c| (a[c] as f32 - b[c] as f32).abs())
+                    .sum::<f32>();
+            }
+        }
+        s / (w * h) as f32
+    };
+    let full = r.render_image(&scene(3.0, Retro3d::default(), lit()), &ctx, &target);
+    let banded = r.render_image(
+        &scene(
+            3.0,
+            on(&|r: &mut Retro3d| {
+                r.color_15bit = true;
+                r.dither = Param::new(0.0);
+            }),
+            lit(),
+        ),
+        &ctx,
+        &target,
+    );
+    let dithered = r.render_image(
+        &scene(3.0, on(&|r: &mut Retro3d| r.color_15bit = true), lit()),
+        &ctx,
+        &target,
+    );
+    let vi = r.render_image(
+        &scene(
+            3.0,
+            on(&|r: &mut Retro3d| {
+                r.color_15bit = true;
+                r.vi_blur = Param::new(1.0);
+            }),
+            lit(),
+        ),
+        &ctx,
+        &target,
+    );
+    banded.save(dir.join("15bit.png")).unwrap();
+    dithered.save(dir.join("15bit_dither.png")).unwrap();
+    vi.save(dir.join("15bit_dither_vi.png")).unwrap();
+    let (u_full, u_band) = (unique(&full), unique(&banded));
+    let (r_dith, r_vi) = (rough(&dithered), rough(&vi));
+    let d_dith = mean_abs_diff(banded.as_raw(), dithered.as_raw());
+    eprintln!(
+        "colours: full {u_full}, 15-bit {u_band}; dither changes {d_dith:.3}; \
+         roughness dithered {r_dith:.2}, with video blur {r_vi:.2}"
+    );
+    assert!(
+        (u_band as f32) < u_full as f32 * 0.6,
+        "15-bit colour doesn't band"
+    );
+    assert!(d_dith > 0.2, "dither shows no change: {d_dith}");
+    assert!(r_vi < r_dith * 0.8, "video blur doesn't smooth the dither");
+
+    // Saturn mesh: half of the ball's pixels left out.
+    let solid = cover(&full);
+    let meshed_img = r.render_image(
+        &scene(
+            3.0,
+            Retro3d::default(),
+            Material {
+                mesh: Param::new(0.5),
+                ..lit()
+            },
+        ),
+        &ctx,
+        &target,
+    );
+    meshed_img.save(dir.join("mesh.png")).unwrap();
+    let meshed = cover(&meshed_img);
+    eprintln!("ball coverage: solid {solid:.3}, mesh {meshed:.3}");
+    assert!(
+        (meshed / solid - 0.5).abs() < 0.08,
+        "mesh doesn't leave half out"
+    );
+    let mut sprite = |blend: SpriteBlend| {
+        let mut p = scene(3.0, Retro3d::default(), lit());
+        p.layers = vec![Layer::new(
+            "Dot",
+            LayerKind::Sprite(SpriteLayer {
+                blend,
+                size: Param::new(1.5),
+                ..Default::default()
+            }),
+        )];
+        cover(&r.render_image(&p, &ctx, &target))
+    };
+    let (s_cut, s_mesh) = (sprite(SpriteBlend::Cutout), sprite(SpriteBlend::Mesh));
+    eprintln!("sprite coverage: cutout {s_cut:.3}, mesh {s_mesh:.3}");
+    assert!(
+        s_cut > 0.01 && (s_mesh / s_cut - 0.5).abs() < 0.1,
+        "sprite mesh doesn't leave half out"
+    );
+
+    // Near-plane culling: the ball 3 away vanishes at a distance of 2.5
+    // (its near side is 1.8 away), not at 1.
+    // Shapes are two-sided, so the inside shows through the hole.
+    let mut culled = |d: f32| {
+        r.render_image(
+            &scene(
+                3.0,
+                on(&|r: &mut Retro3d| r.near_cull = Param::new(d)),
+                lit(),
+            ),
+            &ctx,
+            &target,
+        )
+    };
+    let (keep, gone) = (culled(1.0), culled(2.5));
+    gone.save(dir.join("near_cull.png")).unwrap();
+    let (d_keep, d_gone) = (
+        mean_abs_diff(keep.as_raw(), full.as_raw()),
+        mean_abs_diff(gone.as_raw(), full.as_raw()),
+    );
+    eprintln!("near culling: change at 1 {d_keep:.3}, at 2.5 {d_gone:.3}");
+    assert!(d_keep < 0.01, "culling at 1 changed the ball");
+    assert!(d_gone > 3.0, "near triangles weren't culled");
+
+    // The N64 look loops (an orbiting camera, a spinning textured ball).
+    let mut p = scene(4.0, Retro3d::default(), lit());
+    p.retro.apply_style(RetroStyle::N64);
+    p.camera.mode = CameraMode::Orbit;
+    p.camera.swing = Param::new(0.0);
+    p.layers[0].transform.spin = [0, 1, 1];
+    if let LayerKind::Mesh(m) = &mut p.layers[0].kind {
+        m.material.texture = Some("brick".into());
+    }
+    let at = |ph: f32| EvalCtx::new(&p.timing, ph, None);
+    let a = r.render_image(&p, &at(0.0), &target);
+    let b = r.render_image(&p, &at(1.0), &target);
+    let m = r.render_image(&p, &at(0.4), &target);
+    a.save(dir.join("n64.png")).unwrap();
+    let seam = mean_abs_diff(a.as_raw(), b.as_raw());
+    let motion = mean_abs_diff(a.as_raw(), m.as_raw());
+    eprintln!("N64 look: seam {seam:.3}, motion {motion:.2}");
+    assert!(seam < 0.6, "N64 look doesn't loop: {seam}");
+    assert!(motion > 1.0, "N64 scene doesn't move");
 }

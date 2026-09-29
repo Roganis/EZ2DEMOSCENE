@@ -91,6 +91,10 @@ struct GlobalsRaw {
     sh: [[f32; 4]; 9],
     /// Retro 3D: vertex snapping (0 = off), its grid (w, h), affine warp.
     retro: [f32; 4],
+    /// Nintendo 64 fog: on, start, solid.
+    retro_fog: [f32; 4],
+    /// Colour levels (0 = full), dither, near-plane culling (camera views).
+    retro_col: [f32; 4],
 }
 
 /// An environment map on the GPU and what the CPU worked out from it.
@@ -4921,6 +4925,23 @@ impl Renderer {
                     0.0
                 },
             ],
+            retro_fog: {
+                let f = &project.retro.fog;
+                if project.retro.enabled && f.enabled {
+                    let near = f.near.eval(ctx).max(0.0);
+                    [1.0, near, f.far.eval(ctx).max(near + 0.01), 0.0]
+                } else {
+                    [0.0; 4]
+                }
+            },
+            retro_col: {
+                let r = &project.retro;
+                if r.enabled && r.color_15bit {
+                    [31.0, r.dither.eval(ctx).clamp(0.0, 1.0), 0.0, 0.0]
+                } else {
+                    [0.0; 4]
+                }
+            },
         }
     }
 
@@ -5494,6 +5515,7 @@ impl Renderer {
                     blocks.push(blk);
                     let mut pb = pbr_block(mat, ctx);
                     pb[3][0] = filter.index() as f32;
+                    pb[3][1] = mat.mesh.eval(ctx).clamp(0.0, 1.0);
                     blocks.push(pb);
                 }
                 LayerKind::Particles(p) => {
@@ -5957,6 +5979,7 @@ impl Renderer {
                             SpriteBlend::Alpha => 0.0,
                             SpriteBlend::Additive => 1.0,
                             SpriteBlend::Cutout => 2.0,
+                            SpriteBlend::Mesh => 3.0,
                         },
                         0.0,
                     ];
@@ -5965,7 +5988,11 @@ impl Renderer {
                             slot: blocks.len() as u32,
                             tex,
                             pixelated: sp.pixelated,
-                            blend: sp.blend,
+                            // The Saturn mesh is a solid cutout with holes.
+                            blend: match sp.blend {
+                                SpriteBlend::Mesh => SpriteBlend::Cutout,
+                                b => b,
+                            },
                             first,
                             count,
                         });
@@ -6400,6 +6427,9 @@ impl Renderer {
             main_globals.retro[1] = gw as f32;
             main_globals.retro[2] = gh as f32;
         }
+        if project.retro.enabled {
+            main_globals.retro_col[2] = project.retro.near_cull.eval(ctx).max(0.0);
+        }
         self.queue
             .write_buffer(&self.globals_buf[0], 0, bytemuck::bytes_of(&main_globals));
         // ...and may be drawn at a low resolution.
@@ -6429,6 +6459,7 @@ impl Renderer {
             );
             let mut g = with_shadow(g);
             g.retro = main_globals.retro;
+            g.retro_col = main_globals.retro_col;
             self.queue
                 .write_buffer(&self.globals_buf[1], 0, bytemuck::bytes_of(&g));
         }
@@ -7599,7 +7630,7 @@ impl Renderer {
                     let i = match blend {
                         SpriteBlend::Alpha => 0,
                         SpriteBlend::Additive => 1,
-                        SpriteBlend::Cutout => 2,
+                        SpriteBlend::Cutout | SpriteBlend::Mesh => 2,
                     };
                     pass.set_pipeline(&pipes.sprite[i]);
                     pass.set_bind_group(0, &self.globals_bg[globals], &[]);
@@ -7963,6 +7994,19 @@ impl Renderer {
             ];
             if let Some(c) = ascii.color.rgb() {
                 f[24] = [c[0], c[1], c[2], 1.0];
+            }
+        }
+        // Retro 3D: the N64 video filter, one console pixel wide (the
+        // low resolution's, or 320 × 240's at full resolution).
+        let rt = &project.retro;
+        if rt.enabled {
+            let vi = rt.vi_blur.eval(ctx).clamp(0.0, 1.0);
+            if vi > 0.0 {
+                let out = (target.width, target.height);
+                let (cw, ch) = rt
+                    .internal_size(out)
+                    .unwrap_or_else(|| ez_core::retro::fit_to_output([320, 240], out));
+                slots[SLOT_FINAL as usize][25] = [vi, 1.0 / cw as f32, 1.0 / ch as f32, 0.0];
             }
         }
         for (i, s) in slots.iter().enumerate() {

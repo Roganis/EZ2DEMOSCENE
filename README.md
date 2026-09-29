@@ -181,7 +181,11 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   stay sharp), **vertex snapping** (the PS1 wobble), **affine texture
   warp** (reduced by subdividing, as PS1 games did), and per-material
   texture filters: nearest, bilinear without mipmaps and the N64's
-  **3-point** filter. One click turns on the PlayStation bundle.
+  **3-point** filter. Per-polygon **15-bit colour with 4×4 dither**,
+  **N64 fog** starting close to the camera and the N64 **video blur**
+  (de-dither and soften), **Saturn mesh transparency** (checkerboard
+  see-through shapes and sprites) and PS1 **near-plane culling**. One
+  click turns on the PlayStation, Saturn or Nintendo 64 bundle.
 - **Post FX.** Bloom, **god rays** (light shafts from the sun or the
   picture centre) with lens flare, **heat haze**, **depth of field**
   (auto focus, round bokeh), **feedback trails** (zoom/turn/hue-drifting

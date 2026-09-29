@@ -1493,10 +1493,43 @@ and 3-point (N64), worked out in `three_point` from four nearest texels
 (the triangle the fraction falls in). Retro 3D can set one filter for
 every shape and the terrain. Presets: **PSX Crypt**, **Stage Select**.
 
-### ☐ 12.5 N64 look bundle (3-point, strong fog, VI blur post pass)
-### ☐ 12.6 PS1 15-bit colour + 4×4 ordered dither per polygon
-### ☐ 12.7 Saturn mesh transparency (checkerboard discard)
-### ☐ 12.8 Near-plane polygon culling
+### ☑ 12.5 N64 look
+**Done.** *N64 fog* in Retro 3D (not the scene's exponential fog): a
+straight ramp from *Starts at* (close to the camera) to solid at *Solid
+at*, in `fog_amount` / `fog_amount_at` so every lit surface, sprite and
+liquid follows; height fog still multiplies on top. The *video blur* is
+part of Retro 3D too, worked out where the final post pass reads the
+scene (`vi_filter`): the four neighbours one console pixel away (the
+low resolution's, or 320 × 240's) that differ from the middle by less
+than a dither step in gamma are averaged in (de-dither), then a 1-2-1
+horizontal blend. The *Nintendo 64* look: 320 × 240, 3-point filter
+for everything, N64 fog, dithered 15-bit colour, video blur. Preset
+**Fog Island**. Measured: a ball beyond *Solid at* disappears; video
+blur cuts the dithered picture's neighbour roughness 8.75 → 6.62.
+
+### ☑ 12.6 15-bit colour + 4×4 ordered dither per polygon
+**Done.** `retro_color` at the end of the mesh, terrain and sprite
+fragment shaders (after fog, before post): gamma 2.2, plus a 4 × 4
+Bayer offset (±½ level × *Dither*) in the pass's pixels (console pixels
+at a low resolution), rounded to 32 levels. 2915 → 178 colours on a
+lit ball.
+
+### ☑ 12.7 Saturn mesh transparency
+**Done.** *Material → See-through (mesh)* (animatable): a pixel is
+dropped when its Bayer threshold is under the amount, so 0.5 is exactly
+the checkerboard and other values fade in dithered steps; the shape
+stays solid (depth, no sorting). Sprites: a *Mesh (Saturn)* blend drawn
+as a cutout with the checkerboard left out. Both measured at half the
+solid coverage. The *Saturn* look: 320 × 224, snapping, 0.6 warp,
+nearest, undithered 15-bit colour. Preset **Saturn Ghosts**.
+
+### ☑ 12.8 Near-plane culling
+**Done.** The vertex stage marks a corner closer than the distance (view
+depth `w`, so corners behind the camera count); the mark is
+interpolated, so it is above 0 across any triangle with a marked corner
+and the fragment stage drops the whole triangle. Works on every backend
+(no geometry shaders or primitive IDs). Meshes and terrain, the
+camera's views only (not the sun's shadow map).
 ### ☐ 12.9 Quake light styles
 ### ☐ 12.10 Turbulent warp (water, lava, slime, waterfalls)
 ### ☐ 12.11 Two-layer scrolling sky

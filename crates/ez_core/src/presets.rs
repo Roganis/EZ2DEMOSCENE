@@ -235,6 +235,16 @@ pub fn all() -> Vec<Preset> {
             project: stage_select(),
         },
         Preset {
+            name: "Fog Island",
+            description: "Nintendo 64: soft 3-point textures, fog rolling in close to the camera, dithered colour and the video blur.",
+            project: fog_island(),
+        },
+        Preset {
+            name: "Saturn Ghosts",
+            description: "Sega Saturn: checkerboard see-through ghosts and wisps in a stone hall; pillars vanish as the camera brushes them.",
+            project: saturn_ghosts(),
+        },
+        Preset {
             name: "Empty",
             description: "A blank stage with a floor and a sky.",
             project: empty(),
@@ -1327,6 +1337,254 @@ pub fn stage_select() -> Project {
         affine: Param::new(0.8),
         ..Default::default()
     };
+    p
+}
+
+/// A Nintendo 64 island: soft 3-point filtered grass and stone, fog that
+/// starts close to the camera, dithered colour smoothed by the video blur.
+pub fn fog_island() -> Project {
+    let soft = |color: u32, tex: &str, scale: f32| Material {
+        base_color: hex(color),
+        metallic: Param::new(0.0),
+        roughness: Param::new(0.8),
+        texture: Some(tex.into()),
+        texture_scale: Param::new(scale),
+        filter: crate::TexFilter::ThreePoint,
+        rim: Param::new(0.0),
+        ..Default::default()
+    };
+    let mut p = Project {
+        name: "Fog Island".into(),
+        timing: crate::Timing {
+            bpm: 110.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            target: [0.0, 2.0, 0.0],
+            distance: Param::new(9.0),
+            height: Param::new(2.5),
+            swing: Param::new(0.0),
+            orbit_turns: 1,
+            fov: Param::new(58.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0xa8b8d0),
+            fog_density: Param::new(0.0),
+            sky_color: hex(0xc0d0f0),
+            ground_color: hex(0x405030),
+            light_dir: [0.4, 0.9, 0.3],
+            light_color: hex(0xfff4e0),
+            light_intensity: Param::new(1.5),
+            ambient: Param::new(0.6),
+            ..Default::default()
+        },
+        layers: vec![
+            Layer::new(
+                "Sky",
+                LayerKind::Backdrop(Backdrop {
+                    kind: BackdropKind::Gradient,
+                    color_a: hex(0x5078c0),
+                    color_b: hex(0xa8b8d0),
+                    color_c: hex(0xa8b8d0),
+                    ..Default::default()
+                }),
+            ),
+            Layer::new(
+                "Hills",
+                LayerKind::Terrain(Terrain {
+                    size: 90.0,
+                    cells: 64,
+                    height: Param::new(4.0),
+                    hills: 3,
+                    roughness: Param::new(0.3),
+                    scroll: 0,
+                    valley: Param::new(0.8),
+                    style: TerrainStyle::Solid,
+                    fill_color: hex(0x68b040),
+                    texture: Some("noise".into()),
+                    tiles: 12,
+                    seed: 21,
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, -0.5, 0.0]),
+            Layer::new(
+                "Tower",
+                LayerKind::Mesh(mesh(Primitive::Cube, soft(0xe8e0d0, "brick", 1.5))),
+            )
+            .at([0.0, 2.2, 0.0])
+            .stretched([1.4, 3.6, 1.4])
+            .scaled(1.0),
+            Layer::new(
+                "Roof",
+                LayerKind::Mesh(mesh(
+                    Primitive::Cone { segments: 8 },
+                    soft(0xd03020, "metal_plate", 2.0),
+                )),
+            )
+            .at([0.0, 4.55, 0.0])
+            .stretched([1.3, 1.1, 1.3])
+            .scaled(1.0),
+            Layer::new(
+                "Stars",
+                LayerKind::Mesh(MeshLayer {
+                    instancer: Instancer::Radial {
+                        count: 8,
+                        radius: 4.5,
+                    },
+                    ..mesh(
+                        Primitive::Star {
+                            points: 5,
+                            inner: 0.5,
+                            depth: 0.35,
+                        },
+                        Material {
+                            base_color: hex(0xffd020),
+                            metallic: Param::new(0.6),
+                            roughness: Param::new(0.4),
+                            emissive_color: hex(0xffb000),
+                            emissive: Param::new(0.5),
+                            flat_shading: true,
+                            ..Default::default()
+                        },
+                    )
+                }),
+            )
+            .at([0.0, 1.6, 0.0])
+            .scaled(0.5)
+            .spin([0, -1, 0]),
+        ],
+        ..Default::default()
+    };
+    p.layers[4].transform.bob = Param::new(0.0).osc(Wave::Sine, 0.25, 8);
+    p.retro.apply_style(crate::RetroStyle::N64);
+    p.retro.fog.near = Param::new(3.0);
+    p.retro.fog.far = Param::new(30.0);
+    p
+}
+
+/// Saturn ghosts: see-through "mesh" shapes and sprites (a checkerboard of
+/// left-out pixels instead of blending) drifting through a stone hall at
+/// 320 × 224; pillars the camera brushes past vanish (near-plane culling).
+pub fn saturn_ghosts() -> Project {
+    let stone = |color: u32, tex: &str, scale: f32| Material {
+        base_color: hex(color),
+        metallic: Param::new(0.0),
+        roughness: Param::new(0.9),
+        texture: Some(tex.into()),
+        texture_scale: Param::new(scale),
+        rim: Param::new(0.0),
+        ..Default::default()
+    };
+    let mut p = Project {
+        name: "Saturn Ghosts".into(),
+        timing: crate::Timing {
+            bpm: 90.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            target: [0.0, 1.5, 0.0],
+            distance: Param::new(4.2),
+            height: Param::new(0.4),
+            swing: Param::new(0.0),
+            orbit_turns: 1,
+            fov: Param::new(66.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0x101030),
+            fog_density: Param::new(0.05),
+            sky_color: hex(0x8090d0),
+            ground_color: hex(0x403860),
+            light_dir: [-0.3, 1.0, 0.4],
+            light_color: hex(0xd0d8ff),
+            light_intensity: Param::new(1.6),
+            ambient: Param::new(1.1),
+            ..Default::default()
+        },
+        layers: vec![
+            Layer::new(
+                "Floor",
+                // Small tiles: big polygons would warp and vanish near
+                // the camera, as on the console.
+                LayerKind::Mesh(MeshLayer {
+                    subdivide: 4,
+                    ..mesh(Primitive::Plane, stone(0xb0b0d0, "metal_plate", 5.0))
+                }),
+            )
+            .scaled(16.0),
+            Layer::new(
+                "Pillars",
+                LayerKind::Mesh(MeshLayer {
+                    instancer: Instancer::Radial {
+                        count: 6,
+                        radius: 3.9,
+                    },
+                    ..mesh(Primitive::Cube, stone(0xd0c8e0, "sierpinski", 1.0))
+                }),
+            )
+            .at([0.0, 2.0, 0.0])
+            .stretched([0.6, 4.0, 0.6])
+            .scaled(1.0),
+            Layer::new(
+                "Ghosts",
+                LayerKind::Mesh(MeshLayer {
+                    instancer: Instancer::Orbit {
+                        count: 5,
+                        radius: 1.8,
+                        spread: 0.6,
+                        speed: 1,
+                        seed: 3,
+                    },
+                    ..mesh(
+                        Primitive::Capsule {
+                            length: 0.6,
+                            segments: 12,
+                        },
+                        Material {
+                            base_color: hex(0xe0f0ff),
+                            emissive_color: hex(0x80c0ff),
+                            emissive: Param::new(0.8),
+                            mesh: Param::new(0.5),
+                            rim: Param::new(1.0),
+                            ..Default::default()
+                        },
+                    )
+                }),
+            )
+            .at([0.0, 1.6, 0.0])
+            .scaled(0.35),
+            Layer::new(
+                "Wisps",
+                LayerKind::Sprite(SpriteLayer {
+                    blend: SpriteBlend::Mesh,
+                    tint: hex(0x90e0ff),
+                    glow: Param::new(1.5),
+                    size: Param::new(0.5),
+                    instancer: Instancer::Scatter {
+                        count: 24,
+                        radius: 3.0,
+                        shell: false,
+                        seed: 7,
+                    },
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, 2.0, 0.0])
+            .spin([0, 1, 0]),
+        ],
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    p.retro.apply_style(crate::RetroStyle::Saturn);
+    p.retro.near_cull = Param::new(0.9);
     p
 }
 

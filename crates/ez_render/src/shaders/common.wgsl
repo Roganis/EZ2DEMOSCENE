@@ -48,6 +48,11 @@ struct Globals {
     // Retro 3D: x: vertex snapping (0 = off .. 1), y, z: snapping grid
     // (pixels across, down), w: affine texture warp (0..1)
     retro: vec4<f32>,
+    // Nintendo 64 fog: x: on, y: where it starts, z: where it is solid
+    retro_fog: vec4<f32>,
+    // x: colour levels per channel (0 = full colour, 31 = 15-bit),
+    // y: dither (0..1), z: near-plane culling distance (0 = off)
+    retro_col: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> G: Globals;
@@ -194,7 +199,17 @@ fn sun_shadow(world: vec3<f32>, n: vec3<f32>) -> f32 {
 }
 
 fn fog_amount(dist: f32) -> f32 {
+    if (G.retro_fog.x > 0.5) {
+        return n64_fog(dist);
+    }
     return 1.0 - exp(-max(dist, 0.0) * G.fog.w);
+}
+
+// Nintendo 64 fog: none before the start, then straight up to solid.
+fn n64_fog(dist: f32) -> f32 {
+    let near = G.retro_fog.y;
+    let far = max(G.retro_fog.z, near + 1e-3);
+    return clamp((dist - near) / (far - near), 0.0, 1.0);
 }
 
 fn apply_fog(c: vec3<f32>, dist: f32) -> vec3<f32> {
@@ -208,6 +223,11 @@ fn fog_amount_at(world: vec3<f32>) -> f32 {
     let cam = G.cam_pos.xyz;
     let d = length(world - cam);
     var od = d * G.fog.w;
+    var clear = 1.0;
+    if (G.retro_fog.x > 0.5) {
+        od = 0.0;
+        clear = 1.0 - n64_fog(d);
+    }
     if (G.hfog.x > 0.0) {
         let f = max(G.hfog.z, 0.05);
         let base = G.hfog.x * exp(min(-(cam.y - G.hfog.y) / f, 20.0));
@@ -218,7 +238,7 @@ fn fog_amount_at(world: vec3<f32>) -> f32 {
         }
         od = od + base * k;
     }
-    return 1.0 - exp(-max(od, 0.0));
+    return 1.0 - clear * exp(-max(od, 0.0));
 }
 
 fn apply_fog_at(c: vec3<f32>, world: vec3<f32>) -> vec3<f32> {
@@ -772,6 +792,44 @@ fn three_point(t: texture_2d<f32>, s: sampler, uv: vec2<f32>) -> vec4<f32> {
     let lower = c00 + f.x * (c10 - c00) + f.y * (c01 - c00);
     let upper = c11 + (1.0 - f.x) * (c01 - c11) + (1.0 - f.y) * (c10 - c11);
     return select(upper, lower, f.x + f.y <= 1.0);
+}
+
+// Ordered dither threshold of a pixel, -0.5..0.5 (4 × 4 Bayer), by bit
+// interleaving (D3D's FXC rejects dynamically indexed local arrays).
+fn retro_bayer(p: vec2<u32>) -> f32 {
+    let x = p.x & 3u;
+    let y = p.y & 3u;
+    let e = x ^ y;
+    let v = ((e & 1u) << 3u) | ((y & 1u) << 2u) | (((e >> 1u) & 1u) << 1u) | ((y >> 1u) & 1u);
+    return (f32(v) + 0.5) / 16.0 - 0.5;
+}
+
+// Retro 3D: a polygon's colour as the console's frame buffer stored it,
+// rounded to 32 levels per channel (15-bit colour) after an ordered
+// dither. `px` is the fragment's pixel (the low resolution's, when on).
+fn retro_color(c: vec3<f32>, px: vec2<f32>) -> vec3<f32> {
+    let levels = G.retro_col.x;
+    if (levels <= 0.0) {
+        return c;
+    }
+    let g = pow(max(c, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2));
+    let d = retro_bayer(vec2<u32>(px)) * G.retro_col.y;
+    let q = floor(g * levels + 0.5 + d) / levels;
+    return pow(max(q, vec3<f32>(0.0)), vec3<f32>(2.2));
+}
+
+// Saturn "mesh" see-through: whether this pixel is left out when a share
+// `amount` (0..1) of pixels is (0.5: a checkerboard).
+fn retro_mesh_hole(amount: f32, px: vec2<f32>) -> bool {
+    return amount > 0.0 && retro_bayer(vec2<u32>(px)) + 0.5 < amount;
+}
+
+// Near-plane culling: 1 at a corner closer to the camera than the
+// distance. Interpolated across the triangle it is above 0 everywhere
+// when any corner is, and the fragment stage drops those (the whole
+// triangle vanishes, as on the PlayStation).
+fn retro_near_flag(clip: vec4<f32>) -> f32 {
+    return select(0.0, 1.0, G.retro_col.z > 0.0 && clip.w < G.retro_col.z);
 }
 
 struct FullscreenOut {
