@@ -334,9 +334,18 @@ fn fs_main(in: VOut) -> FOut {
     return out;
 }
 
-// Distance to the camera, for depth of field.
+struct DistDepthOut {
+    @location(0) dist: vec4<f32>,
+    @location(1) surf: vec4<f32>,
+    @location(2) k: vec4<f32>,
+    @location(3) e: vec4<f32>,
+    @builtin(frag_depth) depth: f32,
+};
+
+// Distance to the camera and what the surface reflects (depth of field
+// and screen-space reflections).
 @fragment
-fn fs_depth(in: VOut) -> FOut {
+fn fs_depth(in: VOut) -> DistDepthOut {
     var h: Hit;
     if (!march(in, 64, &h)) {
         discard;
@@ -344,8 +353,28 @@ fn fs_depth(in: VOut) -> FOut {
     if (!clip_visible(h.world)) {
         discard;
     }
-    var out: FOut;
-    out.color = vec4<f32>(length(h.world - G.cam_pos.xyz), 0.0, 0.0, 1.0);
+    var base = D.v[0].rgb;
+    if (D.v[15].x > 0.5) {
+        base = ramp_color(in.inst.w + D.v[15].z);
+    }
+    base = hue_rotate(base, D.v[3].w + in.inst.x);
+    let n = normalize(in.r0.xyz * h.n.x + in.r1.xyz * h.n.y + in.r2.xyz * h.n.z);
+    let v = normalize(G.cam_pos.xyz - h.world);
+    var m: Mirror;
+    if (D2.v[0].x > 0.5) {
+        var layers: PbrLayers;
+        layers.k = D2.v[1];
+        layers.sheen_ior = D2.v[2];
+        m = physical_mirror(base, D.v[0].w, D.v[1].w, n, h.world, v, 1.0, layers);
+    } else {
+        m = classic_mirror(base, D.v[0].w, clamp(D.v[1].w, 0.02, 1.0), n, h.world, v, 1.0);
+    }
+    let d = dist_out(h.world, m);
+    var out: DistDepthOut;
+    out.dist = d.dist;
+    out.surf = d.surf;
+    out.k = d.k;
+    out.e = d.e;
     out.depth = depth_of(h.world);
     return out;
 }

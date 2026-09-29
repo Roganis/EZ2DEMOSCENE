@@ -43,6 +43,8 @@ const LOGO_FX_SIZE: u64 = 3 * DRAW_SLOT;
 const POST_SLOT: u64 = 512;
 /// Distance to the camera for depth of field.
 const DOF_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R16Float;
+/// Steps of a screen-space reflection ray (before homing in on a hit).
+const SSR_STEPS: u32 = 32;
 const POST_SLOTS: u64 = 32;
 const BLOOM_LEVELS: usize = 5;
 
@@ -998,6 +1000,10 @@ pub struct Renderer {
     final_pipe: wgpu::RenderPipeline,
     rays_pipe: wgpu::RenderPipeline,
     rays_add_pipe: wgpu::RenderPipeline,
+    /// Screen-space reflections (`ssr.wgsl`) and its inputs' layout.
+    ssr_pipe: wgpu::RenderPipeline,
+    ssr_add_pipe: wgpu::RenderPipeline,
+    bgl_ssr: wgpu::BindGroupLayout,
 
     sampler_repeat: wgpu::Sampler,
     sampler_nearest: wgpu::Sampler,
@@ -1131,6 +1137,14 @@ pub struct RenderTarget {
     bg_low: Vec<(u32, wgpu::TextureView, wgpu::BindGroup)>,
     bg_rays: wgpu::BindGroup,
     bg_rays_add: wgpu::BindGroup,
+    /// The distance pass's G-buffer (half resolution): normal and
+    /// roughness, reflectance, the reflected environment shown.
+    gbuf: [wgpu::TextureView; 3],
+    /// Screen-space reflections to add (half resolution), their inputs,
+    /// and adding them onto the scene.
+    ssr: wgpu::TextureView,
+    bg_ssr: wgpu::BindGroup,
+    bg_ssr_add: wgpu::BindGroup,
     rays: wgpu::TextureView,
     /// Depth of field: distance to the camera (half resolution) and its
     /// depth buffer.
@@ -1981,18 +1995,26 @@ impl Renderer {
                     module,
                     entry_point: Some("fs_depth"),
                     compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: DOF_FORMAT,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
+                    // Distance, then the G-buffer for screen-space
+                    // reflections (see `DistOut` in common.wgsl).
+                    targets: &[
+                        Some(wgpu::ColorTargetState {
+                            format: DOF_FORMAT,
+                            blend: None,
+                            write_mask: wgpu::ColorWrites::ALL,
+                        }),
+                        Some(HDR_FORMAT.into()),
+                        Some(HDR_FORMAT.into()),
+                        Some(HDR_FORMAT.into()),
+                    ],
                 }),
                 multiview_mask: None,
                 cache: None,
             })
         };
-        let dof_mesh_pipe = dof_pipe("dof mesh", &mesh_layout, &sh_mesh, &mesh_buffers);
-        let dof_sdf_pipe = dof_pipe("dof sdf", &mesh_layout, &sh_sdf, &mesh_buffers);
+        // What surfaces reflect needs the split-sum table (group 3).
+        let dof_mesh_pipe = dof_pipe("dof mesh", &mesh_lit_layout, &sh_mesh, &mesh_buffers);
+        let dof_sdf_pipe = dof_pipe("dof sdf", &mesh_lit_layout, &sh_sdf, &mesh_buffers);
         let dof_terrain_pipe = dof_pipe("dof terrain", &scene_layout, &sh_terrain, &[]);
         let dof_floor_pipe = dof_pipe("dof floor", &particle_layout, &sh_floor, &[]);
         let shadow_view = device
@@ -2117,6 +2139,46 @@ impl Renderer {
         };
         let blur_pipe = post_pipe("blur", "fs_blur", HDR_FORMAT, None);
         let warp_pipe = post_pipe("warp", "fs_warp", HDR_FORMAT, None);
+        let ssr_add_pipe = post_pipe("ssr add", "fs_ssr_add", HDR_FORMAT, Some(ADDITIVE));
+        // Screen-space reflections: the G-buffer, the distances and the
+        // scene in (group 2), the environment for what they replace
+        // (group 3).
+        let bgl_ssr = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("ssr"),
+            entries: &[
+                tex_entry(0),
+                tex_entry(1),
+                tex_entry(2),
+                tex_entry(3),
+                tex_entry(4),
+                sampler_entry(5),
+            ],
+        });
+        let ssr_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("ssr"),
+            bind_group_layouts: &[
+                Some(&bgl_globals),
+                Some(&bgl_draw),
+                Some(&bgl_ssr),
+                Some(&bgl_shadow),
+            ],
+            immediate_size: 0,
+        });
+        let sh_ssr = shader(device, "ssr", include_str!("shaders/ssr.wgsl"), true);
+        let ssr_pipe = make_pipeline(
+            device,
+            PipeDesc {
+                label: "ssr",
+                layout: &ssr_layout,
+                module: &sh_ssr,
+                fs: "fs_main",
+                buffers: &[],
+                format: HDR_FORMAT,
+                samples: 1,
+                depth: None,
+                blend: None,
+            },
+        );
         let bloom_down_pipe = post_pipe("bloom down", "fs_bloom_down", HDR_FORMAT, None);
         let bloom_up_pipe = post_pipe("bloom up", "fs_bloom_up", HDR_FORMAT, Some(ADDITIVE));
         // The final pass writes the export image and the display image.
@@ -2289,6 +2351,9 @@ impl Renderer {
             final_pipe,
             rays_pipe,
             rays_add_pipe,
+            ssr_pipe,
+            ssr_add_pipe,
+            bgl_ssr,
             sampler_repeat,
             sampler_nearest,
             sampler_mirror,
@@ -5750,6 +5815,27 @@ impl Renderer {
             }
         }
 
+        // Screen-space reflections: their settings, when something could
+        // reflect (shapes, terrain).
+        let refl = &project.environment.reflections;
+        let ssr_slot = (refl.enabled
+            && refl.strength.eval(ctx) > 0.0
+            && cmds
+                .iter()
+                .any(|c| matches!(c, Cmd::Mesh { .. } | Cmd::Terrain { .. })))
+        .then(|| {
+            let mut blk: Block = Zeroable::zeroed();
+            blk[0] = [
+                refl.strength.eval(ctx).clamp(0.0, 1.0),
+                refl.max_distance.max(0.1),
+                refl.roughness_cutoff.clamp(0.01, 1.0),
+                SSR_STEPS as f32,
+            ];
+            blk[1] = [0.3, 0.25, 0.0, 0.0];
+            blocks.push(blk);
+            blocks.len() as u32 - 1
+        });
+
         // --- uploads -------------------------------------------------------
         if blocks.is_empty() {
             blocks.push(Zeroable::zeroed());
@@ -6192,25 +6278,42 @@ impl Renderer {
             self.draw_scene(&mut pass, &self.main_pipes, 0, &clear);
         }
 
-        // --- depth of field: distance to the camera --------------------------
-        if project.post.dof.enabled {
-            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("dof distance"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &target.dof_dist,
+        // --- distance to the camera (depth of field) and what surfaces
+        // reflect (screen-space reflections) ----------------------------------
+        if project.post.dof.enabled || ssr_slot.is_some() {
+            let gbuf = |view| {
+                Some(wgpu::RenderPassColorAttachment {
+                    view,
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        // Nothing drawn = very far (the sky).
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 60_000.0,
-                            g: 0.0,
-                            b: 0.0,
-                            a: 1.0,
-                        }),
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                         store: wgpu::StoreOp::Store,
                     },
-                })],
+                })
+            };
+            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("dof distance"),
+                color_attachments: &[
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &target.dof_dist,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            // Nothing drawn = very far (the sky).
+                            load: wgpu::LoadOp::Clear(wgpu::Color {
+                                r: 60_000.0,
+                                g: 0.0,
+                                b: 0.0,
+                                a: 1.0,
+                            }),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                    gbuf(&target.gbuf[0]),
+                    gbuf(&target.gbuf[1]),
+                    gbuf(&target.gbuf[2]),
+                ],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &target.dof_z,
                     depth_ops: Some(wgpu::Operations {
@@ -6224,6 +6327,42 @@ impl Renderer {
                 multiview_mask: None,
             });
             self.draw_distance(&mut pass, &cmds, floor.as_ref().map(|f| f.0));
+        }
+        // --- screen-space reflections, added onto the scene -----------------------
+        if let Some(slot) = ssr_slot {
+            {
+                let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("ssr"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &target.ssr,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                pass.set_pipeline(&self.ssr_pipe);
+                pass.set_bind_group(0, &self.globals_bg[0], &[]);
+                pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                pass.set_bind_group(2, &target.bg_ssr, &[]);
+                pass.set_bind_group(3, &self.shadow_bg, &[]);
+                pass.draw(0..3, 0..1);
+            }
+            self.post_pass(
+                &mut enc,
+                "ssr add",
+                &self.ssr_add_pipe,
+                &target.hdr,
+                &target.bg_ssr_add,
+                SLOT_WARP,
+                true,
+            );
         }
 
         // --- post ---------------------------------------------------------------
@@ -6646,6 +6785,7 @@ impl Renderer {
                     });
                     pass.set_bind_group(0, &self.globals_bg[0], &[]);
                     pass.set_bind_group(1, &self.draw_mesh_bg, &mesh_offsets(*slot));
+                    pass.set_bind_group(3, &self.shadow_bg, &[]);
                     pass.set_bind_group(2, &self.mesh_tex_bgs[texs], &[]);
                     pass.set_vertex_buffer(0, m.vbuf.slice(..));
                     pass.set_vertex_buffer(1, self.mesh_instances(*gpu).slice(..));
@@ -7267,6 +7407,44 @@ impl Renderer {
         let (dw, dh) = ((w / 2).max(1), (h / 2).max(1));
         let dof_dist = tex("dof distance", dw, dh, DOF_FORMAT, 1, sampled);
         let dof_z = tex("dof depth", dw, dh, DEPTH_FORMAT, 1, none);
+        let gbuf = [
+            "g-buffer surface",
+            "g-buffer reflectance",
+            "g-buffer environment",
+        ]
+        .map(|l| tex(l, dw, dh, HDR_FORMAT, 1, sampled));
+        let ssr = tex("ssr", dw, dh, HDR_FORMAT, 1, sampled);
+        let bg_ssr = dev.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("ssr"),
+            layout: &self.bgl_ssr,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&gbuf[0]),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&gbuf[1]),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&gbuf[2]),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&dof_dist),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(&hdr),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler_clamp),
+                },
+            ],
+        });
+        let bg_ssr_add = post_bg(&ssr, &dof_dist);
         let bg_warp = post_bg(&hdr, &dof_dist);
         let bg_bloom_down = (0..BLOOM_LEVELS)
             .map(|i| {
@@ -7336,6 +7514,10 @@ impl Renderer {
             bg_low,
             bg_rays,
             bg_rays_add,
+            gbuf,
+            ssr,
+            bg_ssr,
+            bg_ssr_add,
             rays,
             dof_dist,
             dof_z,

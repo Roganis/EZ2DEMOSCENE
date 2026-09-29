@@ -352,6 +352,36 @@ pub struct Environment {
     /// the scene's own sky).
     #[serde(skip_serializing_if = "is_default")]
     pub env_light: EnvLight,
+    /// Shiny things reflecting the scene around them (screen-space
+    /// reflections).
+    #[serde(skip_serializing_if = "is_default")]
+    pub reflections: Reflections,
+}
+
+/// Screen-space reflections: shiny shapes, water and wet ground reflect
+/// what is on the screen (the environment elsewhere). The mirror floor
+/// keeps its own exact reflection.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Reflections {
+    pub enabled: bool,
+    /// How much of the environment reflection the scene replaces (0..1).
+    pub strength: Param,
+    /// How far a reflection reaches, in world units.
+    pub max_distance: f32,
+    /// Rougher surfaces than this keep the environment reflection.
+    pub roughness_cutoff: f32,
+}
+
+impl Default for Reflections {
+    fn default() -> Self {
+        Reflections {
+            enabled: false,
+            strength: Param::new(1.0),
+            max_distance: 12.0,
+            roughness_cutoff: 0.6,
+        }
+    }
 }
 
 /// Built-in environment maps (generated, no files).
@@ -798,6 +828,7 @@ impl Default for Environment {
             day_cycle: DayCycle::default(),
             shadows: Shadows::default(),
             env_light: EnvLight::default(),
+            reflections: Reflections::default(),
         }
     }
 }

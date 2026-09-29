@@ -3008,6 +3008,10 @@ pub fn chrome_studio() -> Project {
                 distance: 20.0,
                 ..Default::default()
             },
+            reflections: Reflections {
+                enabled: true,
+                ..Default::default()
+            },
             env_light: EnvLight {
                 source: EnvSource::Studio(Studio::Sunset),
                 // One whole turn per loop.
@@ -3133,6 +3137,10 @@ pub fn material_gallery() -> Project {
         environment: Environment {
             fog_density: Param::new(0.0),
             light_intensity: Param::new(0.0),
+            reflections: Reflections {
+                enabled: true,
+                ..Default::default()
+            },
             env_light: EnvLight {
                 source: EnvSource::Studio(Studio::Softbox),
                 rotation: Param::new(0.0).osc(Wave::Saw, 180.0, 1),

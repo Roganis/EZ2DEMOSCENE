@@ -1245,7 +1245,7 @@ by shapes, models and raymarched shapes).
   yellow turned half a turn. glTF material reading has a unit test
   (factors, a merged ORM picture, a missing picture skipped).
 
-### ☐ 11.3 Screen-space reflections on objects
+### ☑ 11.3 Screen-space reflections on objects
 The mirror floor keeps its planar reflection (exact, cheaper). Shiny
 objects, terrain water and wet ground get screen-space reflections.
 
@@ -1274,6 +1274,46 @@ pass. Skipped when no visible material reflects.
 **Test.** A chrome sphere next to a red box shows red on its side, which
 disappears when the box is hidden; the reflection pass off is
 byte-identical; loops.
+
+**Done.** *Light & fog → Reflections*: on/off, strength (animatable),
+reach and a roughness cut-off. On in Material Gallery and Chrome Studio.
+- *G-buffer*: the half-resolution distance pass now writes four targets:
+  the distance (R16F, unchanged for depth of field), and RGBA16F normal
+  (octahedral) + roughness, reflectance `k` and the reflected
+  environment `e` the surface already shows (both dimmed by its fog).
+  It runs for depth of field *or* reflections. Meshes share one
+  `surface()` function between the colour and distance passes (the same
+  maths, so Classic stays identical), and `classic_mirror` /
+  `physical_mirror` reproduce the reflection terms of the two shadings;
+  the mesh and SDF distance pipelines moved to the lit layout for the
+  split-sum table.
+- *Instead of recomputing the environment* in the reflection pass (as
+  planned), each surface stores the `e` it added, so the pass adds
+  `w × (k × hit − e)` and the same code serves shapes, raymarched shapes,
+  terrain water, goo, ice and rain puddles, whose sky reflections are
+  their own formulas. The floor writes nothing: its planar reflection is
+  exact.
+- *March*: 32 steps along the mirror ray in world space (spacing grows
+  quadratically to the reach), a 4×4 Bayer jitter, a thickness of
+  0.3 + 0.25 × distance, marching on behind thicker things, then 5
+  bisection steps. Weight fades at the screen edge, towards the reach
+  and the roughness cut-off, and on backfaces; rough hits average a
+  small disc of taps instead of a mip chain.
+- *Composite*: added onto the scene before depth of field with a 5×5
+  blur weighted by distance difference, which removes the jitter
+  pattern without bleeding across silhouettes (half-resolution edges
+  can still step a little).
+- Measured (`screen_space_reflections_show_neighbours`): the red
+  measure on a chrome ball's side facing a glowing red box goes from 0.0
+  (off) to 26.6 (on) and back to 0.0 with the box hidden; with
+  reflections off (and depth of field sharing the pass) the picture is
+  byte-identical to the default; the first and last frames of an
+  orbiting camera match. Golden images of all presets without
+  reflections are unchanged; Material Gallery and Chrome Studio were
+  re-blessed with them on.
+- Limits: only what is on the screen can be reflected, so reflections
+  fade at the edges and cannot show the back of anything; the mirror
+  floor's planar reflection doesn't contain reflections of reflections.
 
 ### ☐ 11.4 Light shafts through fog
 Today's god rays are a screen-space blur from the sun's position, so they

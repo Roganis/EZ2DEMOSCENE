@@ -1078,6 +1078,12 @@ yellow line with numbered points.</p>
   makes it the sun, with its shadows, so they line up with the picture. Add the <b>Environment map</b> background to see the map
   behind the scene. Shapes, 3D models and raymarched shapes are lit this way; terrain, water and the mirror floor keep the classic
   light. The <b>Chrome Studio</b> preset has chrome, gold and plastic under a turning sunset.</li>
+  <li><span class="ui">Reflections</span>: shiny shapes, water and rain puddles reflect the things around them, not just the sky or
+  the environment map: a chrome ball shows the red box beside it, a lake mirrors its islands. <span class="ui">Strength</span> is how
+  much of that replaces the plain reflection, <span class="ui">Reach</span> how far away things can be (in world units), and
+  <span class="ui">Up to roughness</span> which surfaces take part (rougher ones keep the plain reflection). It can only reflect what
+  is on the screen, so towards the picture's edges and behind shapes it fades back to the environment. The mirror floor keeps its
+  own exact reflection. It costs one extra half-resolution pass (shared with depth of field when both are on).</li>
   <li><span class="ui">Sun shadows</span>: shapes and terrain cast shadows from the sun (the moon at night) onto shapes, terrain,
   water and the mirror floor. <span class="ui">Darkness</span>, <span class="ui">Softness</span> and <span class="ui">Distance</span>
   (how far around the camera's target shadows reach: smaller is sharper). In dark neon scenes shadows are subtle, because most light

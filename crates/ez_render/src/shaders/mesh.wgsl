@@ -248,8 +248,27 @@ fn ramp_color(t_in: f32) -> vec3<f32> {
     return mix(a, b, f * f * (3.0 - 2.0 * f));
 }
 
-@fragment
-fn fs_main(in: VOut) -> @location(0) vec4<f32> {
+// A mesh's surface at a fragment: its material after textures, maps,
+// colour ramp, hue and relief. Samples textures and takes derivatives, so
+// it must be called in uniform control flow.
+struct Surf {
+    base: vec3<f32>,
+    metallic: f32,
+    rough: f32,
+    n: vec3<f32>,
+    // Occlusion from the ORM map (1 without one).
+    ao: f32,
+    v: vec3<f32>,
+    emissive: vec3<f32>,
+    // The colour texture (for "glow where: texture") and the glow map.
+    texel: vec3<f32>,
+    emit: vec3<f32>,
+    uv: vec2<f32>,
+    edge_w: f32,
+    hue: f32,
+};
+
+fn surface(in: VOut) -> Surf {
     var base_in = D.v[0].rgb;
     var metallic = D.v[0].w;
     var emissive_in = D.v[1].rgb;
@@ -261,12 +280,10 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
         }
     }
     var rough = clamp(D.v[1].w, 0.02, 1.0);
-    let mode = i32(D.v[2].x + 0.5);
     let has_tex = D.v[2].y > 0.5;
     let tex_scale = D.v[2].z;
     let flat_n = D.v[2].w > 0.5;
     let scroll = D.v[3].xy;
-    let rim_k = D.v[3].z;
     let hue = D.v[3].w + in.inst.x;
 
     // Derivative-based values first (uniform control flow).
@@ -306,10 +323,6 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let duvx = dpdx(uv);
     let duvy = dpdy(uv);
 
-    if (!clip_visible(in.world)) {
-        discard;
-    }
-
     let v = normalize(G.cam_pos.xyz - in.world);
     var n = normalize(in.normal);
     if (flat_n) {
@@ -345,30 +358,61 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     if (has_tex) {
         tex = texel;
     }
-    var base = hue_rotate(base_in * tex, hue);
+    var out: Surf;
+    out.base = hue_rotate(base_in * tex, hue);
+    out.metallic = metallic;
+    out.rough = rough;
+    if (D2.v[0].y > 0.5) {
+        out.metallic = metallic * orm.b;
+        out.rough = rough * orm.g;
+    }
+    out.n = n;
+    out.ao = orm.r;
+    out.v = v;
+    out.emissive = emissive_in;
+    out.texel = texel;
+    out.emit = emit;
+    out.uv = uv;
+    out.edge_w = edge_w;
+    out.hue = hue;
+    return out;
+}
+
+fn pbr_layers() -> PbrLayers {
+    var layers: PbrLayers;
+    layers.k = D2.v[1];
+    layers.sheen_ior = D2.v[2];
+    return layers;
+}
+
+@fragment
+fn fs_main(in: VOut) -> @location(0) vec4<f32> {
+    let sf = surface(in);
+    if (!clip_visible(in.world)) {
+        discard;
+    }
+    let mode = i32(D.v[2].x + 0.5);
+    let rim_k = D.v[3].z;
     var col: vec3<f32>;
     if (D2.v[0].x > 0.5) {
-        var layers: PbrLayers;
-        layers.k = D2.v[1];
-        layers.sheen_ior = D2.v[2];
-        col = physical_surface(base, metallic * orm.b, rough * orm.g, n, in.world, v, rim_k, orm.r, layers);
+        col = physical_surface(sf.base, sf.metallic, sf.rough, sf.n, in.world, sf.v, rim_k, sf.ao, pbr_layers());
     } else if (D2.v[0].y > 0.5) {
-        col = lit_surface(base, metallic * orm.b, clamp(rough * orm.g, 0.02, 1.0), n, in.world, v, rim_k, orm.r);
+        col = lit_surface(sf.base, sf.metallic, clamp(sf.rough, 0.02, 1.0), sf.n, in.world, sf.v, rim_k, sf.ao);
     } else {
-        col = lit_surface(base, metallic, rough, n, in.world, v, rim_k, 1.0);
+        col = lit_surface(sf.base, sf.metallic, sf.rough, sf.n, in.world, sf.v, rim_k, 1.0);
     }
 
     var mask = 1.0;
     switch mode {
         case 1: {
-            mask = 1.0 - smoothstep(0.0, edge_w, in.edge);
+            mask = 1.0 - smoothstep(0.0, sf.edge_w, in.edge);
         }
         case 2: {
-            let s = fract(uv.y * 6.0);
+            let s = fract(sf.uv.y * 6.0);
             mask = smoothstep(0.35, 0.45, s) * (1.0 - smoothstep(0.55, 0.65, s));
         }
         case 3: {
-            let lum = dot(texel, vec3<f32>(0.299, 0.587, 0.114));
+            let lum = dot(sf.texel, vec3<f32>(0.299, 0.587, 0.114));
             mask = lum * lum;
         }
         case 4: {
@@ -381,17 +425,25 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
         }
         default: {}
     }
-    let emissive = hue_rotate(emissive_in * emit, hue) * mask * in.inst.y;
+    let emissive = hue_rotate(sf.emissive * sf.emit, sf.hue) * mask * in.inst.y;
     col = col + emissive;
 
     return vec4<f32>(apply_fog_at(col, in.world), 1.0);
 }
 
-// Distance to the camera, for depth of field (a small extra pass).
+// Distance to the camera and what the surface reflects (depth of field
+// and screen-space reflections: a small extra pass).
 @fragment
-fn fs_depth(in: VOut) -> @location(0) vec4<f32> {
+fn fs_depth(in: VOut) -> DistOut {
+    let sf = surface(in);
     if (!clip_visible(in.world)) {
         discard;
     }
-    return vec4<f32>(length(in.world - G.cam_pos.xyz), 0.0, 0.0, 1.0);
+    var m: Mirror;
+    if (D2.v[0].x > 0.5) {
+        m = physical_mirror(sf.base, sf.metallic, sf.rough, sf.n, in.world, sf.v, sf.ao, pbr_layers());
+    } else {
+        m = classic_mirror(sf.base, sf.metallic, clamp(sf.rough, 0.02, 1.0), sf.n, in.world, sf.v, sf.ao);
+    }
+    return dist_out(in.world, m);
 }

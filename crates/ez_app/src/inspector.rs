@@ -596,6 +596,39 @@ pub fn environment_ui(ui: &mut Ui, e: &mut Environment) {
     );
     ui.add_space(6.0);
     env_light_ui(ui, &mut e.env_light);
+    let rf = &mut e.reflections;
+    toggle_section(ui, "Reflections", &mut rf.enabled, |ui| {
+        param(
+            ui,
+            "Strength",
+            "How much shiny shapes, water and wet ground reflect the scene around them \
+             (instead of only the sky or environment map)",
+            &mut rf.strength,
+            0.0..=1.0,
+        );
+        slider(
+            ui,
+            "Reach",
+            "How far a reflection reaches, in world units",
+            &mut rf.max_distance,
+            1.0..=40.0,
+        );
+        slider(
+            ui,
+            "Up to roughness",
+            "Rougher surfaces keep the plain environment reflection",
+            &mut rf.roughness_cutoff,
+            0.05..=1.0,
+        );
+        ui.label(
+            RichText::new(
+                "Only what is on the screen can be reflected: near the edges, and behind shapes, \
+                 reflections fade back to the environment. The mirror floor has its own exact reflection.",
+            )
+            .weak()
+            .small(),
+        );
+    });
     let sh = &mut e.shadows;
     toggle_section(ui, "Sun shadows", &mut sh.enabled, |ui| {
         slider(

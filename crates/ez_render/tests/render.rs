@@ -3209,3 +3209,130 @@ fn physical_materials_keep_energy() {
     );
     assert!(ball_mean(&img) > 20.0);
 }
+
+/// Screen-space reflections: a chrome ball next to a red box shows red on
+/// the side facing it, which goes when the box is hidden; turned off, the
+/// picture is exactly as without them; the loop still closes.
+#[test]
+fn screen_space_reflections_show_neighbours() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let dir = snapshot_dir().join("ssr");
+    std::fs::create_dir_all(&dir).unwrap();
+    let scene = |ssr: bool, with_box: bool| {
+        let mut p = Project {
+            camera: Camera {
+                mode: CameraMode::Static,
+                target: [0.0; 3],
+                distance: Param::new(4.0),
+                height: Param::new(0.0),
+                angle: Param::new(0.0),
+                fov: Param::new(40.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        p.environment.fog_density = Param::new(0.0);
+        p.post.grade.vignette = Param::new(0.0);
+        p.post.bloom.enabled = false;
+        // A plain grey sky, so red in the ball can only come from the box.
+        p.environment.sky_color = [0.3, 0.3, 0.3];
+        p.environment.ground_color = [0.3, 0.3, 0.3];
+        p.environment.reflections.enabled = ssr;
+        p.layers.push(Layer::new(
+            "Ball",
+            LayerKind::Mesh(MeshLayer {
+                source: MeshSource::Primitive(Primitive::Sphere { detail: 4 }),
+                material: Material {
+                    base_color: [0.95; 3],
+                    metallic: Param::new(1.0),
+                    roughness: Param::new(0.03),
+                    rim: Param::new(0.0),
+                    pbr: Pbr {
+                        shading: Shading::Physical,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+        ));
+        let mut red = Layer::new(
+            "Box",
+            LayerKind::Mesh(MeshLayer {
+                source: MeshSource::Primitive(Primitive::Cube),
+                material: Material {
+                    base_color: [0.9, 0.05, 0.05],
+                    emissive_color: [1.0, 0.0, 0.0],
+                    emissive: Param::new(1.0),
+                    metallic: Param::new(0.0),
+                    roughness: Param::new(0.9),
+                    rim: Param::new(0.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+        )
+        // To the right of the ball and a little towards the camera.
+        .at([2.0, 0.0, 0.6])
+        .scaled(0.8);
+        red.enabled = with_box;
+        p.layers.push(red);
+        p
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let (w, h) = (320u32, 180u32);
+    let target = r.create_target(w, h);
+    let ctx = EvalCtx::at(0.0);
+    // The right side of the ball, facing the box.
+    let side = |img: &image::RgbaImage| {
+        let (mut red, mut n) = (0.0, 0.0);
+        for (x, y, p) in img.enumerate_pixels() {
+            let (fx, fy) = (x as f32 / w as f32, y as f32 / h as f32);
+            // The ball's right half (it reaches about 0.7 of the width).
+            if fx > 0.5 && fx < 0.68 && (fy - 0.5).abs() < 0.15 {
+                red += p[0] as f32 - (p[1] as f32 + p[2] as f32) * 0.5;
+                n += 1.0;
+            }
+        }
+        red / n
+    };
+    let off = r.render_image(&scene(false, true), &ctx, &target);
+    let on = r.render_image(&scene(true, true), &ctx, &target);
+    let gone = r.render_image(&scene(true, false), &ctx, &target);
+    assert!(r.errors.is_empty(), "{:?}", r.errors);
+    on.save(dir.join("on.png")).unwrap();
+    off.save(dir.join("off.png")).unwrap();
+    gone.save(dir.join("no_box.png")).unwrap();
+    let (a, b, c) = (side(&off), side(&on), side(&gone));
+    eprintln!("red on the ball's side: off {a:.1}, on {b:.1}, without the box {c:.1}");
+    assert!(b > a + 8.0, "no reflection of the box: {a} -> {b}");
+    assert!(c.abs() < 2.0, "red without the box: {c}");
+
+    // Off: identical to a project that never had the setting (the
+    // default), including with depth of field sharing the pass.
+    let mut dof = scene(false, true);
+    dof.post.dof.enabled = true;
+    let mut dof_on = dof.clone();
+    dof_on.environment.reflections = Reflections {
+        enabled: false,
+        strength: Param::new(0.7),
+        ..Default::default()
+    };
+    let x = r.render_image(&dof, &ctx, &target);
+    let y = r.render_image(&dof_on, &ctx, &target);
+    assert_eq!(x.as_raw(), y.as_raw());
+
+    // A moving camera: the last frame is the first.
+    let mut moving = scene(true, true);
+    moving.camera.mode = CameraMode::Orbit;
+    let first = r.render_image(&moving, &EvalCtx::at(0.0), &target);
+    let last = r.render_image(&moving, &EvalCtx::at(1.0), &target);
+    assert!(mean_abs_diff(first.as_raw(), last.as_raw()) < 0.05);
+}

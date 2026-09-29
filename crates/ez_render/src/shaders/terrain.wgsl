@@ -521,11 +521,81 @@ fn fs_main(in: TOut) -> @location(0) vec4<f32> {
     return vec4<f32>(apply_fog_at(col, in.world), 1.0);
 }
 
-// Distance to the camera, for depth of field (a small extra pass).
+// What a liquid's surface reflects (as `shade_liquid` mirrors the sky).
+fn liquid_mirror(in: TOut, depth: f32, q: vec2<f32>) -> Mirror {
+    let kind = i32(D.v[5].z + 0.5);
+    let glow = max(D.v[6].w, 0.0);
+    let waves = max(D.v[7].x, 0.0);
+    let hills = max(i32(D.v[0].w + 0.5), 1);
+    let seed = u32(D.v[2].w) + 991u;
+    let v = normalize(G.cam_pos.xyz - in.world);
+    let up = vec3<f32>(0.0, 1.0, 0.0);
+    var m = no_mirror(up);
+    m.rough = 0.0;
+    switch kind {
+        case 2: {
+            m.rough = 1.0;
+        }
+        case 3: {
+            let fres = 0.03 + 0.5 * pow(1.0 - max(v.y, 0.0), 5.0);
+            m.k = vec3<f32>(fres);
+            m.e = l_sky(reflect(-v, up)) * fres;
+        }
+        case 4: {
+            let fres = 0.05 + 0.6 * pow(1.0 - max(v.y, 0.0), 5.0);
+            m.k = vec3<f32>(fres * glow);
+            m.e = l_sky(reflect(-v, up)) * fres * glow;
+        }
+        default: {
+            let rip = l_ripple(q, hills * 6, seed) * waves;
+            let n = normalize(vec3<f32>(rip.x, 1.0, rip.y));
+            let fres = 0.02 + 0.98 * pow(1.0 - max(dot(n, v), 0.0), 5.0);
+            let k = clamp(fres * glow, 0.0, 1.0);
+            // Foam covers the reflection at the shore.
+            let fm = l_noise(q + l_circle(hills * 4, 0.5) + l_flow(), hills * 40, seed + 17u);
+            let foam = smoothstep(0.18, 0.0, depth) * smoothstep(0.3, 0.7, fm + (0.18 - depth) * 3.0) * min(waves, 1.0);
+            m.n = n;
+            m.k = vec3<f32>(k * (1.0 - foam * 0.8));
+            m.e = l_sky(reflect(-v, n)) * m.k;
+        }
+    }
+    return m;
+}
+
+// Distance to the camera and what the surface reflects (depth of field
+// and screen-space reflections: a small extra pass). Liquids and rain
+// puddles reflect; the ground itself is matte.
 @fragment
-fn fs_depth(in: TOut) -> @location(0) vec4<f32> {
+fn fs_depth(in: TOut) -> DistOut {
     if (!clip_visible(in.world)) {
         discard;
     }
-    return vec4<f32>(length(in.world - G.cam_pos.xyz), 0.0, 0.0, 1.0);
+    let liquid_kind = i32(D.v[5].z + 0.5);
+    let depth = D.v[5].w - in.hraw;
+    let style = i32(D.v[1].w + 0.5);
+    if (liquid_kind > 0 && depth > 0.0) {
+        let q = in.grid / max(D.v[0].y, 1.0);
+        return dist_out(in.world, liquid_mirror(in, depth, q));
+    }
+    var n = normalize(in.normal);
+    let v = normalize(G.cam_pos.xyz - in.world);
+    if (dot(n, v) < 0.0) {
+        n = -n;
+    }
+    var m = no_mirror(n);
+    if (style != 0) {
+        let pud = puddle(in.world, n) * (1.0 - snow_cover(in.world, n));
+        if (pud > 0.0) {
+            // As the colour pass: the sky's sheen, mixed in by `pud`.
+            let r = reflect(-v, vec3<f32>(0.0, 1.0, 0.0));
+            let fres = 0.1 + 0.9 * pow(1.0 - max(v.y, 0.0), 4.0);
+            let sky_r = mix(G.sky.rgb, G.fog.rgb, 0.4 - 0.4 * smoothstep(0.0, 0.5, r.y)) * 1.8;
+            let k = fres * pud * (1.0 + rain_rings(in.world));
+            m.n = vec3<f32>(0.0, 1.0, 0.0);
+            m.rough = 0.0;
+            m.k = vec3<f32>(k);
+            m.e = sky_r * k;
+        }
+    }
+    return dist_out(in.world, m);
 }

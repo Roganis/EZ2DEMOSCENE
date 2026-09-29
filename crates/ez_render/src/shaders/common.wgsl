@@ -599,6 +599,118 @@ fn physical_surface(
     return col;
 }
 
+// --- screen-space reflections: what a surface reflects ----------------------
+
+// The environment reflection a surface added to its colour, and how
+// strongly it reflects: `e` = `k` × the environment seen in the mirror
+// direction (already dimmed by fog), so the reflection pass can swap in
+// what the ray really hits (k × hit − e) without counting anything twice.
+struct Mirror {
+    n: vec3<f32>,
+    rough: f32,
+    k: vec3<f32>,
+    e: vec3<f32>,
+};
+
+// Octahedral encoding of a unit vector into two numbers in -1..1.
+fn oct_encode(n: vec3<f32>) -> vec2<f32> {
+    let p = n.xy / (abs(n.x) + abs(n.y) + abs(n.z));
+    if (n.z >= 0.0) {
+        return p;
+    }
+    return (vec2<f32>(1.0) - abs(p.yx)) * select(vec2<f32>(-1.0), vec2<f32>(1.0), p >= vec2<f32>(0.0));
+}
+
+fn oct_decode(e: vec2<f32>) -> vec3<f32> {
+    var n = vec3<f32>(e, 1.0 - abs(e.x) - abs(e.y));
+    if (n.z < 0.0) {
+        let xy = (vec2<f32>(1.0) - abs(n.yx)) * select(vec2<f32>(-1.0), vec2<f32>(1.0), n.xy >= vec2<f32>(0.0));
+        n = vec3<f32>(xy, n.z);
+    }
+    return normalize(n);
+}
+
+// The reflection term of `lit_surface` (classic shading).
+fn classic_mirror(base_in: vec3<f32>, metallic_in: f32, rough_in: f32, n_in: vec3<f32>, world: vec3<f32>, v: vec3<f32>, ao: f32) -> Mirror {
+    let w = weathered(base_in, metallic_in, rough_in, n_in, world);
+    var m: Mirror;
+    m.n = w.n;
+    m.rough = w.rough;
+    let ndv = max(dot(w.n, v), 0.0);
+    let f0 = mix(vec3<f32>(0.04), w.base, w.metallic);
+    let r = reflect(-v, w.n);
+    if (G.ibl.x > 0.0) {
+        let ab = textureSampleLevel(t_brdf, s_env, vec2<f32>(ndv, w.rough), 0.0).rg;
+        m.k = (f0 * ab.x + ab.y) * ao;
+    } else {
+        let fr = f0 + (vec3<f32>(1.0) - f0) * pow(1.0 - ndv, 5.0);
+        m.k = fr * (1.0 - w.rough * 0.6) * ao;
+    }
+    m.e = env_light(r, w.rough) * m.k;
+    return m;
+}
+
+// The reflection terms of `physical_surface` (the base's and the
+// clearcoat's, which is sharper: the pass blurs by the sharper one).
+fn physical_mirror(base_in: vec3<f32>, metallic_in: f32, rough_in: f32, n_in: vec3<f32>, world: vec3<f32>, v: vec3<f32>, ao: f32, layers: PbrLayers) -> Mirror {
+    let w = weathered(base_in, metallic_in, rough_in, n_in, world);
+    let metallic = clamp(w.metallic, 0.0, 1.0);
+    let rough = clamp(w.rough, 0.045, 1.0);
+    let ndv = max(dot(w.n, v), 1e-4);
+    let r = reflect(-v, w.n);
+    let f0 = mix(vec3<f32>(0.04), w.base, metallic);
+    let ab = textureSampleLevel(t_brdf, s_env, vec2<f32>(ndv, rough), 0.0).rg;
+    let coat = clamp(layers.k.x, 0.0, 1.0);
+    let coat_rough = clamp(layers.k.y, 0.045, 1.0);
+    let coat_ab = textureSampleLevel(t_brdf, s_env, vec2<f32>(ndv, coat_rough), 0.0).rg;
+    let coat_f = (0.04 * coat_ab.x + coat_ab.y) * coat;
+    let k_base = (f0 * ab.x + ab.y) * (1.0 - coat_f) * ao;
+    let k_coat = vec3<f32>(coat_f * ao);
+    var m: Mirror;
+    m.n = w.n;
+    m.rough = select(rough, min(rough, coat_rough), coat > 0.0);
+    m.k = k_base + k_coat;
+    m.e = env_light(r, rough) * k_base;
+    if (coat > 0.0) {
+        m.e = m.e + env_light(r, coat_rough) * k_coat;
+    }
+    return m;
+}
+
+// No reflection (matte, glowing or see-through things).
+fn no_mirror(n: vec3<f32>) -> Mirror {
+    var m: Mirror;
+    m.n = n;
+    m.rough = 1.0;
+    m.k = vec3<f32>(0.0);
+    m.e = vec3<f32>(0.0);
+    return m;
+}
+
+// The distance pass's outputs: distance to the camera (depth of field),
+// and what the surface reflects (screen-space reflections).
+struct DistOut {
+    // r: distance to the camera
+    @location(0) dist: vec4<f32>,
+    // xy: normal (octahedral), z: roughness, w: 1 = a surface
+    @location(1) surf: vec4<f32>,
+    // rgb: reflectance
+    @location(2) k: vec4<f32>,
+    // rgb: the reflected environment it already shows
+    @location(3) e: vec4<f32>,
+};
+
+fn dist_out(world: vec3<f32>, m: Mirror) -> DistOut {
+    var o: DistOut;
+    o.dist = vec4<f32>(length(world - G.cam_pos.xyz), 0.0, 0.0, 1.0);
+    // Fog dims the reflection like the rest of the surface.
+    let clear = 1.0 - fog_amount_at(world);
+    o.surf = vec4<f32>(oct_encode(m.n), m.rough, 1.0);
+    o.k = vec4<f32>(m.k * clear, 1.0);
+    o.e = vec4<f32>(m.e * clear, 1.0);
+    return o;
+}
+
 fn clip_visible(world: vec3<f32>) -> bool {
     if (dot(G.clip.xyz, G.clip.xyz) == 0.0) {
         return true;

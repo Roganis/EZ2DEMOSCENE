@@ -72,6 +72,12 @@
       "intensity": 1.0,
       "sun_from_map": true,
       "sky_static": false
+    },
+    "reflections": {
+      "enabled": true,
+      "strength": 1.0,
+      "max_distance": 12.0,
+      "roughness_cutoff": 0.6
     }
   },
   "layers": [

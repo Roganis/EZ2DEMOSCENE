@@ -91,8 +91,9 @@ fn fs_main(in: FOut) -> @location(0) vec4<f32> {
     return vec4<f32>(mix(G.fog.rgb, out_col, fade), 1.0);
 }
 
-// Distance to the camera, for depth of field.
+// Distance to the camera, for depth of field. The floor's own planar
+// reflection is exact, so screen-space reflections leave it alone.
 @fragment
-fn fs_depth(in: FOut) -> @location(0) vec4<f32> {
-    return vec4<f32>(length(in.world - G.cam_pos.xyz), 0.0, 0.0, 1.0);
+fn fs_depth(in: FOut) -> DistOut {
+    return dist_out(in.world, no_mirror(vec3<f32>(0.0, 1.0, 0.0)));
 }
