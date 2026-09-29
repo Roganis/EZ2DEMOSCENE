@@ -28,6 +28,8 @@ struct TOut {
     @location(4) hraw: f32,
     // Steepness of the ground: 0 flat, 1 vertical.
     @location(5) slope: f32,
+    // Grid coordinates times w, and w (affine warp, see affine_uv).
+    @location(6) aff: vec3<f32>,
 };
 
 fn t_hash(x: i32, y: i32, seed: u32) -> f32 {
@@ -232,10 +234,11 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> TOut {
     let model = mat4x4<f32>(D.v[8], D.v[9], D.v[10], D.v[11]);
     let world = model * vec4<f32>(local, 1.0);
     var out: TOut;
-    out.pos = G.view_proj * world;
+    out.pos = retro_snap(G.view_proj * world);
     out.world = world.xyz;
     out.normal = normalize((model * vec4<f32>(local_n, 0.0)).xyz);
     out.grid = vec2<f32>(g.x, g.y - scroll * n);
+    out.aff = vec3<f32>(out.grid * out.pos.w, out.pos.w);
     let edge = min(min(g.x, n - g.x), min(g.y, n - g.y));
     out.border = clamp(edge / max(n * 0.12, 1.0), 0.0, 1.0);
     out.hraw = h;
@@ -435,7 +438,7 @@ fn fs_main(in: TOut) -> @location(0) vec4<f32> {
     var line = 1.0 - clamp(min(d.x, d.y) - 0.5, 0.0, 1.0);
     let style = i32(D.v[1].w + 0.5);
     // The texture moves with the landscape; whole tiles keep the loop seamless.
-    let uv = in.grid / max(D.v[0].y, 1.0) * D.v[4].x;
+    let uv = affine_uv(in.grid, in.aff) / max(D.v[0].y, 1.0) * D.v[4].x;
     let texel = textureSample(t_tex, s_tex, uv).rgb;
     let has_tex = D.v[3].w > 0.5;
     let liquid_kind = i32(D.v[5].z + 0.5);

@@ -17,6 +17,7 @@
 // D2.v[0]: physical shading, has ORM map, has glow map, _
 // D2.v[1]: clearcoat, clearcoat roughness, sheen, transmission
 // D2.v[2]: sheen rgb, index of refraction
+// D2.v[3]: texture filter (0 smooth, 1 nearest, 2 bilinear, 3 three-point), _, _, _
 
 @group(1) @binding(1) var<uniform> D2: Draw;
 
@@ -89,6 +90,8 @@ struct VOut {
     // Object-space position and normal, for triplanar textures.
     @location(5) obj: vec3<f32>,
     @location(6) obj_n: vec3<f32>,
+    // Texture coordinates times w, and w (affine warp, see affine_uv).
+    @location(7) aff: vec3<f32>,
 };
 
 fn hash_v3(p: vec3<f32>, salt: u32) -> vec3<f32> {
@@ -223,8 +226,9 @@ fn vs_main(in: VIn) -> VOut {
     var out: VOut;
     out.world = world.xyz;
     out.normal = normalize((model * vec4<f32>(d.normal, 0.0)).xyz);
-    out.pos = G.view_proj * world;
+    out.pos = retro_snap(G.view_proj * world);
     out.uv = in.uv;
+    out.aff = vec3<f32>(in.uv * out.pos.w, out.pos.w);
     out.edge = in.edge;
     out.obj = in.pos;
     out.obj_n = in.normal;
@@ -289,7 +293,7 @@ fn surface(in: VOut) -> Surf {
     // Derivative-based values first (uniform control flow).
     let face_n = normalize(cross(dpdx(in.world), dpdy(in.world)));
     let edge_w = fwidth(in.edge) * 1.5 + 0.035;
-    let uv = in.uv * tex_scale + scroll;
+    let uv = affine_uv(in.uv, in.aff) * tex_scale + scroll;
     var texel: vec3<f32>;
     var relief: vec3<f32>;
     var orm = vec3<f32>(1.0);
@@ -307,6 +311,9 @@ fn surface(in: VOut) -> Surf {
         }
     } else {
         texel = textureSample(t_tex, s_tex, uv).rgb;
+        if (i32(D2.v[3].x + 0.5) == 3) {
+            texel = three_point(t_tex, s_tex, uv).rgb;
+        }
         relief = textureSample(t_relief, s_relief, uv).rgb;
         if (D2.v[0].y > 0.5) {
             orm = textureSample(t_orm, s_tex, uv).rgb;

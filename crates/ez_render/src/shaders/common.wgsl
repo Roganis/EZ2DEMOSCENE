@@ -45,6 +45,9 @@ struct Globals {
     ibl: vec4<f32>,
     // Its diffuse light: 9 spherical-harmonic coefficients (rgb).
     sh: array<vec4<f32>, 9>,
+    // Retro 3D: x: vertex snapping (0 = off .. 1), y, z: snapping grid
+    // (pixels across, down), w: affine texture warp (0..1)
+    retro: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> G: Globals;
@@ -723,6 +726,52 @@ fn view_ray(ndc: vec2<f32>) -> vec3<f32> {
     let near = G.inv_view_proj * vec4<f32>(ndc, 0.0, 1.0);
     let far = G.inv_view_proj * vec4<f32>(ndc, 1.0, 1.0);
     return normalize(far.xyz / far.w - near.xyz / near.w);
+}
+
+// Retro 3D: the corners of triangles jump to a coarse grid of screen
+// pixels (PlayStation wobble). Pure function of the position, so it loops.
+fn retro_snap(clip: vec4<f32>) -> vec4<f32> {
+    let amount = G.retro.x;
+    if (amount <= 0.0 || clip.w <= 1e-5) {
+        return clip;
+    }
+    let half_grid = max(G.retro.yz, vec2<f32>(1.0)) * 0.5;
+    let ndc = clip.xy / clip.w;
+    let snapped = round(ndc * half_grid) / half_grid;
+    return vec4<f32>(mix(ndc, snapped, amount) * clip.w, clip.z, clip.w);
+}
+
+// Retro 3D: texture coordinates stretched straight across the triangle
+// on the screen (affine) instead of with perspective. The vertex stage
+// passes `uv * w` and `w` (both interpolated with perspective, which works
+// everywhere, WebGL2 included); their ratio is the screen-linear
+// coordinate.
+fn affine_uv(uv: vec2<f32>, aff: vec3<f32>) -> vec2<f32> {
+    let k = G.retro.w;
+    if (k <= 0.0 || abs(aff.z) < 1e-6) {
+        return uv;
+    }
+    return mix(uv, aff.xy / aff.z, k);
+}
+
+// The Nintendo 64's three-point filter: each pixel blends the nearest
+// texel with its two neighbours along the triangle it falls in. `s` must
+// be a nearest-neighbour sampler. No mipmaps, as on the console's
+// cheaper modes.
+fn three_point(t: texture_2d<f32>, s: sampler, uv: vec2<f32>) -> vec4<f32> {
+    let size = vec2<f32>(textureDimensions(t, 0));
+    let p = uv * size - 0.5;
+    let f = fract(p);
+    let base = (floor(p) + 0.5) / size;
+    let dx = vec2<f32>(1.0 / size.x, 0.0);
+    let dy = vec2<f32>(0.0, 1.0 / size.y);
+    let c00 = textureSampleLevel(t, s, base, 0.0);
+    let c10 = textureSampleLevel(t, s, base + dx, 0.0);
+    let c01 = textureSampleLevel(t, s, base + dy, 0.0);
+    let c11 = textureSampleLevel(t, s, base + dx + dy, 0.0);
+    let lower = c00 + f.x * (c10 - c00) + f.y * (c01 - c00);
+    let upper = c11 + (1.0 - f.x) * (c01 - c11) + (1.0 - f.y) * (c10 - c11);
+    return select(upper, lower, f.x + f.y <= 1.0);
 }
 
 struct FullscreenOut {

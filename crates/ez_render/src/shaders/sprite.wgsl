@@ -57,7 +57,7 @@ fn vs_main(@builtin(vertex_index) vi: u32, in: SIn) -> SOut {
     let row = floor(f / cols);
     let c = corner * 0.5 + 0.5;
     var out: SOut;
-    out.pos = G.view_proj * vec4<f32>(world, 1.0);
+    out.pos = retro_snap(G.view_proj * vec4<f32>(world, 1.0));
     out.frame = vec2<f32>(col, row);
     out.local = c;
     out.world = world;

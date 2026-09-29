@@ -175,6 +175,13 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   CRT phosphors…). Imported images can be *retro-ized*: downscaled,
   palette-reduced and dithered, and tiled *mirrored* so photos repeat
   without seams.
+- **Retro 3D (5th-generation consoles).** Draw the whole 3D scene like
+  a PlayStation: at **320 × 240, 256 × 224, 640 × 480** or your own size
+  with native aliasing and square-pixel upscaling (text and logos can
+  stay sharp), **vertex snapping** (the PS1 wobble), **affine texture
+  warp** (reduced by subdividing, as PS1 games did), and per-material
+  texture filters: nearest, bilinear without mipmaps and the N64's
+  **3-point** filter. One click turns on the PlayStation bundle.
 - **Post FX.** Bloom, **god rays** (light shafts from the sun or the
   picture centre) with lens flare, **heat haze**, **depth of field**
   (auto focus, round bokeh), **feedback trails** (zoom/turn/hue-drifting

@@ -3583,3 +3583,211 @@ fn liquid_draws_and_loops() {
         assert!(mean_abs_diff(a.as_raw(), b.as_raw()) < 0.05);
     }
 }
+
+/// Retro 3D: the scene drawn at a low resolution aliases natively (square
+/// pixels), snapping and texture warp change the picture, subdividing
+/// shrinks the warp, every texture filter looks different, and it all
+/// loops.
+#[test]
+fn retro_3d_is_chunky_wobbly_and_loops() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let dir = snapshot_dir().join("retro3d");
+    std::fs::create_dir_all(&dir).unwrap();
+    let scene = |retro: Retro3d, subdivide: u32, filter: TexFilter| {
+        let mut p = presets::empty();
+        p.retro = retro;
+        p.camera = Camera {
+            target: [0.0, 0.0, 0.0],
+            distance: Param::new(3.2),
+            height: Param::new(1.2),
+            orbit_turns: 1,
+            swing: Param::new(0.0),
+            fov: Param::new(50.0),
+            ..Default::default()
+        };
+        p.environment.fog_density = Param::new(0.0);
+        p.post.bloom.enabled = false;
+        p.post.grade.vignette = Param::new(0.0);
+        p.post.grade.grain = Param::new(0.0);
+        // Only the sky of the empty scene.
+        p.layers.truncate(1);
+        let mut floor = Layer::new(
+            "Floor",
+            LayerKind::Mesh(MeshLayer {
+                source: MeshSource::Primitive(Primitive::Plane),
+                subdivide,
+                material: Material {
+                    base_color: [1.0; 3],
+                    texture: Some("checker".into()),
+                    texture_scale: Param::new(3.0),
+                    filter,
+                    rim: Param::new(0.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+        )
+        .at([0.0, -0.8, 0.0])
+        .scaled(6.0);
+        floor.transform.spin = [0, 1, 0];
+        p.layers.push(floor);
+        p.layers.push(
+            Layer::new(
+                "Box",
+                LayerKind::Mesh(MeshLayer {
+                    source: MeshSource::Primitive(Primitive::Cube),
+                    subdivide,
+                    material: Material {
+                        base_color: [1.0, 0.8, 0.6],
+                        texture: Some("brick".into()),
+                        filter,
+                        rim: Param::new(0.0),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }),
+            )
+            .spin([1, 2, 0]),
+        );
+        p
+    };
+    let ps1 = || {
+        let mut r = Retro3d::default();
+        r.apply_style(RetroStyle::Ps1);
+        r
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
+    let (w, h) = (640u32, 360u32);
+    let target = r.create_target(w, h);
+    let at = |p: &Project, phase: f32| EvalCtx::new(&p.timing, phase, None);
+    // Share of neighbouring pixels (across) that are exactly the same.
+    let same = |img: &image::RgbaImage| {
+        let mut n = 0u32;
+        for y in 0..h {
+            for x in 0..w - 1 {
+                n += (img.get_pixel(x, y) == img.get_pixel(x + 1, y)) as u32;
+            }
+        }
+        n as f32 / (h * (w - 1)) as f32
+    };
+
+    let off = scene(Retro3d::default(), 0, TexFilter::Smooth);
+    let on = scene(ps1(), 0, TexFilter::Nearest);
+    let a = r.render_image(&off, &at(&off, 0.3), &target);
+    let b = r.render_image(&on, &at(&on, 0.3), &target);
+    assert!(r.errors.is_empty(), "{:?}", r.errors);
+    a.save(dir.join("off.png")).unwrap();
+    b.save(dir.join("ps1.png")).unwrap();
+    let (sa, sb) = (same(&a), same(&b));
+    eprintln!("equal neighbours: off {sa:.3}, PS1 {sb:.3}");
+    // 320 × 240 on a 16:9 output is 427 × 240: every low pixel covers
+    // about 1.5 × 1.5 output pixels.
+    assert!(sb > sa + 0.06, "not chunky: {sa} -> {sb}");
+
+    // Loops: the first and last frames match.
+    for p in [&on, &scene(ps1(), 2, TexFilter::ThreePoint)] {
+        let first = r.render_image(p, &at(p, 0.0), &target);
+        let last = r.render_image(p, &at(p, 1.0), &target);
+        let mid = r.render_image(p, &at(p, 0.37), &target);
+        let seam = mean_abs_diff(first.as_raw(), last.as_raw());
+        let motion = mean_abs_diff(first.as_raw(), mid.as_raw());
+        eprintln!("retro seam {seam:.3}, motion {motion:.2}");
+        assert!(seam < 0.6, "retro 3D does not loop: {seam}");
+        assert!(motion > 2.0, "retro 3D scene does not move: {motion}");
+    }
+
+    // Snapping and warp each change the full-resolution picture.
+    let full = |snap: bool, affine: f32| Retro3d {
+        enabled: true,
+        snap,
+        affine: Param::new(affine),
+        ..Default::default()
+    };
+    let plain = r.render_image(
+        &scene(full(false, 0.0), 0, TexFilter::Smooth),
+        &at(&off, 0.3),
+        &target,
+    );
+    let d_off = mean_abs_diff(plain.as_raw(), a.as_raw());
+    assert!(
+        d_off < 0.01,
+        "Retro 3D on with nothing set changed the picture: {d_off}"
+    );
+    let snapped = r.render_image(
+        &scene(full(true, 0.0), 0, TexFilter::Smooth),
+        &at(&off, 0.3),
+        &target,
+    );
+    let d_snap = mean_abs_diff(plain.as_raw(), snapped.as_raw());
+    let warped = r.render_image(
+        &scene(full(false, 1.0), 0, TexFilter::Smooth),
+        &at(&off, 0.3),
+        &target,
+    );
+    let d_warp = mean_abs_diff(plain.as_raw(), warped.as_raw());
+    let plain_sub = r.render_image(
+        &scene(full(false, 0.0), 3, TexFilter::Smooth),
+        &at(&off, 0.3),
+        &target,
+    );
+    let warped_sub = r.render_image(
+        &scene(full(false, 1.0), 3, TexFilter::Smooth),
+        &at(&off, 0.3),
+        &target,
+    );
+    let d_warp_sub = mean_abs_diff(plain_sub.as_raw(), warped_sub.as_raw());
+    snapped.save(dir.join("snapped.png")).unwrap();
+    warped.save(dir.join("warped.png")).unwrap();
+    warped_sub.save(dir.join("warped_subdivided.png")).unwrap();
+    eprintln!("snap {d_snap:.2}, warp {d_warp:.2}, warp after subdividing {d_warp_sub:.2}");
+    assert!(d_snap > 0.3, "snapping shows no change: {d_snap}");
+    assert!(d_warp > 1.0, "texture warp shows no change: {d_warp}");
+    assert!(
+        d_warp_sub < d_warp * 0.6,
+        "subdividing doesn't reduce the warp: {d_warp} -> {d_warp_sub}"
+    );
+
+    // Every texture filter is its own look.
+    let shots: Vec<(TexFilter, image::RgbaImage)> = TexFilter::ALL
+        .iter()
+        .map(|&f| {
+            let mut p = scene(Retro3d::default(), 0, f);
+            // A pattern that changes every texel, magnified near the
+            // camera and shrunk in the distance.
+            if let LayerKind::Mesh(m) = &mut p.layers[1].kind {
+                m.material.texture = Some("dither".into());
+                m.material.texture_scale = Param::new(0.4);
+            }
+            (f, r.render_image(&p, &at(&p, 0.3), &target))
+        })
+        .collect();
+    for (i, (fa, ia)) in shots.iter().enumerate() {
+        ia.save(dir.join(format!("filter_{}.png", fa.index())))
+            .unwrap();
+        for (fb, ib) in &shots[i + 1..] {
+            let d = mean_abs_diff(ia.as_raw(), ib.as_raw());
+            eprintln!("{:?} vs {:?}: {d:.3}", fa, fb);
+            assert!(d > 0.05, "{fa:?} and {fb:?} look the same: {d}");
+        }
+    }
+
+    // Text drawn sharp on top of the chunky scene, or as chunky.
+    let mut text = on.clone();
+    text.layers
+        .push(Layer::new("Title", LayerKind::Text(TextLayer::default())));
+    let sharp = r.render_image(&text, &at(&text, 0.3), &target);
+    text.retro.sharp_overlays = false;
+    let chunky = r.render_image(&text, &at(&text, 0.3), &target);
+    sharp.save(dir.join("text_sharp.png")).unwrap();
+    chunky.save(dir.join("text_chunky.png")).unwrap();
+    let d_text = mean_abs_diff(sharp.as_raw(), chunky.as_raw());
+    eprintln!("sharp vs chunky text: {d_text:.3}");
+    assert!(d_text > 0.05, "sharp text setting does nothing: {d_text}");
+}

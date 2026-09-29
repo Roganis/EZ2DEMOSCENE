@@ -234,7 +234,7 @@ bottom of the gallery to skip it; it stays one click away under <span class="ui"
   <span class="ui">🎲 Randomize</span> (with its ⚙ settings), <span class="ui">Surprise me</span>, the
   <span class="ui">Simple</span> / <span class="ui">Nodes</span> mode switch, <span class="ui">⏺ Export</span> and <span class="ui">?</span> help.</td></tr>
   <tr><td><b>Scene panel</b> (left)</td><td>The project <b>name</b>; the scene-wide sections (<span class="ui">Timing &amp; music</span>,
-  <span class="ui">Camera</span>, <span class="ui">Light &amp; fog</span>, <span class="ui">Post effects</span>, <span class="ui">Your images</span>);
+  <span class="ui">Camera</span>, <span class="ui">Light &amp; fog</span>, <span class="ui">Post effects</span>, <span class="ui">Retro 3D</span>, <span class="ui">Your images</span>);
   and the <b>layer list</b> with <span class="ui">+ Add</span>.</td></tr>
   <tr><td><b>Viewport</b> (centre)</td><td>A live preview. <b>Drag</b> to turn the camera and <b>scroll</b> to zoom. Above it you can pick the
   <b>aspect ratio</b> (16:9, 4:3, 1:1, 9:16, 21:9), the <b>preview quality</b>, a live <b>fps</b> readout,
@@ -905,8 +905,18 @@ Animate <span class="ui">Amount</span> with a Pulse for hits on the beat.</p>
 
 <h2>Textures</h2>
 <p>Pick a <span class="ui">Texture</span> from the built-in retro pack or from your own images. <span class="ui">Tiling</span> repeats it,
-<span class="ui">Scroll / loop</span> slides it by whole tiles per loop, and <span class="ui">Chunky pixels</span> keeps the pixels sharp
-instead of smoothing them.</p>
+<span class="ui">Scroll / loop</span> slides it by whole tiles per loop, and <span class="ui">Filter</span> sets how the texture is smoothed
+between its pixels:</p>
+<ul>
+  <li><b>Smooth</b>: the modern look, with smaller copies of the texture further away so it never shimmers.</li>
+  <li><b>Nearest (PS1)</b>: square, sharp texture pixels, as on the PlayStation, the Saturn and in Quake (this was
+  <span class="ui">Chunky pixels</span> in older versions).</li>
+  <li><b>Bilinear, no mipmaps</b>: blended between the four nearest pixels, but without the smaller copies, so fine patterns
+  sparkle and crawl in the distance like early 3D cards.</li>
+  <li><b>3-point (N64)</b>: the Nintendo 64's cheaper blend of three pixels instead of four. Up close it is soft with a faint
+  diagonal grain along the texture's pixel grid; it is what makes N64 textures look "smeary".</li>
+</ul>
+<p>See <a href="#retro3d">Retro 3D</a> for the rest of the 5th-generation look.</p>
 <div class="tex">
   <div><img src="../../assets/textures/checker.png">checker</div>
   <div><img src="../../assets/textures/xor.png">xor</div>
@@ -1190,6 +1200,37 @@ to force those into a palette.</p>
 </table>
 <figure><img src="img/retro-effects.jpg"><figcaption>Neon Arena with an interlaced line wobble, a VHS tape and ASCII art in a green
 terminal.</figcaption></figure>
+<h2 id="retro3d">Retro 3D: 5th-generation consoles</h2>
+<p><span class="ui">🕹 Retro 3D</span> (left panel) draws the whole 3D scene the way the PlayStation, Saturn and Nintendo 64 did.
+Unlike the post effects above, it changes how shapes are drawn, not the finished picture. Click a <span class="ui">Look</span> to
+turn on a console's bundle of settings (<b>PlayStation</b>: 320 × 240, wobbling vertices, fully warped textures and square
+texture pixels), then fine-tune it. <b>Modern (off)</b> resets it.</p>
+<table>
+  <tr><th style="width:24%">Setting</th><th>What it does</th></tr>
+  <tr><td>Draw the scene at</td><td>Draws the 3D scene small (<b>256 × 224</b>, <b>320 × 240</b>, <b>640 × 480</b> or your own size)
+  without smoothing, then blows it up with square pixels. Edges stair-step, thin things break up and shading is blocky, as on the
+  console: this is not the same as the <b>Pixelate</b> post effect, which only blocks up the finished, smooth picture. Sizes are for
+  a 4:3 television; on a wider output the height is kept and the width grows, so the pixels keep their shape (320 × 240 at 16:9 is
+  427 × 240). The line under it shows the size at your export size. Post effects (bloom, CRT…) still run at full size on top.</td></tr>
+  <tr><td>Sharp text &amp; logos</td><td>Text layers and logos stay at full resolution on top of the chunky scene (like a modern
+  remaster's menus). Untick it to make them as chunky as the scene. Sharp text is still hidden behind shapes in front of it.</td></tr>
+  <tr><td>Snap vertices</td><td>The PlayStation had no fractions of a pixel for the corners of its triangles, so they jump from
+  pixel to pixel: shapes shiver, wobble and crawl as they or the camera move. <span class="ui">Grid</span> is the pixel grid the
+  corners snap to (usually the same as the resolution; a coarser grid wobbles more). <span class="ui">Amount</span> (animatable)
+  fades the wobble in and out. Shapes, 3D models, terrain and sprites snap.</td></tr>
+  <tr><td>Each material's filter / Texture filter</td><td>Untick <span class="ui">Each material's filter</span> to give every
+  shape and the terrain one texture <span class="ui">Filter</span> (see <a href="#materials">Textures</a>), e.g. Nearest for
+  the whole PlayStation look at once. Terrain has only square or smooth pixels.</td></tr>
+  <tr><td>Texture warp</td><td>0..1 (animatable). The PlayStation and Saturn stretched textures straight across each triangle on
+  the screen instead of in perspective ("affine" mapping), so textures on big polygons bend and swim as the view changes, most
+  of all on floors and walls seen at an angle. To make it smaller, do what PlayStation games did: split the shape into smaller
+  triangles with <span class="ui">Subdivide</span> (in <span class="ui">Shape</span>); each level splits every triangle in
+  four and roughly quarters the warp.</td></tr>
+</table>
+<p>None of these animate by themselves, so loops stay seamless: the wobble and warp depend only on where things are, and a
+moving camera or spinning shape produces the same wobble at the end of the loop as at the start. The <b>PSX Crypt</b> preset
+shows the PlayStation look (warped brick walls and wooden floor, a wobbling idol); <b>Stage Select</b> flies over checkered
+hills at 256 × 224 with a sharp stage title.</p>
 <h2>Palettes</h2>
 <table>
   <tr><th style="width:30%">Palette</th><th>Colours</th></tr>

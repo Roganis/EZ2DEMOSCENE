@@ -20,6 +20,7 @@ pub mod palette;
 pub mod param;
 pub mod presets;
 pub mod randomize;
+pub mod retro;
 pub mod rng;
 pub mod scene;
 pub mod sequence;
@@ -32,6 +33,7 @@ pub use audio::AudioEnvelope;
 pub use clock::{EvalCtx, Timing};
 pub use music::{AudioSource, MusicFrame, MusicMod, MusicMode, MusicSettings, TimeWarp};
 pub use param::{Curve, EnvPoint, EnvRef, Envelope, Param, Stamp, Wave, WAVE_GROUPS};
+pub use retro::{Retro3d, RetroRes, RetroStyle, TexFilter};
 pub use scene::*;
 
 /// File extension used for project files.

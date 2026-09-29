@@ -316,6 +316,8 @@ impl Project {
             sequence: Sequence::default(),
             // One scheme for every scene.
             color_scheme: self.color_scheme.clone(),
+            // One console look for every scene.
+            retro: self.retro.clone(),
         }
     }
 

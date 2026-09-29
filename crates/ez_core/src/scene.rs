@@ -50,6 +50,10 @@ pub struct Project {
     /// default).
     #[serde(skip_serializing_if = "is_default")]
     pub color_scheme: ColorScheme,
+    /// The quirks of 5th-generation consoles for the whole 3D scene:
+    /// chunky low resolution, wobbly vertices, warped textures.
+    #[serde(skip_serializing_if = "is_default")]
+    pub retro: crate::retro::Retro3d,
 }
 
 impl Default for Project {
@@ -69,6 +73,7 @@ impl Default for Project {
             use_graph: false,
             sequence: Default::default(),
             color_scheme: ColorScheme::default(),
+            retro: Default::default(),
         }
     }
 }
@@ -2076,8 +2081,12 @@ pub struct Material {
     pub texture_scale: Param,
     /// Texture tiles scrolled per loop (U, V).
     pub scroll: [i32; 2],
-    /// Nearest-neighbour texture sampling for chunky pixels.
+    /// Nearest-neighbour texture sampling for chunky pixels (the same as
+    /// the Nearest filter, kept for older projects).
     pub pixelated: bool,
+    /// How the texture is smoothed between its pixels (retro filters).
+    #[serde(skip_serializing_if = "is_default")]
+    pub filter: crate::retro::TexFilter,
     /// Faceted look (normals from the triangle faces).
     pub flat_shading: bool,
     /// Rim / fresnel light strength.
@@ -2361,12 +2370,25 @@ impl Default for Material {
             texture_scale: Param::new(1.0),
             scroll: [0, 0],
             pixelated: false,
+            filter: Default::default(),
             flat_shading: false,
             rim: Param::new(0.3),
             hue_shift: Param::new(0.0),
             glitch: Glitch::default(),
             relief: Relief::default(),
             pbr: Pbr::default(),
+        }
+    }
+}
+
+impl Material {
+    /// The texture filter in effect (`pixelated` is the older switch for
+    /// Nearest).
+    pub fn tex_filter(&self) -> crate::retro::TexFilter {
+        if self.pixelated {
+            crate::retro::TexFilter::Nearest
+        } else {
+            self.filter
         }
     }
 }

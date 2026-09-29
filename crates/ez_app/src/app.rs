@@ -32,6 +32,7 @@ enum Selection {
     Environment,
     Colors,
     Post,
+    Retro,
     Textures,
     Layer(usize),
 }
@@ -1296,6 +1297,7 @@ impl EzApp {
             (Selection::Environment, "☀  Light & fog"),
             (Selection::Colors, "🎨  Colour scheme"),
             (Selection::Post, "🎞  Post effects"),
+            (Selection::Retro, "🕹  Retro 3D"),
             (Selection::Textures, "🖼  Your images"),
             (Selection::Sequence, "🎬  Scenes & timeline"),
         ];
@@ -1560,6 +1562,10 @@ impl EzApp {
                     inspector::color_scheme_ui(ui, &mut self.project.color_scheme, &ctx);
                 }
                 Selection::Post => inspector::post_ui(ui, &mut self.project.post),
+                Selection::Retro => {
+                    let out = self.export.still_size();
+                    inspector::retro_ui(ui, &mut self.project.retro, out)
+                }
                 Selection::Textures => inspector::textures_ui(ui, &mut self.project.textures),
                 Selection::Sequence => {
                     let audio = self.audio_env.clone();

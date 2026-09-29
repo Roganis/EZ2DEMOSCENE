@@ -1125,6 +1125,122 @@ pub fn post_ui(ui: &mut Ui, post: &mut PostStack) {
     });
 }
 
+/// Two numbers (a size in pixels).
+fn size_row(ui: &mut Ui, label: &str, tip: &str, v: &mut [u32; 2]) {
+    row(ui, label, tip, |ui| {
+        ui.add(egui::DragValue::new(&mut v[0]).range(16..=4096).speed(1.0));
+        ui.label("×");
+        ui.add(egui::DragValue::new(&mut v[1]).range(16..=4096).speed(1.0));
+    });
+}
+
+/// The quirks of 5th-generation 3D for the whole scene.
+pub fn retro_ui(ui: &mut Ui, r: &mut Retro3d, out: (u32, u32)) {
+    ui.heading("Retro 3D");
+    ui.label(
+        RichText::new(
+            "Draw the 3D scene like a 90s console: chunky pixels, wobbly polygons and warped \
+             textures. Pick a look, then fine-tune it.",
+        )
+        .weak()
+        .small(),
+    );
+    row(ui, "Look", "Turn on a console's bundle of settings", |ui| {
+        ui.horizontal_wrapped(|ui| {
+            for st in RetroStyle::ALL {
+                if ui.small_button(st.label()).clicked() {
+                    r.apply_style(st);
+                }
+            }
+        });
+    });
+    check(ui, "On", "Use the settings below", &mut r.enabled);
+    ui.add_enabled_ui(r.enabled, |ui| {
+        section(ui, "Resolution", true, |ui| {
+            combo(
+                ui,
+                "Draw the scene at",
+                "Draw the 3D scene small without smoothing and blow it up with square pixels: \
+                 edges, shading and textures alias as on the console (unlike the Pixelate effect, \
+                 which only blocks the finished picture). Sizes are for a 4:3 TV; wider outputs \
+                 keep the height and the pixels' shape.",
+                &mut r.resolution,
+                &RetroRes::ALL,
+                |x| x.label(),
+            );
+            if r.resolution == RetroRes::Custom {
+                size_row(ui, "Size", "Pixels across and down on a 4:3 screen", &mut r.custom);
+            }
+            if let Some((w, h)) = r.internal_size(out) {
+                ui.label(
+                    RichText::new(format!("At this output: {w} × {h} pixels."))
+                        .weak()
+                        .small(),
+                );
+            }
+            check(
+                ui,
+                "Sharp text & logos",
+                "Text layers and logos stay at full resolution on top of the chunky scene",
+                &mut r.sharp_overlays,
+            );
+        });
+        section(ui, "Polygons & textures", true, |ui| {
+            check(
+                ui,
+                "Snap vertices",
+                "Corners of triangles jump to a coarse grid of screen pixels, so shapes wobble \
+                 and crawl as they move",
+                &mut r.snap,
+            );
+            ui.add_enabled_ui(r.snap, |ui| {
+                size_row(
+                    ui,
+                    "Grid",
+                    "Snapping grid (pixels across and down on a 4:3 screen)",
+                    &mut r.snap_res,
+                );
+                param(
+                    ui,
+                    "Amount",
+                    "How far corners move to the grid (fade the wobble in and out)",
+                    &mut r.snap_amount,
+                    0.0..=1.0,
+                );
+            });
+            let mut own = r.filter.is_none();
+            if check(
+                ui,
+                "Each material's filter",
+                "Untick to give every shape and the terrain one texture filter",
+                &mut own,
+            ) {
+                r.filter = if own { None } else { Some(TexFilter::Nearest) };
+            }
+            if let Some(f) = &mut r.filter {
+                combo(
+                    ui,
+                    "Texture filter",
+                    "Nearest: square pixels (PS1, Saturn, Quake). Bilinear without mipmaps: soft up \
+                     close, sparkling far away. 3-point: the N64's soft, grainy blend.",
+                    f,
+                    &TexFilter::ALL,
+                    |x| x.label(),
+                );
+            }
+            param(
+                ui,
+                "Texture warp",
+                "Textures stretched straight across each triangle (affine), not in perspective: \
+                 they bend and swim on big polygons. Subdivide a shape to make the warp smaller, \
+                 as PlayStation games did.",
+                &mut r.affine,
+                0.0..=1.0,
+            );
+        });
+    });
+}
+
 fn palette_swatch(ui: &mut Ui, p: PaletteId) {
     let cols = p.colors();
     if cols.is_empty() {
@@ -1930,12 +2046,20 @@ fn material_ui(ui: &mut Ui, mat: &mut Material, textures: &[UserTexture], lref: 
                 );
             },
         );
-        check(
+        let mut filter = mat.tex_filter();
+        if combo(
             ui,
-            "Chunky pixels",
-            "Nearest-neighbour sampling",
-            &mut mat.pixelated,
-        );
+            "Filter",
+            "How the texture is smoothed between its pixels: Smooth (modern), Nearest (square \
+             pixels, PlayStation), Bilinear without mipmaps (shimmers in the distance), \
+             3-point (the Nintendo 64's softer, grainier blend)",
+            &mut filter,
+            &TexFilter::ALL,
+            |f| f.label(),
+        ) {
+            mat.pixelated = filter == TexFilter::Nearest;
+            mat.filter = filter;
+        }
     }
     texture_picker(
         ui,

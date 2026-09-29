@@ -1,0 +1,389 @@
+{
+  "version": 2,
+  "name": "Stage Select",
+  "timing": {
+    "bpm": 128.0,
+    "loop_beats": 16
+  },
+  "camera": {
+    "mode": "Pendulum",
+    "target": [
+      0.0,
+      1.0,
+      -12.0
+    ],
+    "distance": 12.0,
+    "height": 2.6,
+    "angle": 0.0,
+    "orbit_turns": 1,
+    "swing": 12.0,
+    "fov": 60.0,
+    "roll": 0.0,
+    "beat_shake": 0.0
+  },
+  "environment": {
+    "fog_color": [
+      0.21586053,
+      0.39157256,
+      0.80695236
+    ],
+    "fog_density": 0.025,
+    "sky_color": [
+      0.3515327,
+      0.5271152,
+      1.0
+    ],
+    "ground_color": [
+      0.029556833,
+      0.051269468,
+      0.014443844
+    ],
+    "light_dir": [
+      0.5,
+      0.8,
+      0.3
+    ],
+    "light_color": [
+      1.0,
+      0.8713672,
+      0.6307572
+    ],
+    "light_intensity": 1.4,
+    "ambient": 0.5
+  },
+  "layers": [
+    {
+      "name": "Sky",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Backdrop",
+        "kind": "Gradient",
+        "color_a": [
+          0.014443844,
+          0.051269468,
+          0.5271152
+        ],
+        "color_b": [
+          0.21586053,
+          0.39157256,
+          0.80695236
+        ],
+        "color_c": [
+          0.74540436,
+          0.80695236,
+          1.0
+        ],
+        "speed": 1,
+        "intensity": 1.0,
+        "detail": 1.0,
+        "texture": null
+      }
+    },
+    {
+      "name": "Land",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          -1.0,
+          -30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Terrain",
+        "size": 80.0,
+        "cells": 48,
+        "height": 3.5,
+        "hills": 3,
+        "roughness": 0.3,
+        "scroll": 1,
+        "valley": 0.4,
+        "style": "Solid",
+        "line_color": [
+          1.0,
+          0.02415763,
+          0.6724432
+        ],
+        "glow": 1.0,
+        "fill_color": [
+          0.1620294,
+          0.5271152,
+          0.08021983
+        ],
+        "seed": 4,
+        "texture": "checker",
+        "tiles": 16,
+        "texture_lines": false,
+        "pixelated": true
+      }
+    },
+    {
+      "name": "Coins",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          1.6,
+          -8.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 0.45,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          1,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Star",
+          "points": 5,
+          "inner": 0.5,
+          "depth": 0.3
+        },
+        "material": {
+          "base_color": [
+            1.0,
+            0.6307572,
+            0.029556833
+          ],
+          "metallic": 0.8,
+          "roughness": 0.35,
+          "emissive_color": [
+            1.0,
+            0.3515327,
+            0.0
+          ],
+          "emissive": 0.4,
+          "emissive_mode": "Full",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": true,
+          "rim": 0.3,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Radial",
+          "count": 6,
+          "radius": 2.2
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    },
+    {
+      "name": "Title",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          3.4,
+          -8.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Text",
+        "text": "STAGE 1",
+        "font": "Pixel",
+        "font_file": null,
+        "style": "Static",
+        "size": 0.9,
+        "spacing": 0.0,
+        "width": 12.0,
+        "speed": 1,
+        "wave": 0.4,
+        "wavelength": 8.0,
+        "wave_cycles": 2,
+        "letters_per_beat": 2,
+        "beats_per_line": 4,
+        "color_top": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "color_bottom": [
+          1.0,
+          0.6307572,
+          0.029556833
+        ],
+        "glow": 1.0,
+        "outline": 0.6,
+        "outline_color": [
+          0.005181517,
+          0.014443844,
+          0.11697067
+        ],
+        "shadow": 0.8,
+        "chrome": 0.0,
+        "face_camera": true
+      }
+    }
+  ],
+  "post": {
+    "bloom": {
+      "enabled": true,
+      "intensity": 0.8,
+      "threshold": 0.8,
+      "radius": 0.7
+    },
+    "kaleido": {
+      "enabled": false,
+      "segments": 6,
+      "angle": 0.0,
+      "turns": 0,
+      "zoom": 1.0,
+      "center": [
+        0.5,
+        0.5
+      ]
+    },
+    "mirror": {
+      "enabled": false,
+      "mode": "LeftToRight"
+    },
+    "chroma": {
+      "enabled": false,
+      "amount": 0.004
+    },
+    "pixelate": {
+      "enabled": false,
+      "size": 4.0
+    },
+    "palette": {
+      "enabled": false,
+      "palette": "Ega",
+      "dither": 0.6
+    },
+    "crt": {
+      "enabled": false,
+      "scanlines": 0.5,
+      "curvature": 0.15,
+      "noise": 0.1
+    },
+    "grade": {
+      "exposure": 1.0,
+      "contrast": 1.05,
+      "saturation": 1.1,
+      "vignette": 0.35,
+      "grain": 0.03,
+      "beat_flash": 0.0
+    }
+  },
+  "textures": [],
+  "audio": null,
+  "graph": null,
+  "use_graph": false,
+  "retro": {
+    "enabled": true,
+    "resolution": "R256x224",
+    "custom": [
+      320,
+      240
+    ],
+    "sharp_overlays": true,
+    "snap": true,
+    "snap_res": [
+      256,
+      224
+    ],
+    "snap_amount": 1.0,
+    "affine": 0.8,
+    "filter": null
+  }
+}

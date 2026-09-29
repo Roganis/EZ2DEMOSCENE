@@ -1445,12 +1445,75 @@ turns sun shadows on.
 
 ---
 
+## Phase 12 — Retro 3D (5th-generation consoles)
+
+The quirks of PS1, Saturn, N64 and Quake-era renderers. Where each fits:
+a scene-wide **Retro 3D** setting (`Project::retro`, its own panel) for
+what the whole machine did (resolution, snapping, warp, dithering,
+near-plane culling, colormap lighting); **material** options for what
+differed per surface (texture filter, mesh transparency, turbulent
+warp); **layers** for new things to draw (two-layer skies, the Mode 7
+floor); **post** only for what happened after the picture was drawn
+(N64 VI blur). Every time-based piece runs whole cycles per loop and is
+added to the loop tests; off is byte-identical (golden images).
+
+### ☑ 12.1 Vertex snapping (PS1 jitter)
+**Done.** `retro_snap` in `common.wgsl` snaps clip-space positions to a
+grid after projection (`round(ndc × grid/2) / (grid/2)`, blended by the
+animatable *Amount*) in the mesh, terrain and sprite vertex stages; the
+grid is a 4:3 console size fitted to the output (height kept, width
+from the aspect). Only the camera's views (and its reflection) snap:
+the sun's shadow pass keeps exact positions.
+
+### ☑ 12.2 Affine texture mapping
+**Done.** The vertex stage passes `uv × w` and `w` (perspective-
+interpolated, which works on WebGL2 where `@interpolate(linear)` may
+not); the fragment divides them for screen-linear coordinates and
+blends with the perspective ones by *Texture warp*. Meshes and terrain.
+Subdividing a shape cuts the warp (measured 33.4 → 3.7 mean difference
+at three levels).
+
+### ☑ 12.3 Low internal resolution
+**Done.** With a resolution set, the main scene pass draws into a small
+colour + depth target without MSAA (the reflection pass's single-sample
+pipelines plus single-sample floor, contact-shadow, background-upscale
+and liquid pipelines, and a fourth globals buffer with the low `res`).
+The full-size pass then blows it up with `retro_up.wgsl` (nearest
+texels, and the depth written with `frag_depth`, sampled with a
+non-filtering sampler because WebGL2 can't `textureLoad` depth), and
+draws text layers sharp on top, still depth-tested. Logos are drawn
+after the scene anyway; without *Sharp text & logos* they get pixel
+blocks of one low-resolution pixel. Reflections, fog shafts and post
+effects run at full size on the upscaled picture.
+
+### ☑ 12.4 Texture filters per material
+**Done.** *Material → Filter*: Smooth, Nearest (the old *Chunky
+pixels*), Bilinear without mipmaps (a sampler with `lod_max_clamp` 0),
+and 3-point (N64), worked out in `three_point` from four nearest texels
+(the triangle the fraction falls in). Retro 3D can set one filter for
+every shape and the terrain. Presets: **PSX Crypt**, **Stage Select**.
+
+### ☐ 12.5 N64 look bundle (3-point, strong fog, VI blur post pass)
+### ☐ 12.6 PS1 15-bit colour + 4×4 ordered dither per polygon
+### ☐ 12.7 Saturn mesh transparency (checkerboard discard)
+### ☐ 12.8 Near-plane polygon culling
+### ☐ 12.9 Quake light styles
+### ☐ 12.10 Turbulent warp (water, lava, slime, waterfalls)
+### ☐ 12.11 Two-layer scrolling sky
+### ☐ 12.12 Palette-space lighting (colormap, fullbrights)
+### ☐ 12.13 Square particles
+### ☐ 12.14 Stepped animation ("on 2s")
+### ☐ 12.15 VDP2 / Mode 7 floor layer
+
+---
+
 ## Order of work
 
 0.1 → 1.1 → 1.2 → 2.1 → 2.3 → 2.4 → 2.5 → 2.2 → 2.6 → 3.1 → 3.2 → 3.3 →
 4.1 → 4.2 → 5.1 → 5.2 → 6.1 → 6.2 → 6.3 → 7.1 → 7.2 → 7.3 → 8.1 → 8.2 →
 8.3 → 8.4 → 9.1 → 9.2 → 9.3 → 9.4 → 9.5 → 9.6 → 10.1 → 10.2 → 10.3 →
-11.1 → 11.2 → 10.4 → 10.5 → 11.3 → 11.4. (Environment light and PBR
+11.1 → 11.2 → 10.4 → 10.5 → 11.3 → 11.4 → 12.1 → 12.2 → 12.3 → 12.4
+→ 12.5 … 12.15. (Environment light and PBR
 come before rigid bodies and fluids, so the fluid's liquid surface and
 the physics presets are shaded by them.)
 

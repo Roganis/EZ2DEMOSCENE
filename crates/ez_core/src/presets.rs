@@ -225,6 +225,16 @@ pub fn all() -> Vec<Preset> {
             project: battle_screen(),
         },
         Preset {
+            name: "PSX Crypt",
+            description: "A PlayStation crypt: swimming brick textures, wobbling polygons and chunky 320 × 240 pixels.",
+            project: psx_crypt(),
+        },
+        Preset {
+            name: "Stage Select",
+            description: "A 256 × 224 flight over checkered hills with spinning stars and a sharp stage title.",
+            project: stage_select(),
+        },
+        Preset {
             name: "Empty",
             description: "A blank stage with a floor and a sky.",
             project: empty(),
@@ -1081,6 +1091,242 @@ pub fn scene_tour() -> Project {
     p.sequence.scene_beats = 8;
     p.sequence.clips = clips;
     p.sync_sequence_length();
+    p
+}
+
+/// A PlayStation crypt: big brick polygons whose textures swim (affine
+/// warp), vertices that wobble on a 320 × 240 grid and chunky pixels.
+pub fn psx_crypt() -> Project {
+    let nearest = |color: u32, tex: &str, scale: f32| Material {
+        base_color: hex(color),
+        metallic: Param::new(0.0),
+        roughness: Param::new(0.9),
+        texture: Some(tex.into()),
+        texture_scale: Param::new(scale),
+        pixelated: true,
+        filter: crate::TexFilter::Nearest,
+        rim: Param::new(0.0),
+        ..Default::default()
+    };
+    let mut p = Project {
+        name: "PSX Crypt".into(),
+        timing: crate::Timing {
+            bpm: 96.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            target: [0.0, 1.4, 0.0],
+            distance: Param::new(4.6),
+            height: Param::new(0.6).osc(Wave::Sine, 0.5, 2),
+            swing: Param::new(0.0),
+            orbit_turns: 1,
+            fov: Param::new(62.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0x1c1410),
+            fog_density: Param::new(0.05),
+            sky_color: hex(0xb08860),
+            ground_color: hex(0x604030),
+            light_dir: [0.5, 0.8, 0.3],
+            light_color: hex(0xffd8a8),
+            light_intensity: Param::new(1.8),
+            ambient: Param::new(0.9),
+            ..Default::default()
+        },
+        layers: vec![
+            Layer::new(
+                "Sky",
+                LayerKind::Backdrop(Backdrop {
+                    kind: BackdropKind::Gradient,
+                    color_a: hex(0x000000),
+                    color_b: hex(0x120c0a),
+                    color_c: hex(0x2a1810),
+                    ..Default::default()
+                }),
+            ),
+            Layer::new(
+                "Floor",
+                LayerKind::Mesh(mesh(Primitive::Plane, nearest(0xb09070, "wood", 5.0))),
+            )
+            .scaled(14.0),
+            Layer::new(
+                "Walls",
+                LayerKind::Mesh(MeshLayer {
+                    instancer: Instancer::Radial {
+                        count: 8,
+                        radius: 5.2,
+                    },
+                    ..mesh(Primitive::Cube, nearest(0xf0d8c8, "brick", 2.0))
+                }),
+            )
+            .at([0.0, 2.2, 0.0])
+            .stretched([2.2, 2.4, 0.3])
+            .scaled(1.0),
+            Layer::new(
+                "Pillars",
+                LayerKind::Mesh(MeshLayer {
+                    instancer: Instancer::Radial {
+                        count: 4,
+                        radius: 2.8,
+                    },
+                    ..mesh(Primitive::Cube, nearest(0xe0e4f0, "metal_plate", 1.0))
+                }),
+            )
+            .at([0.0, 1.4, 0.0])
+            .stretched([0.45, 1.6, 0.45])
+            .scaled(1.0),
+            Layer::new(
+                "Idol",
+                LayerKind::Mesh(mesh(
+                    Primitive::Gem { facets: 6 },
+                    Material {
+                        base_color: hex(0xffc040),
+                        metallic: Param::new(0.9),
+                        roughness: Param::new(0.3),
+                        emissive_color: hex(0xff8020),
+                        emissive: Param::new(0.6).osc(Wave::Pulse, 1.2, 16),
+                        texture: Some("marble".into()),
+                        pixelated: true,
+                        filter: crate::TexFilter::Nearest,
+                        flat_shading: true,
+                        ..Default::default()
+                    },
+                )),
+            )
+            .at([0.0, 1.4, 0.0])
+            .scaled(0.7)
+            .spin([0, 2, 0]),
+        ],
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    p.layers[4].transform.bob = Param::new(0.0).osc(Wave::Sine, 0.15, 4);
+    p.retro.apply_style(crate::RetroStyle::Ps1);
+    p
+}
+
+/// A 16:9 flight over a textured landscape at 256 × 224 (wider, keeping
+/// the console's pixel shape), with wobbling hills and a stage title kept
+/// sharp on top.
+pub fn stage_select() -> Project {
+    let mut p = Project {
+        name: "Stage Select".into(),
+        timing: crate::Timing {
+            bpm: 128.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Pendulum,
+            swing: Param::new(12.0),
+            target: [0.0, 1.0, -12.0],
+            distance: Param::new(12.0),
+            height: Param::new(2.6),
+            fov: Param::new(60.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0x80a8e8),
+            fog_density: Param::new(0.025),
+            sky_color: hex(0xa0c0ff),
+            ground_color: hex(0x304020),
+            light_dir: [0.5, 0.8, 0.3],
+            light_color: hex(0xfff0d0),
+            light_intensity: Param::new(1.4),
+            ambient: Param::new(0.5),
+            ..Default::default()
+        },
+        layers: vec![
+            Layer::new(
+                "Sky",
+                LayerKind::Backdrop(Backdrop {
+                    kind: BackdropKind::Gradient,
+                    color_a: hex(0x2040c0),
+                    color_b: hex(0x80a8e8),
+                    color_c: hex(0xe0e8ff),
+                    ..Default::default()
+                }),
+            ),
+            Layer::new(
+                "Land",
+                LayerKind::Terrain(Terrain {
+                    size: 80.0,
+                    cells: 48,
+                    height: Param::new(3.5),
+                    hills: 3,
+                    roughness: Param::new(0.3),
+                    scroll: 1,
+                    valley: Param::new(0.4),
+                    style: TerrainStyle::Solid,
+                    fill_color: hex(0x70c050),
+                    texture: Some("checker".into()),
+                    tiles: 16,
+                    pixelated: true,
+                    seed: 4,
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, -1.0, -30.0]),
+            Layer::new(
+                "Coins",
+                LayerKind::Mesh(MeshLayer {
+                    instancer: Instancer::Radial {
+                        count: 6,
+                        radius: 2.2,
+                    },
+                    ..mesh(
+                        Primitive::Star {
+                            points: 5,
+                            inner: 0.5,
+                            depth: 0.3,
+                        },
+                        Material {
+                            base_color: hex(0xffd030),
+                            metallic: Param::new(0.8),
+                            roughness: Param::new(0.35),
+                            emissive_color: hex(0xffa000),
+                            emissive: Param::new(0.4),
+                            flat_shading: true,
+                            ..Default::default()
+                        },
+                    )
+                }),
+            )
+            .at([0.0, 1.6, -8.0])
+            .scaled(0.45)
+            .spin([0, 1, 0]),
+            Layer::new(
+                "Title",
+                LayerKind::Text(TextLayer {
+                    text: "STAGE 1".into(),
+                    size: 0.9,
+                    color_top: hex(0xffffff),
+                    color_bottom: hex(0xffd030),
+                    outline: 0.6,
+                    outline_color: hex(0x102060),
+                    shadow: 0.8,
+                    face_camera: true,
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, 3.4, -8.0]),
+        ],
+        ..Default::default()
+    };
+    p.retro = crate::Retro3d {
+        enabled: true,
+        resolution: crate::RetroRes::R256x224,
+        snap: true,
+        snap_res: [256, 224],
+        affine: Param::new(0.8),
+        ..Default::default()
+    };
     p
 }
 
