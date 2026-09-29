@@ -726,11 +726,296 @@ Preset: Colour Wheel Arena.
 
 ---
 
+## Phase 10 — Loop-closed simulations
+
+Flocks, cloth, rigid bodies and fluid-like particles. Nothing in the app
+simulates yet: every motion today is a formula of the phase. A simulation
+depends on its own history, so the plan is to **simulate ahead of time
+into a bake, and make the bake itself loop**. Drawing then reads the bake
+at the phase, so the promise still holds: the picture at a phase depends
+only on the settings, the loop length and the loop-window music, never on
+what the preview happened to play before.
+
+### ☐ 10.1 The bake and closing the loop (shared by every simulation)
+**How.**
+- `ez_core::sim`: a small `Sim` trait (`reset(settings, seed)`,
+  `step(dt, &EvalCtx)`, `state()`) and a `Bake` that runs it at a fixed
+  step (120 steps per second of loop time, whatever the export frame
+  rate) and keeps **K keys per loop** (positions and velocities, plus
+  rotations for rigid bodies; K = frames per loop at 60 fps, capped at
+  480). Between keys, cubic Hermite from the stored velocities, so any
+  phase (odd export rates, motion-blur sub-frames, scrubbing) reads
+  smoothly.
+- Forces are functions of the moment in the loop: settings are Params
+  evaluated at the simulated time (so beat pulses, music links and signal
+  nodes drive a simulation), wind turns a whole number of times per loop.
+- Three ways to close the loop (`LoopClose`, picked per layer):
+  - **Cross-fade halves.** The clouds' trick, unchanged: the bake is
+    drawn twice, half a loop apart, with weights `1 − |2x − 1|` and the
+    rest; each copy jumps back while its weight is 0. Exact by
+    construction. Suits everything drawn with opacity or added light
+    (glowing particles, smoke, fluid splats). Costs twice the draw, not
+    twice the bake.
+  - **Blend the tail.** For things that must not ghost (solid flocks,
+    rigid bodies, cloth): simulate from −B to L (B = blend length,
+    default a quarter loop). Over the last B of the loop, each body
+    moves from its own state towards its state at the same time one loop
+    earlier (the pre-roll): positions and velocities by smootherstep,
+    rotations by normalised lerp on the short arc. At the end of the
+    loop it *is* the start. Optionally **guided**: while baking the
+    tail, a spring pulls each body towards its pre-roll state with a
+    strength rising over B, so most of the closing is physical and the
+    final blend only mops up.
+  - **Ping-pong.** Forward for half the loop, backward for the other
+    half: exact with no blend. The classic collapse-and-rebuild.
+- **Warm-up.** Dissipative systems under loop-periodic forces (cloth in
+  a turning wind, fluid in a rocking tank) settle into a cycle that
+  nearly repeats. The bake runs up to 4 loops of warm-up until the
+  loop-to-loop difference is under a threshold, so the tail blend has
+  almost nothing left to hide. The closing error is shown next to the
+  setting ("seam: 0.3 cm").
+- **Determinism.** The same bake on desktop, web and Android: single
+  thread or fixed partitions with fixed-order sums, no platform `sin` /
+  `exp` inside the step (a small polynomial set in `sim/math.rs`), a
+  stated seed. Chaotic systems amplify one-bit differences, so this is
+  what keeps the web export equal to the desktop one.
+- **Running it.** Like the music analysis (2.5): a bake is cached by a
+  hash of its settings, loop length and music analysis. Desktop bakes on
+  a thread, the web ~10 ms per frame, with "simulating… 40 %" in the
+  viewport bar; exports (desktop, web, CLI) wait for it. While a new bake
+  runs, the preview keeps the old one. `.ez2pack` does not store bakes
+  (they are rebuilt, so they stay equal to the settings).
+
+**Budgets** (bake time on the web ≲ 3 s, memory ≲ 32 MB per layer):
+flock 2,000 (10,000 desktop), cloth 64 × 64, rigid bodies 300, fluid
+8,000 particles. Keys are stored in f16 where precision allows.
+
+**Test.** For each closing mode: the sampled state at phase 0 and 1 is
+identical; the state is continuous across the blend window's start (no
+jump in position, a bounded one in velocity); baking twice gives the same
+bytes; a golden hash of a small bake catches accidental non-determinism.
+
+### ☐ 10.2 Flocking
+**How.** A new copy layout, **Flock** (`Instancer::Flock`), so any shape
+or sprite layer can flock and keeps materials, shadows, variation and
+colour ramps. Boids with separation, alignment and cohesion on a uniform
+grid (neighbours in the 27 cells), a speed range, turning limits and
+banking into turns (the copy's up leans towards the turn). Bounds: a
+sphere, a box, or around a target point that follows a camera-path-like
+closed curve, another layer, or a music-linked position. Extras:
+avoid a shape layer's bounds, a predator (one lead copy with its own
+path), scatter on a hit (a kick pushes every boid away from the centre).
+The CPU places copies and uploads the matrices (the path surface and
+terrain copies already use), the GPU applies variation.
+
+Closing: blend the tail, guided, by default (cross-fade halves for
+glowing sprites).
+
+**Test.** Loops; boids keep their minimum distance; no copy leaves the
+bounds; a scatter hit is visible in the frame after the kick. Preset:
+*Starling Dusk* (thousands of dark birds against a sunset, a
+music-linked attractor).
+
+### ☐ 10.3 Cloth
+**How.** A new shape source, `MeshSource::Cloth` (flag, curtain, cape,
+banner, tablecloth draped over a sphere or box). Position-based
+dynamics (XPBD): stretch and bend constraints, pinned edges or corners,
+self-collision off by default, collision with the floor, the terrain
+height field (already ported to Rust) and simple colliders (sphere, box,
+capsule from other shape layers' bounds). Wind: a direction that turns
+whole cycles per loop plus turbulence from looping noise (a closed
+circle in noise space, as the signal Noise does). The shape's vertex
+buffer is written per frame from the bake (positions interpolated,
+normals recomputed on the CPU); everything else is the mesh pipeline, so
+materials, textures (a picture on the flag), copies, shadows and
+depth of field just work.
+
+Closing: warm-up plus blend the tail; a flag in a periodic wind closes
+with a seam under a millimetre.
+
+**Test.** Loops; pinned vertices never move; edge lengths stay within
+stretch; cloth never goes under the floor. Preset: *Banners* (a row of
+flags in a gusting wind, a logo printed on each).
+
+### ☐ 10.4 Rigid bodies
+**How.** A copy layout, **Physics** (`Instancer::Physics`): each copy is
+a sphere, box or capsule fitted to the shape's bounds (convex hulls
+later). Sequential-impulse solver with friction and restitution,
+sleeping for resting bodies, a grid broad phase, the floor and terrain
+as ground. Scenarios, all on a loop-periodic schedule:
+- **Rain**: a whole number of drops per loop; each body lives a set
+  number of beats and sinks into the ground or shrinks away.
+- **Tower / wall**: copies start in a grid layout and a hit (a kick, or
+  set beats) knocks them down; ping-pong closing rebuilds them.
+- **Explode**: copies start in any layout and burst outward on a beat.
+
+Closing: blend the tail (Rain), ping-pong (Tower, Explode).
+
+**Test.** Loops; resting bodies don't jitter (sub-millimetre movement
+over a second); no body falls through the ground; a wall is intact at
+phase 0 in ping-pong. Preset: *Beat Demolition*.
+
+### ☐ 10.5 Fluid-like particles
+**How.** A new motion for the particles layer, `Motion::Fluid` (the
+formula particles stay the default): position-based fluids (density
+constraint, XSPH viscosity, a little surface tension), in a container
+(box, bowl, the floor) that rocks or spins whole cycles per loop, poured
+from an emitter on a schedule, or stirred by the music. Positions go to
+the particle pass through an instance buffer, so every particle look
+(glow, sprites, smoke, colour by speed) applies. Trails reuse the logo
+echoes' idea: ghost copies are the bake read at earlier phases, exact and
+free of history.
+
+Optional look, **Liquid surface**: particles splatted as spheres into a
+half-resolution depth and thickness target, a depth-aware blur, normals
+from the smoothed depth, shaded with Phase 11's environment light and a
+refraction of the scene behind (the glass logo's backdrop copy). With
+cross-fade halves, both copies splat into the same thickness weighted by
+their fade, which is the clouds' field blend applied to a liquid.
+
+Closing: cross-fade halves.
+
+**Test.** Loops; the particle count is constant; no particle leaves the
+container; density stays within 10 % of rest after settling. Preset:
+*Liquid Gold* (a rocking bowl of molten metal under an HDRI).
+
+---
+
+## Phase 11 — Rendering step up
+
+Physically based lighting from real environments, reflections of the
+objects themselves, and shafts of sunlight through the fog. Every piece
+is off in old projects (golden images unchanged), and on in new presets
+where it helps. Nothing here depends on history, so loop safety is free.
+
+### ☐ 11.1 Image-based lighting from HDRIs
+**How.**
+- *Light & fog → Environment light*: **Colours** (today's `env_color`,
+  the default), **HDRI** (an imported `.hdr` Radiance file; `image`'s
+  `hdr` feature, pure Rust, works on the web) or **Built-in studios**
+  (a few environments generated at start-up like the texture pack:
+  softbox studio, overcast, sunset, neon room; no downloaded files).
+  Also **From the sky**: the scene's own background rendered into the
+  cube, so clouds and sunsets light the objects.
+- Prefiltering on import (and when a built-in or the sky changes):
+  equirectangular → 256² RGBA16F cube map, specular mips prefiltered with
+  GGX importance sampling (one render pass per face and mip: fragment
+  shaders only, so WebGL2 works), diffuse light as 9 spherical-harmonic
+  coefficients computed on the CPU into the globals, and a split-sum
+  BRDF table (RG16F, 64², made once at start-up).
+- Settings: rotation (animatable, whole turns per loop), intensity,
+  exposure, show as background (a new backdrop kind that draws the HDRI,
+  with blur), and **sun from the HDRI** (find the brightest spot, point
+  the sun and its shadows there, remove it from the map so it isn't
+  counted twice).
+- Bindings: the cube, its sampler and the BRDF table join the shadow
+  map in group 3; no new groups (WebGL2 has four).
+- Storage: the `.hdr` is an asset like any image (relative path, copied
+  into `.ez2pack`).
+
+**Cost.** From the sky re-renders six 128² faces and their mips each
+frame; a *static* option renders once (the sky kinds that don't move).
+
+**Test.** A white rough sphere under a uniform HDRI matches the uniform
+colour (energy check); rotating a whole turn is identical; a mirror
+sphere shows the map; Colours mode is byte-identical to today.
+
+### ☐ 11.2 PBR materials
+**How.**
+- *Shading*: **Classic** (today's Blinn + `env_color`, the default for
+  old projects) or **Physical**. Physical replaces `lit_surface`'s
+  specular with GGX, Smith height-correlated visibility and Schlick
+  Fresnel for the sun, spot and laser lights, and split-sum IBL for the
+  environment (multiple-scattering compensation so rough metals don't
+  darken). Weather (wet, puddles, snow) keeps working by changing the
+  inputs before shading, as today.
+- Material maps: albedo (the existing texture), normal (the existing
+  relief), plus **roughness / metallic / occlusion** (one packed ORM
+  image or separate ones) and an emissive map, all on the material's
+  tiling and scrolling. glTF import reads its PBR textures and factors
+  instead of just the base colour.
+- New settings: clearcoat (car paint, lacquer), sheen (cloth), and
+  transmission with thickness (glass, liquids; sampling the backdrop
+  copy the glass logo already makes).
+- A **Material presets** row: gold, copper, chrome, brushed steel,
+  rubber, car paint, glass, velvet, ceramic.
+- Built-in matcaps become a Physical option too, so logos (9.2) can use
+  the HDRI instead of a matcap.
+
+**Test.** A furnace test (rough white under uniform light keeps ≥ 95 %
+energy); the golden images of every existing preset unchanged in
+Classic; new golden images for the material presets.
+
+### ☐ 11.3 Screen-space reflections on objects
+The mirror floor keeps its planar reflection (exact, cheaper). Shiny
+objects, terrain water and wet ground get screen-space reflections.
+
+**How.**
+- The half-resolution depth-of-field pass (7.2), which already redraws
+  solid meshes, terrain and the floor, gains a second target: normal
+  (octahedral, RG) and roughness plus reflect strength (BA), RGBA16F.
+  It runs when depth of field *or* reflections need it.
+- After the scene resolves, a reflection pass marches the reflected ray
+  through the distance texture in screen space (hierarchical steps,
+  32 at most, binary refinement at the hit, a fixed per-pixel Bayer
+  jitter instead of temporal noise, since there is no history to
+  accumulate into), and reads the resolved scene at the hit, blurred by
+  roughness (a small mip chain of the scene).
+- On a hit, the pass **replaces** the environment term the surface
+  already has: it recomputes `env` for that pixel (a pure function of
+  the direction, colours or HDRI) and adds `weight × (hit − env)`, so
+  nothing is counted twice. Misses and hits near the screen edge fade
+  back to the environment.
+- Settings in *Light & fog → Reflections*: on/off, strength, maximum
+  distance, roughness cut-off.
+
+**Cost.** One half-resolution full-screen pass plus the (shared) G-buffer
+pass. Skipped when no visible material reflects.
+
+**Test.** A chrome sphere next to a red box shows red on its side, which
+disappears when the box is hidden; the reflection pass off is
+byte-identical; loops.
+
+### ☐ 11.4 Light shafts through fog
+Today's god rays are a screen-space blur from the sun's position, so they
+vanish when the sun is off screen. Real shafts come from the fog being
+lit where the sun reaches it.
+
+**How.**
+- A half-resolution pass after the scene: for each pixel, march from the
+  camera to the scene's distance (the same distance texture) in 24–48
+  steps, each sampling the **sun shadow map (1.1)** and the fog density
+  (distance fog plus the height fog, as `fog_amount_at` integrates it),
+  and accumulate in-scattered sunlight with a Henyey-Greenstein phase
+  (forward scattering setting) and the transmittance so far. Beyond the
+  shadow map's reach the fog counts as lit.
+- Fixed per-pixel jitter on the start (Bayer, stable across frames) and
+  a depth-aware 4 × 4 blur, then a depth-aware upsample added over the
+  scene before bloom. Spot lights from *Club Spotlights* can join later
+  (they have no shadow maps).
+- Settings in *Light & fog → Light shafts*: strength, scattering
+  (forward), steps (quality). Requires shadows; turning shafts on turns
+  shadows on. Shafts follow the day cycle, shadow-casting copies and
+  terrain, and add to the existing god rays rather than replacing them.
+
+**Cost.** Half resolution, ~0.5 ms at 1080p on a desktop GPU; quarter
+resolution on phones by default.
+
+**Test.** Shafts appear only in lit fog (a wall's shadow cuts a dark
+band through them); no fog means no shafts; loops; off is byte-identical.
+Preset: *Cathedral Light* (shafts through a colonnade, a PBR marble floor,
+an HDRI sky).
+
+---
+
 ## Order of work
 
 0.1 → 1.1 → 1.2 → 2.1 → 2.3 → 2.4 → 2.5 → 2.2 → 2.6 → 3.1 → 3.2 → 3.3 →
 4.1 → 4.2 → 5.1 → 5.2 → 6.1 → 6.2 → 6.3 → 7.1 → 7.2 → 7.3 → 8.1 → 8.2 →
-8.3 → 8.4 → 9.1 → 9.2 → 9.3 → 9.4 → 9.5 → 9.6.
+8.3 → 8.4 → 9.1 → 9.2 → 9.3 → 9.4 → 9.5 → 9.6 → 10.1 → 10.2 → 10.3 →
+11.1 → 11.2 → 10.4 → 10.5 → 11.3 → 11.4. (Environment light and PBR
+come before rigid bodies and fluids, so the fluid's liquid surface and
+the physics presets are shaded by them.)
 
 Each item lands as its own commit with tests (loop seams, golden images
 where the look is meant to stay, new goldens for new presets), README and
