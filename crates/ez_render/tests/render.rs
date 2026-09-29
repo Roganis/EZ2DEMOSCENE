@@ -4745,3 +4745,112 @@ fn loading_stripes_and_letterbox() {
     let lit_middle = (0..w).any(|x| !near(img.get_pixel(x, h / 2), [0, 0, 0]));
     assert!(black_bars && lit_middle, "letterbox bars");
 }
+
+/// Translucency lets the sun behind a shape shine through it; transparency
+/// shows what is behind; library textures load by name.
+#[test]
+fn translucency_transparency_and_library_textures() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let dir = snapshot_dir();
+    let ball = |mat: Material, z: f32, size: f32| {
+        let mut l = Layer::new(
+            "Ball",
+            LayerKind::Mesh(MeshLayer {
+                source: MeshSource::Primitive(Primitive::Sphere { detail: 4 }),
+                material: mat,
+                ..Default::default()
+            }),
+        );
+        l.transform.position = [0.0, 0.0, z];
+        l.transform.scale = Param::new(size);
+        l
+    };
+    let white = || Material {
+        base_color: [0.8; 3],
+        rim: Param::new(0.0),
+        ..Default::default()
+    };
+    let scene = |front: Material| {
+        let mut p = Project::default();
+        p.layers.clear();
+        p.camera = Camera {
+            mode: CameraMode::Static,
+            target: [0.0, 0.0, 0.0],
+            distance: Param::new(5.0),
+            height: Param::new(0.0),
+            fov: Param::new(40.0),
+            ..Default::default()
+        };
+        // The sun straight behind the shapes (shining towards the camera).
+        p.environment.light_dir = [0.0, 0.2, -1.0];
+        p.environment.ambient = Param::new(0.1);
+        p.environment.fog_density = Param::new(0.0);
+        p.layers.push(ball(
+            Material {
+                base_color: [1.0, 0.0, 0.0],
+                emissive_color: [1.0, 0.0, 0.0],
+                emissive: Param::new(1.0),
+                ..white()
+            },
+            -4.0,
+            2.5,
+        ));
+        p.layers.push(ball(front, 0.0, 1.0));
+        p
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let (w, h) = (128u32, 128u32);
+    let target = r.create_target(w, h);
+    let ctx = EvalCtx::at(0.0);
+    let centre = |img: &image::RgbaImage| {
+        let p = img.get_pixel(w / 2, h / 2);
+        [p[0] as f32, p[1] as f32, p[2] as f32]
+    };
+
+    let solid = r.render_image(&scene(white()), &ctx, &target);
+    let mut glow = white();
+    glow.translucency.amount = Param::new(1.0);
+    let lit = r.render_image(&scene(glow), &ctx, &target);
+    let mut clear = white();
+    clear.translucency.transparency = Param::new(0.7);
+    let seen = r.render_image(&scene(clear), &ctx, &target);
+    assert!(r.errors.is_empty(), "{:?}", r.errors);
+    solid.save(dir.join("translucency_off.png")).unwrap();
+    lit.save(dir.join("translucency_on.png")).unwrap();
+    seen.save(dir.join("transparency.png")).unwrap();
+    let (s, l, c) = (centre(&solid), centre(&lit), centre(&seen));
+    eprintln!("solid {s:?}, translucent {l:?}, see-through {c:?}");
+    let sum = |c: [f32; 3]| c[0] + c[1] + c[2];
+    assert!(
+        sum(l) > sum(s) + 30.0,
+        "the sun shines through: {s:?} -> {l:?}"
+    );
+    assert!(
+        c[0] - c[1] > s[0] - s[1] + 40.0,
+        "the red ball behind shows through: {s:?} -> {c:?}"
+    );
+
+    // A PBR material and a low-res texture from the library.
+    let lib = ez_core::texlib::library().expect("texture library");
+    for kind in [texlib::Kind::Pbr, texlib::Kind::Tile] {
+        let e = lib.entries.iter().find(|e| e.kind == kind).unwrap();
+        let mut m = white();
+        m.texture = Some(texlib::color_name(&e.id));
+        if kind == texlib::Kind::Pbr {
+            m.relief.texture = Some(texlib::normal_name(&e.id));
+            m.relief.mode = ReliefMode::NormalMap;
+            m.relief.bump = Param::new(1.0);
+            m.pbr.orm_map = Some(texlib::orm_name(&e.id));
+        }
+        let img = r.render_image(&scene(m), &ctx, &target);
+        assert!(r.errors.is_empty(), "{}: {:?}", e.id, r.errors);
+        assert_ne!(centre(&img), s, "{} changes the ball", e.id);
+    }
+}

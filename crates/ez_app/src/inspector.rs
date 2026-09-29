@@ -43,7 +43,31 @@ pub fn add_user_texture(textures: &mut Vec<UserTexture>, path: &str, file_name: 
     name
 }
 
-/// Texture chooser: none, built-ins, user images, or import a new one.
+/// Temp-data key: a texture chooser asks the app to open the texture
+/// library for a layer's slot (an `Option<TexRequest>`).
+pub const TEX_PICKER: &str = "ez2_tex_picker";
+
+/// The layer and slot to fill, and the tab to open on (`None`: as left).
+pub type TexRequest = (LayerRef, TexSlot, Option<ez_core::texlib::Kind>);
+
+/// Ask the app to open the texture library for a layer's slot.
+fn open_tex_library(ui: &Ui, lref: LayerRef, slot: TexSlot, kind: Option<ez_core::texlib::Kind>) {
+    ui.data_mut(|d| {
+        d.insert_temp::<Option<TexRequest>>(egui::Id::new(TEX_PICKER), Some((lref, slot, kind)))
+    });
+}
+
+/// How a texture name reads in the choosers.
+fn texture_label(name: &str) -> String {
+    if ez_core::texlib::is_lib(name) {
+        format!("📚 {}", ez_core::texlib::display_name(name))
+    } else {
+        name.to_string()
+    }
+}
+
+/// Texture chooser: none, built-ins, user images, the texture library, or
+/// import a new one.
 fn texture_picker(
     ui: &mut Ui,
     label: &str,
@@ -52,13 +76,28 @@ fn texture_picker(
     target: Option<(LayerRef, TexSlot)>,
 ) {
     row(ui, label, "Image mapped onto the surface", |ui| {
-        let text = tex.clone().unwrap_or_else(|| "None".into());
+        let text = tex
+            .as_deref()
+            .map(texture_label)
+            .unwrap_or_else(|| "None".into());
         egui::ComboBox::from_id_salt(ui.id().with(label))
             .selected_text(text)
             .width(150.0)
             .height(400.0)
             .show_ui(ui, |ui| {
                 ui.selectable_value(tex, None, "None");
+                if let Some((lref, slot)) = target {
+                    if ui
+                        .button("📚 Texture library…")
+                        .on_hover_text("Seamless PBR materials and low-res retro textures")
+                        .clicked()
+                    {
+                        open_tex_library(ui, lref, slot, None);
+                    }
+                }
+                if let Some(name) = tex.clone().filter(|n| ez_core::texlib::is_lib(n)) {
+                    ui.selectable_value(tex, Some(name.clone()), texture_label(&name));
+                }
                 ui.separator();
                 ui.label(RichText::new("Built-in retro pack").weak());
                 for (name, desc) in texgen::BUILTIN {
@@ -2244,6 +2283,21 @@ fn material_ui(ui: &mut Ui, mat: &mut Material, textures: &[UserTexture], lref: 
                         p.apply(mat);
                     }
                 }
+                if ui
+                    .small_button("📚 Library…")
+                    .on_hover_text(
+                        "Photo-real PBR materials (brick, wood, metal, rock…): colour, \
+                         normal map and roughness in one go",
+                    )
+                    .clicked()
+                {
+                    open_tex_library(
+                        ui,
+                        lref,
+                        TexSlot::Material,
+                        Some(ez_core::texlib::Kind::Pbr),
+                    );
+                }
             });
         },
     );
@@ -2320,6 +2374,7 @@ fn material_ui(ui: &mut Ui, mat: &mut Material, textures: &[UserTexture], lref: 
         &mut mat.mesh,
         0.0..=1.0,
     );
+    translucency_ui(ui, &mut mat.translucency);
     ui.separator();
     texture_picker(
         ui,
@@ -2389,6 +2444,34 @@ fn material_ui(ui: &mut Ui, mat: &mut Material, textures: &[UserTexture], lref: 
             .small(),
         );
     }
+}
+
+/// Light shining through, and seeing through.
+fn translucency_ui(ui: &mut Ui, t: &mut Translucency) {
+    param(
+        ui,
+        "Translucency",
+        "Light shines through from behind, like leaves, paper, wax, skin or a lampshade: \
+         put the sun behind the shape. The shape stays solid.",
+        &mut t.amount,
+        0.0..=1.0,
+    );
+    if t.amount.base > 0.0 || t.amount.is_animated() {
+        color(
+            ui,
+            "Light inside",
+            "The colour the light takes on passing through",
+            &mut t.color,
+        );
+    }
+    param(
+        ui,
+        "Transparency",
+        "See what is behind, smoothly blended (0 = solid, 1 = invisible). \
+         Animate it to fade the shape in or out.",
+        &mut t.transparency,
+        0.0..=1.0,
+    );
 }
 
 /// Clearcoat, sheen and glass (physical shading only).

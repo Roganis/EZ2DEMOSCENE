@@ -29,6 +29,7 @@ pub mod signal;
 pub mod sim;
 pub mod store;
 pub mod terrain;
+pub mod texlib;
 
 pub use audio::AudioEnvelope;
 pub use clock::{EvalCtx, Timing};

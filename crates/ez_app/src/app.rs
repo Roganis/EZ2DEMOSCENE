@@ -13,6 +13,8 @@ use crate::widgets::{self, ACCENT};
 
 #[path = "shape_picker.rs"]
 mod shape_picker;
+#[path = "tex_picker.rs"]
+mod tex_picker;
 use egui::{Color32, RichText, Ui};
 use ez_core::graph::Graph;
 use ez_core::randomize::{randomize, RandomizeOptions};
@@ -140,6 +142,7 @@ pub struct EzApp {
     /// Screen height last frame (the on-screen keyboard shrinks it).
     last_screen_h: f32,
     shape_picker: shape_picker::ShapePicker,
+    tex_picker: tex_picker::TexPicker,
     /// The clock was moved by hand (scrub, rewind, load): the music jumps
     /// there. Otherwise, while it plays, the music leads the clock.
     music_seek: bool,
@@ -287,6 +290,7 @@ impl EzApp {
             scroll_to_field: None,
             last_screen_h: 0.0,
             shape_picker: Default::default(),
+            tex_picker: Default::default(),
             music_seek: true,
             layer_clipboard: None,
             frames_drawn: 0,
@@ -753,6 +757,29 @@ impl EzApp {
         }
     }
 
+    /// Put the texture `name` in a texture slot of a layer.
+    fn set_layer_texture(&mut self, lref: LayerRef, slot: platform::TexSlot, name: String) {
+        let Some(layer) = self.layer_for(lref) else {
+            return;
+        };
+        let name = Some(name);
+        match (&mut layer.kind, slot) {
+            (LayerKind::Mesh(m), platform::TexSlot::Relief) => m.material.relief.texture = name,
+            (LayerKind::Mesh(m), platform::TexSlot::Orm) => m.material.pbr.orm_map = name,
+            (LayerKind::Mesh(m), platform::TexSlot::Emissive) => m.material.pbr.emissive_map = name,
+            (LayerKind::Mesh(m), _) => m.material.texture = name,
+            (LayerKind::Backdrop(b), _) => b.texture = name,
+            (LayerKind::Mirror(f), _) => f.texture = name,
+            (LayerKind::Terrain(t), _) => t.texture = name,
+            (LayerKind::Mode7(f), _) => f.texture = name,
+            (LayerKind::Sprite(sp), _) => sp.image = name,
+            (LayerKind::Logo(g), platform::TexSlot::Matcap) => g.matcap = name,
+            (LayerKind::Logo(g), platform::TexSlot::MorphImage) => g.morph_image = name,
+            (LayerKind::Logo(g), _) => g.image = name,
+            _ => {}
+        }
+    }
+
     /// Give a model layer the physical material of its glTF file: factors,
     /// and its pictures added as images. Returns a note for the status
     /// line ("" when the file has no material).
@@ -900,32 +927,7 @@ impl EzApp {
                 Purpose::SetTexture(lref, slot) => {
                     let name =
                         inspector::add_user_texture(&mut self.project.textures, &p.path, &p.name);
-                    if let Some(layer) = self.layer_for(lref) {
-                        match (&mut layer.kind, slot) {
-                            (LayerKind::Mesh(m), platform::TexSlot::Relief) => {
-                                m.material.relief.texture = Some(name.clone())
-                            }
-                            (LayerKind::Mesh(m), platform::TexSlot::Orm) => {
-                                m.material.pbr.orm_map = Some(name.clone())
-                            }
-                            (LayerKind::Mesh(m), platform::TexSlot::Emissive) => {
-                                m.material.pbr.emissive_map = Some(name.clone())
-                            }
-                            (LayerKind::Mesh(m), _) => m.material.texture = Some(name.clone()),
-                            (LayerKind::Backdrop(b), _) => b.texture = Some(name.clone()),
-                            (LayerKind::Mirror(f), _) => f.texture = Some(name.clone()),
-                            (LayerKind::Terrain(t), _) => t.texture = Some(name.clone()),
-                            (LayerKind::Sprite(sp), _) => sp.image = Some(name.clone()),
-                            (LayerKind::Logo(g), platform::TexSlot::Matcap) => {
-                                g.matcap = Some(name.clone())
-                            }
-                            (LayerKind::Logo(g), platform::TexSlot::MorphImage) => {
-                                g.morph_image = Some(name.clone())
-                            }
-                            (LayerKind::Logo(g), _) => g.image = Some(name.clone()),
-                            _ => {}
-                        }
-                    }
+                    self.set_layer_texture(lref, slot, name.clone());
                     self.set_status(format!("Added image '{name}'"), false);
                 }
                 Purpose::LoadMusic => self.set_audio(Some(p.path.clone())),
@@ -2902,8 +2904,11 @@ impl eframe::App for EzApp {
             }
         }
 
+        platform::fetch_libraries(&ctx);
         self.poll_shape_picker_request(&ctx);
         self.shape_picker_window(&ctx);
+        self.poll_tex_picker_request(&ctx);
+        self.tex_picker_window(&ctx);
         self.presets_window(&ctx);
         self.recovery_window(&ctx);
         self.preset_name_window(&ctx);

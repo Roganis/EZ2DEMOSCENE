@@ -263,7 +263,6 @@ impl EzApp {
                     },
                 }
             });
-        platform::fetch_model_library(ctx);
         if self.viewport.render_shape_thumbs() {
             ctx.request_repaint();
         }

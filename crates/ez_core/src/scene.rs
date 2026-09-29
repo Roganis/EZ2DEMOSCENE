@@ -2184,6 +2184,41 @@ pub struct Material {
     /// Physically based shading and its extra layers and maps.
     #[serde(skip_serializing_if = "is_default")]
     pub pbr: Pbr,
+    /// Light shining through, and seeing through.
+    #[serde(skip_serializing_if = "is_default")]
+    pub translucency: Translucency,
+}
+
+/// How much light and view pass through a material (both shadings).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Translucency {
+    /// Light shining through thin or soft stuff from behind (leaves,
+    /// paper, wax, skin, a lampshade), 0..1 (animatable). The surface
+    /// stays solid.
+    pub amount: Param,
+    /// The colour the light takes on inside (multiplies the surface's).
+    pub color: Rgb,
+    /// See-through: what is behind shows, blended (0 = solid,
+    /// 1 = invisible; animatable).
+    pub transparency: Param,
+}
+
+impl Default for Translucency {
+    fn default() -> Self {
+        Translucency {
+            amount: Param::new(0.0),
+            color: [1.0, 1.0, 1.0],
+            transparency: Param::new(0.0),
+        }
+    }
+}
+
+impl Translucency {
+    /// Whether the material is blended over what is behind it.
+    pub fn see_through(&self) -> bool {
+        self.transparency.base > 0.0 || self.transparency.is_animated()
+    }
 }
 
 /// How a surface reacts to light.
@@ -2462,6 +2497,7 @@ impl Default for Material {
             glitch: Glitch::default(),
             relief: Relief::default(),
             pbr: Pbr::default(),
+            translucency: Translucency::default(),
         }
     }
 }

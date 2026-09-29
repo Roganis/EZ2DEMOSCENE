@@ -341,6 +341,8 @@ enum Cmd {
         gpu: bool,
         /// Where GPU-placed copies can be (for culling; none = always drawn).
         bounds: Option<(Vec3, f32)>,
+        /// See-through: blended over what is behind, after the solids.
+        clear: bool,
     },
     Particles {
         slot: u32,
@@ -702,6 +704,10 @@ struct ScenePipes {
     /// MSAA samples (picks the matching background pipeline).
     samples: u32,
     mesh: wgpu::RenderPipeline,
+    /// See-through meshes: their depth first (the picture unchanged), so
+    /// only their nearest surface shows, then blended over.
+    mesh_depth: wgpu::RenderPipeline,
+    mesh_clear: wgpu::RenderPipeline,
     particles: wgpu::RenderPipeline,
     terrain: wgpu::RenderPipeline,
     lasers: wgpu::RenderPipeline,
@@ -1502,6 +1508,13 @@ const MULTIPLY: wgpu::BlendState = wgpu::BlendState {
     },
 };
 
+/// Leaves the picture as it is (a pass that only writes depth).
+const KEEP: wgpu::BlendComponent = wgpu::BlendComponent {
+    src_factor: wgpu::BlendFactor::Zero,
+    dst_factor: wgpu::BlendFactor::One,
+    operation: wgpu::BlendOperation::Add,
+};
+
 const ADDITIVE: wgpu::BlendState = wgpu::BlendState {
     color: wgpu::BlendComponent {
         src_factor: wgpu::BlendFactor::One,
@@ -1961,6 +1974,37 @@ impl Renderer {
                     samples,
                     depth: Some((true, wgpu::CompareFunction::Less)),
                     blend: None,
+                },
+            ),
+            mesh_depth: make_pipeline(
+                device,
+                PipeDesc {
+                    label: "mesh depth (see-through)",
+                    layout: &mesh_lit_layout,
+                    module: &sh_mesh,
+                    fs: "fs_main",
+                    buffers: &mesh_buffers,
+                    format: HDR_FORMAT,
+                    samples,
+                    depth: Some((true, wgpu::CompareFunction::Less)),
+                    blend: Some(wgpu::BlendState {
+                        color: KEEP,
+                        alpha: KEEP,
+                    }),
+                },
+            ),
+            mesh_clear: make_pipeline(
+                device,
+                PipeDesc {
+                    label: "mesh (see-through)",
+                    layout: &mesh_lit_layout,
+                    module: &sh_mesh,
+                    fs: "fs_clear",
+                    buffers: &mesh_buffers,
+                    format: HDR_FORMAT,
+                    samples,
+                    depth: Some((false, wgpu::CompareFunction::LessEqual)),
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                 },
             ),
             particles: make_pipeline(
@@ -3759,6 +3803,9 @@ impl Renderer {
                 self.upload_texture_as(key.clone(), &img, format);
                 key
             }
+            // A library texture on the web while the library is fetched:
+            // plain white until it arrives (then it loads, as it isn't kept).
+            Err(_) if texlib::is_lib(&path) && texlib::loaded().is_none() => "__white".into(),
             Err(e) => {
                 self.errors
                     .insert(key.clone(), format!("texture '{name}' ({path}): {e}"));
@@ -3792,6 +3839,7 @@ impl Renderer {
                     None => img,
                 })
             }
+            Err(_) if texlib::is_lib(&path) && texlib::loaded().is_none() => None,
             Err(e) => {
                 self.errors
                     .insert(format!("sky:{name}"), format!("sky picture '{name}': {e}"));
@@ -5494,7 +5542,9 @@ impl Renderer {
                         // Its relief slot holds the two distance fields.
                         self.morph_texture(&m.source, &m.morph.target)
                     } else if relief_on {
-                        self.texture_key(project, relief_name)
+                        // Normal maps hold directions, not colours.
+                        let linear = rel.mode == ReliefMode::NormalMap;
+                        self.texture_key_as(project, relief_name, linear)
                     } else {
                         "__white".to_string()
                     };
@@ -5760,11 +5810,18 @@ impl Renderer {
                         sdf,
                         gpu,
                         bounds,
+                        clear: !sdf && !morph && !liquid && mat.translucency.see_through(),
                     });
                     blocks.push(blk);
                     let mut pb = pbr_block(mat, smooth);
                     pb[3][0] = filter.index() as f32;
                     pb[3][1] = mat.mesh.eval(ctx).clamp(0.0, 1.0);
+                    let tl = &mat.translucency;
+                    let amount = tl.amount.eval(smooth).clamp(0.0, 1.0);
+                    pb[5] = c4(
+                        tl.color.map(|c| c * amount),
+                        tl.transparency.eval(ctx).clamp(0.0, 1.0),
+                    );
                     let tb = &mat.turbulence;
                     if tb.is_on() {
                         pb[4] = [
@@ -6384,6 +6441,7 @@ impl Renderer {
                         sdf: false,
                         gpu: false,
                         bounds: None,
+                        clear: false,
                     });
                     blocks.push(blk);
                     blocks.push(Zeroable::zeroed());
@@ -7084,10 +7142,10 @@ impl Renderer {
                 None => true,
             })
             .collect();
-        let (solid, clear): (Vec<Cmd>, Vec<Cmd>) = rest.into_iter().partition(|c| {
+        let (solid, mut clear): (Vec<Cmd>, Vec<Cmd>) = rest.into_iter().partition(|c| {
             matches!(
                 c,
-                Cmd::Mesh { .. }
+                Cmd::Mesh { clear: false, .. }
                     | Cmd::Mode7 { .. }
                     | Cmd::Terrain { .. }
                     | Cmd::Sprite {
@@ -7096,6 +7154,19 @@ impl Renderer {
                     }
             )
         });
+        // See-through shapes last, the farthest first, so each blends over
+        // everything behind it (particles and sprites behind them too).
+        let eye = cam.eye;
+        let dist = |c: &Cmd| {
+            self.cmd_bounds(c, &blocks)
+                .map_or(0.0, |(centre, _)| centre.distance_squared(eye))
+        };
+        let (mut glass, rest_clear): (Vec<Cmd>, Vec<Cmd>) = clear
+            .into_iter()
+            .partition(|c| matches!(c, Cmd::Mesh { clear: true, .. }));
+        glass.sort_by(|a, b| dist(b).total_cmp(&dist(a)));
+        clear = rest_clear;
+        clear.extend(glass);
         // Retro 3D at a low resolution: the scene is drawn small, then
         // blown up; text can stay sharp, drawn after at full size.
         let low = retro_size.and_then(|_| self.retro_targets.get(&target.id));
@@ -7968,6 +8039,7 @@ impl Renderer {
                     sdf,
                     gpu,
                     liquid,
+                    clear,
                     ..
                 } => {
                     // A liquid surface is drawn by its own passes (its
@@ -7976,15 +8048,24 @@ impl Renderer {
                         continue;
                     }
                     let m = &self.meshes[mesh];
-                    pass.set_pipeline(if *sdf { &pipes.sdf } else { &pipes.mesh });
-                    pass.set_bind_group(0, &self.globals_bg[globals], &[]);
-                    pass.set_bind_group(1, &self.draw_mesh_bg, &mesh_offsets(*slot));
-                    pass.set_bind_group(2, &self.mesh_tex_bgs[texs], &[]);
-                    pass.set_bind_group(3, &self.shadow_bg, &[]);
-                    pass.set_vertex_buffer(0, m.vbuf.slice(..));
-                    pass.set_vertex_buffer(1, self.mesh_instances(*gpu).slice(..));
-                    pass.set_index_buffer(m.ibuf.slice(..), wgpu::IndexFormat::Uint32);
-                    pass.draw_indexed(0..m.count, 0, *first..*first + *count);
+                    let steps: &[&wgpu::RenderPipeline] = if *sdf {
+                        &[&pipes.sdf]
+                    } else if *clear {
+                        &[&pipes.mesh_depth, &pipes.mesh_clear]
+                    } else {
+                        &[&pipes.mesh]
+                    };
+                    for pipe in steps {
+                        pass.set_pipeline(pipe);
+                        pass.set_bind_group(0, &self.globals_bg[globals], &[]);
+                        pass.set_bind_group(1, &self.draw_mesh_bg, &mesh_offsets(*slot));
+                        pass.set_bind_group(2, &self.mesh_tex_bgs[texs], &[]);
+                        pass.set_bind_group(3, &self.shadow_bg, &[]);
+                        pass.set_vertex_buffer(0, m.vbuf.slice(..));
+                        pass.set_vertex_buffer(1, self.mesh_instances(*gpu).slice(..));
+                        pass.set_index_buffer(m.ibuf.slice(..), wgpu::IndexFormat::Uint32);
+                        pass.draw_indexed(0..m.count, 0, *first..*first + *count);
+                    }
                 }
                 Cmd::Particles { slot, count } => {
                     pass.set_pipeline(&pipes.particles);

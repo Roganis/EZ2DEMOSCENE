@@ -647,6 +647,25 @@ fn physical_surface(
     return col;
 }
 
+// Light shining through thin or soft stuff (leaves, paper, wax, skin):
+// the sun from behind, spread through the surface and strongest looking
+// into it, and the sky and ground on the far side. `t` is the colour the
+// light takes on inside, times the amount (black = none). `n` faces the
+// camera. The object's own shadow is what it glows through, so the sun's
+// shadow only dims it.
+fn translucent_light(base: vec3<f32>, n: vec3<f32>, v: vec3<f32>, world: vec3<f32>, t: vec3<f32>) -> vec3<f32> {
+    if (max(t.r, max(t.g, t.b)) <= 0.0) {
+        return vec3<f32>(0.0);
+    }
+    let l = normalize(G.light_dir.xyz);
+    let back = max(dot(-n, l), 0.0);
+    let through = pow(max(dot(v, -normalize(l + n * 0.4)), 0.0), 4.0);
+    let shade = mix(0.35, 1.0, sun_shadow(world, -n));
+    let sun = G.light_color.rgb * G.ground.w * (back * 0.5 + through * 0.8) * shade;
+    let far = ambient_light(-n) * 0.5;
+    return base * t * (sun + far);
+}
+
 // --- screen-space reflections: what a surface reflects ----------------------
 
 // The environment reflection a surface added to its colour, and how

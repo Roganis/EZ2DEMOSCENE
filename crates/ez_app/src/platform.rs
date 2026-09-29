@@ -440,60 +440,84 @@ pub fn slug(name: &str) -> String {
     }
 }
 
-/// Fetch the model library (`library.zip` next to the page) when something
-/// asked for it: the web build doesn't carry it in the app. Desktop builds
-/// have it built in, so this does nothing there.
-pub fn fetch_model_library(ctx: &egui::Context) {
+/// Fetch the bundled libraries (`library.zip` with the models and
+/// `texture_library.zip`, next to the page) when something asked for
+/// them: the web build doesn't carry them in the app. Desktop builds have
+/// them built in, so this does nothing there. Call it every frame.
+pub fn fetch_libraries(ctx: &egui::Context) {
     #[cfg(target_arch = "wasm32")]
     {
-        use std::sync::atomic::AtomicU64;
-        use std::sync::atomic::{AtomicBool, Ordering};
-        use wasm_bindgen::JsCast;
-        static BUSY: AtomicBool = AtomicBool::new(false);
-        // After a failure, wait a little before trying again.
-        static RETRY_AT: AtomicU64 = AtomicU64::new(0);
-        let now = js_sys::Date::now() as u64;
-        if !ez_core::models::wanted()
-            || now < RETRY_AT.load(Ordering::Relaxed)
-            || BUSY.swap(true, Ordering::Relaxed)
-        {
-            return;
+        use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+        struct Fetch {
+            file: &'static str,
+            wanted: fn() -> bool,
+            install: fn(Vec<u8>) -> Result<(), String>,
+            busy: AtomicBool,
+            // After a failure, wait a little before trying again.
+            retry_at: AtomicU64,
         }
-        let ctx = ctx.clone();
-        wasm_bindgen_futures::spawn_local(async move {
-            let result: Result<Vec<u8>, String> = async {
-                let window = web_sys::window().ok_or("no window")?;
-                let resp =
-                    wasm_bindgen_futures::JsFuture::from(window.fetch_with_str("library.zip"))
-                        .await
-                        .map_err(|e| format!("{e:?}"))?
-                        .dyn_into::<web_sys::Response>()
-                        .map_err(|e| format!("{e:?}"))?;
-                if !resp.ok() {
-                    return Err(format!("HTTP {}", resp.status()));
-                }
-                let buf = wasm_bindgen_futures::JsFuture::from(
-                    resp.array_buffer().map_err(|e| format!("{e:?}"))?,
-                )
-                .await
-                .map_err(|e| format!("{e:?}"))?;
-                Ok(js_sys::Uint8Array::new(&buf).to_vec())
+        static FETCHES: [Fetch; 2] = [
+            Fetch {
+                file: "library.zip",
+                wanted: ez_core::models::wanted,
+                install: ez_core::models::install,
+                busy: AtomicBool::new(false),
+                retry_at: AtomicU64::new(0),
+            },
+            Fetch {
+                file: "texture_library.zip",
+                wanted: ez_core::texlib::wanted,
+                install: ez_core::texlib::install,
+                busy: AtomicBool::new(false),
+                retry_at: AtomicU64::new(0),
+            },
+        ];
+        let now = js_sys::Date::now() as u64;
+        for f in &FETCHES {
+            if !(f.wanted)()
+                || now < f.retry_at.load(Ordering::Relaxed)
+                || f.busy.swap(true, Ordering::Relaxed)
+            {
+                continue;
             }
-            .await;
-            match result.and_then(ez_core::models::install) {
-                Ok(()) => log::info!("model library loaded"),
-                // Asked again, it tries again.
-                Err(e) => {
-                    log::warn!("could not load the model library: {e}");
-                    RETRY_AT.store(js_sys::Date::now() as u64 + 10_000, Ordering::Relaxed);
+            let ctx = ctx.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                match fetch_bytes(f.file).await.and_then(f.install) {
+                    Ok(()) => log::info!("{} loaded", f.file),
+                    // Asked again, it tries again.
+                    Err(e) => {
+                        log::warn!("could not load {}: {e}", f.file);
+                        f.retry_at
+                            .store(js_sys::Date::now() as u64 + 10_000, Ordering::Relaxed);
+                    }
                 }
-            }
-            BUSY.store(false, Ordering::Relaxed);
-            ctx.request_repaint();
-        });
+                f.busy.store(false, Ordering::Relaxed);
+                ctx.request_repaint();
+            });
+        }
     }
     #[cfg(not(target_arch = "wasm32"))]
     let _ = ctx;
+}
+
+/// The bytes of a file next to the page.
+#[cfg(target_arch = "wasm32")]
+async fn fetch_bytes(file: &str) -> Result<Vec<u8>, String> {
+    use wasm_bindgen::JsCast;
+    let window = web_sys::window().ok_or("no window")?;
+    let resp = wasm_bindgen_futures::JsFuture::from(window.fetch_with_str(file))
+        .await
+        .map_err(|e| format!("{e:?}"))?
+        .dyn_into::<web_sys::Response>()
+        .map_err(|e| format!("{e:?}"))?;
+    if !resp.ok() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    let buf =
+        wasm_bindgen_futures::JsFuture::from(resp.array_buffer().map_err(|e| format!("{e:?}"))?)
+            .await
+            .map_err(|e| format!("{e:?}"))?;
+    Ok(js_sys::Uint8Array::new(&buf).to_vec())
 }
 
 /// A small saved setting: `localStorage` in the browser, a text file in the
