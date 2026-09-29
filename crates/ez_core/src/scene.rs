@@ -1011,6 +1011,7 @@ impl LayerKind {
             LayerKind::Mesh(m) => {
                 f(&mut m.material.base_color);
                 f(&mut m.material.emissive_color);
+                f(&mut m.material.pbr.sheen_color);
                 m.ramp.colors.iter_mut().for_each(&mut f);
             }
             LayerKind::Particles(p) => {
@@ -1996,6 +1997,157 @@ pub struct Material {
     /// Surface relief: bump / normal map / displacement.
     #[serde(skip_serializing_if = "is_default")]
     pub relief: Relief,
+    /// Physically based shading and its extra layers and maps.
+    #[serde(skip_serializing_if = "is_default")]
+    pub pbr: Pbr,
+}
+
+/// How a surface reacts to light.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum Shading {
+    /// The original look: a Blinn highlight and a simple reflection.
+    #[default]
+    Classic,
+    /// Physically based (GGX highlights, energy-conserving reflections,
+    /// clearcoat, sheen and transmission).
+    Physical,
+}
+
+impl Shading {
+    pub const ALL: [Shading; 2] = [Shading::Classic, Shading::Physical];
+    pub fn label(self) -> &'static str {
+        match self {
+            Shading::Classic => "Classic",
+            Shading::Physical => "Physical",
+        }
+    }
+}
+
+/// Physically based settings of a material (used with
+/// [`Shading::Physical`]; the maps work in both).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Pbr {
+    pub shading: Shading,
+    /// Occlusion (red), roughness (green) and metalness (blue) in one
+    /// picture, as glTF packs them; multiplies the material's values.
+    pub orm_map: Option<String>,
+    /// Glow picture: multiplies the glow colour.
+    pub emissive_map: Option<String>,
+    /// A clear lacquer layer on top (car paint), 0..1.
+    pub clearcoat: Param,
+    pub clearcoat_roughness: Param,
+    /// Soft velvet glow at grazing angles (cloth), 0..1.
+    pub sheen: Param,
+    pub sheen_color: Rgb,
+    /// Light passing through (glass, liquids), 0..1.
+    pub transmission: Param,
+    /// Index of refraction: how much light bends going through.
+    pub ior: f32,
+}
+
+impl Default for Pbr {
+    fn default() -> Self {
+        Pbr {
+            shading: Shading::Classic,
+            orm_map: None,
+            emissive_map: None,
+            clearcoat: Param::new(0.0),
+            clearcoat_roughness: Param::new(0.05),
+            sheen: Param::new(0.0),
+            sheen_color: [1.0, 1.0, 1.0],
+            transmission: Param::new(0.0),
+            ior: 1.5,
+        }
+    }
+}
+
+/// Ready-made physical materials.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MaterialPreset {
+    Gold,
+    Copper,
+    Chrome,
+    BrushedSteel,
+    Rubber,
+    CarPaint,
+    Glass,
+    Velvet,
+    Ceramic,
+}
+
+impl MaterialPreset {
+    pub const ALL: [MaterialPreset; 9] = [
+        MaterialPreset::Gold,
+        MaterialPreset::Copper,
+        MaterialPreset::Chrome,
+        MaterialPreset::BrushedSteel,
+        MaterialPreset::Rubber,
+        MaterialPreset::CarPaint,
+        MaterialPreset::Glass,
+        MaterialPreset::Velvet,
+        MaterialPreset::Ceramic,
+    ];
+    pub fn label(self) -> &'static str {
+        match self {
+            MaterialPreset::Gold => "Gold",
+            MaterialPreset::Copper => "Copper",
+            MaterialPreset::Chrome => "Chrome",
+            MaterialPreset::BrushedSteel => "Brushed steel",
+            MaterialPreset::Rubber => "Rubber",
+            MaterialPreset::CarPaint => "Car paint",
+            MaterialPreset::Glass => "Glass",
+            MaterialPreset::Velvet => "Velvet",
+            MaterialPreset::Ceramic => "Ceramic",
+        }
+    }
+
+    /// Set the look of `m` (colour, metal, roughness and the physical
+    /// layers), leaving textures, glow and geometry settings alone.
+    pub fn apply(self, m: &mut Material) {
+        // (colour, metallic, roughness)
+        let (color, metallic, rough) = match self {
+            MaterialPreset::Gold => (0xffc35a, 1.0, 0.22),
+            MaterialPreset::Copper => (0xf2946a, 1.0, 0.3),
+            MaterialPreset::Chrome => (0xf4f4f6, 1.0, 0.04),
+            MaterialPreset::BrushedSteel => (0xc4c6ca, 1.0, 0.42),
+            MaterialPreset::Rubber => (0x26262a, 0.0, 0.9),
+            MaterialPreset::CarPaint => (0xb0101a, 0.3, 0.45),
+            MaterialPreset::Glass => (0xf2f8fa, 0.0, 0.03),
+            MaterialPreset::Velvet => (0x6a1238, 0.0, 0.85),
+            MaterialPreset::Ceramic => (0xf0ece2, 0.0, 0.25),
+        };
+        m.base_color = hex(color);
+        m.metallic = Param::new(metallic);
+        m.roughness = Param::new(rough);
+        m.rim = Param::new(0.0);
+        let keep = (m.pbr.orm_map.take(), m.pbr.emissive_map.take());
+        m.pbr = Pbr {
+            shading: Shading::Physical,
+            orm_map: keep.0,
+            emissive_map: keep.1,
+            ..Default::default()
+        };
+        match self {
+            MaterialPreset::CarPaint => {
+                m.pbr.clearcoat = Param::new(1.0);
+                m.pbr.clearcoat_roughness = Param::new(0.03);
+            }
+            MaterialPreset::Glass => {
+                m.pbr.transmission = Param::new(1.0);
+                m.pbr.ior = 1.5;
+            }
+            MaterialPreset::Velvet => {
+                m.pbr.sheen = Param::new(1.0);
+                m.pbr.sheen_color = hex(0xff8ab8);
+            }
+            MaterialPreset::Ceramic => {
+                m.pbr.clearcoat = Param::new(0.6);
+                m.pbr.clearcoat_roughness = Param::new(0.08);
+            }
+            _ => {}
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -2121,6 +2273,7 @@ impl Default for Material {
             hue_shift: Param::new(0.0),
             glitch: Glitch::default(),
             relief: Relief::default(),
+            pbr: Pbr::default(),
         }
     }
 }

@@ -99,6 +99,8 @@ struct EnvMaps {
     sun: Option<crate::envmap::Sun>,
     /// The panorama as a texture, for the Environment map background.
     pano: Option<String>,
+    /// A small, blurred copy on the CPU (for logos' environment sphere).
+    tiny: Option<crate::envmap::Equirect>,
 }
 
 /// Side of a captured sky's cube faces.
@@ -159,6 +161,9 @@ struct InstanceRaw {
 }
 
 type Block = [[f32; 4]; 16];
+/// A mesh's pictures: colour, relief, occlusion/roughness/metal, glow,
+/// and whether they are sampled pixelated.
+type MeshTexKey = (String, String, String, String, bool);
 
 /// Ends the texture key of a picture tiled mirrored.
 const MIRROR_KEY: &str = ":mirror";
@@ -214,12 +219,11 @@ enum Cmd {
     BackdropUp {
         res: u32,
     },
+    /// Uses two draw slots: `slot` and the next (the physical material).
     Mesh {
         slot: u32,
         mesh: String,
-        tex: String,
-        relief: String,
-        pixelated: bool,
+        texs: MeshTexKey,
         first: u32,
         count: u32,
         /// A raymarched object in its box proxy (`sdf.wgsl`).
@@ -1013,7 +1017,12 @@ pub struct Renderer {
     triplanar_meshes: std::collections::HashSet<String>,
     textures: HashMap<String, GpuTexture>,
     tex_bgs: HashMap<(String, bool), wgpu::BindGroup>,
-    mesh_tex_bgs: HashMap<(String, String, bool), wgpu::BindGroup>,
+    mesh_tex_bgs: HashMap<MeshTexKey, wgpu::BindGroup>,
+    bgl_draw_mesh: wgpu::BindGroupLayout,
+    draw_mesh_bg: wgpu::BindGroup,
+    /// What the logos' environment sphere was last made for (map, camera
+    /// axes, turn, strength).
+    env_matcap: Option<(String, [f32; 11])>,
     /// Asset loading problems (shown in the UI), keyed by asset.
     pub errors: HashMap<String, String>,
 
@@ -1144,6 +1153,32 @@ fn v4(v: Vec3, w: f32) -> [f32; 4] {
 
 fn c4(c: [f32; 3], w: f32) -> [f32; 4] {
     [c[0], c[1], c[2], w]
+}
+
+/// Dynamic offsets of a mesh draw: its slot and the next.
+fn mesh_offsets(slot: u32) -> [u32; 2] {
+    [slot * DRAW_SLOT as u32, (slot + 1) * DRAW_SLOT as u32]
+}
+
+/// The physical-material slot of a mesh draw (see mesh.wgsl's D2).
+fn pbr_block(mat: &Material, ctx: &EvalCtx) -> Block {
+    let p = &mat.pbr;
+    let mut b: Block = Zeroable::zeroed();
+    let on = |x: bool| if x { 1.0 } else { 0.0 };
+    b[0] = [
+        on(p.shading == Shading::Physical),
+        on(p.orm_map.is_some()),
+        on(p.emissive_map.is_some()),
+        0.0,
+    ];
+    b[1] = [
+        p.clearcoat.eval(ctx).clamp(0.0, 1.0),
+        p.clearcoat_roughness.eval(ctx).clamp(0.0, 1.0),
+        p.sheen.eval(ctx).max(0.0),
+        p.transmission.eval(ctx).clamp(0.0, 1.0),
+    ];
+    b[2] = c4(p.sheen_color, p.ior.max(1.0));
+    b
 }
 
 fn uniform_entry(binding: u32, dynamic: bool, size: u64) -> wgpu::BindGroupLayoutEntry {
@@ -1286,6 +1321,15 @@ impl Renderer {
             label: Some("draw"),
             entries: &[uniform_entry(0, true, DRAW_SLOT)],
         });
+        // Meshes and raymarched shapes read two draw slots: theirs and the
+        // next (the physical material).
+        let bgl_draw_mesh = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("draw mesh"),
+            entries: &[
+                uniform_entry(0, true, DRAW_SLOT),
+                uniform_entry(1, true, DRAW_SLOT),
+            ],
+        });
         let bgl_tex = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("tex"),
             entries: &[tex_entry(0), sampler_entry(1)],
@@ -1310,6 +1354,8 @@ impl Renderer {
                     visibility: vf,
                     ..sampler_entry(3)
                 },
+                tex_entry(4),
+                tex_entry(5),
             ],
         });
         let bgl_floor = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -1400,6 +1446,7 @@ impl Renderer {
         let draw_cap = 64;
         let draw_buf = Self::make_draw_buf(device, draw_cap);
         let draw_bg = Self::make_draw_bg(device, &bgl_draw, &draw_buf);
+        let draw_mesh_bg = Self::make_draw_mesh_bg(device, &bgl_draw_mesh, &draw_buf);
         let post_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("post params"),
             size: POST_SLOT * POST_SLOTS,
@@ -1416,7 +1463,11 @@ impl Renderer {
         });
         let mesh_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("mesh"),
-            bind_group_layouts: &[Some(&bgl_globals), Some(&bgl_draw), Some(&bgl_mesh_tex)],
+            bind_group_layouts: &[
+                Some(&bgl_globals),
+                Some(&bgl_draw_mesh),
+                Some(&bgl_mesh_tex),
+            ],
             immediate_size: 0,
         });
         // Lit surfaces also read the sun shadow map (group 3).
@@ -1424,7 +1475,7 @@ impl Renderer {
             label: Some("mesh lit"),
             bind_group_layouts: &[
                 Some(&bgl_globals),
-                Some(&bgl_draw),
+                Some(&bgl_draw_mesh),
                 Some(&bgl_mesh_tex),
                 Some(&bgl_shadow),
             ],
@@ -2210,6 +2261,7 @@ impl Renderer {
                 sh: [[0.0; 4]; 9],
                 sun: None,
                 pano: None,
+                tiny: None,
             },
             sky: None,
             bgl_globals: bgl_globals.clone(),
@@ -2249,6 +2301,9 @@ impl Renderer {
             textures: HashMap::new(),
             tex_bgs: HashMap::new(),
             mesh_tex_bgs: HashMap::new(),
+            bgl_draw_mesh,
+            draw_mesh_bg,
+            env_matcap: None,
             errors: HashMap::new(),
             instance_cache: HashMap::new(),
             seq_targets: None,
@@ -2303,6 +2358,28 @@ impl Renderer {
         buf: &wgpu::Buffer,
     ) -> wgpu::BindGroup {
         Self::make_draw_bg_sized(device, layout, buf, DRAW_SLOT)
+    }
+
+    /// The draw buffer seen twice, one slot at a time: a draw's own slot
+    /// and the next.
+    fn make_draw_mesh_bg(
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+        buf: &wgpu::Buffer,
+    ) -> wgpu::BindGroup {
+        let entry = |binding| wgpu::BindGroupEntry {
+            binding,
+            resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                buffer: buf,
+                offset: 0,
+                size: wgpu::BufferSize::new(DRAW_SLOT),
+            }),
+        };
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("draw mesh"),
+            layout,
+            entries: &[entry(0), entry(1)],
+        })
     }
 
     /// The draw buffer seen `size` bytes at a time (several slots).
@@ -2415,7 +2492,7 @@ impl Renderer {
         self.logo_bgs
             .retain(|(a, b, c), _| *a != key && *b != key && *c != key);
         self.mesh_tex_bgs
-            .retain(|(k, r, _), _| *k != key && *r != key);
+            .retain(|(k, r, o, e, _), _| ![k, r, o, e].contains(&&key));
         self.textures.insert(
             key,
             GpuTexture {
@@ -2722,7 +2799,12 @@ impl Renderer {
         blk[13] = c4(g.glint_color, 0.0);
         blk[14] = [fit.far[0], fit.far[1], fit.far[2], 0.0];
         blk[15] = [fit.far[3], fit.far[4], 0.0, 0.0];
-        let matcap = self.texture_key(project, g.matcap.as_deref());
+        let matcap = match g.matcap.as_deref() {
+            Some(crate::texgen::ENV_MATCAP) => self
+                .env_matcap(project, ctx)
+                .unwrap_or_else(|| self.texture_key(project, g.matcap.as_deref())),
+            name => self.texture_key(project, name),
+        };
         // The logo it morphs into: the same layer made of the
         // morph source.
         let morph_t = g.morph.eval(ctx).clamp(0.0, 1.0);
@@ -3047,14 +3129,26 @@ impl Renderer {
 
     /// Resolve a material texture name to a loaded GPU texture key.
     fn texture_key(&mut self, project: &Project, name: Option<&str>) -> String {
+        self.texture_key_as(project, name, false)
+    }
+
+    /// Like [`Self::texture_key`]; `linear` pictures hold data (such as
+    /// roughness), not colours, and are read without sRGB decoding.
+    fn texture_key_as(&mut self, project: &Project, name: Option<&str>, linear: bool) -> String {
         let Some(name) = name.filter(|n| !n.is_empty()) else {
             return "__white".into();
         };
+        let format = if linear {
+            wgpu::TextureFormat::Rgba8Unorm
+        } else {
+            wgpu::TextureFormat::Rgba8UnormSrgb
+        };
+        let lin = if linear { ":lin" } else { "" };
         if texgen::is_builtin(name) {
-            let key = format!("b:{name}");
+            let key = format!("b:{name}{lin}");
             if !self.textures.contains_key(&key) {
                 let img = texgen::generate(name);
-                self.upload_texture(key.clone(), &img);
+                self.upload_texture_as(key.clone(), &img, format);
             }
             return key;
         }
@@ -3063,7 +3157,10 @@ impl Renderer {
             None => (name.to_string(), None, false),
         };
         // Mirror tiling is a different sampler, so a different key.
-        let key = format!("u:{path}:{retro:?}{}", if mirror { MIRROR_KEY } else { "" });
+        let key = format!(
+            "u:{path}:{retro:?}{lin}{}",
+            if mirror { MIRROR_KEY } else { "" }
+        );
         if self.textures.contains_key(&key) {
             return key;
         }
@@ -3077,7 +3174,7 @@ impl Renderer {
                     img = texgen::retroize(&img, r);
                 }
                 self.errors.remove(&key);
-                self.upload_texture(key.clone(), &img);
+                self.upload_texture_as(key.clone(), &img, format);
                 key
             }
             Err(e) => {
@@ -3126,9 +3223,9 @@ impl Renderer {
         self.tex_bgs.insert(k, bg);
     }
 
-    fn mesh_tex_bind_group(&mut self, tex: &str, relief: &str, nearest: bool) {
-        let k = (tex.to_string(), relief.to_string(), nearest);
-        if self.mesh_tex_bgs.contains_key(&k) {
+    fn mesh_tex_bind_group(&mut self, k: &MeshTexKey) {
+        let (tex, relief, orm, emit, nearest) = (&k.0[..], &k.1[..], &k.2[..], &k.3[..], k.4);
+        if self.mesh_tex_bgs.contains_key(k) {
             return;
         }
         let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -3151,9 +3248,17 @@ impl Renderer {
                     binding: 3,
                     resource: wgpu::BindingResource::Sampler(self.sampler_for(relief, nearest)),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(&self.textures[orm].view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::TextureView(&self.textures[emit].view),
+                },
             ],
         });
-        self.mesh_tex_bgs.insert(k, bg);
+        self.mesh_tex_bgs.insert(k.clone(), bg);
     }
 
     /// Geometry of a mesh source, subdivided `levels` times (cached).
@@ -3624,7 +3729,39 @@ impl Renderer {
             sh,
             sun,
             pano: Some(pano),
+            tiny: Some(small.clone().at_most(64)),
         });
+    }
+
+    /// The logos' environment sphere: a mirror ball reflecting the
+    /// environment light's map as the camera sees it now. `None` without a
+    /// map (Colours, or the sky, which has no copy on the CPU).
+    fn env_matcap(&mut self, project: &Project, ctx: &EvalCtx) -> Option<String> {
+        let light = &project.environment.env_light;
+        let key = Self::env_key(light)?;
+        if self.env.key != key {
+            self.load_env(key, &light.clone());
+        }
+        let eq = self.env.tiny.as_ref()?;
+        let inv = project.camera.eval(ctx).view().inverse();
+        let (right, up, back) = (
+            inv.x_axis.truncate(),
+            inv.y_axis.truncate(),
+            inv.z_axis.truncate(),
+        );
+        let turn = light.rotation.eval(ctx).to_radians();
+        let strength = light.intensity.eval(ctx).max(0.0);
+        let state = [
+            right.x, right.y, right.z, up.x, up.y, up.z, back.x, back.y, back.z, turn, strength,
+        ];
+        let tex = "env-matcap".to_string();
+        let made = (self.env.key.clone(), state);
+        if self.env_matcap.as_ref() != Some(&made) || !self.textures.contains_key(&tex) {
+            let px = crate::envmap::matcap(eq, right, up, back, turn, strength, 64);
+            self.upload_float_texture(tex.clone(), 64, 64, &px);
+            self.env_matcap = Some(made);
+        }
+        Some(tex)
     }
 
     /// Makes `env` the environment map lit surfaces see.
@@ -3964,6 +4101,7 @@ impl Renderer {
                     sh: [[0.0; 4]; 9],
                     sun: None,
                     pano: None,
+                    tiny: None,
                 });
             }
             fx.ibl = [
@@ -4611,7 +4749,11 @@ impl Renderer {
                     };
                     // The fields need smooth (linear) sampling.
                     let pixelated = mat.pixelated && !morph;
-                    self.mesh_tex_bind_group(&tex, &relief, pixelated);
+                    let pbr = &mat.pbr;
+                    let orm = self.texture_key_as(project, pbr.orm_map.as_deref(), true);
+                    let emit = self.texture_key(project, pbr.emissive_map.as_deref());
+                    let texs = (tex.clone(), relief, orm, emit, pixelated);
+                    self.mesh_tex_bind_group(&texs);
                     let surface = match &m.instancer {
                         Instancer::Surface {
                             shape, count, seed, ..
@@ -4839,9 +4981,7 @@ impl Renderer {
                     cmds.push(Cmd::Mesh {
                         slot: blocks.len() as u32,
                         mesh,
-                        tex,
-                        relief,
-                        pixelated,
+                        texs,
                         first,
                         count: count as u32,
                         sdf,
@@ -4849,6 +4989,7 @@ impl Renderer {
                         bounds,
                     });
                     blocks.push(blk);
+                    blocks.push(pbr_block(mat, ctx));
                 }
                 LayerKind::Particles(p) => {
                     let lm = layer_matrix(&layer.transform, ctx);
@@ -5354,7 +5495,8 @@ impl Renderer {
                 LayerKind::Ribbon(r) => {
                     let mesh = self.ribbon_key(r);
                     let tex = self.texture_key(project, None);
-                    self.mesh_tex_bind_group(&tex, &tex, false);
+                    let texs = (tex.clone(), tex.clone(), tex.clone(), tex, false);
+                    self.mesh_tex_bind_group(&texs);
                     let lm = layer_matrix(&layer.transform, ctx);
                     let first = instances.len() as u32;
                     let syms = symmetry_matrices(&layer.symmetry);
@@ -5387,9 +5529,7 @@ impl Renderer {
                     cmds.push(Cmd::Mesh {
                         slot: blocks.len() as u32,
                         mesh,
-                        tex: tex.clone(),
-                        relief: tex,
-                        pixelated: false,
+                        texs,
                         first,
                         count: syms.len() as u32,
                         sdf: false,
@@ -5397,6 +5537,7 @@ impl Renderer {
                         bounds: None,
                     });
                     blocks.push(blk);
+                    blocks.push(Zeroable::zeroed());
                 }
                 LayerKind::Weather(wx) => {
                     let count = if wx.kind == Precipitation::None {
@@ -5617,6 +5758,8 @@ impl Renderer {
             self.draw_cap = (blocks.len() as u64).next_power_of_two();
             self.draw_buf = Self::make_draw_buf(&self.device, self.draw_cap);
             self.draw_bg = Self::make_draw_bg(&self.device, &self.bgl_draw, &self.draw_buf);
+            self.draw_mesh_bg =
+                Self::make_draw_mesh_bg(&self.device, &self.bgl_draw_mesh, &self.draw_buf);
             self.logo_fx_bg = Self::make_draw_bg_sized(
                 &self.device,
                 &self.bgl_logo_fx,
@@ -6437,9 +6580,7 @@ impl Renderer {
                 Cmd::Mesh {
                     slot,
                     mesh,
-                    tex,
-                    relief,
-                    pixelated,
+                    texs,
                     first,
                     count,
                     sdf,
@@ -6453,12 +6594,8 @@ impl Renderer {
                         &self.shadow_mesh_pipe
                     });
                     pass.set_bind_group(0, &self.globals_bg[2], &[]);
-                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
-                    pass.set_bind_group(
-                        2,
-                        &self.mesh_tex_bgs[&(tex.clone(), relief.clone(), *pixelated)],
-                        &[],
-                    );
+                    pass.set_bind_group(1, &self.draw_mesh_bg, &mesh_offsets(*slot));
+                    pass.set_bind_group(2, &self.mesh_tex_bgs[texs], &[]);
                     pass.set_vertex_buffer(0, m.vbuf.slice(..));
                     pass.set_vertex_buffer(1, self.mesh_instances(*gpu).slice(..));
                     pass.set_index_buffer(m.ibuf.slice(..), wgpu::IndexFormat::Uint32);
@@ -6494,9 +6631,7 @@ impl Renderer {
                 Cmd::Mesh {
                     slot,
                     mesh,
-                    tex,
-                    relief,
-                    pixelated,
+                    texs,
                     first,
                     count,
                     sdf,
@@ -6510,12 +6645,8 @@ impl Renderer {
                         &self.dof_mesh_pipe
                     });
                     pass.set_bind_group(0, &self.globals_bg[0], &[]);
-                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
-                    pass.set_bind_group(
-                        2,
-                        &self.mesh_tex_bgs[&(tex.clone(), relief.clone(), *pixelated)],
-                        &[],
-                    );
+                    pass.set_bind_group(1, &self.draw_mesh_bg, &mesh_offsets(*slot));
+                    pass.set_bind_group(2, &self.mesh_tex_bgs[texs], &[]);
                     pass.set_vertex_buffer(0, m.vbuf.slice(..));
                     pass.set_vertex_buffer(1, self.mesh_instances(*gpu).slice(..));
                     pass.set_index_buffer(m.ibuf.slice(..), wgpu::IndexFormat::Uint32);
@@ -6606,9 +6737,7 @@ impl Renderer {
                 Cmd::Mesh {
                     slot,
                     mesh,
-                    tex,
-                    relief,
-                    pixelated,
+                    texs,
                     first,
                     count,
                     sdf,
@@ -6621,12 +6750,8 @@ impl Renderer {
                     let m = &self.meshes[mesh];
                     pass.set_pipeline(if *sdf { &pipes.sdf } else { &pipes.mesh });
                     pass.set_bind_group(0, &self.globals_bg[globals], &[]);
-                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
-                    pass.set_bind_group(
-                        2,
-                        &self.mesh_tex_bgs[&(tex.clone(), relief.clone(), *pixelated)],
-                        &[],
-                    );
+                    pass.set_bind_group(1, &self.draw_mesh_bg, &mesh_offsets(*slot));
+                    pass.set_bind_group(2, &self.mesh_tex_bgs[texs], &[]);
                     pass.set_bind_group(3, &self.shadow_bg, &[]);
                     pass.set_vertex_buffer(0, m.vbuf.slice(..));
                     pass.set_vertex_buffer(1, self.mesh_instances(*gpu).slice(..));

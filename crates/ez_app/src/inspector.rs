@@ -1737,6 +1737,29 @@ fn glitch_ui(ui: &mut Ui, g: &mut Glitch) {
 }
 
 fn material_ui(ui: &mut Ui, mat: &mut Material, textures: &[UserTexture], lref: LayerRef) {
+    row(
+        ui,
+        "Presets",
+        "Ready-made physical materials (keep your textures and glow)",
+        |ui| {
+            ui.horizontal_wrapped(|ui| {
+                for p in MaterialPreset::ALL {
+                    if ui.small_button(p.label()).clicked() {
+                        p.apply(mat);
+                    }
+                }
+            });
+        },
+    );
+    combo(
+        ui,
+        "Shading",
+        "Physical: realistic highlights and reflections, clearcoat, sheen and glass. \
+         Classic: the original look.",
+        &mut mat.pbr.shading,
+        &Shading::ALL,
+        |s| s.label(),
+    );
     color(ui, "Colour", "", &mut mat.base_color);
     param(
         ui,
@@ -1765,6 +1788,9 @@ fn material_ui(ui: &mut Ui, mat: &mut Material, textures: &[UserTexture], lref: 
         &mut mat.rim,
         0.0..=2.0,
     );
+    if mat.pbr.shading == Shading::Physical {
+        physical_ui(ui, &mut mat.pbr);
+    }
     ui.separator();
     color(ui, "Glow colour", "", &mut mat.emissive_color);
     param(
@@ -1823,6 +1849,81 @@ fn material_ui(ui: &mut Ui, mat: &mut Material, textures: &[UserTexture], lref: 
             "Chunky pixels",
             "Nearest-neighbour sampling",
             &mut mat.pixelated,
+        );
+    }
+    texture_picker(
+        ui,
+        "Occlusion/rough/metal",
+        &mut mat.pbr.orm_map,
+        textures,
+        Some((lref, TexSlot::Orm)),
+    );
+    texture_picker(
+        ui,
+        "Glow map",
+        &mut mat.pbr.emissive_map,
+        textures,
+        Some((lref, TexSlot::Emissive)),
+    );
+    if mat.pbr.orm_map.is_some() || mat.pbr.emissive_map.is_some() {
+        ui.label(
+            RichText::new(
+                "Maps use the texture's Tiling and Scroll. The ORM map (red: occlusion, green: roughness, \
+                 blue: metal, as in glTF) multiplies Roughness and Metallic; the glow map multiplies the glow colour.",
+            )
+            .weak()
+            .small(),
+        );
+    }
+}
+
+/// Clearcoat, sheen and glass (physical shading only).
+fn physical_ui(ui: &mut Ui, p: &mut Pbr) {
+    param(
+        ui,
+        "Clearcoat",
+        "A clear lacquer layer on top (car paint, varnish)",
+        &mut p.clearcoat,
+        0.0..=1.0,
+    );
+    if p.clearcoat.base > 0.0 || p.clearcoat.is_animated() {
+        param(
+            ui,
+            "Coat roughness",
+            "",
+            &mut p.clearcoat_roughness,
+            0.0..=1.0,
+        );
+    }
+    param(
+        ui,
+        "Sheen",
+        "Soft light at grazing angles, like velvet",
+        &mut p.sheen,
+        0.0..=1.0,
+    );
+    if p.sheen.base > 0.0 || p.sheen.is_animated() {
+        color(ui, "Sheen colour", "", &mut p.sheen_color);
+    }
+    param(
+        ui,
+        "Glass",
+        "Light passing through (transmission): 1 = clear glass tinted by the colour",
+        &mut p.transmission,
+        0.0..=1.0,
+    );
+    if p.transmission.base > 0.0 || p.transmission.is_animated() {
+        slider(
+            ui,
+            "Refraction",
+            "Index of refraction: 1 = none, 1.33 water, 1.5 glass, 2.4 diamond",
+            &mut p.ior,
+            1.0..=2.5,
+        );
+        ui.label(
+            RichText::new("Glass shows the environment behind it, not other shapes.")
+                .weak()
+                .small(),
         );
     }
 }

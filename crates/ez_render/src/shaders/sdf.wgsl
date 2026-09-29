@@ -9,6 +9,9 @@
 //   t_relief then holds the two distance fields (red: from, green: into),
 //   slice z at tile (z % columns, z / columns); see sdf_bake.rs.
 
+// D2 (the next draw slot): the physical material, as in mesh.wgsl.
+@group(1) @binding(1) var<uniform> D2: Draw;
+
 @group(2) @binding(0) var t_tex: texture_2d<f32>;
 @group(2) @binding(1) var s_tex: sampler;
 @group(2) @binding(2) var t_relief: texture_2d<f32>;
@@ -310,7 +313,15 @@ fn fs_main(in: VOut) -> FOut {
         occ = occ + (s - map(h.p + h.n * s, seed)) / f32(k);
     }
     let ao = clamp(1.0 - occ * 2.5, 0.25, 1.0) * (1.0 - 0.3 * h.cost);
-    var col = lit_surface(base, D.v[0].w, clamp(D.v[1].w, 0.02, 1.0), n, h.world, v, D.v[3].z, ao);
+    var col: vec3<f32>;
+    if (D2.v[0].x > 0.5) {
+        var layers: PbrLayers;
+        layers.k = D2.v[1];
+        layers.sheen_ior = D2.v[2];
+        col = physical_surface(base, D.v[0].w, D.v[1].w, n, h.world, v, D.v[3].z, ao, layers);
+    } else {
+        col = lit_surface(base, D.v[0].w, clamp(D.v[1].w, 0.02, 1.0), n, h.world, v, D.v[3].z, ao);
+    }
     // Glow: solid, or on the creases for the other emissive modes.
     var mask = 1.0;
     if (i32(D.v[2].x + 0.5) != 0) {

@@ -160,6 +160,11 @@ pub fn all() -> Vec<Preset> {
             project: chrome_studio(),
         },
         Preset {
+            name: "Material Gallery",
+            description: "The nine physical material presets on spinning shapes in a softbox studio: metals, rubber, car paint, glass, velvet and ceramic.",
+            project: material_gallery(),
+        },
+        Preset {
             name: "Banners",
             description: "A row of flags on poles, flapping in a turning, gusting wind: simulated cloth that loops.",
             project: banners(),
@@ -3059,6 +3064,91 @@ pub fn chrome_studio() -> Project {
                 intensity: Param::new(0.4),
                 threshold: Param::new(1.5),
                 radius: Param::new(0.6),
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+/// Every material preset (physical shading) on its own shape, lit by the
+/// softbox studio, which turns once per loop.
+pub fn material_gallery() -> Project {
+    let shapes = [
+        Primitive::Sphere { detail: 4 },
+        Primitive::TorusKnot {
+            p: 2,
+            q: 3,
+            thickness: 0.12,
+        },
+        Primitive::Sphere { detail: 4 },
+    ];
+    let mut layers = vec![
+        Layer::new(
+            "Studio",
+            LayerKind::Backdrop(Backdrop {
+                kind: BackdropKind::Environment,
+                detail: Param::new(0.35),
+                ..Default::default()
+            }),
+        ),
+        Layer::new(
+            "Floor",
+            LayerKind::Mirror(MirrorFloor {
+                base_color: hex(0x303236),
+                reflectivity: Param::new(0.25),
+                blur: Param::new(0.4),
+                ..Default::default()
+            }),
+        ),
+    ];
+    for (i, preset) in MaterialPreset::ALL.iter().enumerate() {
+        let (col, row) = ((i % 3) as f32, (i / 3) as f32);
+        let mut material = Material::default();
+        preset.apply(&mut material);
+        layers.push(
+            Layer::new(
+                preset.label(),
+                LayerKind::Mesh(mesh(shapes[(i + i / 3) % 3].clone(), material)),
+            )
+            .at([(col - 1.0) * 2.6, 0.7, (row - 1.0) * 2.6])
+            .scaled(0.75)
+            .spin([0, 1, 0]),
+        );
+    }
+    Project {
+        name: "Material Gallery".into(),
+        timing: crate::Timing {
+            bpm: 96.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Orbit,
+            target: [0.0, 0.6, 0.0],
+            distance: Param::new(9.0),
+            height: Param::new(4.0),
+            fov: Param::new(40.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_density: Param::new(0.0),
+            light_intensity: Param::new(0.0),
+            env_light: EnvLight {
+                source: EnvSource::Studio(Studio::Softbox),
+                rotation: Param::new(0.0).osc(Wave::Saw, 180.0, 1),
+                intensity: Param::new(1.2),
+                sun_from_map: false,
+                sky_static: false,
+            },
+            ..Default::default()
+        },
+        layers,
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                intensity: Param::new(0.3),
+                threshold: Param::new(1.6),
+                radius: Param::new(0.5),
             },
             ..Default::default()
         },

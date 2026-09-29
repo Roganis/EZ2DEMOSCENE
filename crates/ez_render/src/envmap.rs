@@ -582,6 +582,41 @@ pub fn brdf_lut() -> Vec<[f32; 2]> {
     out
 }
 
+/// A material sphere (matcap, `size`², rows from the top) of a mirror ball
+/// reflecting `eq`, for a camera whose right, up and backwards axes are
+/// given in the world. The map is turned by `turn` radians as the shaders'
+/// `env_dir` turns it, and brightened by `strength`.
+pub fn matcap(
+    eq: &Equirect,
+    right: Vec3,
+    up: Vec3,
+    back: Vec3,
+    turn: f32,
+    strength: f32,
+    size: usize,
+) -> Vec<[f32; 4]> {
+    let (s, c) = turn.sin_cos();
+    let mut out = Vec::with_capacity(size * size);
+    for py in 0..size {
+        for px in 0..size {
+            // As logo.wgsl reads it: u = n.x·0.49 + 0.5, v = 0.5 - n.y·0.49.
+            let x = ((px as f32 + 0.5) / size as f32 - 0.5) / 0.49;
+            let y = (0.5 - (py as f32 + 0.5) / size as f32) / 0.49;
+            let r = (x * x + y * y).sqrt();
+            let k = if r > 0.995 { 0.995 / r } else { 1.0 };
+            let (x, y) = (x * k, y * k);
+            let z = (1.0 - x * x - y * y).max(0.0).sqrt();
+            // The view (towards the eye, +z) reflected off the surface.
+            let rv = Vec3::new(2.0 * z * x, 2.0 * z * y, 2.0 * z * z - 1.0);
+            let d = right * rv.x + up * rv.y + back * rv.z;
+            let d = Vec3::new(d.x * c - d.z * s, d.y, d.x * s + d.z * c);
+            let v = eq.sample(d.normalize_or(Vec3::Y)) * strength;
+            out.push([v.x, v.y, v.z, 1.0]);
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

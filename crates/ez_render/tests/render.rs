@@ -2935,3 +2935,277 @@ fn environment_maps_light_the_scene() {
     let plain = r.render_image(&scene(EnvSource::Colours, 1.0, 0.2, 0.0), &ctx, &target);
     assert!(mean_abs_diff(a.as_raw(), plain.as_raw()) > 1.0);
 }
+
+/// Physical shading: a furnace test (rough white and rough metal under a
+/// uniform map are as bright as it), and clearcoat, glass, sheen and the
+/// occlusion/roughness/metal and glow maps each doing their job.
+#[test]
+fn physical_materials_keep_energy() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let dir = snapshot_dir().join("pbr");
+    std::fs::create_dir_all(&dir).unwrap();
+    let write_hdr = |name: &str, f: &dyn Fn(glam::Vec3) -> [f32; 3]| {
+        let (w, h) = (256u32, 128u32);
+        let img = image::Rgb32FImage::from_fn(w, h, |x, y| {
+            let d =
+                ez_render::envmap::dir_of((x as f32 + 0.5) / w as f32, (y as f32 + 0.5) / h as f32);
+            image::Rgb(f(d))
+        });
+        let path = dir.join(name);
+        image::DynamicImage::ImageRgb32F(img)
+            .save_with_format(&path, image::ImageFormat::Hdr)
+            .unwrap();
+        path.to_string_lossy().to_string()
+    };
+    let write_png = |name: &str, c: [u8; 3]| {
+        let img = image::RgbaImage::from_pixel(8, 8, image::Rgba([c[0], c[1], c[2], 255]));
+        let path = dir.join(name);
+        img.save(&path).unwrap();
+        path.to_string_lossy().to_string()
+    };
+    let uniform = write_hdr("uniform.hdr", &|_| [0.4, 0.4, 0.4]);
+    // Blue in front of the ball (+z, towards the camera), yellow behind.
+    let front_back = write_hdr("front_back.hdr", &|d| {
+        if d.z > 0.0 {
+            [0.0, 0.0, 1.0]
+        } else {
+            [1.0, 1.0, 0.0]
+        }
+    });
+    let scene = |source: EnvSource, mat: Material| {
+        let mut p = Project {
+            camera: Camera {
+                mode: CameraMode::Static,
+                target: [0.0; 3],
+                distance: Param::new(3.0),
+                height: Param::new(0.0),
+                angle: Param::new(0.0),
+                fov: Param::new(40.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        p.environment.fog_density = Param::new(0.0);
+        p.environment.light_intensity = Param::new(0.0);
+        p.post.grade.vignette = Param::new(0.0);
+        p.environment.env_light = EnvLight {
+            source,
+            ..Default::default()
+        };
+        p.layers.push(Layer::new(
+            "Map",
+            LayerKind::Backdrop(Backdrop {
+                kind: BackdropKind::Environment,
+                detail: Param::new(1.0),
+                ..Default::default()
+            }),
+        ));
+        p.layers.push(Layer::new(
+            "Ball",
+            LayerKind::Mesh(MeshLayer {
+                source: MeshSource::Primitive(Primitive::Sphere { detail: 4 }),
+                material: mat,
+                ..Default::default()
+            }),
+        ));
+        p
+    };
+    let physical = |color: [f32; 3], metallic: f32, rough: f32| Material {
+        base_color: color,
+        metallic: Param::new(metallic),
+        roughness: Param::new(rough),
+        rim: Param::new(0.0),
+        pbr: Pbr {
+            shading: Shading::Physical,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let (w, h) = (160u32, 160u32);
+    let target = r.create_target(w, h);
+    let ctx = EvalCtx::at(0.0);
+    let px = |img: &image::RgbaImage, x: f32, y: f32| {
+        let p = img.get_pixel((x * w as f32) as u32, (y * h as f32) as u32);
+        [p[0] as f32, p[1] as f32, p[2] as f32]
+    };
+    // Mean brightness of the ball's disc (inside 80% of its radius).
+    let ball_mean = |img: &image::RgbaImage| {
+        let (mut sum, mut n) = (0.0, 0.0);
+        for (x, y, p) in img.enumerate_pixels() {
+            let dx = (x as f32 + 0.5) / w as f32 - 0.5;
+            let dy = (y as f32 + 0.5) / h as f32 - 0.5;
+            if (dx * dx + dy * dy).sqrt() < 0.2 {
+                sum += (p[0] as f32 + p[1] as f32 + p[2] as f32) / 3.0;
+                n += 1.0;
+            }
+        }
+        sum / n
+    };
+
+    // Furnace: rough white plastic and rough and half-rough white metal
+    // keep (nearly) all the light.
+    for (metallic, rough) in [(0.0, 1.0), (0.0, 0.5), (1.0, 1.0), (1.0, 0.5)] {
+        let img = r.render_image(
+            &scene(
+                EnvSource::Hdri(uniform.clone()),
+                physical([1.0; 3], metallic, rough),
+            ),
+            &ctx,
+            &target,
+        );
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+        let (ball, sky) = (ball_mean(&img), px(&img, 0.5, 0.08)[0]);
+        eprintln!("furnace metallic {metallic} rough {rough}: ball {ball:.1}, sky {sky:.1}");
+        img.save(dir.join(format!("furnace_{metallic}_{rough}.png")))
+            .unwrap();
+        assert!(
+            ball / sky > 0.95 && ball / sky < 1.05,
+            "metallic {metallic}, rough {rough}: ball {ball} vs sky {sky}"
+        );
+    }
+
+    // A clearcoat adds a reflection on top of black paint.
+    let black = physical([0.02; 3], 0.0, 0.8);
+    let mut coated = black.clone();
+    coated.pbr.clearcoat = Param::new(1.0);
+    let map = EnvSource::Hdri(front_back.clone());
+    let a = ball_mean(&r.render_image(&scene(map.clone(), black.clone()), &ctx, &target));
+    let b = ball_mean(&r.render_image(&scene(map.clone(), coated), &ctx, &target));
+    eprintln!("clearcoat: {a:.1} -> {b:.1}");
+    assert!(b > a + 5.0, "clearcoat {a} -> {b}");
+
+    // Glass shows what is behind it (yellow) in its middle, where an
+    // opaque mirror shows what is in front (blue).
+    let mut glass = physical([1.0; 3], 0.0, 0.02);
+    MaterialPreset::Glass.apply(&mut glass);
+    let img = r.render_image(&scene(map.clone(), glass), &ctx, &target);
+    img.save(dir.join("glass.png")).unwrap();
+    let mid = px(&img, 0.5, 0.5);
+    eprintln!("glass middle {mid:?}");
+    assert!(
+        mid[0] > 100.0 && mid[1] > 100.0 && mid[2] < mid[0] * 0.6,
+        "glass middle {mid:?}"
+    );
+
+    // Sheen brightens the edges of dark cloth.
+    let cloth = physical([0.05; 3], 0.0, 0.9);
+    let mut velvet = cloth.clone();
+    velvet.pbr.sheen = Param::new(1.0);
+    let uni = EnvSource::Hdri(uniform.clone());
+    let edge = |img: &image::RgbaImage| px(img, 0.5 + 0.19, 0.5)[0];
+    let a = edge(&r.render_image(&scene(uni.clone(), cloth), &ctx, &target));
+    let b = edge(&r.render_image(&scene(uni.clone(), velvet), &ctx, &target));
+    eprintln!("sheen edge: {a:.1} -> {b:.1}");
+    assert!(b > a + 10.0, "sheen edge {a} -> {b}");
+
+    // The ORM map multiplies the material's values: one with no
+    // roughness turns a rough metal ball into a mirror (blue in the
+    // middle).
+    // (Blue only in a small spot straight ahead: a rough ball averages it
+    // away.)
+    let spot = EnvSource::Hdri(write_hdr("spot.hdr", &|d| {
+        if d.z > 0.9 {
+            [0.0, 0.0, 1.0]
+        } else {
+            [1.0, 1.0, 0.0]
+        }
+    }));
+    let mut rough = physical([1.0; 3], 1.0, 1.0);
+    let before = px(
+        &r.render_image(&scene(spot.clone(), rough.clone()), &ctx, &target),
+        0.5,
+        0.5,
+    );
+    rough.pbr.orm_map = Some(write_png("orm.png", [255, 0, 255]));
+    let after = px(
+        &r.render_image(&scene(spot.clone(), rough), &ctx, &target),
+        0.5,
+        0.5,
+    );
+    assert!(r.errors.is_empty(), "{:?}", r.errors);
+    eprintln!("orm: middle {before:?} -> {after:?}");
+    assert!(before[0] > 150.0, "rough middle {before:?}");
+    assert!(after[2] > 200.0 && after[0] < 120.0, "orm middle {after:?}");
+
+    // A glow map: black keeps the glow off, white lets it through.
+    let mut glow = physical([0.0; 3], 0.0, 1.0);
+    glow.emissive = Param::new(1.0);
+    glow.emissive_color = [1.0, 0.0, 0.0];
+    let dark = EnvSource::Hdri(write_hdr("black.hdr", &|_| [0.0; 3]));
+    glow.pbr.emissive_map = Some(write_png("glow_off.png", [0, 0, 0]));
+    let off = px(
+        &r.render_image(&scene(dark.clone(), glow.clone()), &ctx, &target),
+        0.5,
+        0.5,
+    );
+    glow.pbr.emissive_map = Some(write_png("glow_on.png", [255, 255, 255]));
+    let on = px(
+        &r.render_image(&scene(dark.clone(), glow), &ctx, &target),
+        0.5,
+        0.5,
+    );
+    eprintln!("glow map: {off:?} -> {on:?}");
+    assert!(off[0] < 20.0 && on[0] > 150.0, "glow {off:?} -> {on:?}");
+
+    // A logo's environment sphere reflects the map: flat letters face the
+    // camera and mirror what is behind it (blue); turned half a turn,
+    // yellow.
+    let logo = |turn: f32| {
+        let mut p = scene(map.clone(), physical([1.0; 3], 0.0, 1.0));
+        p.layers.pop();
+        p.environment.env_light.rotation = Param::new(turn);
+        let with = p.clone();
+        p.layers.push(Layer::new(
+            "Logo",
+            LayerKind::Logo(LogoLayer {
+                text: "EZ".into(),
+                size: Param::new(0.6),
+                matcap: Some("matcap_environment".into()),
+                ..Default::default()
+            }),
+        ));
+        (with, p)
+    };
+    for (turn, blue) in [(0.0, true), (180.0, false)] {
+        let (bare, lit) = logo(turn);
+        let a = r.render_image(&bare, &ctx, &target);
+        let b = r.render_image(&lit, &ctx, &target);
+        b.save(dir.join(format!("logo_env_{turn}.png"))).unwrap();
+        // The mean colour of the letters (where the logo changed the picture).
+        let (mut sum, mut n) = ([0.0f32; 3], 0.0);
+        for (pa, pb) in a.pixels().zip(b.pixels()) {
+            let d: i32 = (0..3).map(|c| (pa[c] as i32 - pb[c] as i32).abs()).sum();
+            if d > 200 {
+                for c in 0..3 {
+                    sum[c] += pb[c] as f32;
+                }
+                n += 1.0;
+            }
+        }
+        assert!(n > 50.0, "no letters");
+        let m = sum.map(|v| v / n);
+        eprintln!("logo turned {turn}: letters {m:?}");
+        if blue {
+            assert!(m[2] > m[0] + 60.0, "letters {m:?}");
+        } else {
+            assert!(m[0] > m[2] + 60.0, "letters {m:?}");
+        }
+    }
+
+    // Without a map (sky and ground colours) physical shading still
+    // lights the ball.
+    let img = r.render_image(
+        &scene(EnvSource::Colours, physical([0.8; 3], 0.0, 0.5)),
+        &ctx,
+        &target,
+    );
+    assert!(ball_mean(&img) > 20.0);
+}

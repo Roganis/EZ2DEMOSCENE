@@ -13,12 +13,22 @@
 // D.v[10]: deform: wobble scale, wobble angle (loop-safe), explode, reach (0 = no deform)
 // D.v[11..14]: colour ramp colours (rgb); D.v[11].w colour count, D.v[12].w glow strength
 // D.v[15]: ramp on, mode (0 gradient, 1 steps), shift along the copies (0..1), colour the glow
+// D2 (the next draw slot), physical material:
+// D2.v[0]: physical shading, has ORM map, has glow map, _
+// D2.v[1]: clearcoat, clearcoat roughness, sheen, transmission
+// D2.v[2]: sheen rgb, index of refraction
+
+@group(1) @binding(1) var<uniform> D2: Draw;
 
 @group(2) @binding(0) var t_tex: texture_2d<f32>;
 @group(2) @binding(1) var s_tex: sampler;
 @group(2) @binding(2) var t_relief: texture_2d<f32>;
 // The relief picture's own sampler: it tiles as that picture is set to.
 @group(2) @binding(3) var s_relief: sampler;
+// Occlusion / roughness / metalness (linear) and glow pictures, on the
+// colour texture's sampler.
+@group(2) @binding(4) var t_orm: texture_2d<f32>;
+@group(2) @binding(5) var t_emit: texture_2d<f32>;
 
 fn lum(c: vec3<f32>) -> f32 {
     return dot(c, vec3<f32>(0.299, 0.587, 0.114));
@@ -265,14 +275,28 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let uv = in.uv * tex_scale + scroll;
     var texel: vec3<f32>;
     var relief: vec3<f32>;
+    var orm = vec3<f32>(1.0);
+    var emit = vec3<f32>(1.0);
     // D is uniform, so this branch keeps sampling in uniform control flow.
     if (D.v[5].y > 0.5) {
         let on = normalize(in.obj_n);
         texel = tri_sample(t_tex, s_tex, in.obj, on);
         relief = tri_sample(t_relief, s_relief, in.obj, on);
+        if (D2.v[0].y > 0.5) {
+            orm = tri_sample(t_orm, s_tex, in.obj, on);
+        }
+        if (D2.v[0].z > 0.5) {
+            emit = tri_sample(t_emit, s_tex, in.obj, on);
+        }
     } else {
         texel = textureSample(t_tex, s_tex, uv).rgb;
         relief = textureSample(t_relief, s_relief, uv).rgb;
+        if (D2.v[0].y > 0.5) {
+            orm = textureSample(t_orm, s_tex, uv).rgb;
+        }
+        if (D2.v[0].z > 0.5) {
+            emit = textureSample(t_emit, s_tex, uv).rgb;
+        }
     }
     let height = lum(relief);
     let dhx = dpdx(height);
@@ -322,7 +346,17 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
         tex = texel;
     }
     var base = hue_rotate(base_in * tex, hue);
-    var col = lit_surface(base, metallic, rough, n, in.world, v, rim_k, 1.0);
+    var col: vec3<f32>;
+    if (D2.v[0].x > 0.5) {
+        var layers: PbrLayers;
+        layers.k = D2.v[1];
+        layers.sheen_ior = D2.v[2];
+        col = physical_surface(base, metallic * orm.b, rough * orm.g, n, in.world, v, rim_k, orm.r, layers);
+    } else if (D2.v[0].y > 0.5) {
+        col = lit_surface(base, metallic * orm.b, clamp(rough * orm.g, 0.02, 1.0), n, in.world, v, rim_k, orm.r);
+    } else {
+        col = lit_surface(base, metallic, rough, n, in.world, v, rim_k, 1.0);
+    }
 
     var mask = 1.0;
     switch mode {
@@ -347,7 +381,7 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
         }
         default: {}
     }
-    let emissive = hue_rotate(emissive_in, hue) * mask * in.inst.y;
+    let emissive = hue_rotate(emissive_in * emit, hue) * mask * in.inst.y;
     col = col + emissive;
 
     return vec4<f32>(apply_fog_at(col, in.world), 1.0);

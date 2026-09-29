@@ -751,6 +751,88 @@ impl EzApp {
         }
     }
 
+    /// Give a model layer the physical material of its glTF file: factors,
+    /// and its pictures added as images. Returns a note for the status
+    /// line ("" when the file has no material).
+    fn apply_model_material(&mut self, lref: LayerRef, path: &str, name: &str) -> String {
+        let mm = match ez_render::import::load_model_material(path) {
+            Ok(Some(mm)) => mm,
+            Ok(None) => return String::new(),
+            Err(e) => {
+                log::warn!("reading the material of {name}: {e:#}");
+                return String::new();
+            }
+        };
+        let stem = name
+            .rsplit_once('.')
+            .map(|(s, _)| s)
+            .unwrap_or(name)
+            .to_string();
+        let mut picture = |img: &Option<image::RgbaImage>, kind: &str| -> Option<String> {
+            let file = format!("{stem}_{kind}.png");
+            let path = self.store_picture(img.as_ref()?, &file)?;
+            Some(inspector::add_user_texture(
+                &mut self.project.textures,
+                &path,
+                &file,
+            ))
+        };
+        let color = picture(&mm.color_map, "colour");
+        let orm = picture(&mm.orm_map, "orm");
+        let glow = picture(&mm.emissive_map, "glow");
+        let Some(LayerKind::Mesh(m)) = self.layer_for(lref).map(|l| &mut l.kind) else {
+            return String::new();
+        };
+        let mat = &mut m.material;
+        mat.base_color = mm.base_color;
+        mat.metallic = Param::new(mm.metallic);
+        mat.roughness = Param::new(mm.roughness);
+        mat.rim = Param::new(0.0);
+        mat.texture = color;
+        mat.texture_scale = Param::new(1.0);
+        let e = mm.emissive;
+        let strength = e[0].max(e[1]).max(e[2]);
+        if strength > 0.0 {
+            mat.emissive_color = [e[0] / strength, e[1] / strength, e[2] / strength];
+            mat.emissive = Param::new(strength);
+            mat.emissive_mode = EmissiveMode::Full;
+        }
+        mat.pbr = Pbr {
+            shading: Shading::Physical,
+            orm_map: orm,
+            emissive_map: glow,
+            transmission: Param::new(mm.transmission),
+            ior: mm.ior,
+            ..Default::default()
+        };
+        " with its material".into()
+    }
+
+    /// Keep a picture made by the app (taken out of a model) as a PNG
+    /// asset: a file in the app's data folder, or in memory on the web.
+    fn store_picture(&self, img: &image::RgbaImage, file: &str) -> Option<String> {
+        let mut png = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .ok()?;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let dir = self.library.imported_dir();
+            std::fs::create_dir_all(&dir).ok()?;
+            let mut path = dir.join(file);
+            let mut k = 2;
+            while path.exists() {
+                path = dir.join(format!("{k}_{file}"));
+                k += 1;
+            }
+            std::fs::write(&path, png).ok()?;
+            Some(path.to_string_lossy().to_string())
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            Some(ez_core::store::insert_new(file, png))
+        }
+    }
+
     /// Apply files picked in a dialog or dropped on the window.
     fn handle_picked(&mut self) {
         for p in platform::take_picked() {
@@ -785,14 +867,20 @@ impl EzApp {
                 Purpose::OpenProject => self.open_asset(&p.path, &p.name),
                 Purpose::AddModelLayer => {
                     self.project.layers.push(inspector::model_layer(&p.path));
-                    self.selection = Selection::Layer(self.project.layers.len() - 1);
-                    self.set_status(format!("Added model {}", p.name), false);
+                    let i = self.project.layers.len() - 1;
+                    self.selection = Selection::Layer(i);
+                    let with = self.apply_model_material(LayerRef::Layer(i), &p.path, &p.name);
+                    self.set_status(format!("Added model {}{with}", p.name), false);
                 }
                 Purpose::SetModel(lref) => {
                     if let Some(LayerKind::Mesh(m)) = self.layer_for(lref).map(|l| &mut l.kind) {
                         m.source = MeshSource::File {
                             path: p.path.clone(),
                         };
+                    }
+                    let with = self.apply_model_material(lref, &p.path, &p.name);
+                    if !with.is_empty() {
+                        self.set_status(format!("Loaded {}{with}", p.name), false);
                     }
                 }
                 Purpose::SetMorphModel(lref) => {
@@ -814,6 +902,12 @@ impl EzApp {
                         match (&mut layer.kind, slot) {
                             (LayerKind::Mesh(m), platform::TexSlot::Relief) => {
                                 m.material.relief.texture = Some(name.clone())
+                            }
+                            (LayerKind::Mesh(m), platform::TexSlot::Orm) => {
+                                m.material.pbr.orm_map = Some(name.clone())
+                            }
+                            (LayerKind::Mesh(m), platform::TexSlot::Emissive) => {
+                                m.material.pbr.emissive_map = Some(name.clone())
                             }
                             (LayerKind::Mesh(m), _) => m.material.texture = Some(name.clone()),
                             (LayerKind::Backdrop(b), _) => b.texture = Some(name.clone()),

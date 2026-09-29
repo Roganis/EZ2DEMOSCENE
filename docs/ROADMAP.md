@@ -1158,7 +1158,7 @@ with the light, with a Sharpness slider (panorama mip level).
   camera's eye. Specular stays classic Blinn plus split-sum reflection
   until 11.2.
 
-### ☐ 11.2 PBR materials
+### ☑ 11.2 PBR materials
 **How.**
 - *Shading*: **Classic** (today's Blinn + `env_color`, the default for
   old projects) or **Physical**. Physical replaces `lit_surface`'s
@@ -1183,6 +1183,67 @@ with the light, with a Sharpness slider (panorama mip level).
 **Test.** A furnace test (rough white under uniform light keeps ≥ 95 %
 energy); the golden images of every existing preset unchanged in
 Classic; new golden images for the material presets.
+
+**Done.** *Material → Shading*: Classic (default, byte-identical: the
+golden images of every existing preset match to the same tiny noise as
+before the change) or Physical (`physical_surface` in common.wgsl, used
+by shapes, models and raymarched shapes).
+- *Shading*: GGX, Smith height-correlated visibility and Schlick Fresnel
+  for the sun; split-sum environment light with Fdez-Agüera multiple
+  scattering (the same compensation scales the sun's highlight); works
+  with an environment map, the captured sky, or the sky and ground
+  colours (then `env_color` stands in for the prefiltered map). The
+  weather (wet, puddles, snow) moved into a shared `weathered()` step
+  that both shadings call. Spot lights and lasers are drawn as beams and
+  don't light surfaces in this renderer, so only the sun gets GGX.
+- *Layers*: clearcoat (its own GGX lobe and split-sum term, f0 0.04,
+  dimming what is under it), sheen (Charlie distribution with Neubelt
+  visibility for the sun, a grazing-angle approximation for the
+  environment) and transmission ("Glass": the view refracted in through
+  the surface and out through the back as if the shape were a ball
+  there, so a glass ball shows the world upside down and a slab passes
+  it straight; it sees the environment, not the other shapes, instead of
+  the backdrop copy the plan named, which doesn't exist yet while
+  meshes are drawn).
+- *Data*: the mesh draw block was full, and meshes already use all four
+  bind groups, so meshes and raymarched shapes now take two draw slots:
+  a second dynamic uniform binding in group 1 reads the next slot
+  (`D2`: shading, map flags, clearcoat, coat roughness, sheen,
+  transmission, sheen colour, IOR). Other pipelines are unchanged.
+- *Maps*: an ORM picture (glTF packing, uploaded without sRGB decoding)
+  multiplies roughness and metalness and gives occlusion; a glow map
+  multiplies the glow colour. Both use the colour texture's tiling,
+  scrolling and triplanar projection, and are skipped when absent.
+- *glTF import*: adding or swapping in a `.gltf`/`.glb` model reads its
+  first material (base colour, metal, roughness, emissive with
+  `KHR_materials_emissive_strength`, `KHR_materials_transmission`,
+  `KHR_materials_ior`) and its pictures; occlusion and
+  metal/roughness pictures are merged into one ORM picture. They are
+  saved as PNGs in the app's data folder (in memory on the web) and
+  added to Your images. Pictures that can't be read are skipped; the
+  same fix lets a model whose texture files are missing still load (it
+  used to fail outright on disk).
+- *Material presets* row: gold, copper, chrome, brushed steel (rough
+  metal; no anisotropy), rubber, car paint (clearcoat), glass, velvet
+  (sheen), ceramic (light clearcoat). New preset **Material Gallery**
+  shows all nine under the softbox studio.
+- *Logos*: a built-in material sphere `matcap_environment` is made on
+  the CPU (64², from a 64×32 copy of the map) as a mirror ball reflecting
+  the environment light, seen through the current camera and turned
+  with the map, and remade only when those change; without a map it is
+  the chrome sphere.
+- Measured (`physical_materials_keep_energy`): the furnace test gives
+  197.2 on the ball against 197.0 for the sky for rough and half-rough
+  white plastic and metal (the ≥ 95 % target; multiple scattering
+  makes it exact); a clearcoat raises black paint from 18.8 to 32.1; a
+  glass ball shows the yellow behind it ([235, 237, 32]) where a mirror
+  shows the blue in front; sheen lifts dark cloth's edge from 29 to 62;
+  an ORM map with no roughness turns a rough metal ball's middle from
+  the map's average (yellow) to the blue spot straight ahead; a black
+  glow map keeps a glow off (0) and a white one lets it through (252);
+  a logo's environment sphere is blue facing the map's blue side and
+  yellow turned half a turn. glTF material reading has a unit test
+  (factors, a merged ORM picture, a missing picture skipped).
 
 ### ☐ 11.3 Screen-space reflections on objects
 The mirror floor keeps its planar reflection (exact, cheaper). Shiny

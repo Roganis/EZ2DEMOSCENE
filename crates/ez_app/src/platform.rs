@@ -30,6 +30,10 @@ pub enum TexSlot {
     Matcap,
     /// The image a logo morphs into.
     MorphImage,
+    /// A material's occlusion / roughness / metal map.
+    Orm,
+    /// A material's glow map.
+    Emissive,
 }
 
 /// What a picked file is for.

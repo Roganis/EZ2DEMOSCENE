@@ -433,8 +433,10 @@ search and a preview of every model.</figcaption></figure>
   (<i>Simulating…</i> in the viewport bar; until then the cloth hangs at rest, and exports wait). The picture on the cloth is the
   material's texture, stretched once over the sheet; every material, copies, shadows and depth of field apply, so a Grid of one flag
   makes a row of flags. The <b>Banners</b> preset has five.</td></tr>
-  <tr><td>3D model file</td><td>Your own <code>.gltf</code>, <code>.glb</code> or <code>.obj</code>. It is centred and scaled to fit automatically, and
-  uses the layer's material.</td></tr>
+  <tr><td>3D model file</td><td>Your own <code>.gltf</code>, <code>.glb</code> or <code>.obj</code>. It is centred and scaled to fit automatically.
+  A glTF model brings its own material: colour, metal, roughness, glow and glass, and its pictures (colour, occlusion/roughness/metal,
+  glow) are added to <span class="ui">Your images</span>, with <b>Physical</b> shading. Change any of it afterwards. OBJ models use the
+  layer's material.</td></tr>
 </table>
 
 <h3>Copies (instancing)</h3>
@@ -724,7 +726,9 @@ bloom, god rays, feedback trails, scanlines and the colour grade apply to it, bu
   <span class="ui">Shine</span> and <span class="ui">Gloss</span> the highlights.</td></tr>
   <tr><td>Material</td><td>A picture of a lit sphere (a <i>matcap</i>): each part of the bevel takes the colour of the sphere where it faces the
   same way. Built in: <b>matcap_gold</b>, <b>matcap_chrome</b>, <b>matcap_plastic</b> and <b>matcap_candy</b>, or import your own picture of a
-  sphere. It works without a bevel too, but only shows its middle colour.</td></tr>
+  sphere. <b>matcap_environment</b> is chrome reflecting the scene's <span class="ui">Environment light</span> (a studio or panorama
+  photo): it turns with the map and follows the camera, so the logo matches the shapes around it (without a map it looks like
+  matcap_chrome). A material works without a bevel too, but only shows its middle colour.</td></tr>
   <tr><td>Glint</td><td>A bright band sweeping across the logo, a whole number of <span class="ui">Sweeps / loop</span> (4 = every bar of a
   16-beat loop), with its width, direction and colour.</td></tr>
   <tr><td>Rings &amp; outlines</td><td><span class="ui">Rings</span>: glowing lines following the logo's shape, rippling outward a whole number
@@ -794,13 +798,35 @@ step for <kbd>Ctrl</kbd>+<kbd>Z</kbd>.</div>
 <!-- ===================================================== 6 -->
 <h1 id="materials"><span class="num">6</span>Materials, glow &amp; textures</h1>
 <h2>Surface</h2>
+<p><span class="ui">Presets</span> sets up a ready-made physical material in one click: <b>Gold</b>, <b>Copper</b>, <b>Chrome</b>,
+<b>Brushed steel</b>, <b>Rubber</b>, <b>Car paint</b>, <b>Glass</b>, <b>Velvet</b> and <b>Ceramic</b>. They keep your textures and glow.
+The <b>Material Gallery</b> preset shows all nine.</p>
 <table>
   <tr><th style="width:24%">Setting</th><th>Effect</th></tr>
+  <tr><td>Shading</td><td><b>Classic</b> is the original look (and what older projects keep). <b>Physical</b> lights the surface the way
+  real materials behave: sharper, truer highlights, reflections that get stronger at grazing angles, rough metals that stay bright,
+  and three extra layers below. It shines under an <span class="ui">Environment light</span> (Light &amp; fog), but works with the sky
+  and ground colours too.</td></tr>
   <tr><td>Colour</td><td>The base colour.</td></tr>
   <tr><td>Metallic</td><td>0 looks like plastic or paint. 1 looks like metal, where reflections take on the colour (gold, chrome, copper).</td></tr>
   <tr><td>Roughness</td><td>0 is a glossy mirror-like finish, 1 is matte. The glossy black look of Neon Arena is black + metallic 0.9 + roughness 0.15.</td></tr>
   <tr><td>Faceted</td><td>Flat-shaded, low-poly look. Every face catches light separately.</td></tr>
   <tr><td>Rim light</td><td>A glow along the silhouette that separates objects from dark backgrounds.</td></tr>
+  <tr><td>Clearcoat</td><td>(Physical) A clear lacquer on top, with its own <span class="ui">Coat roughness</span>: car paint, varnished
+  wood, glazed ceramic. A second, sharp reflection over the colour.</td></tr>
+  <tr><td>Sheen</td><td>(Physical) A soft glow at grazing angles in the <span class="ui">Sheen colour</span>, like velvet or felt.</td></tr>
+  <tr><td>Glass</td><td>(Physical) Light passes through, tinted by the colour. <span class="ui">Refraction</span> is how much it bends
+  (1.33 water, 1.5 glass, 2.4 diamond); a glass ball shows the world upside down, like a real one. Glass shows the environment
+  behind it, not the other shapes.</td></tr>
+</table>
+<h2>Material maps</h2>
+<p>Besides the colour <span class="ui">Texture</span>, two pictures fine-tune the surface. Both use the texture's Tiling and Scroll.</p>
+<table>
+  <tr><th style="width:24%">Map</th><th>What it does</th></tr>
+  <tr><td>Occlusion/rough/metal</td><td>One picture holding three maps, as glTF models and material sites ship them: <b>red</b> darkens
+  creases (occlusion), <b>green</b> is roughness and <b>blue</b> metalness. They multiply the Roughness and Metallic sliders, so leave
+  those at 1 to use the map as it is.</td></tr>
+  <tr><td>Glow map</td><td>Where the surface glows: it multiplies the glow colour (white glows fully, black not at all).</td></tr>
 </table>
 <h2>Glow (emission)</h2>
 <p><span class="ui">Glow colour</span> and <span class="ui">Glow</span> (strength) make a surface emit light. Bright glow feeds the

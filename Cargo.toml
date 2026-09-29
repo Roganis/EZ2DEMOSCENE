@@ -24,7 +24,7 @@ egui = "0.36"
 egui-wgpu = "0.36"
 egui-snarl = { version = "0.12", features = ["serde"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif", "tga", "hdr"] }
-gltf = "1.4"
+gltf = { version = "1.4", features = ["KHR_materials_transmission", "KHR_materials_ior", "KHR_materials_emissive_strength"] }
 tobj = "4"
 rodio = { version = "0.22", default-features = false }
 rfd = "0.17"

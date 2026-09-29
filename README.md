@@ -141,8 +141,14 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     or rose curves, with light pulses running along them.
   - Blink / strobe on any layer: rhythmic or random blinking and beat
     flashes.
-- **Materials.** Glossy/metallic surfaces with fake studio reflections,
-  flat-shaded facets, rim light, and neon glow on the whole surface, along
+- **Materials.** Classic or **physical** shading (GGX highlights,
+  split-sum reflections with multiple scattering, so rough metals keep
+  their energy), clearcoat, sheen and glass, occlusion/roughness/metal and
+  glow maps, and nine one-click presets (gold, copper, chrome, brushed
+  steel, rubber, car paint, glass, velvet, ceramic). glTF models bring
+  their own PBR material and pictures (Classic keeps the original fake
+  studio reflections). Flat-shaded facets, rim light, and neon glow on
+  the whole surface, along
   polygon edges (Tron look), in stripes, or from a texture. **Relief**
   adds bump maps, normal maps and real displacement (with subdivision).
   **Glitch**
