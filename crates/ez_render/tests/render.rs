@@ -4489,3 +4489,106 @@ fn stepped_motion_and_mode7_floor() {
     assert!(d_under < 0.05, "the floor doesn't hide what is under it");
     assert!(d_over > 0.1, "a cube above the floor does not show");
 }
+
+/// The whole screen at an old machine's resolution: the border is the
+/// border colour, inside only the palette's colours in machine-sized
+/// (wide) pixels, colour cubes keep their levels, and it loops.
+#[test]
+fn console_screens_and_palettes() {
+    use ez_core::palette::PaletteId;
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let dir = snapshot_dir().join("screens");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let (w, h) = (640u32, 360u32);
+    let target = r.create_target(w, h);
+    let scene = || {
+        let mut p = presets::empty();
+        p.post.grade.vignette = Param::new(0.0);
+        p.post.grade.grain = Param::new(0.0);
+        p.post.bloom.enabled = false;
+        if let LayerKind::Mesh(m) = &mut p.layers[2].kind {
+            m.material.texture = Some("plasma".into());
+        }
+        p
+    };
+    let rgb = |c: u32| [(c >> 16) as u8, (c >> 8) as u8, c as u8];
+    let near = |p: &image::Rgba<u8>, c: [u8; 3]| (0..3).all(|k| (p[k] as i32 - c[k] as i32).abs() <= 2);
+
+    // C64 multicolour on a 4:3 TV inside a 16:9 output.
+    let mut p = scene();
+    ScreenPreset::C64Multicolour.apply(&mut p.retro, &mut p.post.palette);
+    let img = r.render_image(&p, &EvalCtx::new(&p.timing, 0.3, None), &target);
+    img.save(dir.join("c64.png")).unwrap();
+    let border = rgb(0x6c5eb5);
+    let pal: Vec<[u8; 3]> = PaletteId::C64.colors().iter().map(|c| rgb(*c)).collect();
+    let (x0, x1) = (w / 8, w - w / 8);
+    let mut bad_border = 0;
+    let mut off_palette = 0;
+    let mut changes = 0u32;
+    for y in 0..h {
+        for x in 0..w {
+            let px = img.get_pixel(x, y);
+            if x < x0 - 1 || x > x1 {
+                bad_border += !near(px, border) as u32;
+            } else if x > x0 && x < x1 - 1 {
+                off_palette += !pal.iter().any(|c| near(px, *c)) as u32;
+            }
+        }
+        // Colour changes along a row: at most one per machine pixel (160
+        // across), in the busiest row.
+        let mut n = 0;
+        for x in x0 + 1..x1 - 1 {
+            n += (img.get_pixel(x, y) != img.get_pixel(x + 1, y)) as u32;
+        }
+        changes = changes.max(n);
+    }
+    eprintln!("C64: {bad_border} border pixels off, {off_palette} pixels off the palette, {changes} changes in the busiest row");
+    assert_eq!(bad_border, 0, "the border isn't the border colour");
+    assert_eq!(off_palette, 0, "colours outside the C64 palette");
+    assert!(changes <= 160, "finer than 160 pixels across: {changes}");
+    assert!(changes > 10, "the picture is flat");
+
+    // Loops.
+    let a = r.render_image(&p, &EvalCtx::new(&p.timing, 0.0, None), &target);
+    let b = r.render_image(&p, &EvalCtx::new(&p.timing, 1.0, None), &target);
+    assert!(mean_abs_diff(a.as_raw(), b.as_raw()) < 0.6, "the C64 screen doesn't loop");
+
+    // Game Boy: square pixels, 10:9, four greens.
+    let mut p = scene();
+    ScreenPreset::GameBoy.apply(&mut p.retro, &mut p.post.palette);
+    let img = r.render_image(&p, &EvalCtx::new(&p.timing, 0.3, None), &target);
+    img.save(dir.join("gameboy.png")).unwrap();
+    let greens: Vec<[u8; 3]> = PaletteId::GameBoy.colors().iter().map(|c| rgb(*c)).collect();
+    assert!(img.pixels().all(|px| greens.iter().any(|c| near(px, *c))), "Game Boy colours");
+
+    // Palettes over the full picture: the NES list and the Amiga cube.
+    let mut p = scene();
+    p.post.palette.enabled = true;
+    p.post.palette.palette = PaletteId::Nes;
+    let img = r.render_image(&p, &EvalCtx::new(&p.timing, 0.3, None), &target);
+    img.save(dir.join("nes.png")).unwrap();
+    let nes: Vec<[u8; 3]> = PaletteId::Nes.colors().iter().map(|c| rgb(*c)).collect();
+    let used = img.pixels().map(|px| [px[0], px[1], px[2]]).collect::<std::collections::HashSet<_>>();
+    assert!(used.iter().all(|u| nes.iter().any(|c| (0..3).all(|k| (u[k] as i32 - c[k] as i32).abs() <= 2))), "NES colours");
+    assert!(used.len() > 8, "only {} NES colours used", used.len());
+    for (pal, levels) in [(PaletteId::Amiga, 16u32), (PaletteId::AmstradCpc, 3)] {
+        p.post.palette.palette = pal;
+        let img = r.render_image(&p, &EvalCtx::new(&p.timing, 0.3, None), &target);
+        let step = 255.0 / (levels - 1) as f32;
+        let ok = img.as_raw().chunks(4).all(|px| {
+            (0..3).all(|k| {
+                let v = px[k] as f32 / step;
+                (v - v.round()).abs() * step <= 2.0
+            })
+        });
+        assert!(ok, "{pal:?} has channels off its {levels} levels");
+    }
+}

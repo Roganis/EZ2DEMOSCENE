@@ -1270,14 +1270,14 @@ fn step_ui(ui: &mut Ui, fps: &mut f32) {
 /// Two numbers (a size in pixels).
 fn size_row(ui: &mut Ui, label: &str, tip: &str, v: &mut [u32; 2]) {
     row(ui, label, tip, |ui| {
-        ui.add(egui::DragValue::new(&mut v[0]).range(16..=4096).speed(1.0));
+        ui.add(egui::DragValue::new(&mut v[0]).range(8..=4096).speed(1.0));
         ui.label("×");
         ui.add(egui::DragValue::new(&mut v[1]).range(16..=4096).speed(1.0));
     });
 }
 
 /// The quirks of 5th-generation 3D for the whole scene.
-pub fn retro_ui(ui: &mut Ui, r: &mut Retro3d, out: (u32, u32)) {
+pub fn retro_ui(ui: &mut Ui, r: &mut Retro3d, palette: &mut PaletteFx, out: (u32, u32)) {
     ui.heading("Retro 3D");
     ui.label(
         RichText::new(
@@ -1298,6 +1298,41 @@ pub fn retro_ui(ui: &mut Ui, r: &mut Retro3d, out: (u32, u32)) {
     });
     check(ui, "On", "Use the settings below", &mut r.enabled);
     ui.add_enabled_ui(r.enabled, |ui| {
+        section(ui, "Whole screen (8- and 16-bit machines)", r.screen.enabled, |ui| {
+            ui.label(
+                RichText::new(
+                    "The whole picture (text, logos and effects too) at an old machine's resolution, \
+                     one colour per machine pixel, pixels as wide as they were. A machine button \
+                     also turns on its palette (Post effects → Retro palette).",
+                )
+                .weak()
+                .small(),
+            );
+            row(ui, "Machine", "Screen size, shape, border and palette of a machine", |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    for p in ScreenPreset::ALL {
+                        if ui.small_button(p.label()).clicked() {
+                            p.apply(r, palette);
+                        }
+                    }
+                });
+            });
+            let sc = &mut r.screen;
+            check(ui, "Whole screen", "Draw the whole picture at the size below", &mut sc.enabled);
+            ui.add_enabled_ui(sc.enabled, |ui| {
+                size_row(ui, "Pixels", "Pixels across and down", &mut sc.size);
+                combo(
+                    ui,
+                    "Shape",
+                    "Fill the output, sit on a 4:3 television (wide pixels where the machine had \
+                     them), or keep pixels square (handhelds)",
+                    &mut sc.frame,
+                    &ScreenFrame::ALL,
+                    |f| f.label(),
+                );
+                color(ui, "Border", "Colour around the picture", &mut sc.border);
+            });
+        });
         section(ui, "Resolution", true, |ui| {
             combo(
                 ui,
@@ -1419,7 +1454,13 @@ pub fn retro_ui(ui: &mut Ui, r: &mut Retro3d, out: (u32, u32)) {
             );
             ui.add_enabled_ui(c.enabled, |ui| {
                 let mut opts = vec![ColormapPalette::Software256];
-                opts.extend(ez_core::palette::PaletteId::ALL.map(ColormapPalette::Retro));
+                // Up to 256 colours.
+                opts.extend(
+                    ez_core::palette::PaletteId::ALL
+                        .into_iter()
+                        .filter(|p| p.count() <= 256)
+                        .map(ColormapPalette::Retro),
+                );
                 row(ui, "Palette", "The colours shading steps through", |ui| {
                     egui::ComboBox::from_id_salt("colormap palette")
                         .selected_text(c.palette.label())
@@ -1468,8 +1509,8 @@ pub fn retro_ui(ui: &mut Ui, r: &mut Retro3d, out: (u32, u32)) {
 
 fn palette_swatch(ui: &mut Ui, p: PaletteId) {
     let cols = p.colors();
-    if cols.is_empty() {
-        ui.label(RichText::new("216 colours (6 levels per channel)").weak());
+    if let Some(n) = p.levels() {
+        ui.label(RichText::new(format!("{} colours ({n} levels per channel)", n * n * n)).weak());
         return;
     }
     ui.horizontal_wrapped(|ui| {
@@ -5329,7 +5370,10 @@ fn logo_retro_ui(ui: &mut Ui, g: &mut LogoLayer) {
                 .selected_text(text)
                 .show_ui(ui, |ui| {
                     ui.selectable_value(&mut g.palette, None, "Any colours");
-                    for p in PaletteId::ALL {
+                    // Logos take up to 16 colours (and the VGA cube).
+                    let fits =
+                        |p: &PaletteId| p.levels().is_none_or(|n| n == 6) && p.colors().len() <= 16;
+                    for p in PaletteId::ALL.into_iter().filter(fits) {
                         ui.selectable_value(&mut g.palette, Some(p), p.label());
                     }
                 });

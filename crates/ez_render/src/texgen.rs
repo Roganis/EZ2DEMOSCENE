@@ -742,7 +742,7 @@ pub fn retroize(img: &RgbaImage, p: &RetroProcess) -> RgbaImage {
 
 /// Convenience used by the texture pack generator.
 pub fn palette_swatch(p: PaletteId) -> RgbaImage {
-    let cols = p.colors();
+    let cols = p.colors().to_vec();
     let n = cols.len().max(1) as u32;
     RgbaImage::from_fn(n * 16, 16, |x, _| {
         let c = cols.get((x / 16) as usize).copied().unwrap_or(0);

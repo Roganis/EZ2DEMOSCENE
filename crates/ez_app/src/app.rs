@@ -1565,7 +1565,7 @@ impl EzApp {
                 Selection::Post => inspector::post_ui(ui, &mut self.project.post),
                 Selection::Retro => {
                     let out = self.export.still_size();
-                    inspector::retro_ui(ui, &mut self.project.retro, out)
+                    inspector::retro_ui(ui, &mut self.project.retro, &mut self.project.post.palette, out)
                 }
                 Selection::Textures => inspector::textures_ui(ui, &mut self.project.textures),
                 Selection::Sequence => {

@@ -1289,6 +1289,16 @@ turn on a console's bundle of settings, then fine-tune it:</p>
 <p> <b>Modern (off)</b> resets it.</p>
 <table>
   <tr><th style="width:24%">Setting</th><th>What it does</th></tr>
+  <tr><td>Whole screen (8- and 16-bit machines)</td><td>Draws the <i>whole</i> picture, text, logos and effects included, at an
+  old machine's resolution: one colour per machine pixel, sampled after everything else, so pixels can be wider than tall. The
+  <span class="ui">Machine</span> buttons set the size, shape, border and palette of the C64 (multicolour 160 × 200 with its
+  double-wide pixels, or hi-res 320 × 200), ZX Spectrum, Amstrad CPC mode 0, CGA and VGA PCs, Amiga, NES, Master System, Mega
+  Drive, Game Boy, Virtual Boy and the 1-bit Macintosh; the palette goes to <span class="ui">Post effects → Retro palette</span>,
+  where you can change its dither. <span class="ui">Shape</span>: <b>4:3 television</b> (the machine's picture on a TV, with the
+  border colour at the sides of a wide output), <b>Square pixels</b> (handhelds and the Mac) or <b>Fill the output</b>.
+  <span class="ui">Border</span> is the colour around the picture (the C64's purple-blue, the Spectrum's blue…). With
+  <span class="ui">CRT monitor</span> on, there is one scanline per machine line. Combine it with <span class="ui">Draw the scene
+  at</span> for 3D that aliases at its own resolution underneath.</td></tr>
   <tr><td>Draw the scene at</td><td>Draws the 3D scene small (<b>256 × 224</b>, <b>320 × 240</b>, <b>640 × 480</b> or your own size)
   without smoothing, then blows it up with square pixels. Edges stair-step, thin things break up and shading is blocky, as on the
   console: this is not the same as the <b>Pixelate</b> post effect, which only blocks up the finished, smooth picture. Sizes are for
@@ -1350,6 +1360,13 @@ square embers, the two-layer sky) and <b>Slime Falls</b> a turbulent slime canyo
   <tr><td>ZX Spectrum (8)</td><td><div class="swatches"><span style="background:#000"></span><span style="background:#00f"></span><span style="background:#f00"></span><span style="background:#f0f"></span><span style="background:#0f0"></span><span style="background:#0ff"></span><span style="background:#ff0"></span><span style="background:#fff;border:1px solid #ccc"></span></div></td></tr>
   <tr><td>VGA cube (216)</td><td>Every colour quantised to 6 levels per channel, a subtle retro banding.</td></tr>
   <tr><td>Green phosphor (4)</td><td><div class="swatches"><span style="background:#001a00"></span><span style="background:#006600"></span><span style="background:#22cc22"></span><span style="background:#99ff99"></span></div></td></tr>
+  <tr><td>NES (55)</td><td>The Nintendo Entertainment System's fixed palette (the common NTSC approximation): muted blues,
+  greens, browns and pastels.</td></tr>
+  <tr><td>1-bit black &amp; white (2)</td><td><div class="swatches"><span style="background:#000"></span><span style="background:#fff;border:1px solid #ccc"></span></div>
+  Macintosh, ZX81; lovely with full dither.</td></tr>
+  <tr><td>Virtual Boy red (4)</td><td><div class="swatches"><span style="background:#000"></span><span style="background:#550000"></span><span style="background:#aa0000"></span><span style="background:#ff0000"></span></div></td></tr>
+  <tr><td>Amstrad CPC (27), Master System (64), Mega Drive (512), Amiga 12-bit (4096)</td><td>Colour cubes: every mix of 3, 4, 8 or
+  16 levels of red, green and blue, which is what these machines could show. The more levels, the subtler the banding.</td></tr>
 </table>
 
 <!-- ===================================================== 10 -->

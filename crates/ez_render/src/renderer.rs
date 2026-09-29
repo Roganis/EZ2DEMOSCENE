@@ -3504,7 +3504,11 @@ impl Renderer {
         ];
         // Retro looks; the palette in a third block.
         let mut e3: Block = Zeroable::zeroed();
-        let mut colors: Vec<[f32; 3]> = match g.palette {
+        // Logos take lists of up to 16 colours and the VGA cube.
+        let palette = g
+            .palette
+            .filter(|p| p.levels().is_none_or(|n| n == 6) && p.colors().len() <= 16);
+        let mut colors: Vec<[f32; 3]> = match palette {
             Some(pal) => pal.colors_f32(),
             None => Vec::new(),
         };
@@ -3516,7 +3520,7 @@ impl Renderer {
         for (i, c) in colors.iter().enumerate() {
             e3[i] = c4(*c, 0.0);
         }
-        let count = match g.palette {
+        let count = match palette {
             Some(PaletteId::Vga) => 216.0,
             Some(_) => colors.len() as f32,
             None => 0.0,
@@ -8271,12 +8275,16 @@ impl Renderer {
         } else {
             0.0
         };
+        // A colour cube is a quantiser (-levels per channel); a list is
+        // packed four colours per slot as 0xRRGGBB (exact in a float),
+        // up to 64.
         let (count, cols) = if post.palette.enabled {
-            if post.palette.palette == PaletteId::Vga {
-                (-1.0, vec![])
-            } else {
-                let c = post.palette.palette.colors_f32();
-                (c.len().min(16) as f32, c)
+            match post.palette.palette.levels() {
+                Some(n) => (-(n as f32), vec![]),
+                None => {
+                    let c = post.palette.palette.colors();
+                    (c.len().min(64) as f32, c.to_vec())
+                }
             }
         } else {
             (0.0, vec![])
@@ -8291,8 +8299,8 @@ impl Renderer {
         let frames = ctx.loop_beats as f32 * 6.0;
         let frame_id = (ctx.beat_phase * frames).floor().rem_euclid(frames);
         f[5] = [ctx.beat_frac(), frame_id, ctx.loop_beats as f32, 0.0];
-        for (i, c) in cols.iter().take(16).enumerate() {
-            f[8 + i] = c4(*c, 1.0);
+        for (i, c) in cols.iter().take(64).enumerate() {
+            f[8 + i / 4][i % 4] = *c as f32;
         }
         let vhs = &post.vhs;
         if vhs.enabled {
@@ -8328,6 +8336,14 @@ impl Renderer {
                     .unwrap_or_else(|| ez_core::retro::fit_to_output([320, 240], out));
                 slots[SLOT_FINAL as usize][25] = [vi, 1.0 / cw as f32, 1.0 / ch as f32, 0.0];
             }
+        }
+        // Retro 3D whole screen: the console's pixels and its rectangle.
+        let sc = &project.retro.screen;
+        if project.retro.enabled && sc.enabled {
+            let f = &mut slots[SLOT_FINAL as usize];
+            f[26] = [sc.size[0].max(1) as f32, sc.size[1].max(1) as f32, 1.0, 0.0];
+            f[27] = sc.rect((target.width, target.height));
+            f[28] = c4(project.scene_color(sc.border, ctx), 0.0);
         }
         for (i, s) in slots.iter().enumerate() {
             self.queue

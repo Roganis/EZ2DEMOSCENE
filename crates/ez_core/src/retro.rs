@@ -177,6 +177,9 @@ pub struct Retro3d {
     pub near_cull: Param,
     /// Lighting that steps through a palette's colours (Quake).
     pub colormap: Colormap,
+    /// The whole picture (text, logos and effects too) at an 8- or 16-bit
+    /// machine's resolution, pixels as wide as they were.
+    pub screen: ConsoleScreen,
 }
 
 impl Default for Retro3d {
@@ -197,6 +200,7 @@ impl Default for Retro3d {
             vi_blur: Param::new(0.0),
             near_cull: Param::new(0.0),
             colormap: Colormap::default(),
+            screen: ConsoleScreen::default(),
         }
     }
 }
@@ -297,7 +301,8 @@ impl Retro3d {
                 || self.color_15bit
                 || on(&self.vi_blur)
                 || on(&self.near_cull)
-                || self.colormap.enabled)
+                || self.colormap.enabled
+                || self.screen.enabled)
     }
 }
 
@@ -336,6 +341,174 @@ impl TexFilter {
 
     pub fn index(self) -> u32 {
         TexFilter::ALL.iter().position(|f| *f == self).unwrap_or(0) as u32
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The whole screen at an old machine's resolution
+
+/// How the console's picture sits on the output.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum ScreenFrame {
+    /// Stretched over the whole output (pixels as wide as that makes them).
+    Fill,
+    /// On a 4:3 television, with the border colour at the sides: pixels
+    /// as wide as they were (a C64's 160 × 200 pixels are twice as wide
+    /// as tall).
+    #[default]
+    Tv,
+    /// Square pixels (handhelds: the Game Boy's 160 × 144 screen).
+    SquarePixels,
+}
+
+impl ScreenFrame {
+    pub const ALL: [ScreenFrame; 3] = [
+        ScreenFrame::Fill,
+        ScreenFrame::Tv,
+        ScreenFrame::SquarePixels,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ScreenFrame::Fill => "Fill the output",
+            ScreenFrame::Tv => "4:3 television",
+            ScreenFrame::SquarePixels => "Square pixels",
+        }
+    }
+}
+
+/// The whole picture at an old machine's resolution: sampled once per
+/// console pixel (after everything else is drawn), so pixels can be wider
+/// than tall, inside an optional border.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ConsoleScreen {
+    pub enabled: bool,
+    /// Pixels across and down.
+    pub size: [u32; 2],
+    pub frame: ScreenFrame,
+    /// Colour around the picture.
+    pub border: crate::color::Rgb,
+}
+
+impl Default for ConsoleScreen {
+    fn default() -> Self {
+        ConsoleScreen {
+            enabled: false,
+            size: [320, 200],
+            frame: ScreenFrame::Tv,
+            border: [0.0; 3],
+        }
+    }
+}
+
+impl ConsoleScreen {
+    /// The picture's rectangle on an output of `out` pixels, in 0..1 of
+    /// the output (left, top, width, height).
+    pub fn rect(&self, out: (u32, u32)) -> [f32; 4] {
+        let a = out.0.max(1) as f32 / out.1.max(1) as f32;
+        let d = match self.frame {
+            ScreenFrame::Fill => a,
+            ScreenFrame::Tv => 4.0 / 3.0,
+            ScreenFrame::SquarePixels => self.size[0].max(1) as f32 / self.size[1].max(1) as f32,
+        };
+        if d < a {
+            let w = d / a;
+            [(1.0 - w) * 0.5, 0.0, w, 1.0]
+        } else {
+            let h = a / d;
+            [0.0, (1.0 - h) * 0.5, 1.0, h]
+        }
+    }
+}
+
+/// Old machines' screens, with their palettes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScreenPreset {
+    C64Multicolour,
+    C64Hires,
+    ZxSpectrum,
+    AmstradMode0,
+    Cga,
+    MsDosVga,
+    AmigaLores,
+    Nes,
+    MasterSystem,
+    MegaDrive,
+    GameBoy,
+    VirtualBoy,
+    Macintosh,
+}
+
+impl ScreenPreset {
+    pub const ALL: [ScreenPreset; 13] = [
+        ScreenPreset::C64Multicolour,
+        ScreenPreset::C64Hires,
+        ScreenPreset::ZxSpectrum,
+        ScreenPreset::AmstradMode0,
+        ScreenPreset::Cga,
+        ScreenPreset::MsDosVga,
+        ScreenPreset::AmigaLores,
+        ScreenPreset::Nes,
+        ScreenPreset::MasterSystem,
+        ScreenPreset::MegaDrive,
+        ScreenPreset::GameBoy,
+        ScreenPreset::VirtualBoy,
+        ScreenPreset::Macintosh,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ScreenPreset::C64Multicolour => "C64 multicolour 160×200",
+            ScreenPreset::C64Hires => "C64 hi-res 320×200",
+            ScreenPreset::ZxSpectrum => "ZX Spectrum 256×192",
+            ScreenPreset::AmstradMode0 => "Amstrad CPC mode 0 160×200",
+            ScreenPreset::Cga => "PC CGA 320×200",
+            ScreenPreset::MsDosVga => "MS-DOS VGA 320×200",
+            ScreenPreset::AmigaLores => "Amiga lo-res 320×256",
+            ScreenPreset::Nes => "NES 256×240",
+            ScreenPreset::MasterSystem => "Master System 256×192",
+            ScreenPreset::MegaDrive => "Mega Drive 320×224",
+            ScreenPreset::GameBoy => "Game Boy 160×144",
+            ScreenPreset::VirtualBoy => "Virtual Boy 384×224",
+            ScreenPreset::Macintosh => "Macintosh 512×342",
+        }
+    }
+
+    /// Size, frame, border (sRGB) and palette.
+    pub fn spec(self) -> ([u32; 2], ScreenFrame, u32, crate::palette::PaletteId) {
+        use crate::palette::PaletteId as P;
+        use ScreenFrame::*;
+        match self {
+            ScreenPreset::C64Multicolour => ([160, 200], Tv, 0x6c5eb5, P::C64),
+            ScreenPreset::C64Hires => ([320, 200], Tv, 0x6c5eb5, P::C64),
+            ScreenPreset::ZxSpectrum => ([256, 192], Tv, 0x0000ff, P::Spectrum),
+            ScreenPreset::AmstradMode0 => ([160, 200], Tv, 0x000080, P::AmstradCpc),
+            ScreenPreset::Cga => ([320, 200], Tv, 0x000000, P::Cga),
+            ScreenPreset::MsDosVga => ([320, 200], Tv, 0x000000, P::Vga),
+            ScreenPreset::AmigaLores => ([320, 256], Tv, 0x000000, P::Amiga),
+            ScreenPreset::Nes => ([256, 240], Tv, 0x000000, P::Nes),
+            ScreenPreset::MasterSystem => ([256, 192], Tv, 0x000000, P::MasterSystem),
+            ScreenPreset::MegaDrive => ([320, 224], Tv, 0x000000, P::MegaDrive),
+            ScreenPreset::GameBoy => ([160, 144], SquarePixels, 0x8bac0f, P::GameBoy),
+            ScreenPreset::VirtualBoy => ([384, 224], SquarePixels, 0x000000, P::VirtualBoy),
+            ScreenPreset::Macintosh => ([512, 342], SquarePixels, 0x000000, P::OneBit),
+        }
+    }
+
+    /// Turn the screen and its palette on (the palette reduction post
+    /// effect, dithered).
+    pub fn apply(self, retro: &mut Retro3d, palette: &mut crate::scene::PaletteFx) {
+        let (size, frame, border, pal) = self.spec();
+        retro.enabled = true;
+        retro.screen = ConsoleScreen {
+            enabled: true,
+            size,
+            frame,
+            border: crate::color::hex(border),
+        };
+        palette.enabled = true;
+        palette.palette = pal;
     }
 }
 
@@ -524,21 +697,10 @@ impl ColormapPalette {
     pub fn colors(self) -> Vec<[u8; 3]> {
         match self {
             ColormapPalette::Software256 => software_palette(),
-            ColormapPalette::Retro(crate::palette::PaletteId::Vga) => {
-                let lv = [0u8, 51, 102, 153, 204, 255];
-                let mut v = Vec::with_capacity(216);
-                for r in lv {
-                    for g in lv {
-                        for b in lv {
-                            v.push([r, g, b]);
-                        }
-                    }
-                }
-                v
-            }
             ColormapPalette::Retro(p) => p
-                .colors()
+                .all_colors()
                 .iter()
+                .take(256)
                 .map(|c| [(c >> 16) as u8, (c >> 8) as u8, *c as u8])
                 .collect(),
         }
@@ -789,6 +951,29 @@ mod tests {
             .map(|c| (lit[c] as i32 - pal[40][c] as i32).abs())
             .sum();
         assert!(d < 40, "normal light moves the colour: {d}");
+    }
+
+    #[test]
+    fn screens_keep_their_shape() {
+        let mut s = ConsoleScreen {
+            enabled: true,
+            size: [160, 200],
+            ..Default::default()
+        };
+        // 4:3 on 16:9: pillarboxed to three quarters of the width.
+        let r = s.rect((1920, 1080));
+        assert!((r[2] - 0.75).abs() < 1e-6 && (r[0] - 0.125).abs() < 1e-6 && r[3] == 1.0);
+        // Game Boy: square pixels, 10:9.
+        s.size = [160, 144];
+        s.frame = ScreenFrame::SquarePixels;
+        let r = s.rect((1920, 1080));
+        assert!((r[2] * 1920.0 / 160.0 - 1080.0 / 144.0).abs() < 1e-3);
+        // Taller output than the picture: bars above and below.
+        s.frame = ScreenFrame::Tv;
+        let r = s.rect((1080, 1920));
+        assert!(r[2] == 1.0 && r[3] < 1.0 && r[1] > 0.0);
+        s.frame = ScreenFrame::Fill;
+        assert_eq!(s.rect((1920, 1080)), [0.0, 0.0, 1.0, 1.0]);
     }
 
     #[test]
