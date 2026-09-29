@@ -411,6 +411,7 @@ search and a preview of every model.</figcaption></figure>
   <tr><td>Plane, Pyramid, Cone</td><td>Simple building blocks.</td></tr>
   <tr><td>Capsule (Length), Rounded cube (Roundness)</td><td>Soft, toy-like objects and pills.</td></tr>
   <tr><td>Torus knot (Loops, Twists), Spring (Turns), Möbius strip</td><td>Twisty tubes and bands. Knots with more loops and twists get more intricate.</td></tr>
+  <tr><td>Bowl (Thickness)</td><td>The lower half of a sphere as an open shell: a container for a Liquid layer.</td></tr>
   <tr><td>Star (Points, Inner radius), Gear (Teeth), Heart</td><td>Flat extruded logos and badges (<span class="ui">Depth</span> sets the thickness).</td></tr>
   <tr><td>Gem (Facets)</td><td>A brilliant-cut diamond. Lovely with <span class="ui">Glow where: Edges</span>.</td></tr>
   <tr><td>Menger sponge (Level 0–3)</td><td>The classic fractal cube. Level 3 has 8,000 cubes, so use it sparingly.</td></tr>
@@ -483,6 +484,19 @@ everywhere, then finished on the graphics card.)</p>
   <span class="ui">Gravity</span> 0 the blocks burst apart in space. <span class="ui">Collider size</span> is half the collider
   for a copy of size 1: 0.5 for the built-in cube, 1 for the sphere. Random tilt and size under Variation don't change how copies
   collide, so keep them at 0. Up to 400 bodies. The <b>Beat Demolition</b> preset has a wall and a rain of pearls.</td></tr>
+  <tr><td>Liquid</td><td>Droplets, Container (Box, Bowl, Pool on the floor), Container size, Droplet size, Source (Filled, Poured
+  in: Life, Spout height), Gravity, Viscosity, Cohesion, Stir, Seed, Liquid surface; closing the loop</td>
+  <td>Copies as the <b>droplets of a liquid</b>, simulated ahead of time like flocks. It fills a container around the layer's
+  position (a box or bowl of the container's size, or a round pool on the floor) and settles; animate the layer's
+  <span class="ui">Tilt</span> (Transform) and it sloshes from side to side. Put a <b>Bowl</b> shape on another layer at the same
+  position, with the same Tilt and a Size of the container size ÷ 0.94, and the liquid rocks inside it. <span class="ui">Poured in</span>
+  sends a stream from a spout above, each droplet living its <span class="ui">Life</span>. <span class="ui">Viscosity</span> makes it
+  syrupy, <span class="ui">Cohesion</span> holds drops together, <span class="ui">Stir</span> swirls it (link it to the music).
+  Droplets are copies of the layer's shape (small spheres, or glowing sprites on a sprite layer), sized by the layer's Size.
+  Tick <span class="ui">Liquid surface</span> to draw them as one smooth liquid in the layer's material instead: Gold for molten
+  metal, Glass for water (one liquid surface per scene; the floor's reflection shows its droplets). The loop closes by cross-fading
+  two copies half a loop apart. A few thousand droplets bake in a few seconds; up to 8,000. The <b>Liquid Gold</b> preset rocks a
+  bowl of molten gold.</td></tr>
 </table>
 <p><b>Variation</b> (appears when there are copies) adds life:</p>
 <ul>
@@ -518,6 +532,8 @@ glow too.</p>
   <tr><td>Stretch</td><td>Stretch per axis (make a cube into a slab or a pillar).</td></tr>
   <tr><td>Spin / loop</td><td>Whole turns per loop around x, y and z. Negative numbers spin the other way.</td></tr>
   <tr><td>Bob</td><td>Up/down offset. Animate it with <span class="ui">~</span> to make objects float.</td></tr>
+  <tr><td>Tilt</td><td>Rocks the layer side to side (degrees, around the depth axis). Animate it with a sine to rock a bowl, and give
+  a liquid layer the same Tilt so it sloshes inside.</td></tr>
 </table>
 
 <h2>5.4 Symmetry</h2>

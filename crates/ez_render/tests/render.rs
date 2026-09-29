@@ -3455,3 +3455,131 @@ fn light_shafts_follow_the_sun_shadows() {
     let last = r.render_image(&moving, &EvalCtx::at(1.0), &target);
     assert!(mean_abs_diff(first.as_raw(), last.as_raw()) < 0.05);
 }
+
+/// A simulated liquid: drawn once baked, as droplets and as a surface in
+/// its material, hidden behind what is in front of it, and the loop closes
+/// (cross-fade halves).
+#[test]
+fn liquid_draws_and_loops() {
+    use ez_core::sim::{Container, Fluid};
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let dir = snapshot_dir().join("liquid");
+    std::fs::create_dir_all(&dir).unwrap();
+    let scene = |surface: bool, wall: bool| {
+        let mut p = Project {
+            camera: Camera {
+                mode: CameraMode::Static,
+                target: [0.0, -0.3, 0.0],
+                distance: Param::new(4.0),
+                height: Param::new(2.0),
+                angle: Param::new(0.0),
+                fov: Param::new(40.0),
+                ..Default::default()
+            },
+            timing: Timing {
+                bpm: 120.0,
+                loop_beats: 8,
+            },
+            ..Default::default()
+        };
+        p.environment.fog_density = Param::new(0.0);
+        p.post.grade.vignette = Param::new(0.0);
+        p.post.bloom.enabled = false;
+        let mut liquid = Layer::new(
+            "Liquid",
+            LayerKind::Mesh(MeshLayer {
+                source: MeshSource::Primitive(Primitive::Sphere { detail: 1 }),
+                material: Material {
+                    base_color: [1.0, 0.1, 0.05],
+                    emissive_color: [1.0, 0.1, 0.05],
+                    emissive: Param::new(0.6),
+                    rim: Param::new(0.0),
+                    ..Default::default()
+                },
+                instancer: Instancer::Fluid {
+                    fluid: Box::new(Fluid {
+                        count: 600,
+                        container: Container::Box,
+                        size: 1.0,
+                        spacing: 0.12,
+                        surface,
+                        ..Default::default()
+                    }),
+                    placed: None,
+                },
+                ..Default::default()
+            }),
+        )
+        .scaled(0.08);
+        liquid.transform.tilt = Param::new(0.0).osc(Wave::Sine, 15.0, 1);
+        p.layers.push(liquid);
+        if wall {
+            // A dark wall in front of everything.
+            p.layers.push(
+                Layer::new(
+                    "Wall",
+                    LayerKind::Mesh(MeshLayer {
+                        source: MeshSource::Primitive(Primitive::Cube),
+                        material: Material {
+                            base_color: [0.0; 3],
+                            metallic: Param::new(0.0),
+                            roughness: Param::new(1.0),
+                            rim: Param::new(0.0),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    }),
+                )
+                .at([0.0, 0.5, 2.2])
+                .stretched([6.0, 6.0, 0.1]),
+            );
+        }
+        p
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    r.set_wait_for_bakes(true);
+    let (w, h) = (240u32, 160u32);
+    let target = r.create_target(w, h);
+    let at = |p: &Project, phase: f32| EvalCtx::new(&p.timing, phase, None);
+    // How red the middle of the picture is.
+    let red = |img: &image::RgbaImage| {
+        let (mut sum, mut n) = (0.0, 0.0);
+        for (x, y, p) in img.enumerate_pixels() {
+            let (fx, fy) = (x as f32 / w as f32, y as f32 / h as f32);
+            if (fx - 0.5).abs() < 0.25 && (fy - 0.55).abs() < 0.25 {
+                sum += p[0] as f32 - (p[1] as f32 + p[2] as f32) * 0.5;
+                n += 1.0;
+            }
+        }
+        sum / n
+    };
+    for surface in [false, true] {
+        let p = scene(surface, false);
+        let img = r.render_image(&p, &at(&p, 0.2), &target);
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+        assert!(!r.take_inexact(), "drawn from an old bake");
+        img.save(dir.join(format!("liquid_{surface}.png"))).unwrap();
+        let shown = red(&img);
+        eprintln!("liquid (surface {surface}): red {shown:.1}");
+        assert!(shown > 15.0, "no liquid (surface {surface}): {shown}");
+        // Behind a wall, nothing shows.
+        let hidden = r.render_image(&scene(surface, true), &at(&p, 0.2), &target);
+        let behind = red(&hidden);
+        eprintln!("behind the wall: red {behind:.1}");
+        assert!(
+            behind < 2.0,
+            "seen through the wall (surface {surface}): {behind}"
+        );
+        // The loop closes.
+        let a = r.render_image(&p, &at(&p, 0.0), &target);
+        let b = r.render_image(&p, &at(&p, 1.0), &target);
+        assert!(mean_abs_diff(a.as_raw(), b.as_raw()) < 0.05);
+    }
+}

@@ -104,6 +104,10 @@ fn modules() -> Vec<(&'static str, String)> {
             "shafts",
             with_common(include_str!("../src/shaders/shafts.wgsl")),
         ),
+        (
+            "liquid",
+            with_common(include_str!("../src/shaders/liquid.wgsl")),
+        ),
     ];
     all.append(&mut kinds);
     all

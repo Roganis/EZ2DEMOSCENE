@@ -16,6 +16,8 @@ fn main() -> anyhow::Result<()> {
     let h = w * 9 / 16;
     let gpu = Gpu::headless()?;
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
+    // Simulated layers are drawn from finished bakes.
+    r.set_wait_for_bakes(true);
     let target = r.create_target(w, h);
     let phases = [0.0, 0.3, 0.65];
     let list: Vec<_> = presets::all()

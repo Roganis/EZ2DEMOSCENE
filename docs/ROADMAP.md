@@ -1053,7 +1053,7 @@ preview agree, the wall falls and the loop closes (seam 0.0000).
 Preset: *Beat Demolition* (a wall of 48 glowing blocks blown apart on
 beat 2 and rebuilt, pearls raining behind).
 
-### ☐ 10.5 Fluid-like particles
+### ☑ 10.5 Fluid-like particles
 **How.** A new motion for the particles layer, `Motion::Fluid` (the
 formula particles stay the default): position-based fluids (density
 constraint, XSPH viscosity, a little surface tension), in a container
@@ -1076,6 +1076,71 @@ Closing: cross-fade halves.
 **Test.** Loops; the particle count is constant; no particle leaves the
 container; density stays within 10 % of rest after settling. Preset:
 *Liquid Gold* (a rocking bowl of molten metal under an HDRI).
+
+**Done, as a copy layout.** **Liquid** (`Instancer::Fluid` over
+`ez_core::sim::Fluid`) rather than a motion of the particles layer: the
+particles layer places its particles by formula in its shader, while a
+copy layout already carries baked positions to shapes and sprites, with
+materials, shadows, variation and glowing sprites. Droplets are copies;
+the particle looks (smoke, colour by speed) and echo trails are not
+done.
+- *Solver*: position-based fluids with 3 density iterations, a
+  counting-sort grid of the kernel's size (fixed order), up to 64
+  neighbours, XSPH viscosity, a tiny artificial pressure, speeds capped
+  at 30 units/s. Rest density and the correction's scale come from a
+  perfect lattice of the spacing (kernel radius 2 × spacing). **Only
+  squeezing is corrected**: letting the density constraint also pull
+  droplets together (for surface tension) kept the whole liquid
+  jittering at 0.6–0.9 units/s; clamped, it settles to under 0.01, and
+  cohesion is a gentle separate attraction between droplets a little
+  further apart than at rest.
+- *Containers* are centred on the layer's origin: a closed box, a sphere
+  (the bowl) or a round pool on the floor; poured liquid gets an open-top
+  box or straight walls above the bowl's rim. A new animatable **Tilt**
+  on every layer (around the world's depth axis, applied in
+  `layer_frame`) rocks it: the liquid is simulated in the container's
+  frame with gravity turned by the layer's rotation (computed with
+  `sim::math`, so the bake stays the same everywhere), so a **Bowl**
+  shape (new primitive: a hemisphere shell) on another layer with the
+  same tilt holds the sloshing liquid. Spin is not felt (no fictitious
+  forces). Poured droplets live a set number of beats and shrink away.
+- *Speed*: solved at 60 Hz (two bake steps at a time; the step between
+  is read back from the solved one), per-droplet work on threads natively
+  (each value depends only on its droplet, so any split gives the same
+  bytes; one thread in the browser), one warm-up loop. 1,200 droplets in
+  an 8 s loop went from 9.7 s to 3.3 s (4-core container); 3,000 take
+  5.7 s, 8,000 13.5 s. Keys are f32 at 60 per second: 16 MB for 1,200
+  droplets, 108 MB for 8,000 (over the 32 MB budget; the default is
+  1,200, the preset 2,500).
+- *Liquid surface* (a checkbox on the layout): before the scene, the
+  droplets are splatted as spheres into half-resolution distance
+  (min-blended) and thickness (summed) targets and blurred along the
+  surface (17 taps each way, weighted by depth difference). Inside the
+  scene's own pass a full-screen draw shades it with the layer's material
+  (classic or physical, environment light included), its glow, soft
+  edges by thickness, and **writes its depth**, so the scene's
+  full-resolution, multisampled depth buffer hides it behind other
+  things. That replaced the first version's test against the
+  half-resolution distance texture, whose steps showed along the
+  liquid's line against the bowl. See-through liquid darkens with depth
+  and shows the environment behind (physical transmission), not the
+  scene: no scene copy exists yet while the scene is drawn. One liquid
+  surface per scene (the last); the floor's planar reflection shows its
+  droplets. The fading copy of a cross-faded bake splats smaller, so it
+  never pops.
+- Measured: after 3 s from a block, the density of droplets inside the
+  liquid is 0.99 (box), 0.98 (bowl) and 0.96 (pool) of rest, moving
+  0.03–0.05 units/s on average; nothing leaves a bowl rocking ±25°,
+  whose liquid's middle swings ±0.33; the loop closes exactly (the
+  sampled state at phases 0 and 1 is identical); poured droplets keep
+  the count constant; the bake's hash is the same natively (threads)
+  and in wasm (one thread) run in node, and is pinned in
+  `same_fluid_everywhere`. On the GPU (`liquid_draws_and_loops`) a red
+  liquid shows as droplets and as a surface, not at all behind a wall,
+  and the first and last frames match.
+- New preset **Liquid Gold**: a dark ceramic bowl rocking twice per loop
+  with 2,500 droplets of molten gold (surface look) under the softbox
+  studio, on a mirror floor.
 
 ---
 

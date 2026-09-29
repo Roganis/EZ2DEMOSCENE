@@ -1164,6 +1164,10 @@ pub struct Transform {
     /// Random jolts on a rhythm.
     #[serde(skip_serializing_if = "is_default")]
     pub shake: Shake,
+    /// Tilt around the world's z axis in degrees (animatable: rock a bowl
+    /// and the liquid in it sloshes).
+    #[serde(skip_serializing_if = "is_no_tilt")]
+    pub tilt: Param,
 }
 
 /// Loop-safe random jolts: a new random direction `per_loop` times per
@@ -1201,6 +1205,10 @@ impl Shake {
     }
 }
 
+fn is_no_tilt(p: &Param) -> bool {
+    *p == Param::new(0.0)
+}
+
 impl Default for Transform {
     fn default() -> Self {
         Transform {
@@ -1211,6 +1219,7 @@ impl Default for Transform {
             spin: [0; 3],
             bob: Param::new(0.0),
             shake: Shake::default(),
+            tilt: Param::new(0.0),
         }
     }
 }
@@ -1635,6 +1644,11 @@ pub enum Primitive {
     Mobius {
         width: f32,
     },
+    /// The lower half of a sphere as a shell, open at the top (holds a
+    /// liquid layer's Bowl at the same place and size).
+    Bowl {
+        thickness: f32,
+    },
 }
 
 impl Primitive {
@@ -1690,6 +1704,7 @@ impl Primitive {
             Primitive::Gem { facets: 8 },
             Primitive::Heart { depth: 0.3 },
             Primitive::Mobius { width: 0.35 },
+            Primitive::Bowl { thickness: 0.06 },
         ]
     }
 
@@ -1733,6 +1748,7 @@ impl Primitive {
             Primitive::Gem { .. } => "Gem",
             Primitive::Heart { .. } => "Heart",
             Primitive::Mobius { .. } => "Möbius strip",
+            Primitive::Bowl { .. } => "Bowl",
         }
     }
 
@@ -1856,6 +1872,15 @@ pub enum Instancer {
         #[serde(skip)]
         placed: Option<std::sync::Arc<Vec<glam::Mat4>>>,
     },
+    /// A liquid: copies are its droplets, sloshing in a container,
+    /// simulated ahead of time into a loop (see [`crate::sim::Fluid`]).
+    Fluid {
+        fluid: Box<crate::sim::Fluid>,
+        /// Where every droplet is at the moment being drawn (from the
+        /// bake), filled in before rendering; none until it is baked.
+        #[serde(skip)]
+        placed: Option<std::sync::Arc<Vec<glam::Mat4>>>,
+    },
 }
 
 impl Instancer {
@@ -1874,6 +1899,7 @@ impl Instancer {
             Instancer::OnTerrain { .. } => "On a terrain",
             Instancer::Flock { .. } => "Flock",
             Instancer::Physics { .. } => "Physics",
+            Instancer::Fluid { .. } => "Liquid",
         }
     }
 
@@ -1951,6 +1977,10 @@ impl Instancer {
             },
             Instancer::Physics {
                 physics: Box::default(),
+                placed: None,
+            },
+            Instancer::Fluid {
+                fluid: Box::default(),
                 placed: None,
             },
         ]

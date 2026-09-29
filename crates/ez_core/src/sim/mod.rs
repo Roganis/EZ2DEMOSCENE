@@ -22,6 +22,7 @@ mod bake;
 mod cache;
 mod cloth;
 mod flock;
+mod fluid;
 pub mod math;
 mod physics;
 
@@ -29,6 +30,7 @@ pub use bake::*;
 pub use cache::*;
 pub use cloth::*;
 pub use flock::*;
+pub use fluid::*;
 pub use physics::*;
 
 use glam::Vec3;

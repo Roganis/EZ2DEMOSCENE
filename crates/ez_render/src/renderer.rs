@@ -226,6 +226,9 @@ enum Cmd {
         slot: u32,
         mesh: String,
         texs: MeshTexKey,
+        /// A liquid drawn as one surface (`liquid.wgsl`): not drawn as
+        /// copies in the main picture (still in shadows and reflections).
+        liquid: bool,
         first: u32,
         count: u32,
         /// A raymarched object in its box proxy (`sdf.wgsl`).
@@ -723,6 +726,17 @@ fn gpu_layout(
             // Somewhere on the landscape: always drawn.
             g.reach = None;
         }
+        Instancer::Fluid { ref fluid, .. } => {
+            // Placed on the CPU from the bake.
+            g.layout = 11;
+            g.lay_u[0] = locals.len() as u32;
+            locals.extend(
+                ez_core::eval::instancer_locals(inst, ctx, surface)
+                    .iter()
+                    .map(|m| m4(*m)),
+            );
+            g.reach = Some(fluid.reach() * 1.2);
+        }
         Instancer::Physics { ref physics, .. } => {
             // Placed on the CPU from the bake.
             g.layout = 11;
@@ -1005,6 +1019,7 @@ pub struct Renderer {
     ssr_add_pipe: wgpu::RenderPipeline,
     /// Light shafts through the fog (`shafts.wgsl`).
     shafts_pipe: wgpu::RenderPipeline,
+    liquid_pipes: LiquidPipes,
     bgl_ssr: wgpu::BindGroupLayout,
 
     sampler_repeat: wgpu::Sampler,
@@ -1150,6 +1165,11 @@ pub struct RenderTarget {
     /// Light shafts to add (half resolution), and adding them.
     shafts: wgpu::TextureView,
     bg_shafts_add: wgpu::BindGroup,
+    /// Liquid surfaces (half resolution): splatted distances and
+    /// thickness, the blur between and the smoothed surface; the inputs
+    /// of each pass.
+    liquid: [wgpu::TextureView; 4],
+    bg_liquid: [wgpu::BindGroup; 4],
     rays: wgpu::TextureView,
     /// Depth of field: distance to the camera (half resolution) and its
     /// depth buffer.
@@ -1172,6 +1192,17 @@ fn v4(v: Vec3, w: f32) -> [f32; 4] {
 
 fn c4(c: [f32; 3], w: f32) -> [f32; 4] {
     [c[0], c[1], c[2], w]
+}
+
+/// Liquid surfaces (`liquid.wgsl`): splatting droplets, blurring, and
+/// shading the surface onto the picture.
+struct LiquidPipes {
+    splat_dist: wgpu::RenderPipeline,
+    splat_thick: wgpu::RenderPipeline,
+    blur_h: wgpu::RenderPipeline,
+    blur_v: wgpu::RenderPipeline,
+    composite: wgpu::RenderPipeline,
+    layout: wgpu::BindGroupLayout,
 }
 
 /// Dynamic offsets of a mesh draw: its slot and the next.
@@ -2187,6 +2218,118 @@ impl Renderer {
                 blend: None,
             },
         );
+        // Liquid surfaces: droplet splats, blurs and the composite, all
+        // with the droplet layer's material (group 1) and the environment
+        // (group 3).
+        let bgl_liquid = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("liquid"),
+            entries: &[tex_entry(0), tex_entry(1)],
+        });
+        let liquid_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("liquid"),
+            bind_group_layouts: &[
+                Some(&bgl_globals),
+                Some(&bgl_draw_mesh),
+                Some(&bgl_liquid),
+                Some(&bgl_shadow),
+            ],
+            immediate_size: 0,
+        });
+        let sh_liquid = shader(device, "liquid", include_str!("shaders/liquid.wgsl"), true);
+        let splat_buffers = [Some(wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<InstanceRaw>() as u64,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &wgpu::vertex_attr_array![4 => Float32x4, 5 => Float32x4, 6 => Float32x4, 7 => Float32x4, 8 => Float32x4],
+        })];
+        let liquid_pipe = |label: &str,
+                           vs: &str,
+                           fs: &str,
+                           buffers: &[Option<wgpu::VertexBufferLayout>],
+                           blend: Option<wgpu::BlendState>,
+                           scene: bool| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&liquid_layout),
+                vertex: wgpu::VertexState {
+                    module: &sh_liquid,
+                    entry_point: Some(vs),
+                    compilation_options: Default::default(),
+                    buffers,
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    cull_mode: None,
+                    ..Default::default()
+                },
+                // The composite is drawn in the scene's pass, against its
+                // depth.
+                depth_stencil: scene.then(|| wgpu::DepthStencilState {
+                    format: DEPTH_FORMAT,
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(wgpu::CompareFunction::Less),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: wgpu::MultisampleState {
+                    count: if scene { msaa } else { 1 },
+                    ..Default::default()
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &sh_liquid,
+                    entry_point: Some(fs),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: HDR_FORMAT,
+                        blend,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        // The nearest droplet wins.
+        let nearest = wgpu::BlendState {
+            color: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::One,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Min,
+            },
+            alpha: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::One,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Min,
+            },
+        };
+        let liquid_pipes = LiquidPipes {
+            splat_dist: liquid_pipe(
+                "liquid splat distance",
+                "vs_splat",
+                "fs_splat_dist",
+                &splat_buffers,
+                Some(nearest),
+                false,
+            ),
+            splat_thick: liquid_pipe(
+                "liquid splat thickness",
+                "vs_splat",
+                "fs_splat_thick",
+                &splat_buffers,
+                Some(ADDITIVE),
+                false,
+            ),
+            blur_h: liquid_pipe("liquid blur h", "vs_full", "fs_blur_h", &[], None, false),
+            blur_v: liquid_pipe("liquid blur v", "vs_full", "fs_blur_v", &[], None, false),
+            composite: liquid_pipe(
+                "liquid composite",
+                "vs_full",
+                "fs_composite",
+                &[],
+                Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                true,
+            ),
+            layout: bgl_liquid,
+        };
         let ssr_pipe = make_pipeline(
             device,
             PipeDesc {
@@ -2376,6 +2519,7 @@ impl Renderer {
             ssr_pipe,
             ssr_add_pipe,
             shafts_pipe,
+            liquid_pipes,
             bgl_ssr,
             sampler_repeat,
             sampler_nearest,
@@ -4284,7 +4428,11 @@ impl Renderer {
             l.enabled
                 && (matches!(
                     l.kind.instancer(),
-                    Some(Instancer::Flock { .. } | Instancer::Physics { .. })
+                    Some(
+                        Instancer::Flock { .. }
+                            | Instancer::Physics { .. }
+                            | Instancer::Fluid { .. }
+                    )
                 ) || matches!(&l.kind, LayerKind::Mesh(m) if matches!(m.source, MeshSource::Cloth { .. })))
         };
         if !layers.iter().any(wants) {
@@ -4362,6 +4510,8 @@ impl Renderer {
             // Rigid bodies collide as the copies are drawn: at the
             // layer's (resting) size.
             let scale = Vec3::from(layer.transform.stretch) * layer.transform.scale.base;
+            // A liquid's container turns with the layer.
+            let transform = layer.transform.clone();
             let (bake, placed) = match layer.kind.instancer_mut() {
                 Some(Instancer::Flock { flock, placed }) => {
                     let make = |clock: &SimClock| {
@@ -4379,6 +4529,22 @@ impl Renderer {
                     let json =
                         serde_json::to_string(&(&**physics, scale.to_array())).unwrap_or_default();
                     (bake_of(json, false, &make), placed)
+                }
+                Some(Instancer::Fluid { fluid, placed }) => {
+                    let make = |clock: &SimClock| {
+                        let sim = fluid.sim(ez_core::sim::layer_tilt(&transform));
+                        BakeJob::new(Box::new(sim), clock.clone(), fluid.looping.clone())
+                    };
+                    // The turning parts of the transform move the liquid.
+                    let turning = (
+                        &**fluid,
+                        transform.rotation,
+                        transform.spin,
+                        &transform.tilt,
+                    );
+                    let json = serde_json::to_string(&turning).unwrap_or_default();
+                    let music = fluid.uses_music() || transform.tilt.uses_music();
+                    (bake_of(json, music, &make), placed)
                 }
                 _ => continue,
             };
@@ -5066,10 +5232,24 @@ impl Renderer {
                         ls.triangles = 0;
                         ls.load = count as f32 / 40.0;
                     }
+                    // A liquid surface: splat size, blur tolerance and
+                    // absorption (see liquid.wgsl).
+                    let liquid = match &m.instancer {
+                        Instancer::Fluid { fluid, .. } if fluid.surface && !sdf => {
+                            let size = layer_scale(&layer.transform, ctx).max_element().max(1e-4);
+                            let d = fluid.spacing.max(0.01);
+                            blk[7][1] = d * 1.1 / size;
+                            blk[7][2] = d * 2.0;
+                            blk[7][3] = 1.5 / d.max(0.05);
+                            true
+                        }
+                        _ => false,
+                    };
                     cmds.push(Cmd::Mesh {
                         slot: blocks.len() as u32,
                         mesh,
                         texs,
+                        liquid,
                         first,
                         count: count as u32,
                         sdf,
@@ -5618,6 +5798,7 @@ impl Renderer {
                         slot: blocks.len() as u32,
                         mesh,
                         texs,
+                        liquid: false,
                         first,
                         count: syms.len() as u32,
                         sdf: false,
@@ -6205,6 +6386,79 @@ impl Renderer {
             }
         }
 
+        // One liquid is drawn as a surface (the last); any others show
+        // their droplets.
+        let mut last_liquid = true;
+        for c in cmds.iter_mut().rev() {
+            if let Cmd::Mesh { liquid, .. } = c {
+                if *liquid && !std::mem::take(&mut last_liquid) {
+                    *liquid = false;
+                }
+            }
+        }
+        // The liquid drawn as a surface: (slot, first copy, copies, on the
+        // GPU).
+        let liquids: Vec<(u32, u32, u32, bool)> = cmds
+            .iter()
+            .filter_map(|c| match c {
+                Cmd::Mesh {
+                    slot,
+                    first,
+                    count,
+                    gpu,
+                    liquid: true,
+                    ..
+                } if *count > 0 => Some((*slot, *first, *count, *gpu)),
+                _ => None,
+            })
+            .collect();
+        // --- liquid surfaces: droplets splatted and smoothed ----------------------
+        for &(slot, first, count, gpu) in &liquids {
+            let lp = &self.liquid_pipes;
+            let far = wgpu::Color {
+                r: 60_000.0,
+                g: 0.0,
+                b: 0.0,
+                a: 1.0,
+            };
+            let clear = wgpu::Color::TRANSPARENT;
+            let steps = [
+                (&target.liquid[0], far, &lp.splat_dist, 0, true),
+                (&target.liquid[1], clear, &lp.splat_thick, 0, true),
+                (&target.liquid[2], clear, &lp.blur_h, 1, false),
+                (&target.liquid[3], clear, &lp.blur_v, 2, false),
+            ];
+            for (view, clear, pipe, bg, splat) in steps {
+                let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("liquid"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(clear),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                pass.set_pipeline(pipe);
+                pass.set_bind_group(0, &self.globals_bg[0], &[]);
+                pass.set_bind_group(1, &self.draw_mesh_bg, &mesh_offsets(slot));
+                pass.set_bind_group(2, &target.bg_liquid[bg], &[]);
+                pass.set_bind_group(3, &self.shadow_bg, &[]);
+                if splat {
+                    pass.set_vertex_buffer(0, self.mesh_instances(gpu).slice(..));
+                    pass.draw(0..6, first..first + count);
+                } else {
+                    pass.draw(0..3, 0..1);
+                }
+            }
+        }
+
         // --- main scene -------------------------------------------------------
         {
             let (view_tex, resolve) = match &target.msaa_color {
@@ -6314,6 +6568,15 @@ impl Renderer {
                 )
             });
             self.draw_scene(&mut pass, &self.main_pipes, 0, &solid);
+            // The liquid surface, with its own depth.
+            if let Some(&(slot, ..)) = liquids.last() {
+                pass.set_pipeline(&self.liquid_pipes.composite);
+                pass.set_bind_group(0, &self.globals_bg[0], &[]);
+                pass.set_bind_group(1, &self.draw_mesh_bg, &mesh_offsets(slot));
+                pass.set_bind_group(2, &target.bg_liquid[3], &[]);
+                pass.set_bind_group(3, &self.shadow_bg, &[]);
+                pass.draw(0..3, 0..1);
+            }
             self.draw_scene(&mut pass, &self.main_pipes, 0, &clear);
         }
 
@@ -6850,6 +7113,7 @@ impl Renderer {
                     count,
                     sdf,
                     gpu,
+                    liquid: false,
                     ..
                 } if *count > 0 => {
                     let m = &self.meshes[mesh];
@@ -6957,9 +7221,12 @@ impl Renderer {
                     count,
                     sdf,
                     gpu,
+                    liquid,
                     ..
                 } => {
-                    if *count == 0 {
+                    // A liquid surface is drawn by its own passes (its
+                    // droplets still show in the floor's reflection).
+                    if *count == 0 || (*liquid && std::ptr::eq(pipes, &self.main_pipes)) {
                         continue;
                     }
                     let m = &self.meshes[mesh];
@@ -7522,6 +7789,37 @@ impl Renderer {
         let bg_ssr_add = post_bg(&ssr, &dof_dist);
         let shafts = tex("light shafts", dw, dh, HDR_FORMAT, 1, sampled);
         let bg_shafts_add = post_bg(&shafts, &dof_dist);
+        let liquid = [
+            "liquid distance",
+            "liquid thickness",
+            "liquid blur",
+            "liquid surface",
+        ]
+        .map(|l| tex(l, dw, dh, HDR_FORMAT, 1, sampled));
+        let liquid_bg = |a: &wgpu::TextureView, b: &wgpu::TextureView| {
+            dev.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("liquid"),
+                layout: &self.liquid_pipes.layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(a),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(b),
+                    },
+                ],
+            })
+        };
+        // Splat (reads nothing), blur across (the splats), blur down (the
+        // first blur), composite (the surface).
+        let bg_liquid = [
+            liquid_bg(&liquid[3], &liquid[3]),
+            liquid_bg(&liquid[0], &liquid[1]),
+            liquid_bg(&liquid[2], &liquid[2]),
+            liquid_bg(&liquid[3], &liquid[3]),
+        ];
         let bg_warp = post_bg(&hdr, &dof_dist);
         let bg_bloom_down = (0..BLOOM_LEVELS)
             .map(|i| {
@@ -7597,6 +7895,8 @@ impl Renderer {
             bg_ssr_add,
             shafts,
             bg_shafts_add,
+            liquid,
+            bg_liquid,
             rays,
             dof_dist,
             dof_z,

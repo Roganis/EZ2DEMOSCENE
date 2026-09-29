@@ -1282,6 +1282,14 @@ pub fn layer_ui(ui: &mut Ui, layer: &mut Layer, textures: &[UserTexture], lref: 
                 &mut t.bob,
                 -5.0..=5.0,
             );
+            param(
+                ui,
+                "Tilt",
+                "Rock the layer side to side, in degrees (animate it: a bowl \
+                 of liquid with the same tilt sloshes)",
+                &mut t.tilt,
+                -90.0..=90.0,
+            );
             ui.add_space(4.0);
             ui.label(RichText::new("Shake").strong())
                 .on_hover_text("Random jolts on a rhythm");
@@ -1496,6 +1504,9 @@ fn primitive_params_ui(ui: &mut Ui, p: &mut Primitive) {
         }
         Primitive::Mobius { width } => {
             slider(ui, "Width", "", width, 0.05..=0.9);
+        }
+        Primitive::Bowl { thickness } => {
+            slider(ui, "Thickness", "", thickness, 0.005..=0.5);
         }
         _ => {}
     }
@@ -2243,6 +2254,7 @@ fn instancer_ui(ui: &mut Ui, inst: &mut Instancer) {
         }
         Instancer::Flock { flock, .. } => flock_ui(ui, flock),
         Instancer::Physics { physics, .. } => physics_ui(ui, physics),
+        Instancer::Fluid { fluid, .. } => fluid_ui(ui, fluid),
     }
 }
 
@@ -2591,6 +2603,102 @@ fn physics_ui(ui: &mut Ui, p: &mut ez_core::sim::Physics) {
          while still bumping into each other and the floor."
     };
     sim_loop_ui(ui, &mut p.looping, tip);
+}
+
+fn fluid_ui(ui: &mut Ui, f: &mut ez_core::sim::Fluid) {
+    use ez_core::sim::{Container, Source, FLUID_MAX};
+    drag_u(
+        ui,
+        "Droplets",
+        "More makes a smoother liquid but takes longer to simulate \
+         (a few thousand bake in seconds)",
+        &mut f.count,
+        1..=FLUID_MAX,
+    );
+    combo(
+        ui,
+        "Container",
+        "What holds it. Tilt the layer (Transform → Tilt) to rock it.",
+        &mut f.container,
+        &Container::ALL,
+        |c| c.label(),
+    );
+    slider(
+        ui,
+        "Container size",
+        "Half its width (a bowl's radius)",
+        &mut f.size,
+        0.2..=10.0,
+    );
+    slider(
+        ui,
+        "Droplet size",
+        "Their spacing at rest: smaller needs more droplets for the same amount",
+        &mut f.spacing,
+        0.03..=1.0,
+    );
+    combo(ui, "Source", "", &mut f.source, &Source::ALL, |s| s.label());
+    if f.source == Source::Pour {
+        slider(
+            ui,
+            "Life",
+            "How long each droplet stays, in beats",
+            &mut f.life,
+            0.5..=64.0,
+        );
+        slider(
+            ui,
+            "Spout height",
+            "Where it pours from, above the layer's origin",
+            &mut f.spout,
+            0.0..=20.0,
+        );
+    }
+    ui.separator();
+    slider(ui, "Gravity", "", &mut f.gravity, 0.0..=30.0);
+    slider(
+        ui,
+        "Viscosity",
+        "0 water, 0.3 honey",
+        &mut f.viscosity,
+        0.0..=1.0,
+    );
+    slider(
+        ui,
+        "Cohesion",
+        "How much droplets hold together (surface tension)",
+        &mut f.cohesion,
+        0.0..=0.5,
+    );
+    param(
+        ui,
+        "Stir",
+        "A swirl around the middle (link it to the music to stir on the beat)",
+        &mut f.stir,
+        -20.0..=20.0,
+    );
+    drag_u(ui, "Seed", "", &mut f.seed, 0..=9999);
+    check(
+        ui,
+        "Liquid surface",
+        "Draw the droplets as one smooth surface in the layer's material \
+         (molten metal, water with Glass) instead of as copies of its shape",
+        &mut f.surface,
+    );
+    let tip = if f.surface {
+        "One liquid layer per scene is drawn as a surface (the last); \
+         the floor's reflection shows its droplets."
+    } else {
+        "Each copy is a droplet: small spheres, or glowing sprites. \
+         The layer's Size sets how big each one is drawn."
+    };
+    ui.label(RichText::new(tip).weak().small());
+    sim_loop_ui(
+        ui,
+        &mut f.looping,
+        "Cross-fade halves: two copies of the liquid half a loop apart \
+         fade into each other, so the loop closes exactly.",
+    );
 }
 
 fn cloth_ui(ui: &mut Ui, c: &mut ez_core::sim::Cloth) {

@@ -88,6 +88,13 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     knocks down on a chosen beat and that rebuilds itself (ping-pong);
     with no gravity it bursts apart in space. Simulated ahead of time,
     with the same result everywhere.
+  - **Liquid** (a copy layout): position-based fluid droplets in a box, a
+    bowl or a pool, filled or poured in from a spout, sloshing as the
+    layer tilts (a new animatable *Tilt*; the new *Bowl* shape rocks
+    with it) and stirrable by the music. Drawn as droplets (any shape or
+    glowing sprites) or as one smooth **liquid surface** in the layer's
+    material; the loop closes by cross-fading. *Liquid Gold* rocks a bowl
+    of molten gold.
   - **Logos**: text or an image laid flat on the screen (snapped to a
     part of the screen or against another logo, which it then follows,
     like a photo editor's reference points; size and turn animatable),

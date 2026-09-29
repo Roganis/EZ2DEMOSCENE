@@ -676,6 +676,28 @@ fn capsule(length: f32, segments: u32) -> MeshData {
     m
 }
 
+/// The lower half of the unit sphere as a shell `thickness` thick: the
+/// outside from the bottom up to the rim, across the rim, and the inside
+/// back down.
+fn bowl(thickness: f32) -> MeshData {
+    let seg = 48;
+    let rows = 12u32;
+    let inner = 1.0 - thickness.clamp(0.005, 0.5);
+    let mut m = MeshData::default();
+    m.grid(seg, 2 * rows + 1, |u, v| {
+        let a = u * TAU;
+        let k = (v * (2 * rows + 1) as f32).round() as u32;
+        let (phi, r, sign) = if k <= rows {
+            (-0.5 * PI + 0.5 * PI * k as f32 / rows as f32, 1.0, 1.0)
+        } else {
+            (-0.5 * PI * (k - rows - 1) as f32 / rows as f32, inner, -1.0)
+        };
+        let n = Vec3::new(a.cos() * phi.cos(), phi.sin(), a.sin() * phi.cos());
+        (n * r, n * sign)
+    });
+    m
+}
+
 fn torus_knot(p: u32, q: u32, thickness: f32) -> MeshData {
     let (p, q) = (p.clamp(1, 12) as f32, q.clamp(1, 12) as f32);
     let curve = |t: f32| {
@@ -1007,6 +1029,7 @@ pub fn primitive(p: &Primitive) -> MeshData {
         Primitive::Gem { facets } => gem(*facets),
         Primitive::Heart { depth } => heart(*depth),
         Primitive::Mobius { width } => mobius(*width),
+        Primitive::Bowl { thickness } => bowl(*thickness),
     }
 }
 

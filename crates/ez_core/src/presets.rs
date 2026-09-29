@@ -160,6 +160,11 @@ pub fn all() -> Vec<Preset> {
             project: chrome_studio(),
         },
         Preset {
+            name: "Liquid Gold",
+            description: "A rocking bowl of molten gold sloshing from side to side under a studio sky, simulated ahead of time into a loop.",
+            project: liquid_gold(),
+        },
+        Preset {
             name: "Cathedral Light",
             description: "Low sunlight streaming between stone columns through hazy air onto a polished marble floor, under a sunset sky; a golden orb turns in the light.",
             project: cathedral_light(),
@@ -3071,6 +3076,113 @@ pub fn chrome_studio() -> Project {
             bloom: Bloom {
                 enabled: true,
                 intensity: Param::new(0.4),
+                threshold: Param::new(1.5),
+                radius: Param::new(0.6),
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+/// A bowl of molten gold rocking back and forth: a simulated liquid in a
+/// bowl shape, both tilted by the same swing.
+pub fn liquid_gold() -> Project {
+    // Both layers rock together: the liquid sloshes in the bowl's frame.
+    let rock = Param::new(0.0).osc(Wave::Sine, 22.0, 2);
+    let size = 1.5;
+    let mut gold = Material::default();
+    MaterialPreset::Gold.apply(&mut gold);
+    gold.roughness = Param::new(0.12);
+    let mut bowl_mat = Material::default();
+    MaterialPreset::Ceramic.apply(&mut bowl_mat);
+    bowl_mat.base_color = hex(0x1c1c22);
+    let at = [0.0, 1.6, 0.0];
+    let mut bowl = Layer::new(
+        "Bowl",
+        LayerKind::Mesh(mesh(Primitive::Bowl { thickness: 0.06 }, bowl_mat)),
+    )
+    .at(at)
+    .scaled(size / 0.94);
+    bowl.transform.tilt = rock;
+    let mut liquid = Layer::new(
+        "Molten gold",
+        LayerKind::Mesh(MeshLayer {
+            source: MeshSource::Primitive(Primitive::Sphere { detail: 1 }),
+            material: gold,
+            instancer: Instancer::Fluid {
+                fluid: Box::new(crate::sim::Fluid {
+                    count: 2500,
+                    size,
+                    spacing: 0.1,
+                    viscosity: 0.15,
+                    surface: true,
+                    ..Default::default()
+                }),
+                placed: None,
+            },
+            ..Default::default()
+        }),
+    )
+    .at(at)
+    .scaled(0.075);
+    liquid.transform.tilt = rock;
+    Project {
+        name: "Liquid Gold".into(),
+        timing: crate::Timing {
+            bpm: 90.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Pendulum,
+            swing: Param::new(20.0),
+            target: [0.0, 1.2, 0.0],
+            distance: Param::new(6.5),
+            height: Param::new(2.6),
+            fov: Param::new(45.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_density: Param::new(0.0),
+            light_intensity: Param::new(0.8),
+            light_dir: [0.4, 1.0, 0.3],
+            shadows: Shadows {
+                enabled: true,
+                distance: 12.0,
+                ..Default::default()
+            },
+            env_light: EnvLight {
+                source: EnvSource::Studio(Studio::Softbox),
+                intensity: Param::new(1.1),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        layers: vec![
+            Layer::new(
+                "Studio",
+                LayerKind::Backdrop(Backdrop {
+                    kind: BackdropKind::Environment,
+                    detail: Param::new(0.3),
+                    ..Default::default()
+                }),
+            ),
+            Layer::new(
+                "Floor",
+                LayerKind::Mirror(MirrorFloor {
+                    base_color: hex(0x202024),
+                    reflectivity: Param::new(0.3),
+                    blur: Param::new(0.35),
+                    ..Default::default()
+                }),
+            ),
+            bowl,
+            liquid,
+        ],
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                intensity: Param::new(0.35),
                 threshold: Param::new(1.5),
                 radius: Param::new(0.6),
             },
