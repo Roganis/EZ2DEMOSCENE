@@ -241,6 +241,20 @@ impl EzApp {
                     mat.pbr.orm_map = Some(texlib::orm_name(&e.id));
                     return " (occlusion / roughness / metal)".into();
                 }
+                // A plain texture replacing a library PBR material: its maps
+                // (and the full metal and roughness they needed) go too.
+                TexSlot::Material => {
+                    let lib_map = |m: &Option<String>| m.as_deref().is_some_and(texlib::is_lib);
+                    if lib_map(&mat.relief.texture) && mat.relief.mode == ReliefMode::NormalMap {
+                        mat.relief.texture = None;
+                        mat.relief.bump = Param::new(0.0);
+                    }
+                    if lib_map(&mat.pbr.orm_map) {
+                        mat.pbr.orm_map = None;
+                        mat.metallic = Param::new(0.0);
+                        mat.roughness = Param::new(0.7);
+                    }
+                }
                 _ => {}
             }
         }

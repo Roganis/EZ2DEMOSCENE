@@ -187,6 +187,11 @@ def png(img: Image.Image) -> bytes:
     return b.getvalue()
 
 
+def natural(text: str):
+    """Sort key putting "Brick 2" before "Brick 10"."""
+    return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", text)]
+
+
 def pretty(name: str) -> str:
     name = re.sub(r"[-_]+", " ", name)
     name = re.sub(r"(?<=[a-z])(?=[A-Z0-9])", " ", name)
@@ -322,7 +327,7 @@ def tile_packs(cache: Path, add):
             continue
         kept = skipped = 0
         with zipfile.ZipFile(io.BytesIO(data)) as pack:
-            for info in sorted(pack.infolist(), key=lambda i: i.filename):
+            for info in sorted(pack.infolist(), key=lambda i: natural(i.filename)):
                 fn = info.filename
                 if not fn.lower().endswith(".png") or "__MACOSX" in fn:
                     continue

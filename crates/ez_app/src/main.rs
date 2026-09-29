@@ -5,6 +5,7 @@ mod app;
 mod audio;
 #[cfg(not(target_arch = "wasm32"))]
 mod cli;
+mod clip_import;
 #[cfg_attr(target_arch = "wasm32", path = "export_web.rs")]
 mod export_ui;
 mod gizmo;

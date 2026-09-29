@@ -1223,6 +1223,11 @@ pub struct Renderer {
     env_matcap: Option<(String, [f32; 11])>,
     /// Asset loading problems (shown in the UI), keyed by asset.
     pub errors: HashMap<String, String>,
+    /// Loop phase and loop length of the frame being drawn (animated
+    /// pictures play by them).
+    clip_time: (f32, f32),
+    /// Decoded frame sheets of animated pictures, by texture key.
+    clip_sheets: HashMap<String, std::sync::Arc<RgbaImage>>,
 
     /// Instances of layers that don't animate, keyed by layer hash, with
     /// the frame number they were last used.
@@ -2922,6 +2927,8 @@ impl Renderer {
             draw_mesh_bg,
             env_matcap: None,
             errors: HashMap::new(),
+            clip_time: (0.0, 1.0),
+            clip_sheets: HashMap::new(),
             instance_cache: HashMap::new(),
             seq_targets: None,
             feedback_pipe,
@@ -3699,14 +3706,18 @@ impl Renderer {
         if texgen::is_builtin(name) {
             return Ok(texgen::generate(name));
         }
-        let (path, retro) = match project.find_texture(name) {
-            Some(t) => (t.path.clone(), t.retro.clone()),
-            None => (name.to_string(), None),
+        let (path, retro, clip) = match project.find_texture(name) {
+            Some(t) => (t.path.clone(), t.retro.clone(), t.clip.clone()),
+            None => (name.to_string(), None, None),
         };
         let bytes = ez_core::store::read(&path).map_err(|e| e.to_string())?;
-        let img = image::load_from_memory(&bytes)
+        let mut img = image::load_from_memory(&bytes)
             .map_err(|e| e.to_string())?
             .to_rgba8();
+        // An animation's first frame.
+        if let Some(c) = &clip {
+            img = crate::clip::frame(&img, c, 0);
+        }
         Ok(match &retro {
             Some(r) => texgen::retroize(&img, r),
             None => img,
@@ -3761,6 +3772,65 @@ impl Renderer {
     /// Like [`Self::texture_key`]; `linear` pictures hold data (such as
     /// roughness), not colours, and are read without sRGB decoding.
     fn texture_key_as(&mut self, project: &Project, name: Option<&str>, linear: bool) -> String {
+        self.texture_key_impl(project, name, linear, false)
+    }
+
+    /// Like [`Self::texture_key`], but an animation's whole frame sheet
+    /// (for sprites, which pick the frame themselves).
+    fn texture_key_sheet(&mut self, project: &Project, name: Option<&str>) -> String {
+        self.texture_key_impl(project, name, false, true)
+    }
+
+    /// An animation's frame playing now (for everything but sprites): cut
+    /// out of its sheet and kept, one texture per frame.
+    fn clip_frame_key(
+        &mut self,
+        base: &str,
+        path: &str,
+        t: &UserTexture,
+        linear: bool,
+    ) -> Option<String> {
+        let clip = t.clip.as_ref()?;
+        let (phase, loop_s) = self.clip_time;
+        let k = clip.frame_at(phase, clip.cycles_per_loop(loop_s));
+        // The mirror marker stays at the end (it picks the sampler).
+        let key = match base.strip_suffix(MIRROR_KEY) {
+            Some(b) => format!("{b}#f{k}{MIRROR_KEY}"),
+            None => format!("{base}#f{k}"),
+        };
+        if self.textures.contains_key(&key) {
+            return Some(key);
+        }
+        let sheet = match self.clip_sheets.get(base) {
+            Some(s) => s.clone(),
+            None => {
+                let bytes = ez_core::store::read(path).ok()?;
+                let mut img = image::load_from_memory(&bytes).ok()?.to_rgba8();
+                if let Some(r) = &t.retro {
+                    img = texgen::retroize(&img, r);
+                }
+                let img = std::sync::Arc::new(img);
+                self.clip_sheets.insert(base.to_string(), img.clone());
+                img
+            }
+        };
+        let img = crate::clip::frame(&sheet, clip, k);
+        let format = if linear {
+            wgpu::TextureFormat::Rgba8Unorm
+        } else {
+            wgpu::TextureFormat::Rgba8UnormSrgb
+        };
+        self.upload_texture_as(key.clone(), &img, format);
+        Some(key)
+    }
+
+    fn texture_key_impl(
+        &mut self,
+        project: &Project,
+        name: Option<&str>,
+        linear: bool,
+        sheet: bool,
+    ) -> String {
         let Some(name) = name.filter(|n| !n.is_empty()) else {
             return "__white".into();
         };
@@ -3787,6 +3857,13 @@ impl Renderer {
             "u:{path}:{retro:?}{lin}{}",
             if mirror { MIRROR_KEY } else { "" }
         );
+        if !sheet {
+            if let Some(t) = project.find_texture(name).filter(|t| t.clip.is_some()) {
+                if let Some(k) = self.clip_frame_key(&key, &path, &t.clone(), linear) {
+                    return k;
+                }
+            }
+        }
         if self.textures.contains_key(&key) {
             return key;
         }
@@ -3824,16 +3901,19 @@ impl Renderer {
         if texgen::is_builtin(name) {
             return Some(texgen::generate(name));
         }
-        let (path, retro) = match project.find_texture(name) {
-            Some(t) => (t.path.clone(), t.retro.clone()),
-            None => (name.to_string(), None),
+        let (path, retro, clip) = match project.find_texture(name) {
+            Some(t) => (t.path.clone(), t.retro.clone(), t.clip.clone()),
+            None => (name.to_string(), None, None),
         };
         let decoded = ez_core::store::read(&path)
             .map_err(|e| e.to_string())
             .and_then(|b| image::load_from_memory(&b).map_err(|e| e.to_string()));
         match decoded {
             Ok(img) => {
-                let img = img.to_rgba8();
+                let mut img = img.to_rgba8();
+                if let Some(c) = &clip {
+                    img = crate::clip::frame(&img, c, 0);
+                }
                 Some(match &retro {
                     Some(r) => texgen::retroize(&img, r),
                     None => img,
@@ -5375,6 +5455,7 @@ impl Renderer {
 
     /// Render one scene (no sequence).
     fn render_scene(&mut self, project: &Project, ctx: &EvalCtx, target: &RenderTarget) {
+        self.clip_time = (ctx.phase, project.timing.loop_seconds());
         self.ensure_colormap(project);
         let mut layers = project.scene_layers(ctx);
         self.link_sims(project, ctx, &mut layers);
@@ -6283,7 +6364,7 @@ impl Renderer {
                     blocks.push(blk);
                 }
                 LayerKind::Sprite(sp) => {
-                    let tex = self.texture_key(project, sp.image.as_deref());
+                    let tex = self.texture_key_sheet(project, sp.image.as_deref());
                     self.tex_bind_group(&tex, sp.pixelated);
                     scratch.clear();
                     copies_with(layer, &sp.instancer, &sp.variation, ctx, None, &mut scratch);

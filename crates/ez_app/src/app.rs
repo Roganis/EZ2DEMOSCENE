@@ -843,6 +843,11 @@ impl EzApp {
         let mut png = Vec::new();
         img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
             .ok()?;
+        self.store_png(png, file)
+    }
+
+    /// Keep PNG bytes as an asset (see [`Self::store_picture`]).
+    fn store_png(&self, png: Vec<u8>, file: &str) -> Option<String> {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let dir = self.library.imported_dir();
@@ -863,7 +868,7 @@ impl EzApp {
     }
 
     /// Apply files picked in a dialog or dropped on the window.
-    fn handle_picked(&mut self) {
+    fn handle_picked(&mut self, ctx: &egui::Context) {
         for p in platform::take_picked() {
             let ext = ez_core::store::extension(&p.path);
             let purpose = match p.purpose {
@@ -872,7 +877,9 @@ impl EzApp {
                         Purpose::OpenProject
                     } else if MODEL_EXTENSIONS.contains(&ext.as_str()) {
                         Purpose::AddModelLayer
-                    } else if IMAGE_EXTENSIONS.contains(&ext.as_str()) {
+                    } else if IMAGE_EXTENSIONS.contains(&ext.as_str())
+                        || crate::clip_import::is_animation(&ext)
+                    {
                         match self.selection {
                             Selection::Layer(i) if self.mode == Mode::Simple => {
                                 Purpose::SetTexture(LayerRef::Layer(i), platform::TexSlot::Material)
@@ -892,6 +899,21 @@ impl EzApp {
                 }
                 other => other,
             };
+            // GIFs and videos become frame sheets in the background (see
+            // handle_clips).
+            if matches!(purpose, Purpose::AddImages | Purpose::SetTexture(..))
+                && crate::clip_import::is_animation(&ext)
+            {
+                self.set_status(format!("Reading the frames of {}…", p.name), false);
+                crate::clip_import::start(
+                    platform::Picked {
+                        purpose,
+                        ..p.clone()
+                    },
+                    ctx,
+                );
+                continue;
+            }
             match purpose {
                 Purpose::OpenProject => self.open_asset(&p.path, &p.name),
                 Purpose::AddModelLayer => {
@@ -958,6 +980,57 @@ impl EzApp {
                 }
                 Purpose::Dropped => {}
             }
+        }
+    }
+
+    /// Apply GIFs and videos whose frames are ready: their frame sheet
+    /// becomes an image of the project (and goes where it was picked for).
+    fn handle_clips(&mut self) {
+        for done in crate::clip_import::take_done() {
+            let p = done.picked;
+            let (name, clip) = match done.result {
+                Err(e) => {
+                    self.set_status(format!("Could not read {}: {e}", p.name), true);
+                    continue;
+                }
+                // A GIF that doesn't move: the file itself.
+                Ok(None) => (
+                    inspector::add_user_texture(&mut self.project.textures, &p.path, &p.name),
+                    None,
+                ),
+                Ok(Some((png, clip))) => {
+                    let stem = p.name.rsplit_once('.').map_or(&p.name[..], |(s, _)| s);
+                    let Some(path) = self.store_png(png, &format!("{stem}.png")) else {
+                        self.set_status(format!("Could not keep the frames of {}", p.name), true);
+                        continue;
+                    };
+                    crate::library::persist_asset(&path);
+                    let name = inspector::add_user_clip(
+                        &mut self.project.textures,
+                        &path,
+                        &p.name,
+                        Some(clip.clone()),
+                    );
+                    (name, Some(clip))
+                }
+            };
+            if let Purpose::SetTexture(lref, slot) = p.purpose {
+                self.set_layer_texture(lref, slot, name.clone());
+                let loop_s = self.project.timing.loop_seconds();
+                if let (Some(c), Some(LayerKind::Sprite(sp))) =
+                    (&clip, self.layer_for(lref).map(|l| &mut l.kind))
+                {
+                    inspector::fit_sprite_to_clip(sp, c, loop_s);
+                }
+            }
+            let what = match &clip {
+                Some(c) => format!(
+                    "Added animation '{name}' ({} frames, {:.1} s)",
+                    c.frames, c.seconds
+                ),
+                None => format!("Added image '{name}'"),
+            };
+            self.set_status(what, false);
         }
     }
 
@@ -1529,6 +1602,8 @@ impl EzApp {
         ui.data_mut(|d| d.insert_temp(egui::Id::new(inspector::LOGO_NAMES), logos));
         let scheme_on = self.project.color_scheme.enabled;
         ui.data_mut(|d| d.insert_temp(egui::Id::new(inspector::SCHEME_ON), scheme_on));
+        let loop_s = self.project.timing.loop_seconds();
+        ui.data_mut(|d| d.insert_temp(egui::Id::new(inspector::LOOP_SECONDS), loop_s));
         let ctx = self.project.ctx_at(self.time, self.audio_env.as_deref());
         let view = self.project.camera.view_point(&ctx);
         ui.data_mut(|d| d.insert_temp(egui::Id::new(inspector::CAMERA_VIEW), view));
@@ -2818,7 +2893,8 @@ impl eframe::App for EzApp {
         for f in dropped {
             platform::handle_drop(f);
         }
-        self.handle_picked();
+        self.handle_picked(&ctx);
+        self.handle_clips();
         let was_loaded = self.library.is_loaded();
         self.library.poll(&ctx);
         if !was_loaded && self.library.is_loaded() && self.library.recovery.is_some() {

@@ -4,6 +4,7 @@
 //! into a [`RenderTarget`]; the editor viewport, thumbnails and the offline
 //! exporter all go through this same path.
 
+pub mod clip;
 pub mod envmap;
 pub mod gpu;
 pub mod import;

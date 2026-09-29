@@ -62,9 +62,10 @@ impl Purpose {
             Purpose::AddModelLayer | Purpose::SetModel(_) | Purpose::SetMorphModel(_) => {
                 ("3D models", crate::inspector::MODEL_EXTENSIONS)
             }
-            Purpose::AddImages | Purpose::SetTexture(..) => {
-                ("Images", crate::inspector::IMAGE_EXTENSIONS)
-            }
+            Purpose::AddImages | Purpose::SetTexture(..) => (
+                "Images, GIFs and videos",
+                crate::inspector::PICTURE_EXTENSIONS,
+            ),
             Purpose::LoadMusic => ("Audio", crate::app::AUDIO_EXTENSIONS),
             Purpose::LoadMidi => ("MIDI", crate::app::MIDI_EXTENSIONS),
             Purpose::SetFont(_) => ("Fonts", crate::inspector::FONT_EXTENSIONS),

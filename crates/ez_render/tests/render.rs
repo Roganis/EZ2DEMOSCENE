@@ -2500,6 +2500,7 @@ fn lens_and_mirrored_tiling() {
         path: path.to_string_lossy().to_string(),
         retro: None,
         mirror: false,
+        clip: None,
     }];
     let (jump_repeat, _) = seam_jump(&mut r, &p, "mirror_off");
     p.textures[0].mirror = true;
@@ -4853,4 +4854,112 @@ fn translucency_transparency_and_library_textures() {
         assert!(r.errors.is_empty(), "{}: {:?}", e.id, r.errors);
         assert_ne!(centre(&img), s, "{} changes the ball", e.id);
     }
+}
+
+/// An animation (a frame sheet from a GIF or video) plays by itself on a
+/// shape and as a sprite sheet in an image layer, and loops.
+#[test]
+fn animated_pictures_play() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let colours = [[255u8, 0, 0], [0, 255, 0], [0, 0, 255], [255, 255, 0]];
+    let frames = ez_render::clip::Frames {
+        images: colours
+            .iter()
+            .map(|c| image::RgbaImage::from_pixel(16, 16, image::Rgba([c[0], c[1], c[2], 255])))
+            .collect(),
+        seconds: 1.0,
+    };
+    let (sheet, clip) = ez_render::clip::build_sheet(frames).unwrap();
+    let dir = snapshot_dir();
+    let path = dir.join("clip_sheet.png");
+    sheet.save(&path).unwrap();
+
+    let mut p = Project::default();
+    p.layers.clear();
+    p.timing.bpm = 120.0;
+    p.timing.loop_beats = 8; // 4 s: the 1 s clip plays 4 times.
+    p.camera = Camera {
+        mode: CameraMode::Static,
+        target: [0.0, 0.0, 0.0],
+        distance: Param::new(4.0),
+        height: Param::new(0.0),
+        fov: Param::new(40.0),
+        ..Default::default()
+    };
+    p.environment.fog_density = Param::new(0.0);
+    p.textures.push(UserTexture {
+        name: "clip".into(),
+        path: path.to_string_lossy().to_string(),
+        clip: Some(clip.clone()),
+        ..Default::default()
+    });
+    let mut cube = Layer::new(
+        "Cube",
+        LayerKind::Mesh(MeshLayer {
+            source: MeshSource::Primitive(Primitive::Cube),
+            material: Material {
+                base_color: [1.0; 3],
+                texture: Some("clip".into()),
+                emissive: Param::new(1.0),
+                emissive_color: [1.0; 3],
+                emissive_mode: EmissiveMode::Texture,
+                rim: Param::new(0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        }),
+    );
+    cube.transform.position = [-0.8, 0.0, 0.0];
+    cube.transform.scale = Param::new(0.5);
+    p.layers.push(cube);
+    let mut sprite = Layer::new(
+        "Clip",
+        LayerKind::Sprite(SpriteLayer {
+            image: Some("clip".into()),
+            facing: SpriteFacing::Camera,
+            blend: SpriteBlend::Cutout,
+            size: Param::new(0.8),
+            ..Default::default()
+        }),
+    );
+    if let LayerKind::Sprite(sp) = &mut sprite.kind {
+        sp.columns = clip.columns;
+        sp.rows = clip.rows;
+        sp.frames = clip.frames;
+        sp.cycles = clip.cycles_per_loop(p.timing.loop_seconds());
+        assert_eq!(sp.cycles, 4);
+    }
+    sprite.transform.position = [0.8, 0.0, 0.0];
+    p.layers.push(sprite);
+
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let (w, h) = (160u32, 90u32);
+    let target = r.create_target(w, h);
+    let at = |phase: f32| EvalCtx::new(&p.timing, phase, None);
+    let shot = |r: &mut Renderer, phase: f32| {
+        let img = r.render_image(&p, &at(phase), &target);
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+        let px = |x: u32| {
+            let c = img.get_pixel(x, h / 2);
+            // The strongest channel: 0 red, 1 green, 2 blue.
+            (0..3).max_by_key(|&i| c[i]).unwrap()
+        };
+        (px(w * 3 / 10), px(w * 7 / 10), img)
+    };
+    // Frame k of 4 plays over [k/16, (k+1)/16) of the loop.
+    let (cube0, sprite0, img0) = shot(&mut r, 0.02);
+    let (cube1, sprite1, img1) = shot(&mut r, 0.02 + 1.0 / 16.0);
+    let (cube_end, sprite_end, _) = shot(&mut r, 1.02);
+    img0.save(dir.join("clip_0.png")).unwrap();
+    img1.save(dir.join("clip_1.png")).unwrap();
+    assert_eq!((cube0, sprite0), (0, 0), "first frame red");
+    assert_eq!((cube1, sprite1), (1, 1), "second frame green");
+    assert_eq!((cube_end, sprite_end), (cube0, sprite0), "it loops");
 }

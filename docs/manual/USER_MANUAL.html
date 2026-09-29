@@ -732,7 +732,9 @@ styles.</p>
   <tr><td>Animation</td><td>For a sprite sheet (frames in a grid, left to right, top to bottom): <span class="ui">Columns</span>,
   <span class="ui">Rows</span>, <span class="ui">Frames</span> used (0 = all) and <span class="ui">Plays / loop</span>, a whole number so the
   animation lines up with the loop. <span class="ui">Each copy starts on its own frame</span> keeps a crowd of flames from flickering in
-  step. Picking a built-in sheet sets the grid for you.</td></tr>
+  step. Picking a built-in sheet or an animation (a GIF or video you imported) sets the grid for you, and an animation's
+  Plays / loop so it runs as near its own speed as a whole number allows (<span class="ui">Play at its own speed</span> sets it
+  again after you change the loop length).</td></tr>
   <tr><td>Copies</td><td>The same copy layouts and variation as shapes (grid, ring, scatter, orbit, on a curve, on a terrain…).</td></tr>
 </table>
 <p>The <b>Campfire Sprites</b> preset uses flames, sparkles and spinning pixel coins.</p>
@@ -895,7 +897,31 @@ The <b>Material Gallery</b> preset shows all nine.</p>
   <tr><td>Glass</td><td>(Physical) Light passes through, tinted by the colour. <span class="ui">Refraction</span> is how much it bends
   (1.33 water, 1.5 glass, 2.4 diamond); a glass ball shows the world upside down, like a real one. Glass shows the environment
   behind it, not the other shapes.</td></tr>
+  <tr><td>Translucency</td><td>(Both shadings) Light shines through the surface from behind, like sunlight through a leaf, a paper
+  lantern, wax, jade or an ear. Put the sun (Light &amp; fog) behind the shape to see it. <span class="ui">Light inside</span> is the
+  colour the light takes on passing through (warm orange for skin, yellow-green for leaves). The shape stays solid.</td></tr>
+  <tr><td>Transparency</td><td>(Both shadings) The shape is see-through: what is behind it shows, smoothly blended (0 = solid,
+  1 = invisible). Animate it with a fade to make shapes appear and disappear. Only the nearest surface of the shape is drawn, so
+  its back and insides don't show through its front; for the Saturn's dithered see-through, use <span class="ui">See-through
+  (mesh)</span> below.</td></tr>
 </table>
+<h2>Texture library</h2>
+<p>About 880 ready-made seamless textures, free to use for anything (CC0). Open it with <span class="ui">📚 Texture library…</span>
+at the top of any texture menu, or with <span class="ui">📚 Library…</span> next to the material presets. Two tabs, each with
+categories and a search box:</p>
+<table>
+  <tr><th style="width:24%">Tab</th><th>What is in it</th></tr>
+  <tr><td>PBR materials</td><td>135 photo-real surfaces by Poly Haven: brick, wood, bark, metal, rock, paving, roofing, fabric,
+  concrete and plaster, ground. Each has a colour picture, a normal map and an occlusion/roughness/metal map (256 &times; 256). Picked
+  for a shape's texture, it sets all three in one go and switches the material to Physical, with Colour white and Metallic and
+  Roughness at 1 so the maps decide. Picked for the relief or the ORM map, it gives just that map; anywhere else (floors, terrains,
+  backgrounds, sprites) its colour picture.</td></tr>
+  <tr><td>Low-res</td><td>740 small textures (at most 64 &times; 64, at most 128 colours) by Screaming Brain Studios and Kenney: brick,
+  stone, wood, metal, floor tiles, roofs, walls, liquids, fabric, blocks and pixel patterns. Set the texture <span class="ui">Filter</span>
+  to Nearest for crisp pixels.</td></tr>
+</table>
+<div class="note"><b>Web app</b>The desktop apps carry the texture library; the web app downloads it (about 11&nbsp;MB) the first
+time a library texture is needed. A project using library textures needs nothing else: packs don't copy them.</div>
 <h2>Material maps</h2>
 <p>Besides the colour <span class="ui">Texture</span>, two pictures fine-tune the surface. Both use the texture's Tiling and Scroll.</p>
 <table>
@@ -1027,7 +1053,7 @@ Texture</b> for lava.</p>
   <div><img src="../../assets/textures/track.png">track</div>
 </div>
 <h2>Your own images &amp; "retro-ize"</h2>
-<p>Import images (PNG, JPG, BMP, GIF, TGA) in any of these ways: from a texture menu (<span class="ui">Import image…</span>), from
+<p>Import images (PNG, JPG, BMP, GIF, TGA), animated GIFs and videos in any of these ways: from a texture menu (<span class="ui">Import image…</span>), from
 <span class="ui">File → Import image…</span>, or by dragging them onto the window. A dropped image is applied to the selected shape.
 All your images are listed under <span class="ui">Your images</span>, where you can tick <span class="ui">Retro-ize</span>.
 This shrinks the image to <span class="ui">Max size</span> pixels and remaps it to a classic <span class="ui">Palette</span> with
@@ -1036,6 +1062,20 @@ This shrinks the image to <span class="ui">Max size</span> pixels and remaps it 
 Tick <span class="ui">Mirror tiling</span> and every other copy is flipped, so edges always meet their own mirror image and the
 seams disappear. It applies everywhere the image is used (shapes, floors, terrain, the tunnel and battle backgrounds). A mirrored
 image repeats every two tiles, so when it scrolls, each scroll step moves it two tiles and the loop still closes.</p>
+<h2>Animated GIFs and videos</h2>
+<p>An animated GIF or a video (MP4, WebM, MOV, MKV…) imported like an image becomes an <b>animation</b>: its frames are laid out
+in one picture (a sprite sheet), which takes a moment while the status line says <i>Reading the frames…</i>. Up to 240 frames are
+kept, at most 320 pixels across; from a video, the first 30 seconds at up to 24 frames a second (fewer for longer videos). GIFs
+whose frames last different times are evened out.</p>
+<ul>
+  <li>In an <b>image layer</b> (Sprites: image plane, billboard…) it plays as a sprite sheet: the grid is set for you, and
+  <span class="ui">Plays / loop</span> is the whole number of plays per loop nearest its own speed (a 2-second clip in an 8-second
+  loop plays 4 times). Clips longer than the loop play faster to fit: make the loop longer to keep their speed.</li>
+  <li>As any <b>other texture</b> (a shape, the floor, a terrain, a background) it plays by itself, the same way.</li>
+</ul>
+<p><span class="ui">Your images</span> shows each animation's frames, length and how it fits the loop. The desktop apps read videos
+with ffmpeg (bundled with the release downloads); the web app uses the browser's own video player, so a format plays if the browser
+plays it (MP4 and WebM in Chrome and on Android).</p>
 
 <!-- ===================================================== 7 -->
 <h1 id="animate"><span class="num">7</span>Animating anything</h1>

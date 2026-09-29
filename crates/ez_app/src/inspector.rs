@@ -9,11 +9,27 @@ use ez_render::texgen;
 
 pub const MODEL_EXTENSIONS: &[&str] = &["gltf", "glb", "obj"];
 pub const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "bmp", "gif", "tga"];
+/// Images and the videos that import as animations
+/// (see [`crate::clip_import::VIDEO_EXTENSIONS`]).
+pub const PICTURE_EXTENSIONS: &[&str] = &[
+    "png", "jpg", "jpeg", "bmp", "gif", "tga", "mp4", "webm", "mov", "mkv", "m4v", "avi", "ogv",
+];
 pub const FONT_EXTENSIONS: &[&str] = &["ttf", "otf"];
 
 /// Adds an image as a user texture and returns its name.
 /// `path` is an asset path (file or `mem://`), `file_name` its display name.
 pub fn add_user_texture(textures: &mut Vec<UserTexture>, path: &str, file_name: &str) -> String {
+    add_user_clip(textures, path, file_name, None)
+}
+
+/// Adds an image, or the frame sheet of an animation (`clip`), as a user
+/// texture and returns its name.
+pub fn add_user_clip(
+    textures: &mut Vec<UserTexture>,
+    path: &str,
+    file_name: &str,
+    clip: Option<FrameSheet>,
+) -> String {
     let path_s = path.to_string();
     if let Some(t) = textures.iter().find(|t| t.path == path_s) {
         return t.name.clone();
@@ -39,6 +55,7 @@ pub fn add_user_texture(textures: &mut Vec<UserTexture>, path: &str, file_name: 
         path: path_s,
         retro: None,
         mirror: false,
+        clip,
     });
     name
 }
@@ -1593,7 +1610,7 @@ fn palette_swatch(ui: &mut Ui, p: PaletteId) {
 
 pub fn textures_ui(ui: &mut Ui, textures: &mut Vec<UserTexture>) {
     ui.heading("Your images");
-    ui.label(RichText::new("Images you imported. 'Retro-ize' shrinks them and remaps them to an old-school palette.").weak());
+    ui.label(RichText::new("Images you imported. 'Retro-ize' shrinks them and remaps them to an old-school palette. GIFs and videos become animations: image layers play them, and as textures they play by themselves.").weak());
     if ui.button("Import image…").clicked() {
         platform::pick(Purpose::AddImages);
     }
@@ -1607,6 +1624,12 @@ pub fn textures_ui(ui: &mut Ui, textures: &mut Vec<UserTexture>) {
             }
         });
         ui.label(RichText::new(&t.path).weak().small());
+        if let Some(c) = &t.clip {
+            let loop_s: f32 = ui
+                .data(|d| d.get_temp(egui::Id::new(LOOP_SECONDS)))
+                .unwrap_or(4.0);
+            clip_note(ui, c, loop_s);
+        }
         ui.checkbox(&mut t.mirror, "Mirror tiling").on_hover_text(
             "Repeat it flipped: every other copy is a mirror image, so the edges always meet and there are no seams",
         );
@@ -4864,6 +4887,33 @@ pub fn ramp_ui(ui: &mut Ui, r: &mut ColorRamp) {
     );
 }
 
+/// Temp-data key: the project's loop length in seconds.
+pub const LOOP_SECONDS: &str = "ez2-loop-seconds";
+
+/// Play an animation's frames in a sprite layer, at its own speed as near
+/// as whole plays per loop allow.
+pub fn fit_sprite_to_clip(sp: &mut SpriteLayer, clip: &FrameSheet, loop_seconds: f32) {
+    sp.columns = clip.columns;
+    sp.rows = clip.rows;
+    sp.frames = clip.frames;
+    sp.cycles = clip.cycles_per_loop(loop_seconds);
+}
+
+/// What an animation is and how it fits the loop.
+fn clip_note(ui: &mut Ui, clip: &FrameSheet, loop_seconds: f32) {
+    let plays = clip.cycles_per_loop(loop_seconds);
+    let speed = plays as f32 * clip.seconds / loop_seconds.max(1e-3);
+    let mut text = format!(
+        "Animation: {} frames, {:.1} s. Plays {plays}× per loop",
+        clip.frames, clip.seconds
+    );
+    if (speed - 1.0).abs() > 0.05 {
+        text += &format!(" ({:.0}% of its speed)", speed * 100.0);
+    }
+    text.push('.');
+    ui.label(RichText::new(text).weak().small());
+}
+
 fn sprite_ui(ui: &mut Ui, sp: &mut SpriteLayer, textures: &[UserTexture], lref: LayerRef) {
     section(ui, "Image", true, |ui| {
         let before = sp.image.clone();
@@ -4874,15 +4924,38 @@ fn sprite_ui(ui: &mut Ui, sp: &mut SpriteLayer, textures: &[UserTexture], lref: 
             textures,
             Some((lref, platform::TexSlot::Sprite)),
         );
-        // Built-in sheets set their own grid.
+        let clip = sp
+            .image
+            .as_deref()
+            .and_then(|n| textures.iter().find(|t| t.name == n))
+            .and_then(|t| t.clip.clone());
+        let loop_s: f32 = ui
+            .data(|d| d.get_temp(egui::Id::new(LOOP_SECONDS)))
+            .unwrap_or(4.0);
+        // Built-in sheets and animations set their own grid.
         if sp.image != before {
-            if let Some((c, r)) = sp.image.as_deref().and_then(texgen::sheet_grid) {
+            if let Some(c) = &clip {
+                fit_sprite_to_clip(sp, c, loop_s);
+            } else if let Some((c, r)) = sp.image.as_deref().and_then(texgen::sheet_grid) {
                 sp.columns = c;
                 sp.rows = r;
                 sp.frames = 0;
-            } else if before.as_deref().and_then(texgen::sheet_grid).is_some() {
+            } else if before.as_deref().and_then(texgen::sheet_grid).is_some()
+                || sp.columns * sp.rows > 1
+            {
                 sp.columns = 1;
                 sp.rows = 1;
+                sp.frames = 0;
+            }
+        }
+        if let Some(c) = &clip {
+            clip_note(ui, c, loop_s);
+            if ui
+                .small_button("Play at its own speed")
+                .on_hover_text("Plays per loop that keep it nearest the speed it was made at")
+                .clicked()
+            {
+                fit_sprite_to_clip(sp, c, loop_s);
             }
         }
         if sp.image.is_none() {

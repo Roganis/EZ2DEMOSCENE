@@ -70,7 +70,11 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   - **Sprites**: billboards, upright or fixed image planes with alpha,
     additive or cutout blending and any copy layout; sprite sheets play a
     whole number of times per loop (built-in explosion, flame, coin and
-    sparkle sheets).
+    sparkle sheets). **Animated GIFs and videos** (MP4, WebM, MOV…) import
+    as animations: image layers play them at their own speed, looped a
+    whole number of times, and as a texture anywhere else they play by
+    themselves (videos: the first 30 s, up to 240 frames; read with ffmpeg
+    on desktop and by the browser on the web).
   - **Copies on the GPU**: every copy layout (grid, ring, scatter, orbit,
     wall, spiral, curve, big swarms of up to 250,000 in orbits, a cloud,
     a shell or a spiral galaxy) is placed with its variation by a compute
@@ -160,7 +164,10 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   split-sum reflections with multiple scattering, so rough metals keep
   their energy), clearcoat, sheen and glass, occlusion/roughness/metal and
   glow maps, and nine one-click presets (gold, copper, chrome, brushed
-  steel, rubber, car paint, glass, velvet, ceramic). glTF models bring
+  steel, rubber, car paint, glass, velvet, ceramic). **Translucency** lets
+  light shine through leaves, paper, wax or skin from behind, in its own
+  colour; **transparency** blends a shape over what is behind it (animate
+  it to fade shapes in and out). glTF models bring
   their own PBR material and pictures (Classic keeps the original fake
   studio reflections). Flat-shaded facets, rim light, and neon glow on
   the whole surface, along
@@ -175,6 +182,13 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   CRT phosphors…). Imported images can be *retro-ized*: downscaled,
   palette-reduced and dithered, and tiled *mirrored* so photos repeat
   without seams.
+- **Texture library.** About 880 seamless CC0 textures picked from tiles
+  with previews: **135 PBR materials** (brick, wood, bark, metal, rock,
+  paving, roofing, fabric, concrete, ground; by Poly Haven) that set a
+  shape's colour, normal map and roughness/metal in one click, and **740
+  low-res textures** (at most 64 × 64: brick, stone, wood, metal, floor
+  tiles, roofs, liquids, patterns, blocks…; by Screaming Brain Studios and
+  Kenney) for the retro look.
 - **Retro 3D (5th-generation consoles).** Draw the whole 3D scene like
   a PlayStation: at **320 × 240, 256 × 224, 640 × 480** or your own size
   with native aliasing and square-pixel upscaling (text and logos can
@@ -359,13 +373,14 @@ ez2demoscene --write-textures assets/textures
 |---|---|
 | `crates/ez_core` | Scene model (serde), loop clock, animatable `Param`s, camera/instancing/symmetry math, presets, randomizer, node graph compiler. No GPU dependencies. |
 | `tools/model_library.py` | Builds `assets/models/library.zip`, the bundled model library, from Kenney's CC0 packs. |
+| `tools/texture_library.py` | Builds `assets/textures/texture_library.zip`, the bundled texture library, from Poly Haven, Screaming Brain Studios and Kenney (CC0). |
 | `crates/ez_render` | wgpu renderer: procedural meshes, glTF/OBJ import, texture generator, WGSL shaders (SDF backdrops, lit instanced meshes, analytic particles, mirror floor, bloom, kaleido, retro post). |
 | `crates/ez_export` | Offline loop rendering to PNG / ffmpeg (MP4, WebM, GIF), plus the audio envelope analysis. |
 | `crates/ez_app` | The egui editor (`ez2demoscene` binary) and the CLI. On wasm it swaps in `library_web.rs` (IndexedDB), `audio_web.rs` (HTML audio) and `export_web.rs` (WebCodecs/GIF/PNG zip). |
-| `web/` | Trunk entry point for the web build: `index.html`, PWA manifest, service worker, the WebCodecs bridge (`ez2_video.js`) and vendored MIT muxers. |
+| `web/` | Trunk entry point for the web build: `index.html`, PWA manifest, service worker, the WebCodecs bridge (`ez2_video.js`), the video frame reader for importing videos (`ez2_clip.js`) and vendored MIT muxers. |
 | `android-app/` | Capacitor wrapper that packages the web build as an Android app. |
 | `assets/presets` | Built-in presets as project files (generated). |
-| `assets/textures` | The built-in retro texture pack as PNGs (generated, CC0). |
+| `assets/textures` | The built-in retro texture pack as PNGs (generated, CC0) and the texture library (`texture_library.zip`, CC0; see `TEXTURE_LIBRARY_LICENSE.txt`). |
 
 ### How the loop guarantee works
 
@@ -433,4 +448,5 @@ is enough to run the tests and exports.
 ## License
 
 GPL-3.0-or-later. The generated texture pack in `assets/textures` is released
-under CC0.
+under CC0. The model and texture libraries are CC0 works by Kenney, Poly Haven
+and Screaming Brain Studios (see the licence files next to them).
