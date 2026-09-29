@@ -2664,3 +2664,63 @@ fn cloth_waves_and_loops() {
     );
     waited.save(snapshot_dir().join("cloth_0.2.png")).unwrap();
 }
+
+/// Rigid bodies: nothing until baked (and the frame says so), then the
+/// same picture whether the renderer waited or the preview polled; the
+/// wall stands, falls after the blast, and the loop closes.
+#[test]
+fn rigid_bodies_fall_and_loop() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let p = presets::beat_demolition();
+    let mut bare = p.clone();
+    bare.layers.retain(|l| l.kind.instancer().is_none());
+    let at = |phase: f32| EvalCtx::new(&p.timing, phase, None);
+
+    let mut preview = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let target = preview.create_target(160, 90);
+    let empty = preview.render_image(&bare, &at(0.05), &target);
+    preview.take_inexact();
+    let before = preview.render_image(&p, &at(0.05), &target);
+    assert!(preview.take_inexact());
+    assert!(mean_abs_diff(before.as_raw(), empty.as_raw()) < 0.01);
+    let start = std::time::Instant::now();
+    while preview.bake_progress().is_some() {
+        assert!(start.elapsed().as_secs() < 180, "bake never finished");
+        preview.poll_bakes(|| false);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let polled = preview.render_image(&p, &at(0.05), &target);
+
+    let mut export = Renderer::new(&gpu.device, &gpu.queue, 1);
+    export.set_wait_for_bakes(true);
+    let waited = export.render_image(&p, &at(0.05), &target);
+    assert_eq!(waited.as_raw(), polled.as_raw());
+    let shown = mean_abs_diff(waited.as_raw(), empty.as_raw());
+
+    // The wall at the same moment of the camera's swing, standing and
+    // fallen: compared with the scene without it.
+    let fallen = export.render_image(&p, &at(0.4), &target);
+    let bare_late = export.render_image(&bare, &at(0.4), &target);
+    let (standing_vs_bare, fallen_vs_bare) =
+        (shown, mean_abs_diff(fallen.as_raw(), bare_late.as_raw()));
+    let a = export.render_image(&p, &at(0.0), &target);
+    let b = export.render_image(&p, &at(1.0), &target);
+    let seam = mean_abs_diff(a.as_raw(), b.as_raw());
+    eprintln!("physics: shown {standing_vs_bare:.3}, fallen {fallen_vs_bare:.3}, seam {seam:.4}");
+    assert!(shown > 0.5, "no wall: {shown}");
+    // Fallen blocks lie low and scattered: the picture changes a lot.
+    let change = mean_abs_diff(waited.as_raw(), fallen.as_raw());
+    assert!(change > 1.0, "the wall didn't fall: {change}");
+    assert!(seam < 0.05, "seam {seam}");
+    waited
+        .save(snapshot_dir().join("physics_0.05.png"))
+        .unwrap();
+    fallen.save(snapshot_dir().join("physics_0.4.png")).unwrap();
+}

@@ -664,6 +664,17 @@ fn gpu_layout(
             // Somewhere on the landscape: always drawn.
             g.reach = None;
         }
+        Instancer::Physics { ref physics, .. } => {
+            // Placed on the CPU from the bake.
+            g.layout = 11;
+            g.lay_u[0] = locals.len() as u32;
+            locals.extend(
+                ez_core::eval::instancer_locals(inst, ctx, surface)
+                    .iter()
+                    .map(|m| m4(*m)),
+            );
+            g.reach = Some(physics.reach(Vec3::ONE) * 4.0);
+        }
         Instancer::Flock { ref flock, .. } => {
             // Placed on the CPU from the bake.
             g.layout = 11;
@@ -3362,8 +3373,10 @@ impl Renderer {
         use ez_core::sim::{BakeJob, KeyHasher, SimClock};
         let wants = |l: &Layer| {
             l.enabled
-                && (matches!(l.kind.instancer(), Some(Instancer::Flock { .. }))
-                    || matches!(&l.kind, LayerKind::Mesh(m) if matches!(m.source, MeshSource::Cloth { .. })))
+                && (matches!(
+                    l.kind.instancer(),
+                    Some(Instancer::Flock { .. } | Instancer::Physics { .. })
+                ) || matches!(&l.kind, LayerKind::Mesh(m) if matches!(m.source, MeshSource::Cloth { .. })))
         };
         if !layers.iter().any(wants) {
             return;
@@ -3437,15 +3450,30 @@ impl Renderer {
                 *mesh = Some(key);
                 continue;
             }
-            let Some(Instancer::Flock { flock, placed }) = layer.kind.instancer_mut() else {
-                continue;
+            // Rigid bodies collide as the copies are drawn: at the
+            // layer's (resting) size.
+            let scale = Vec3::from(layer.transform.stretch) * layer.transform.scale.base;
+            let (bake, placed) = match layer.kind.instancer_mut() {
+                Some(Instancer::Flock { flock, placed }) => {
+                    let make = |clock: &SimClock| {
+                        let sim = flock.sim(&clock.ctx(0.0));
+                        BakeJob::new(Box::new(sim), clock.clone(), flock.looping.clone())
+                    };
+                    let json = serde_json::to_string(&**flock).unwrap_or_default();
+                    (bake_of(json, flock.uses_music(), &make), placed)
+                }
+                Some(Instancer::Physics { physics, placed }) => {
+                    let make = |clock: &SimClock| {
+                        let sim = physics.sim(scale);
+                        BakeJob::new(Box::new(sim), clock.clone(), physics.looping.clone())
+                    };
+                    let json =
+                        serde_json::to_string(&(&**physics, scale.to_array())).unwrap_or_default();
+                    (bake_of(json, false, &make), placed)
+                }
+                _ => continue,
             };
-            let make = |clock: &SimClock| {
-                let sim = flock.sim(&clock.ctx(0.0));
-                BakeJob::new(Box::new(sim), clock.clone(), flock.looping.clone())
-            };
-            let json = serde_json::to_string(&**flock).unwrap_or_default();
-            let Some(bake) = bake_of(json, flock.uses_music(), &make) else {
+            let Some(bake) = bake else {
                 continue;
             };
             // The simulation ran in real time: read it at the real phase.

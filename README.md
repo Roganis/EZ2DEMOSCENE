@@ -82,6 +82,12 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     same result on every platform: each boid keeps a loose place in a
     formation so the flight nearly repeats, and the end of the loop steers
     back to its start. Exports wait for the simulation.
+  - **Physics** (a copy layout): rigid boxes or balls. *Rain* drops them
+    on a schedule that repeats every loop; they pile up, then shrink or
+    sink away. *Stack and blast* builds a wall or tower that a blast
+    knocks down on a chosen beat and that rebuilds itself (ping-pong);
+    with no gravity it bursts apart in space. Simulated ahead of time,
+    with the same result everywhere.
   - **Logos**: text or an image laid flat on the screen (snapped to a
     part of the screen or against another logo, which it then follows,
     like a photo editor's reference points; size and turn animatable),

@@ -160,6 +160,11 @@ pub fn all() -> Vec<Preset> {
             project: banners(),
         },
         Preset {
+            name: "Beat Demolition",
+            description: "A wall of glowing blocks blown apart on the beat and rebuilt, with pearls raining behind: rigid bodies that loop.",
+            project: beat_demolition(),
+        },
+        Preset {
             name: "Starling Dusk",
             description: "A flock of 600 starlings wheeling through a sunset, scattering on every bar: simulated, and looping.",
             project: starling_dusk(),
@@ -3074,6 +3079,138 @@ pub fn banners() -> Project {
                 intensity: Param::new(0.3),
                 threshold: Param::new(1.4),
                 radius: Param::new(0.6),
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+/// A wall of blocks knocked down by a blast and rebuilt (ping-pong), with
+/// a rain of pearls behind it: simulated rigid bodies.
+pub fn beat_demolition() -> Project {
+    use crate::sim::{Collider, Physics};
+    let wall = Layer::new(
+        "Wall",
+        LayerKind::Mesh(MeshLayer {
+            instancer: Instancer::Physics {
+                physics: Box::new(Physics {
+                    counts: [8, 6, 1],
+                    gap: 0.02,
+                    blast_beat: 2.0,
+                    blast: 12.0,
+                    blast_at: [0.5, 1.2, 1.2],
+                    ..Physics::stack()
+                }),
+                placed: None,
+            },
+            ramp: ColorRamp {
+                enabled: true,
+                colors: vec![hex(0xff3060), hex(0xffa020), hex(0x30c0ff)],
+                cycles: 1,
+                ..Default::default()
+            },
+            ..mesh(
+                Primitive::Cube,
+                Material {
+                    base_color: hex(0x202028),
+                    metallic: Param::new(0.3),
+                    roughness: Param::new(0.35),
+                    emissive: Param::new(0.9),
+                    emissive_mode: EmissiveMode::Edges,
+                    ..Default::default()
+                },
+            )
+        }),
+    );
+    let rain = Layer::new(
+        "Rain",
+        LayerKind::Mesh(MeshLayer {
+            instancer: Instancer::Physics {
+                physics: Box::new(Physics {
+                    collider: Collider::Ball,
+                    extent: 1.0,
+                    count: 40,
+                    area: 3.0,
+                    height: 5.0,
+                    ..Physics::default()
+                }),
+                placed: None,
+            },
+            ..mesh(
+                Primitive::Sphere { detail: 3 },
+                Material {
+                    base_color: hex(0xe8ecf4),
+                    metallic: Param::new(0.1),
+                    roughness: Param::new(0.25),
+                    emissive: Param::new(0.35),
+                    emissive_color: hex(0xc0d8ff),
+                    ..Default::default()
+                },
+            )
+        }),
+    )
+    .scaled(0.35)
+    .at([0.0, 0.0, -6.0]);
+    Project {
+        name: "Beat Demolition".into(),
+        timing: crate::Timing {
+            bpm: 120.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Pendulum,
+            swing: Param::new(20.0),
+            target: [0.0, 2.0, -1.0],
+            distance: Param::new(15.0),
+            height: Param::new(4.0),
+            fov: Param::new(55.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0x080610),
+            fog_density: Param::new(0.02),
+            sky_color: hex(0x303050),
+            ground_color: hex(0x101018),
+            light_dir: [0.4, 0.9, 0.5],
+            light_color: hex(0xfff0e0),
+            light_intensity: Param::new(1.3),
+            ambient: Param::new(0.35),
+            shadows: Shadows {
+                enabled: true,
+                distance: 30.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        layers: vec![
+            Layer::new(
+                "Sky",
+                LayerKind::Backdrop(Backdrop {
+                    kind: BackdropKind::Nebula,
+                    color_a: hex(0x401030),
+                    color_b: hex(0x05040c),
+                    ..Default::default()
+                }),
+            ),
+            Layer::new(
+                "Floor",
+                LayerKind::Mirror(MirrorFloor {
+                    base_color: hex(0x0c0c14),
+                    reflectivity: Param::new(0.5),
+                    blur: Param::new(0.3),
+                    ..Default::default()
+                }),
+            ),
+            wall,
+            rain,
+        ],
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                intensity: Param::new(0.7),
+                threshold: Param::new(1.0),
+                radius: Param::new(0.7),
             },
             ..Default::default()
         },

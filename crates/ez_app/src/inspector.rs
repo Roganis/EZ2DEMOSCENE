@@ -1971,6 +1971,7 @@ fn instancer_ui(ui: &mut Ui, inst: &mut Instancer) {
             slider(ui, "Lift", "Raise copies off the ground", lift, -2.0..=10.0);
         }
         Instancer::Flock { flock, .. } => flock_ui(ui, flock),
+        Instancer::Physics { physics, .. } => physics_ui(ui, physics),
     }
 }
 
@@ -2174,6 +2175,151 @@ fn sim_loop_ui(ui: &mut Ui, l: &mut ez_core::sim::SimLoop, close_tip: &str) {
              units): smaller means a smoother loop.",
         );
     }
+}
+
+fn physics_ui(ui: &mut Ui, p: &mut ez_core::sim::Physics) {
+    use ez_core::sim::{Collider, LoopClose, Scenario, Vanish, PHYSICS_MAX};
+    let before = p.scenario;
+    combo(
+        ui,
+        "Scene",
+        "Rain: copies drop one after another, pile up and vanish. Stack and \
+         blast: copies start stacked (a wall, a tower) and a blast knocks \
+         them down.",
+        &mut p.scenario,
+        &Scenario::ALL,
+        |s| s.label(),
+    );
+    if p.scenario != before {
+        // Each scene closes its loop its own way.
+        let fresh = match p.scenario {
+            Scenario::Rain => ez_core::sim::Physics::default(),
+            Scenario::Stack => ez_core::sim::Physics::stack(),
+        };
+        p.looping = fresh.looping;
+    }
+    combo(
+        ui,
+        "Collide as",
+        "The shape each copy bumps as",
+        &mut p.collider,
+        &Collider::ALL,
+        |c| c.label(),
+    );
+    slider(
+        ui,
+        "Collider size",
+        "Half the collider's size for a copy of size 1: 0.5 fits the \
+         built-in cube, 1 the sphere",
+        &mut p.extent,
+        0.05..=2.0,
+    );
+    match p.scenario {
+        Scenario::Rain => {
+            drag_u(
+                ui,
+                "Count",
+                "Copies, each dropping once per loop",
+                &mut p.count,
+                1..=PHYSICS_MAX,
+            );
+            slider(
+                ui,
+                "Life",
+                "How long each stays, in beats. Keep it under half the tail, \
+                 so closing the loop hardly moves anything.",
+                &mut p.life,
+                0.5..=32.0,
+            );
+            slider(ui, "Area", "Radius they drop into", &mut p.area, 0.0..=20.0);
+            slider(
+                ui,
+                "Height",
+                "Height they drop from",
+                &mut p.height,
+                0.0..=30.0,
+            );
+            slider(
+                ui,
+                "Spin",
+                "How fast they tumble as they drop",
+                &mut p.spin,
+                0.0..=15.0,
+            );
+            combo(ui, "Leave by", "", &mut p.vanish, &Vanish::ALL, |v| {
+                v.label()
+            });
+        }
+        Scenario::Stack => {
+            row(
+                ui,
+                "Stack",
+                "Copies along x, up and z (a wall: 8, 5, 1)",
+                |ui| {
+                    for (v, a) in p.counts.iter_mut().zip(["x ", "y ", "z "]) {
+                        ui.add(egui::DragValue::new(v).range(1..=40).speed(0.1).prefix(a));
+                    }
+                },
+            );
+            slider(
+                ui,
+                "Gap",
+                "Space between the stacked copies",
+                &mut p.gap,
+                0.0..=1.0,
+            );
+            slider(
+                ui,
+                "Blast at beat",
+                "When the blast goes off (ping-pong rebuilds the stack in \
+                 the second half of the loop)",
+                &mut p.blast_beat,
+                0.0..=64.0,
+            );
+            slider(ui, "Blast", "Its strength", &mut p.blast, 0.0..=40.0);
+            vec3(
+                ui,
+                "Blast from",
+                "From the layer's origin",
+                &mut p.blast_at,
+                0.05,
+            );
+        }
+    }
+    ui.separator();
+    ui.label(RichText::new("World").weak());
+    slider(
+        ui,
+        "Gravity",
+        "0 = floating in space",
+        &mut p.gravity,
+        0.0..=30.0,
+    );
+    slider(
+        ui,
+        "Floor",
+        "Floor height, from the layer's origin",
+        &mut p.floor,
+        -20.0..=20.0,
+    );
+    slider(ui, "Bounce", "", &mut p.bounce, 0.0..=1.0);
+    slider(ui, "Grip", "Friction", &mut p.friction, 0.0..=2.0);
+    drag_u(ui, "Seed", "", &mut p.seed, 0..=9999);
+    ui.label(
+        RichText::new(
+            "Random tilt and size (Variation) turn and size the copies but \
+             not how they collide: keep them at 0.",
+        )
+        .weak()
+        .small(),
+    );
+    let tip = if p.scenario == Scenario::Stack && p.looping.close == LoopClose::PingPong {
+        "Ping-pong: the stack falls, then builds itself back up."
+    } else {
+        "Blend the tail: the bodies steer back to where they started \
+         while still bumping into each other and the floor."
+    };
+    sim_loop_ui(ui, &mut p.looping, tip);
 }
 
 fn cloth_ui(ui: &mut Ui, c: &mut ez_core::sim::Cloth) {

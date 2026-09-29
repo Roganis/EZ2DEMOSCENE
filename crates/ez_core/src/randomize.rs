@@ -268,6 +268,10 @@ fn scale_counts(inst: &mut Instancer, rng: &mut Rng, k: f32) {
             flock.count = f(rng, flock.count, 20, crate::sim::FLOCK_MAX);
             flock.seed = rng.next_u32() % 1000;
         }
+        Instancer::Physics { physics, .. } => {
+            physics.count = f(rng, physics.count, 10, crate::sim::PHYSICS_MAX);
+            physics.seed = rng.next_u32() % 1000;
+        }
         Instancer::Grid { .. } | Instancer::Single => {}
     }
 }

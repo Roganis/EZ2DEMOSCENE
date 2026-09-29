@@ -986,7 +986,7 @@ scene moves, a waiting renderer and a polling preview agree, and the loop
 closes (seam 0.0000). Preset: *Banners* (five flags on poles, a gust on
 every bar, the wind swinging ±35°).
 
-### ☐ 10.4 Rigid bodies
+### ☑ 10.4 Rigid bodies
 **How.** A copy layout, **Physics** (`Instancer::Physics`): each copy is
 a sphere, box or capsule fitted to the shape's bounds (convex hulls
 later). Sequential-impulse solver with friction and restitution,
@@ -1003,6 +1003,55 @@ Closing: blend the tail (Rain), ping-pong (Tower, Explode).
 **Test.** Loops; resting bodies don't jitter (sub-millimetre movement
 over a second); no body falls through the ground; a wall is intact at
 phase 0 in ping-pong. Preset: *Beat Demolition*.
+
+**Done, differently in places.** `Instancer::Physics` over
+`ez_core::sim::Physics`, extended position-based rigid bodies (Müller et
+al. 2020): 8 substeps per step (960 Hz), positional contacts with static
+friction, then a velocity pass for bounce and sliding friction.
+Colliders are boxes (sized from the layer's scale and stretch: the
+built-in cube is ±0.5) or balls; box contacts test each box's 8 corners
+and 6 face centres against the other box (edge-on-edge hits are missed;
+resting and stacking work), broad phase by sweep and prune (sorted by
+edge then number, the same everywhere). Only the floor; not the terrain,
+and no convex hulls. *Explode* is Stack and blast with gravity 0. What
+the measurements changed:
+- **Sleeping, from the start.** A single box on the floor crept 1.6 mm/s
+  and a column of four tipped over: resting contacts solved one after
+  another leave a twist. Bodies nearly still for 0.25 s now sleep (fixed
+  for the others, woken by something moving or a blast), and a stack
+  starts asleep, so it stands exactly until the blast. Only a body held
+  up at three points or more may sleep: one landed balanced on an edge
+  and slept there.
+- **Overlaps push apart at most 4 units/s.** A deep overlap corrected
+  in one 1/960 s substep flung a body across the floor at 19 units/s.
+- **The guided tail acts inside the substeps**, before the contacts (a
+  new `Sim::guide` override, like the flock's), and not on the dead: the
+  default kinematic pull dragged boxes into the floor (dips of 0.15), and
+  snapping hidden bodies smeared them across the screen. Now the floor
+  and neighbours push back, dips stay under 1 cm and the final blend
+  covers 0.008 units RMS.
+- **Rain: short lives, long tail.** Closing a loop of piled, tumbling
+  boxes had some box slide across the floor at 20–70 units/s to where it
+  lay a loop earlier. A body dropped inside the tail starts exactly like
+  one loop earlier; with lives shorter than half the tail (default: 4
+  beats of 16, tail half the loop), bodies dropped earlier are gone by the
+  end, and the fastest slide while closing is 5.9 units/s against 3.4 in
+  the rest of the loop.
+- **Friction 1.0 by default.** Friction on a contact point also turns the
+  box, so boxes slowed at about 40% of the rate the setting suggests.
+Bakes (4-core test container, 8 s loop): rain of 60 in 0.5 s (1.9 MB),
+200 in 1.5 s, a wall of 48 in 0.3 s, a tower of 400 in 3.7 s. Up to 400
+bodies.
+Tested: a resting wall stays put, a blast knocks most of it down and
+ping-pong rebuilds it (intact at 0, mirrored halves), nothing falls
+through the floor (boxes and balls), rain drops, lands and piles, loops
+and slides back no faster than about twice its own motion, sinking
+bodies go through the floor, the same bake on every platform (checked
+natively and in wasm), saving and loading; on the GPU nothing is drawn
+until baked (and the frame says so), a waiting renderer and a polling
+preview agree, the wall falls and the loop closes (seam 0.0000).
+Preset: *Beat Demolition* (a wall of 48 glowing blocks blown apart on
+beat 2 and rebuilt, pearls raining behind).
 
 ### ☐ 10.5 Fluid-like particles
 **How.** A new motion for the particles layer, `Motion::Fluid` (the

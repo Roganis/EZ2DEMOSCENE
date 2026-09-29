@@ -468,6 +468,16 @@ everywhere, then finished on the graphics card.)</p>
   the flight nearly repeats by itself and the catch-up is gentle. Under the settings, <i>seam</i> says how far the boids still are
   from their start when the final blend takes over. Use a small, flat shape (a squashed pyramid). The <b>Starling Dusk</b> preset
   has 600.</td></tr>
+  <tr><td>Physics</td><td>Scene (Rain, Stack and blast), Collide as (Box, Ball), Collider size; Rain: Count, Life, Area, Height,
+  Spin, Leave by; Stack: Stack x/y/z, Gap, Blast at beat, Blast, Blast from; Gravity, Floor, Bounce, Grip, Seed; closing the loop</td>
+  <td>Copies as <b>solid bodies</b> that fall, stack and knock each other about, simulated ahead of time like flocks.
+  <b>Rain</b> drops them one after another from the same places every loop; they pile up on the floor and shrink or sink away at
+  the end of their <span class="ui">Life</span>. Keep the life short (under half of the loop-closing tail) and the loop closes
+  without anything visibly sliding back into place. <b>Stack and blast</b> builds a wall or tower that a blast knocks down on
+  the beat you choose; with ping-pong it builds itself back up in the second half of the loop, and with
+  <span class="ui">Gravity</span> 0 the blocks burst apart in space. <span class="ui">Collider size</span> is half the collider
+  for a copy of size 1: 0.5 for the built-in cube, 1 for the sphere. Random tilt and size under Variation don't change how copies
+  collide, so keep them at 0. Up to 400 bodies. The <b>Beat Demolition</b> preset has a wall and a rain of pearls.</td></tr>
 </table>
 <p><b>Variation</b> (appears when there are copies) adds life:</p>
 <ul>

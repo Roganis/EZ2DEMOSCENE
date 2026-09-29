@@ -1695,6 +1695,15 @@ pub enum Instancer {
         #[serde(skip)]
         placed: Option<std::sync::Arc<Vec<glam::Mat4>>>,
     },
+    /// Rigid bodies: copies that fall, stack, collide and get blown apart,
+    /// simulated ahead of time into a loop (see [`crate::sim::Physics`]).
+    Physics {
+        physics: Box<crate::sim::Physics>,
+        /// Where every copy is at the moment being drawn (from the bake),
+        /// filled in before rendering; none until it is baked.
+        #[serde(skip)]
+        placed: Option<std::sync::Arc<Vec<glam::Mat4>>>,
+    },
 }
 
 impl Instancer {
@@ -1712,6 +1721,7 @@ impl Instancer {
             Instancer::Surface { .. } => "On a shape's surface",
             Instancer::OnTerrain { .. } => "On a terrain",
             Instancer::Flock { .. } => "Flock",
+            Instancer::Physics { .. } => "Physics",
         }
     }
 
@@ -1785,6 +1795,10 @@ impl Instancer {
             },
             Instancer::Flock {
                 flock: Box::default(),
+                placed: None,
+            },
+            Instancer::Physics {
+                physics: Box::default(),
                 placed: None,
             },
         ]
