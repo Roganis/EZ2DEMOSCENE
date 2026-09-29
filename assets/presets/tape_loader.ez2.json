@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "name": "Spectrum Isometric",
+  "name": "Tape Loader",
   "timing": {
     "bpm": 120.0,
     "loop_beats": 16
@@ -475,22 +475,14 @@
         ],
         "spin": [
           0,
-          2,
+          0,
           0
         ],
-        "bob": {
-          "base": 0.0,
-          "amp": 0.8,
-          "wave": "Swell",
-          "cycles": 4,
-          "offset": 0.0,
-          "audio": 0.0
-        }
+        "bob": 0.0
       },
       "symmetry": {
         "type": "None"
       },
-      "step_fps": 10.0,
       "kind": {
         "type": "Mesh",
         "source": {
@@ -640,7 +632,12 @@
       "inset": [
         0.136,
         0.176
-      ]
+      ],
+      "stripes": {
+        "mode": "Loading",
+        "bands": 14.0,
+        "speed": 24
+      }
     }
   }
 }

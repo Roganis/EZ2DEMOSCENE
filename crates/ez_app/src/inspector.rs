@@ -1331,6 +1331,32 @@ pub fn retro_ui(ui: &mut Ui, r: &mut Retro3d, palette: &mut PaletteFx, out: (u32
                     |f| f.label(),
                 );
                 color(ui, "Border", "Colour around the picture", &mut sc.border);
+                row(
+                    ui,
+                    "Border size",
+                    "Border inside the frame on each side (share of its width, height): the Spectrum \
+                     and C64 had wide borders all round; top and bottom only makes a letterbox, like \
+                     the window Star Fox drew in",
+                    |ui| {
+                        ui.add(egui::Slider::new(&mut sc.inset[0], 0.0..=0.4).text("sides"));
+                        ui.add(egui::Slider::new(&mut sc.inset[1], 0.0..=0.4).text("top & bottom"));
+                    },
+                );
+                let st = &mut sc.stripes;
+                combo(
+                    ui,
+                    "Loading stripes",
+                    "A tape loading, as on the ZX Spectrum: red and cyan pilot bands, thin blue and \
+                     yellow data bands, or the whole load over the loop with the picture arriving \
+                     line by line in black and white, then its colours",
+                    &mut st.mode,
+                    &StripeMode::ALL,
+                    |m| m.label(),
+                );
+                if st.mode != StripeMode::Off {
+                    slider(ui, "Bands", "Pilot bands down the frame", &mut st.bands, 2.0..=40.0);
+                    drag_u(ui, "Roll / loop", "Pairs of pilot bands rolling past per loop", &mut st.speed, 0..=128);
+                }
             });
         });
         section(ui, "Resolution", true, |ui| {

@@ -4545,8 +4545,14 @@ fn console_screens_and_palettes() {
         }
         // Colour changes along a row: at most one per machine pixel (160
         // across), in the busiest row.
+        // Inside the picture (the C64 has a border all round too).
+        let r = p.retro.screen.rect((w, h));
+        let (px0, px1) = (
+            (r[0] * w as f32) as u32 + 1,
+            ((r[0] + r[2]) * w as f32) as u32 - 1,
+        );
         let mut n = 0;
-        for x in x0 + 1..x1 - 1 {
+        for x in px0..px1 - 1 {
             n += (img.get_pixel(x, y) != img.get_pixel(x + 1, y)) as u32;
         }
         changes = changes.max(n);
@@ -4610,4 +4616,132 @@ fn console_screens_and_palettes() {
         });
         assert!(ok, "{pal:?} has channels off its {levels} levels");
     }
+}
+
+/// A tape loading on the Spectrum screen: red/cyan pilot stripes over a
+/// black picture, then blue/yellow data stripes while the picture arrives
+/// in black and white, then the finished picture in its border; it loops.
+/// And a letterbox: black bars above and below a picture.
+#[test]
+fn loading_stripes_and_letterbox() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let dir = snapshot_dir().join("loading");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let (w, h) = (640u32, 360u32);
+    let target = r.create_target(w, h);
+    let mut p = presets::empty();
+    p.post.grade.vignette = Param::new(0.0);
+    p.post.grade.grain = Param::new(0.0);
+    p.post.bloom.enabled = false;
+    ScreenPreset::ZxSpectrum.apply(&mut p.retro, &mut p.post.palette);
+    p.retro.screen.stripes.mode = StripeMode::Loading;
+    let rect = p.retro.screen.rect((w, h));
+    let (x0, y0) = (
+        (rect[0] * w as f32) as u32 + 2,
+        (rect[1] * h as f32) as u32 + 2,
+    );
+    let (x1, y1) = (
+        ((rect[0] + rect[2]) * w as f32) as u32 - 2,
+        ((rect[1] + rect[3]) * h as f32) as u32 - 2,
+    );
+    let inside = |x: u32, y: u32| x >= x0 && x < x1 && y >= y0 && y < y1;
+    let outside = |x: u32, y: u32| x + 3 < x0 || x > x1 + 3 || y + 3 < y0 || y > y1 + 3;
+    let rgb = |c: u32| [(c >> 16) as u8, (c >> 8) as u8, c as u8];
+    let near =
+        |p: &image::Rgba<u8>, c: [u8; 3]| (0..3).all(|k| (p[k] as i32 - c[k] as i32).abs() <= 3);
+    let shot = |phase: f32, r: &mut Renderer, name: &str| {
+        let img = r.render_image(&p, &EvalCtx::new(&p.timing, phase, None), &target);
+        img.save(dir.join(format!("{name}.png"))).unwrap();
+        img
+    };
+    // Share of border pixels of each colour, and the picture's colours.
+    let survey = |img: &image::RgbaImage, cols: [u32; 2]| {
+        let (mut a, mut b, mut other, mut n) = (0, 0, 0, 0);
+        let mut pic = std::collections::HashSet::new();
+        for (x, y, px) in img.enumerate_pixels() {
+            if outside(x, y) {
+                n += 1;
+                if near(px, rgb(cols[0])) {
+                    a += 1;
+                } else if near(px, rgb(cols[1])) {
+                    b += 1;
+                } else {
+                    other += 1;
+                }
+            } else if inside(x, y) {
+                pic.insert([px[0], px[1], px[2]]);
+            }
+        }
+        (a as f32 / n as f32, b as f32 / n as f32, other, pic)
+    };
+
+    let pilot = shot(0.05, &mut r, "pilot");
+    let (red, cyan, other, pic) = survey(&pilot, [0xff0000, 0x00ffff]);
+    eprintln!("pilot: red {red:.2}, cyan {cyan:.2}, other {other}, picture colours {pic:?}");
+    assert!(red > 0.2 && cyan > 0.2 && other == 0, "pilot stripes");
+    assert!(
+        pic.iter().all(|c| c.iter().all(|v| *v <= 3)),
+        "the picture isn't black during the pilot"
+    );
+
+    let data = shot(0.5, &mut r, "data");
+    let (blue, yellow, other, pic) = survey(&data, [0x0000ff, 0xffff00]);
+    eprintln!(
+        "data: blue {blue:.2}, yellow {yellow:.2}, other {other}, picture colours {}",
+        pic.len()
+    );
+    assert!(blue > 0.2 && yellow > 0.2 && other == 0, "data stripes");
+    assert!(
+        pic.iter()
+            .all(|c| c.iter().all(|v| *v <= 3) || c.iter().all(|v| *v >= 252)),
+        "the picture isn't black and white while its lines load"
+    );
+    assert!(pic.len() == 2, "no lines have arrived yet, or all have");
+
+    let done = shot(0.95, &mut r, "done");
+    let (border, _, other, pic) = survey(&done, [0x0000ff, 0x0000fe]);
+    eprintln!(
+        "done: border {border:.2}, other {other}, picture colours {}",
+        pic.len()
+    );
+    assert!(border > 0.99, "the border isn't its colour once loaded");
+    assert!(pic.len() > 2, "the finished picture has no colours");
+
+    let a = shot(0.0, &mut r, "first");
+    let b = r.render_image(&p, &EvalCtx::new(&p.timing, 1.0, None), &target);
+    assert!(
+        mean_abs_diff(a.as_raw(), b.as_raw()) < 0.01,
+        "the load doesn't loop"
+    );
+
+    // Letterbox: black bars above and below.
+    let mut q = presets::empty();
+    q.post.grade.vignette = Param::new(0.0);
+    q.post.grade.grain = Param::new(0.0);
+    q.retro.enabled = true;
+    q.retro.screen = ConsoleScreen {
+        enabled: true,
+        size: [320, 136],
+        frame: ScreenFrame::Fill,
+        inset: [0.0, 0.12],
+        ..Default::default()
+    };
+    let img = r.render_image(&q, &EvalCtx::new(&q.timing, 0.3, None), &target);
+    img.save(dir.join("letterbox.png")).unwrap();
+    let bar = (h as f32 * 0.12) as u32 - 1;
+    let black_bars = (0..w).all(|x| {
+        (0..bar)
+            .chain(h - bar..h)
+            .all(|y| near(img.get_pixel(x, y), [0, 0, 0]))
+    });
+    let lit_middle = (0..w).any(|x| !near(img.get_pixel(x, h / 2), [0, 0, 0]));
+    assert!(black_bars && lit_middle, "letterbox bars");
 }

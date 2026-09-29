@@ -152,6 +152,12 @@ pub fn all() -> Vec<Preset> {
             project: crate::presets_hw::handheld_quest(),
         },
         Preset {
+            name: "Tape Loader",
+            category: CATEGORY_HOME,
+            description: "A ZX Spectrum loading from tape: pilot stripes, then the picture arriving line by line in black and white under data stripes, then its colours.",
+            project: crate::presets_hw::tape_loader(),
+        },
+        Preset {
             name: "Neon Arena",
             category: CATEGORY_DEMO,
             description: "Black glossy crystal arena, red neon strips, red nebula sky.",

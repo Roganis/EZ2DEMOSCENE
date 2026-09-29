@@ -394,6 +394,47 @@ fn palette_color(i: i32) -> vec3<f32> {
     return vec3<f32>(f32((u >> 16u) & 255u), f32((u >> 8u) & 255u), f32(u & 255u)) / 255.0;
 }
 
+// Where a machine line is in a tape load (`reveal` as in
+// ez_core::retro::StripeState): 0 shown, 1 black, 2 black and white. The
+// bitmap arrives in the ZX Spectrum's memory order (for 192 lines: the
+// first pixel line of every character row of a third, then the second…),
+// the colours by character rows from the top.
+fn load_state(y: u32, lines: u32, reveal: f32) -> i32 {
+    if (reveal <= 0.0) {
+        return 0;
+    }
+    if (reveal < 1.0) {
+        return 1;
+    }
+    if (reveal < 2.0) {
+        var order = y;
+        if (lines == 192u) {
+            order = (y / 64u) * 64u + (y % 8u) * 8u + (y % 64u) / 8u;
+        }
+        return select(1, 2, f32(order) < (reveal - 1.0) * f32(lines));
+    }
+    let rows = max(lines / 8u, 1u);
+    return select(2, 0, f32(y / 8u) < (reveal - 2.0) * f32(rows));
+}
+
+// The border at `y` (0..1 down the output): its colour, or a loading
+// tape's stripes (P.v[29]: mode 1 pilot / 2 data, bands, pilot roll,
+// data pattern; P.v[30], P.v[31]: the two colours), in display space.
+fn border_color(y: f32) -> vec3<f32> {
+    let st = P.v[29];
+    let mode = i32(st.x + 0.5);
+    if (mode == 1) {
+        let band = u32(floor(y * st.y + st.z));
+        return to_srgb(select(P.v[31].rgb, P.v[30].rgb, (band & 1u) == 0u));
+    }
+    if (mode == 2) {
+        let band = u32(floor(y * st.y * 6.0));
+        let r = hash1(hash_u(band * 2654435761u) ^ (u32(st.w) * 747796405u));
+        return to_srgb(select(P.v[31].rgb, P.v[30].rgb, r < 0.5));
+    }
+    return to_srgb(P.v[28].rgb);
+}
+
 fn sample_scene(uv: vec2<f32>, bloom_k: f32) -> vec3<f32> {
     return vi_filter(uv) + textureSampleLevel(t_b, s_lin, uv, 0.0).rgb * bloom_k;
 }
@@ -481,12 +522,15 @@ fn fs_final(in: VOut) -> FinalOut {
     var cell_sub = vec2<f32>(0.0);
     let pix = P.v[3].x;
     var pcoord = vec2<u32>(in.pos.xy);
-    // Retro 3D whole screen (P.v[26]: pixels across, down, on; P.v[27]:
-    // the picture's rectangle; P.v[28]: border colour): one sample per
-    // console pixel, pixels as wide as the machine made them.
+    // Retro 3D whole screen (P.v[26]: pixels across, down, on, loading
+    // reveal; P.v[27]: the picture's rectangle; P.v[28]: border colour):
+    // one sample per console pixel, pixels as wide as the machine made
+    // them.
     let screen = P.v[26];
     let screen_on = screen.z > 0.5;
     var border = false;
+    // Loading: 0 shown, 1 black, 2 black and white.
+    var loading = 0;
     let screen_uv = uv;
     if (screen_on) {
         let rect = P.v[27];
@@ -495,6 +539,7 @@ fn fs_final(in: VOut) -> FinalOut {
         let cell = floor(clamp(local, vec2<f32>(0.0), vec2<f32>(0.99999)) * screen.xy);
         uv = rect.xy + (cell + 0.5) / screen.xy * rect.zw;
         pcoord = vec2<u32>(cell);
+        loading = load_state(u32(cell.y), u32(screen.y), screen.w);
     } else if (cell_h > 0.0) {
         let cell = vec2<f32>(cell_h * 0.7, cell_h);
         let p = uv * res;
@@ -541,7 +586,13 @@ fn fs_final(in: VOut) -> FinalOut {
     col = clamp(col, vec3<f32>(0.0), vec3<f32>(1.0));
 
     if (border) {
-        col = to_srgb(P.v[28].rgb);
+        col = border_color(in.pos.y / res.y);
+    } else if (loading == 1) {
+        col = vec3<f32>(0.0);
+    } else if (loading == 2) {
+        // The bitmap without its colours: ink on paper.
+        let l = dot(col, vec3<f32>(0.299, 0.587, 0.114));
+        col = select(vec3<f32>(0.0), vec3<f32>(1.0), l + P.v[3].z * bayer4(pcoord) * 0.5 > 0.35);
     }
     // palette reduction with ordered dither
     let count = i32(P.v[3].y);

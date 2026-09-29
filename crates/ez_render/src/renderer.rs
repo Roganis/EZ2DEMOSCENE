@@ -8341,9 +8341,28 @@ impl Renderer {
         let sc = &project.retro.screen;
         if project.retro.enabled && sc.enabled {
             let f = &mut slots[SLOT_FINAL as usize];
-            f[26] = [sc.size[0].max(1) as f32, sc.size[1].max(1) as f32, 1.0, 0.0];
+            // A loading tape: stripes in the border, the picture arriving.
+            let st = sc.stripes.at(ctx.phase, ctx.loop_beats);
+            f[26] = [
+                sc.size[0].max(1) as f32,
+                sc.size[1].max(1) as f32,
+                1.0,
+                st.reveal,
+            ];
             f[27] = sc.rect((target.width, target.height));
             f[28] = c4(project.scene_color(sc.border, ctx), 0.0);
+            f[29] = [
+                st.mode as f32,
+                st.bands,
+                st.offset,
+                (st.seed % 65536) as f32,
+            ];
+            let (a, b) = match st.mode {
+                1 => (0xff0000, 0x00ffff),
+                _ => (0x0000ff, 0xffff00),
+            };
+            f[30] = c4(ez_core::color::hex(a), 0.0);
+            f[31] = c4(ez_core::color::hex(b), 0.0);
         }
         for (i, s) in slots.iter().enumerate() {
             self.queue

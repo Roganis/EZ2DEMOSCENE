@@ -1629,6 +1629,21 @@ dithered 15-bit), Saturn, Nintendo 64, Quake.
   PSX Crypt gained candle light and near culling, Fog Island stepped
   collectibles, Saturn Ghosts a VDP2 (Mode 7) floor.
 
+### ☑ 12.18 Borders, letterbox and loading stripes
+**Done.** *Whole screen → Border size* insets the picture inside its
+frame (`ConsoleScreen::inset`; square-pixel frames grow round the
+picture so its pixels stay square): the Spectrum, C64 and Amstrad
+buttons set their wide borders, and top and bottom only is a letterbox
+(Super FX Starship's window). *Loading stripes* (`BorderStripes`):
+pilot bands (whole pairs rolled per loop), data bands (a new random
+pattern a whole number of times per loop), or a whole load over the
+loop (`BorderStripes::at`): pilot over a black picture, the bitmap in
+the Spectrum's memory order in black and white, the colours by
+character rows, then finished. Tested: pilot border only red and cyan
+over a black picture, data border blue and yellow over a black-and-white
+picture, the finished picture in colour in a plain border, a seamless
+loop, and letterbox bars. Preset **Tape Loader**.
+
 ---
 
 ## Order of work
@@ -1637,7 +1652,7 @@ dithered 15-bit), Saturn, Nintendo 64, Quake.
 4.1 → 4.2 → 5.1 → 5.2 → 6.1 → 6.2 → 6.3 → 7.1 → 7.2 → 7.3 → 8.1 → 8.2 →
 8.3 → 8.4 → 9.1 → 9.2 → 9.3 → 9.4 → 9.5 → 9.6 → 10.1 → 10.2 → 10.3 →
 11.1 → 11.2 → 10.4 → 10.5 → 11.3 → 11.4 → 12.1 → 12.2 → 12.3 → 12.4
-→ 12.5 … 12.17. (Environment light and PBR
+→ 12.5 … 12.18. (Environment light and PBR
 come before rigid bodies and fluids, so the fluid's liquid surface and
 the physics presets are shaded by them.)
 

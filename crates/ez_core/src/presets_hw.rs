@@ -407,6 +407,16 @@ pub fn super_fx_starship() -> Project {
         custom: [224, 192],
         color_15bit: true,
         dither: Param::new(0.0),
+        // The Super FX drew into a smaller window of the 256 × 224
+        // screen, black all round.
+        screen: ConsoleScreen {
+            enabled: true,
+            size: [216, 176],
+            frame: ScreenFrame::Tv,
+            border: [0.0; 3],
+            inset: [0.078, 0.107],
+            ..Default::default()
+        },
         ..Default::default()
     };
     p
@@ -844,6 +854,7 @@ pub fn wireframe_trader() -> Project {
             size: [320, 256],
             frame: ScreenFrame::Tv,
             border: [0.0; 3],
+            ..Default::default()
         },
         ..Default::default()
     };
@@ -1282,6 +1293,24 @@ pub fn spectrum_isometric() -> Project {
     p
 }
 
+/// A ZX Spectrum loading from tape: red and cyan pilot stripes, then the
+/// picture arriving line by line in the Spectrum's memory order in black
+/// and white under thin blue and yellow data stripes, then its colours,
+/// all over one loop.
+pub fn tape_loader() -> Project {
+    let mut p = spectrum_isometric();
+    p.name = "Tape Loader".into();
+    // The gem holds still: a loading screen is a picture.
+    p.layers[5].step_fps = 0.0;
+    p.layers[5].transform.spin = [0, 0, 0];
+    p.layers[5].transform.bob = Param::new(0.0);
+    p.retro.screen.stripes = BorderStripes {
+        mode: StripeMode::Loading,
+        ..Default::default()
+    };
+    p
+}
+
 // ---------------------------------------------------------------------------
 // Demoscene classics
 
@@ -1562,6 +1591,7 @@ pub fn vector_balls() -> Project {
             size: [320, 200],
             frame: ScreenFrame::Tv,
             border: [0.0; 3],
+            ..Default::default()
         },
         ..Default::default()
     };

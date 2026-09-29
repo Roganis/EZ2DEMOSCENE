@@ -389,6 +389,22 @@ pub struct ConsoleScreen {
     pub frame: ScreenFrame,
     /// Colour around the picture.
     pub border: crate::color::Rgb,
+    /// Border inside the frame on each side, as a share of its width and
+    /// height (0 = the picture fills the frame). Spectrum: a wide border
+    /// all round; top and bottom only: a letterbox.
+    #[serde(skip_serializing_if = "is_zero2")]
+    pub inset: [f32; 2],
+    /// Stripes in the border while a tape loads (ZX Spectrum).
+    #[serde(skip_serializing_if = "is_default")]
+    pub stripes: BorderStripes,
+}
+
+fn is_zero2(v: &[f32; 2]) -> bool {
+    *v == [0.0, 0.0]
+}
+
+fn is_default<T: Default + PartialEq>(v: &T) -> bool {
+    *v == T::default()
 }
 
 impl Default for ConsoleScreen {
@@ -398,7 +414,116 @@ impl Default for ConsoleScreen {
             size: [320, 200],
             frame: ScreenFrame::Tv,
             border: [0.0; 3],
+            inset: [0.0, 0.0],
+            stripes: BorderStripes::default(),
         }
+    }
+}
+
+/// What the border shows while a tape loads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum StripeMode {
+    #[default]
+    Off,
+    /// The pilot tone: broad red and cyan bands rolling.
+    Pilot,
+    /// Data: thin, jittering blue and yellow bands.
+    Data,
+    /// The whole load over the loop: pilot, then the picture's lines
+    /// arriving in the Spectrum's memory order in black and white, then its
+    /// colours by character rows, then a moment finished.
+    Loading,
+}
+
+impl StripeMode {
+    pub const ALL: [StripeMode; 4] = [
+        StripeMode::Off,
+        StripeMode::Pilot,
+        StripeMode::Data,
+        StripeMode::Loading,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            StripeMode::Off => "Off",
+            StripeMode::Pilot => "Pilot tone (red / cyan)",
+            StripeMode::Data => "Data (blue / yellow)",
+            StripeMode::Loading => "Loading screen (whole load)",
+        }
+    }
+}
+
+/// Border stripes of a loading tape (ZX Spectrum style).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BorderStripes {
+    pub mode: StripeMode,
+    /// Pilot bands down the frame.
+    pub bands: f32,
+    /// Pairs of pilot bands rolling past per loop (a whole number).
+    pub speed: u32,
+}
+
+impl Default for BorderStripes {
+    fn default() -> Self {
+        BorderStripes {
+            mode: StripeMode::Off,
+            bands: 14.0,
+            speed: 24,
+        }
+    }
+}
+
+/// The border stripes and the picture's loading at one moment.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StripeState {
+    /// 0 none, 1 pilot, 2 data.
+    pub mode: u32,
+    /// Bands down the frame.
+    pub bands: f32,
+    /// How far the pilot bands have rolled (bands; whole pairs per loop).
+    pub offset: f32,
+    /// Changes a whole number of times per loop: the data bands' pattern.
+    pub seed: u32,
+    /// The picture's loading: 0 shown in full; 0.5 black (pilot); 1..2 its
+    /// lines arriving (black and white); 2..3 its colours arriving.
+    pub reveal: f32,
+}
+
+/// Where a whole load is at `phase`: pilot, bitmap, colours, finished.
+const LOAD_PILOT: f32 = 0.12;
+const LOAD_BITMAP: f32 = 0.8;
+const LOAD_COLOURS: f32 = 0.92;
+
+impl BorderStripes {
+    pub fn at(&self, phase: f32, loop_beats: u32) -> StripeState {
+        let p = phase.rem_euclid(1.0);
+        let steps = (loop_beats.max(1) * 12) as f32;
+        let mut st = StripeState {
+            mode: 0,
+            bands: self.bands.max(1.0),
+            offset: (p * 2.0 * self.speed as f32).rem_euclid(2.0),
+            seed: (p * steps).floor() as u32,
+            reveal: 0.0,
+        };
+        match self.mode {
+            StripeMode::Off => {}
+            StripeMode::Pilot => st.mode = 1,
+            StripeMode::Data => st.mode = 2,
+            StripeMode::Loading => {
+                if p < LOAD_PILOT {
+                    st.mode = 1;
+                    st.reveal = 0.5;
+                } else if p < LOAD_BITMAP {
+                    st.mode = 2;
+                    st.reveal = 1.0 + (p - LOAD_PILOT) / (LOAD_BITMAP - LOAD_PILOT);
+                } else if p < LOAD_COLOURS {
+                    st.mode = 2;
+                    st.reveal = 2.0 + (p - LOAD_BITMAP) / (LOAD_COLOURS - LOAD_BITMAP);
+                }
+            }
+        }
+        st
     }
 }
 
@@ -406,11 +531,30 @@ impl ConsoleScreen {
     /// The picture's rectangle on an output of `out` pixels, in 0..1 of
     /// the output (left, top, width, height).
     pub fn rect(&self, out: (u32, u32)) -> [f32; 4] {
+        let f = self.frame_rect(out);
+        let ix = self.inset[0].clamp(0.0, 0.45);
+        let iy = self.inset[1].clamp(0.0, 0.45);
+        [
+            f[0] + f[2] * ix,
+            f[1] + f[3] * iy,
+            f[2] * (1.0 - 2.0 * ix),
+            f[3] * (1.0 - 2.0 * iy),
+        ]
+    }
+
+    /// The whole frame (picture and border) on the output, as `rect`.
+    pub fn frame_rect(&self, out: (u32, u32)) -> [f32; 4] {
         let a = out.0.max(1) as f32 / out.1.max(1) as f32;
+        let ix = self.inset[0].clamp(0.0, 0.45);
+        let iy = self.inset[1].clamp(0.0, 0.45);
         let d = match self.frame {
             ScreenFrame::Fill => a,
             ScreenFrame::Tv => 4.0 / 3.0,
-            ScreenFrame::SquarePixels => self.size[0].max(1) as f32 / self.size[1].max(1) as f32,
+            // Square pixels in the picture: the frame grows round it.
+            ScreenFrame::SquarePixels => {
+                self.size[0].max(1) as f32 / self.size[1].max(1) as f32 * (1.0 - 2.0 * iy)
+                    / (1.0 - 2.0 * ix)
+            }
         };
         if d < a {
             let w = d / a;
@@ -475,6 +619,19 @@ impl ScreenPreset {
         }
     }
 
+    /// Border inside the frame (share of width, height per side): the
+    /// machines whose picture sat inside a wide border.
+    pub fn inset(self) -> [f32; 2] {
+        match self {
+            // 256 × 192 inside a 352 × 296 display.
+            ScreenPreset::ZxSpectrum => [0.136, 0.176],
+            // 320 × 200 inside roughly 384 × 272.
+            ScreenPreset::C64Multicolour | ScreenPreset::C64Hires => [0.083, 0.132],
+            ScreenPreset::AmstradMode0 => [0.083, 0.132],
+            _ => [0.0, 0.0],
+        }
+    }
+
     /// Size, frame, border (sRGB) and palette.
     pub fn spec(self) -> ([u32; 2], ScreenFrame, u32, crate::palette::PaletteId) {
         use crate::palette::PaletteId as P;
@@ -506,6 +663,8 @@ impl ScreenPreset {
             size,
             frame,
             border: crate::color::hex(border),
+            inset: self.inset(),
+            stripes: BorderStripes::default(),
         };
         palette.enabled = true;
         palette.palette = pal;
@@ -974,6 +1133,33 @@ mod tests {
         assert!(r[2] == 1.0 && r[3] < 1.0 && r[1] > 0.0);
         s.frame = ScreenFrame::Fill;
         assert_eq!(s.rect((1920, 1080)), [0.0, 0.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn borders_and_loading() {
+        let s = ConsoleScreen {
+            enabled: true,
+            size: [256, 192],
+            inset: [0.1, 0.2],
+            ..Default::default()
+        };
+        let (f, r) = (s.frame_rect((1920, 1080)), s.rect((1920, 1080)));
+        assert!((r[3] - f[3] * 0.6).abs() < 1e-6 && (r[1] - (f[1] + f[3] * 0.2)).abs() < 1e-6);
+        // A load: pilot, bitmap, colours, done; the same at both ends.
+        let b = BorderStripes {
+            mode: StripeMode::Loading,
+            ..Default::default()
+        };
+        let (a, z) = (b.at(0.0, 16), b.at(1.0, 16));
+        assert_eq!(
+            (a.mode, a.reveal, a.seed, a.offset),
+            (z.mode, z.reveal, z.seed, z.offset)
+        );
+        assert_eq!(a.mode, 1);
+        assert_eq!(b.at(0.5, 16).mode, 2);
+        assert!((1.0..2.0).contains(&b.at(0.5, 16).reveal));
+        assert!((2.0..3.0).contains(&b.at(0.85, 16).reveal));
+        assert_eq!((b.at(0.95, 16).mode, b.at(0.95, 16).reveal), (0, 0.0));
     }
 
     #[test]

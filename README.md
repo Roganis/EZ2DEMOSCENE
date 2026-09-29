@@ -203,7 +203,9 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
 - **Whole-screen machine resolutions and palettes.** The whole picture at
   a C64's 160 × 200 double-wide pixels, a Spectrum's 256 × 192, a Game
   Boy's 160 × 144 and ten more, on a 4:3 TV or with square pixels inside
-  the machine's border colour, with its palette: NES, 1-bit, Virtual Boy
+  the machine's border colour (wide borders all round, or a letterbox,
+  and ZX Spectrum **tape-loading stripes** with the picture arriving line
+  by line in memory order), with its palette: NES, 1-bit, Virtual Boy
   red, and the Amstrad, Master System, Mega Drive and Amiga colour cubes
   join EGA, CGA, C64, Game Boy, PICO-8, Spectrum and VGA.
 - **Presets in five groups**: Consoles & arcade, PC era, Home computers &
