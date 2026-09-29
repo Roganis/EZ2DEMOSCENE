@@ -136,6 +136,10 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     reflect what is around them on the screen, blending back to the
     environment where the screen runs out; the mirror floor keeps its own
     exact reflection. Half resolution, no history, so it loops.
+  - **Light shafts**: the fog (and mist) lit by the sun wherever the sun
+    reaches it, so shapes and terrain cut dark bands through the haze,
+    even with the sun off screen (marched through the sun shadow map).
+    The *Cathedral Light* preset streams low sunlight between columns.
   - Atmosphere: **mist** pooling in valleys, underwater **caustics**, a
     **rainbow**, and a **day & night cycle** with sunsets, stars and a
     moon.

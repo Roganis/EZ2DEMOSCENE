@@ -3336,3 +3336,122 @@ fn screen_space_reflections_show_neighbours() {
     let last = r.render_image(&moving, &EvalCtx::at(1.0), &target);
     assert!(mean_abs_diff(first.as_raw(), last.as_raw()) < 0.05);
 }
+
+/// Light shafts: the sun lights the fog only where it reaches it (a roof
+/// over the left half keeps the fog there dark); no fog, no shafts; off
+/// changes nothing; the loop closes.
+#[test]
+fn light_shafts_follow_the_sun_shadows() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let dir = snapshot_dir().join("shafts");
+    std::fs::create_dir_all(&dir).unwrap();
+    let scene = |shafts: bool, fog: f32| {
+        let mut p = Project {
+            camera: Camera {
+                mode: CameraMode::Static,
+                target: [0.0, 2.0, -10.0],
+                distance: Param::new(10.0),
+                height: Param::new(0.0),
+                angle: Param::new(0.0),
+                fov: Param::new(60.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let e = &mut p.environment;
+        e.fog_density = Param::new(fog);
+        e.fog_color = [0.05, 0.05, 0.06];
+        e.light_dir = [0.05, 1.0, 0.02];
+        e.light_color = [1.0, 0.95, 0.85];
+        e.shadows = Shadows {
+            enabled: true,
+            distance: 30.0,
+            ..Default::default()
+        };
+        e.shafts = LightShafts {
+            enabled: shafts,
+            strength: Param::new(1.0),
+            scattering: 0.0,
+            // Within the roof and the shadow map.
+            reach: 20.0,
+            ..Default::default()
+        };
+        p.post.grade.vignette = Param::new(0.0);
+        p.post.bloom.enabled = false;
+        // A roof over the left half of the view.
+        p.layers.push(
+            Layer::new(
+                "Roof",
+                LayerKind::Mesh(MeshLayer {
+                    source: MeshSource::Primitive(Primitive::Cube),
+                    material: Material {
+                        base_color: [0.1; 3],
+                        rim: Param::new(0.0),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }),
+            )
+            .at([-10.0, 6.0, -15.0])
+            .stretched([20.0, 0.3, 40.0]),
+        );
+        p
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let (w, h) = (320u32, 180u32);
+    let target = r.create_target(w, h);
+    let ctx = EvalCtx::at(0.0);
+    // Mean brightness of a band below the roof's edge on each side.
+    let halves = |img: &image::RgbaImage| {
+        let (mut l, mut rr, mut nl, mut nr) = (0.0, 0.0, 0.0, 0.0);
+        for (x, y, p) in img.enumerate_pixels() {
+            let fy = y as f32 / h as f32;
+            if !(0.55..0.8).contains(&fy) {
+                continue;
+            }
+            let v = (p[0] as f32 + p[1] as f32 + p[2] as f32) / 3.0;
+            let fx = x as f32 / w as f32;
+            if fx < 0.35 {
+                l += v;
+                nl += 1.0;
+            } else if fx > 0.65 {
+                rr += v;
+                nr += 1.0;
+            }
+        }
+        (l / nl, rr / nr)
+    };
+    let off = r.render_image(&scene(false, 0.05), &ctx, &target);
+    let on = r.render_image(&scene(true, 0.05), &ctx, &target);
+    assert!(r.errors.is_empty(), "{:?}", r.errors);
+    off.save(dir.join("off.png")).unwrap();
+    on.save(dir.join("on.png")).unwrap();
+    let ((l0, r0), (l1, r1)) = (halves(&off), halves(&on));
+    eprintln!("shafts: left {l0:.1} -> {l1:.1}, right {r0:.1} -> {r1:.1}");
+    assert!(r1 - r0 > 15.0, "no light in the lit fog: {r0} -> {r1}");
+    assert!(
+        (l1 - l0) < (r1 - r0) * 0.4,
+        "the roof's shadow doesn't cut the shafts: left +{}, right +{}",
+        l1 - l0,
+        r1 - r0
+    );
+
+    // No fog: nothing to light, exactly as without shafts.
+    let a = r.render_image(&scene(false, 0.0), &ctx, &target);
+    let b = r.render_image(&scene(true, 0.0), &ctx, &target);
+    assert_eq!(a.as_raw(), b.as_raw());
+
+    // A moving camera: the last frame is the first.
+    let mut moving = scene(true, 0.05);
+    moving.camera.mode = CameraMode::Orbit;
+    let first = r.render_image(&moving, &EvalCtx::at(0.0), &target);
+    let last = r.render_image(&moving, &EvalCtx::at(1.0), &target);
+    assert!(mean_abs_diff(first.as_raw(), last.as_raw()) < 0.05);
+}

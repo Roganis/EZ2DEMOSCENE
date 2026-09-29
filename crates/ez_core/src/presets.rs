@@ -160,6 +160,11 @@ pub fn all() -> Vec<Preset> {
             project: chrome_studio(),
         },
         Preset {
+            name: "Cathedral Light",
+            description: "Low sunlight streaming between stone columns through hazy air onto a polished marble floor, under a sunset sky; a golden orb turns in the light.",
+            project: cathedral_light(),
+        },
+        Preset {
             name: "Material Gallery",
             description: "The nine physical material presets on spinning shapes in a softbox studio: metals, rubber, car paint, glass, velvet and ceramic.",
             project: material_gallery(),
@@ -3067,6 +3072,116 @@ pub fn chrome_studio() -> Project {
                 enabled: true,
                 intensity: Param::new(0.4),
                 threshold: Param::new(1.5),
+                radius: Param::new(0.6),
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+/// Shafts of low sunlight through a colonnade: fog lit where the sun
+/// reaches it, cut by the columns' shadows, over a marble mirror floor.
+pub fn cathedral_light() -> Project {
+    let mut stone = Material {
+        base_color: hex(0xd8cfc0),
+        ..Default::default()
+    };
+    MaterialPreset::Ceramic.apply(&mut stone);
+    stone.base_color = hex(0xd8cfc0);
+    stone.roughness = Param::new(0.55);
+    stone.pbr.clearcoat = Param::new(0.0);
+    let mut gold = Material::default();
+    MaterialPreset::Gold.apply(&mut gold);
+    Project {
+        name: "Cathedral Light".into(),
+        timing: crate::Timing {
+            bpm: 80.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Pendulum,
+            swing: Param::new(8.0),
+            target: [0.0, 2.2, -4.0],
+            distance: Param::new(13.0),
+            height: Param::new(0.6),
+            fov: Param::new(50.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0x3a3028),
+            fog_density: Param::new(0.04),
+            light_dir: [0.8, 0.3, -1.0],
+            light_color: hex(0xffd9a0),
+            light_intensity: Param::new(2.2),
+            shadows: Shadows {
+                enabled: true,
+                distance: 28.0,
+                softness: 1.0,
+                ..Default::default()
+            },
+            env_light: EnvLight {
+                source: EnvSource::Studio(Studio::Sunset),
+                intensity: Param::new(0.7),
+                ..Default::default()
+            },
+            shafts: LightShafts {
+                enabled: true,
+                strength: Param::new(1.1),
+                scattering: 0.6,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        layers: vec![
+            Layer::new(
+                "Sky",
+                LayerKind::Backdrop(Backdrop {
+                    kind: BackdropKind::Environment,
+                    detail: Param::new(0.6),
+                    ..Default::default()
+                }),
+            ),
+            Layer::new(
+                "Marble floor",
+                LayerKind::Mirror(MirrorFloor {
+                    base_color: hex(0xcfc6b8),
+                    texture: Some("marble".into()),
+                    texture_scale: 6.0,
+                    reflectivity: Param::new(0.35),
+                    blur: Param::new(0.25),
+                    ..Default::default()
+                }),
+            ),
+            // Two rows of columns: the layer is stretched tall and thin,
+            // so the spacing is divided by the same amounts.
+            Layer::new(
+                "Columns",
+                LayerKind::Mesh(MeshLayer {
+                    source: MeshSource::Primitive(Primitive::Cylinder { segments: 24 }),
+                    material: stone,
+                    instancer: Instancer::Grid {
+                        counts: [2, 1, 7],
+                        spacing: [8.0 / 0.7, 0.0, 3.6 / 0.7],
+                    },
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, 3.5, -6.0])
+            .stretched([0.7, 7.0, 0.7]),
+            Layer::new(
+                "Orb",
+                LayerKind::Mesh(mesh(Primitive::Sphere { detail: 4 }, gold)),
+            )
+            .at([0.0, 1.6, -3.0])
+            .scaled(0.9)
+            .spin([0, 1, 0]),
+        ],
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                intensity: Param::new(0.35),
+                threshold: Param::new(1.4),
                 radius: Param::new(0.6),
             },
             ..Default::default()

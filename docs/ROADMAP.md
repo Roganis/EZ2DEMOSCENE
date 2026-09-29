@@ -1315,7 +1315,7 @@ reach and a roughness cut-off. On in Material Gallery and Chrome Studio.
   fade at the edges and cannot show the back of anything; the mirror
   floor's planar reflection doesn't contain reflections of reflections.
 
-### ☐ 11.4 Light shafts through fog
+### ☑ 11.4 Light shafts through fog
 Today's god rays are a screen-space blur from the sun's position, so they
 vanish when the sun is off screen. Real shafts come from the fog being
 lit where the sun reaches it.
@@ -1344,6 +1344,39 @@ resolution on phones by default.
 band through them); no fog means no shafts; loops; off is byte-identical.
 Preset: *Cathedral Light* (shafts through a colonnade, a PBR marble floor,
 an HDRI sky).
+
+**Done.** *Light & fog → Light shafts*: strength (animatable),
+scattering, reach and quality (steps); turning them on in the app
+turns sun shadows on.
+- *Pass* (`shafts.wgsl`, half resolution, after the scene and the
+  reflections, before depth of field and bloom): each pixel marches
+  from the camera to the distance pass's distance (capped by the reach)
+  in 32 steps by default, each reading the fog density (distance fog
+  plus the height fog's exponential falloff, the density
+  `fog_amount_at` integrates) and one shadow-map comparison, and adds
+  density × transmittance so far × sunlight. The sun colour and
+  strength come from the globals, so shafts follow the day cycle (and
+  the moon at night). Henyey-Greenstein phase normalised so that
+  scattering 0 gives 1; the fog scatters a fifth of the sunlight at
+  strength 1 (without that factor, typical fog glowed white all over).
+  Beyond the shadow map the fog counts as lit.
+- It shares the distance pass with depth of field and reflections, and
+  the reflections' distance-aware 5×5 blur for the composite, which
+  hides the Bayer jitter; the fog colour already in the picture stays,
+  so the shafts are the sun's extra light on top. Skipped with no fog
+  or mist.
+- Measured (`light_shafts_follow_the_sun_shadows`): under a roof over
+  the left half of the view with the sun overhead, a band of the
+  picture brightens from 59.6 to 161.1 on the lit right and only to
+  65.2 on the shadowed left; with no fog the picture is byte-identical
+  to shafts off; the first and last frames of an orbiting camera
+  match. Golden images of every other preset are unchanged.
+- New preset **Cathedral Light**: two rows of physical stone columns on
+  a marble mirror floor, the sunset studio as sky and light, a low sun
+  ahead of the camera streaming between the columns, and a gold orb.
+- Not done: spot lights joining the shafts (they have no shadow maps),
+  and a quarter-resolution default on phones (the preview's resolution
+  setting already halves everything).
 
 ---
 

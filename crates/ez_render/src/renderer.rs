@@ -1003,6 +1003,8 @@ pub struct Renderer {
     /// Screen-space reflections (`ssr.wgsl`) and its inputs' layout.
     ssr_pipe: wgpu::RenderPipeline,
     ssr_add_pipe: wgpu::RenderPipeline,
+    /// Light shafts through the fog (`shafts.wgsl`).
+    shafts_pipe: wgpu::RenderPipeline,
     bgl_ssr: wgpu::BindGroupLayout,
 
     sampler_repeat: wgpu::Sampler,
@@ -1145,6 +1147,9 @@ pub struct RenderTarget {
     ssr: wgpu::TextureView,
     bg_ssr: wgpu::BindGroup,
     bg_ssr_add: wgpu::BindGroup,
+    /// Light shafts to add (half resolution), and adding them.
+    shafts: wgpu::TextureView,
+    bg_shafts_add: wgpu::BindGroup,
     rays: wgpu::TextureView,
     /// Depth of field: distance to the camera (half resolution) and its
     /// depth buffer.
@@ -2165,6 +2170,23 @@ impl Renderer {
             immediate_size: 0,
         });
         let sh_ssr = shader(device, "ssr", include_str!("shaders/ssr.wgsl"), true);
+        // Light shafts read the distances (group 2 as the reflections'),
+        // the fog in the globals and the shadow map (group 3).
+        let sh_shafts = shader(device, "shafts", include_str!("shaders/shafts.wgsl"), true);
+        let shafts_pipe = make_pipeline(
+            device,
+            PipeDesc {
+                label: "light shafts",
+                layout: &ssr_layout,
+                module: &sh_shafts,
+                fs: "fs_main",
+                buffers: &[],
+                format: HDR_FORMAT,
+                samples: 1,
+                depth: None,
+                blend: None,
+            },
+        );
         let ssr_pipe = make_pipeline(
             device,
             PipeDesc {
@@ -2353,6 +2375,7 @@ impl Renderer {
             rays_add_pipe,
             ssr_pipe,
             ssr_add_pipe,
+            shafts_pipe,
             bgl_ssr,
             sampler_repeat,
             sampler_nearest,
@@ -5836,6 +5859,22 @@ impl Renderer {
             blocks.len() as u32 - 1
         });
 
+        // Light shafts: their settings, when there is fog to light.
+        let sh = &project.environment.shafts;
+        let fog_on = project.environment.fog_density.eval(ctx) > 0.0
+            || project.environment.height_fog.density.eval(ctx) > 0.0;
+        let shafts_slot = (sh.enabled && fog_on && sh.strength.eval(ctx) > 0.0).then(|| {
+            let mut blk: Block = Zeroable::zeroed();
+            blk[0] = [
+                sh.strength.eval(ctx).max(0.0),
+                sh.scattering.clamp(-0.95, 0.95),
+                sh.steps.clamp(4, 96) as f32,
+                sh.reach.max(1.0),
+            ];
+            blocks.push(blk);
+            blocks.len() as u32 - 1
+        });
+
         // --- uploads -------------------------------------------------------
         if blocks.is_empty() {
             blocks.push(Zeroable::zeroed());
@@ -6280,7 +6319,7 @@ impl Renderer {
 
         // --- distance to the camera (depth of field) and what surfaces
         // reflect (screen-space reflections) ----------------------------------
-        if project.post.dof.enabled || ssr_slot.is_some() {
+        if project.post.dof.enabled || ssr_slot.is_some() || shafts_slot.is_some() {
             let gbuf = |view| {
                 Some(wgpu::RenderPassColorAttachment {
                     view,
@@ -6360,6 +6399,42 @@ impl Renderer {
                 &self.ssr_add_pipe,
                 &target.hdr,
                 &target.bg_ssr_add,
+                SLOT_WARP,
+                true,
+            );
+        }
+        // --- sunlight scattered by the fog, added onto the scene ------------------
+        if let Some(slot) = shafts_slot {
+            {
+                let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("light shafts"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &target.shafts,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                pass.set_pipeline(&self.shafts_pipe);
+                pass.set_bind_group(0, &self.globals_bg[0], &[]);
+                pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                pass.set_bind_group(2, &target.bg_ssr, &[]);
+                pass.set_bind_group(3, &self.shadow_bg, &[]);
+                pass.draw(0..3, 0..1);
+            }
+            self.post_pass(
+                &mut enc,
+                "light shafts add",
+                &self.ssr_add_pipe,
+                &target.hdr,
+                &target.bg_shafts_add,
                 SLOT_WARP,
                 true,
             );
@@ -7445,6 +7520,8 @@ impl Renderer {
             ],
         });
         let bg_ssr_add = post_bg(&ssr, &dof_dist);
+        let shafts = tex("light shafts", dw, dh, HDR_FORMAT, 1, sampled);
+        let bg_shafts_add = post_bg(&shafts, &dof_dist);
         let bg_warp = post_bg(&hdr, &dof_dist);
         let bg_bloom_down = (0..BLOOM_LEVELS)
             .map(|i| {
@@ -7518,6 +7595,8 @@ impl Renderer {
             ssr,
             bg_ssr,
             bg_ssr_add,
+            shafts,
+            bg_shafts_add,
             rays,
             dof_dist,
             dof_z,

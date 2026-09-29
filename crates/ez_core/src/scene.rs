@@ -356,6 +356,37 @@ pub struct Environment {
     /// reflections).
     #[serde(skip_serializing_if = "is_default")]
     pub reflections: Reflections,
+    /// Sunbeams in the fog, cut by the sun's shadows.
+    #[serde(skip_serializing_if = "is_default")]
+    pub shafts: LightShafts,
+}
+
+/// Light shafts: the fog lit by the sun where the sun reaches it, so
+/// shadows cut dark bands through it. Uses the sun shadow map.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LightShafts {
+    pub enabled: bool,
+    pub strength: Param,
+    /// How much the light scatters forward, towards someone looking at
+    /// the sun (0 = the same all round, 0.9 = a tight glow around it).
+    pub scattering: f32,
+    /// Samples along each view ray (quality).
+    pub steps: u32,
+    /// How far along the view the fog is sampled, in world units.
+    pub reach: f32,
+}
+
+impl Default for LightShafts {
+    fn default() -> Self {
+        LightShafts {
+            enabled: false,
+            strength: Param::new(1.0),
+            scattering: 0.6,
+            steps: 32,
+            reach: 60.0,
+        }
+    }
 }
 
 /// Screen-space reflections: shiny shapes, water and wet ground reflect
@@ -829,6 +860,7 @@ impl Default for Environment {
             shadows: Shadows::default(),
             env_light: EnvLight::default(),
             reflections: Reflections::default(),
+            shafts: LightShafts::default(),
         }
     }
 }

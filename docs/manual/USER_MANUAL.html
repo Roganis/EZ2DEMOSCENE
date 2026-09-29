@@ -1084,6 +1084,13 @@ yellow line with numbered points.</p>
   <span class="ui">Up to roughness</span> which surfaces take part (rougher ones keep the plain reflection). It can only reflect what
   is on the screen, so towards the picture's edges and behind shapes it fades back to the environment. The mirror floor keeps its
   own exact reflection. It costs one extra half-resolution pass (shared with depth of field when both are on).</li>
+  <li><span class="ui">Light shafts</span>: the sun lights the fog wherever it reaches it, so shapes, copies and terrain cut dark
+  bands through the haze, like sunbeams through a window or between trees. Unlike the <b>God rays</b> post effect, they work with
+  the sun off screen, and they follow the day cycle. They need fog or mist (no fog, nothing to light) and the sun's shadows, which
+  turning them on switches on. <span class="ui">Strength</span> is how brightly the fog glows, <span class="ui">Scattering</span>
+  how much more it glows when you look towards the sun (0 the same all round), <span class="ui">Reach</span> how far into the fog
+  the light is gathered, and <span class="ui">Quality</span> the number of samples along each view (fewer is faster, grainier).
+  Beyond the shadows' <span class="ui">Distance</span> the fog counts as lit. The <b>Cathedral Light</b> preset shows them.</li>
   <li><span class="ui">Sun shadows</span>: shapes and terrain cast shadows from the sun (the moon at night) onto shapes, terrain,
   water and the mirror floor. <span class="ui">Darkness</span>, <span class="ui">Softness</span> and <span class="ui">Distance</span>
   (how far around the camera's target shadows reach: smaller is sharper). In dark neon scenes shadows are subtle, because most light

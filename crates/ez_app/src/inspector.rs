@@ -629,6 +629,48 @@ pub fn environment_ui(ui: &mut Ui, e: &mut Environment) {
             .small(),
         );
     });
+    let lf = &mut e.shafts;
+    let switched = toggle_section(ui, "Light shafts", &mut lf.enabled, |ui| {
+        param(
+            ui,
+            "Strength",
+            "How brightly the sun lights the fog",
+            &mut lf.strength,
+            0.0..=4.0,
+        );
+        slider(
+            ui,
+            "Scattering",
+            "0: the fog glows the same all round; towards 1: mostly when looking at the sun",
+            &mut lf.scattering,
+            0.0..=0.95,
+        );
+        slider(
+            ui,
+            "Reach",
+            "How far into the fog the light is gathered, in world units",
+            &mut lf.reach,
+            5.0..=200.0,
+        );
+        drag_u(
+            ui,
+            "Quality",
+            "Samples along each view ray (more = smoother, slower)",
+            &mut lf.steps,
+            8..=96,
+        );
+        ui.label(
+            RichText::new(
+                "Needs fog (or mist) and sun shadows: shapes and terrain cut dark bands through the light.",
+            )
+            .weak()
+            .small(),
+        );
+    });
+    // Shafts are made by the shadows: turning them on turns shadows on.
+    if switched && e.shafts.enabled {
+        e.shadows.enabled = true;
+    }
     let sh = &mut e.shadows;
     toggle_section(ui, "Sun shadows", &mut sh.enabled, |ui| {
         slider(
