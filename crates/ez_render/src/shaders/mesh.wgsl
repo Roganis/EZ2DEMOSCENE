@@ -5,7 +5,8 @@
 // D.v[3]: scroll u, scroll v, rim, hue shift
 // D.v[4]: glitch amount, style (0 jitter, 1 slices, 2 shatter), steps per loop, chance
 // D.v[5]: glitch seed, triplanar (textures projected from three sides in
-//         object space: joined models that came without texture coordinates)
+//         object space: joined models that came without texture coordinates),
+//         the layer's loop phase (for the glitch; held on steps), _
 // D.v[6]: pulse mode (4): pulses, head position (0..1), pulse length, pulse glow
 // D.v[7]: pulse mode (4): base glow
 // D.v[8]: relief strength, displacement, relief mode (0 bump, 1 normal map), has relief
@@ -17,6 +18,9 @@
 // D2.v[0]: physical shading, has ORM map, has glow map, _
 // D2.v[1]: clearcoat, clearcoat roughness, sheen, transmission
 // D2.v[2]: sheen rgb, index of refraction
+// D2.v[3]: texture filter (0 smooth, 1 nearest, 2 bilinear, 3 three-point),
+//          Saturn mesh see-through (0..1), _, _
+// D2.v[4]: turbulent warp: amount (tiles), waves per tile, time angle, _
 
 @group(1) @binding(1) var<uniform> D2: Draw;
 
@@ -89,6 +93,9 @@ struct VOut {
     // Object-space position and normal, for triplanar textures.
     @location(5) obj: vec3<f32>,
     @location(6) obj_n: vec3<f32>,
+    // Texture coordinates times w, and w (affine warp, see affine_uv);
+    // w: near-plane culling flag (see retro_near_flag).
+    @location(7) aff: vec4<f32>,
 };
 
 fn hash_v3(p: vec3<f32>, salt: u32) -> vec3<f32> {
@@ -104,7 +111,8 @@ fn glitch(pos: vec3<f32>, normal: vec3<f32>, inst_rand: f32) -> vec3<f32> {
         return pos;
     }
     let steps = max(D.v[4].z, 1.0);
-    let step = u32(floor(fract(G.time.x) * steps));
+    // The layer's clock (held on steps when it animates on steps).
+    let step = u32(floor(fract(D.v[5].z) * steps));
     let seed = u32(D.v[5].x) * 0x9e3779b9u + u32(inst_rand * 65536.0);
     let salt = hash_u(step ^ seed);
     // Only some steps glitch.
@@ -223,8 +231,9 @@ fn vs_main(in: VIn) -> VOut {
     var out: VOut;
     out.world = world.xyz;
     out.normal = normalize((model * vec4<f32>(d.normal, 0.0)).xyz);
-    out.pos = G.view_proj * world;
+    out.pos = retro_snap(G.view_proj * world);
     out.uv = in.uv;
+    out.aff = vec4<f32>(in.uv * out.pos.w, out.pos.w, retro_near_flag(out.pos));
     out.edge = in.edge;
     out.obj = in.pos;
     out.obj_n = in.normal;
@@ -289,7 +298,7 @@ fn surface(in: VOut) -> Surf {
     // Derivative-based values first (uniform control flow).
     let face_n = normalize(cross(dpdx(in.world), dpdy(in.world)));
     let edge_w = fwidth(in.edge) * 1.5 + 0.035;
-    let uv = in.uv * tex_scale + scroll;
+    let uv = turb_warp(affine_uv(in.uv, in.aff.xyz) * tex_scale + scroll, D2.v[4].x, D2.v[4].y, D2.v[4].z);
     var texel: vec3<f32>;
     var relief: vec3<f32>;
     var orm = vec3<f32>(1.0);
@@ -307,6 +316,9 @@ fn surface(in: VOut) -> Surf {
         }
     } else {
         texel = textureSample(t_tex, s_tex, uv).rgb;
+        if (i32(D2.v[3].x + 0.5) == 3) {
+            texel = three_point(t_tex, s_tex, uv).rgb;
+        }
         relief = textureSample(t_relief, s_relief, uv).rgb;
         if (D2.v[0].y > 0.5) {
             orm = textureSample(t_orm, s_tex, uv).rgb;
@@ -378,6 +390,11 @@ fn surface(in: VOut) -> Surf {
     return out;
 }
 
+// Retro 3D: left out by near-plane culling or the Saturn mesh.
+fn retro_dropped(in: VOut) -> bool {
+    return in.aff.w > 1e-4 || retro_mesh_hole(D2.v[3].y, in.pos.xy);
+}
+
 fn pbr_layers() -> PbrLayers {
     var layers: PbrLayers;
     layers.k = D2.v[1];
@@ -388,7 +405,7 @@ fn pbr_layers() -> PbrLayers {
 @fragment
 fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let sf = surface(in);
-    if (!clip_visible(in.world)) {
+    if (!clip_visible(in.world) || retro_dropped(in)) {
         discard;
     }
     let mode = i32(D.v[2].x + 0.5);
@@ -402,6 +419,7 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
         col = lit_surface(sf.base, sf.metallic, sf.rough, sf.n, in.world, sf.v, rim_k, 1.0);
     }
 
+    col = colormap_shade(sf.base, col);
     var mask = 1.0;
     switch mode {
         case 1: {
@@ -428,7 +446,7 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let emissive = hue_rotate(sf.emissive * sf.emit, sf.hue) * mask * in.inst.y;
     col = col + emissive;
 
-    return vec4<f32>(apply_fog_at(col, in.world), 1.0);
+    return vec4<f32>(retro_color(apply_fog_at(col, in.world), in.pos.xy), 1.0);
 }
 
 // Distance to the camera and what the surface reflects (depth of field
@@ -436,7 +454,7 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
 @fragment
 fn fs_depth(in: VOut) -> DistOut {
     let sf = surface(in);
-    if (!clip_visible(in.world)) {
+    if (!clip_visible(in.world) || retro_dropped(in)) {
         discard;
     }
     var m: Mirror;

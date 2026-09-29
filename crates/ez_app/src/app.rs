@@ -32,6 +32,7 @@ enum Selection {
     Environment,
     Colors,
     Post,
+    Retro,
     Textures,
     Layer(usize),
 }
@@ -59,6 +60,7 @@ enum Mode {
 
 struct Thumb {
     name: &'static str,
+    category: &'static str,
     description: &'static str,
     texture: egui::TextureId,
     _target: ez_render::RenderTarget,
@@ -1296,6 +1298,7 @@ impl EzApp {
             (Selection::Environment, "☀  Light & fog"),
             (Selection::Colors, "🎨  Colour scheme"),
             (Selection::Post, "🎞  Post effects"),
+            (Selection::Retro, "🕹  Retro 3D"),
             (Selection::Textures, "🖼  Your images"),
             (Selection::Sequence, "🎬  Scenes & timeline"),
         ];
@@ -1560,6 +1563,10 @@ impl EzApp {
                     inspector::color_scheme_ui(ui, &mut self.project.color_scheme, &ctx);
                 }
                 Selection::Post => inspector::post_ui(ui, &mut self.project.post),
+                Selection::Retro => {
+                    let out = self.export.still_size();
+                    inspector::retro_ui(ui, &mut self.project.retro, out)
+                }
                 Selection::Textures => inspector::textures_ui(ui, &mut self.project.textures),
                 Selection::Sequence => {
                     let audio = self.audio_env.clone();
@@ -2246,6 +2253,7 @@ impl EzApp {
                 let (texture, target) = self.viewport.thumbnail(&p.project, 0.2, [320, 180]);
                 self.thumbs.push(Thumb {
                     name: p.name,
+                    category: p.category,
                     description: p.description,
                     texture,
                     _target: target,
@@ -2330,16 +2338,30 @@ impl EzApp {
                         ui.label("Pick a starting point, then tweak layers on the left and values on the right. Everything loops automatically.");
                         ui.add_space(6.0);
                         egui::ScrollArea::vertical().max_height(list_height).show(ui, |ui| {
-                            egui::Grid::new("presets").spacing([10.0, 10.0]).show(ui, |ui| {
-                                for (i, t) in self.thumbs.iter().enumerate() {
-                                    if card(ui, Some(t.texture), t.name, t.description) {
-                                        chosen_builtin = Some(i);
-                                    }
-                                    if i % cols == cols - 1 {
-                                        ui.end_row();
-                                    }
+                            // One grid per group (PlayStation, Saturn, N64
+                            // and Quake looks under "Retro console").
+                            for cat in presets::CATEGORIES {
+                                ui.heading(cat);
+                                if cat == presets::CATEGORY_RETRO {
+                                    ui.label(
+                                        RichText::new("5th-generation consoles and Quake: see 🕹 Retro 3D for one-click looks.")
+                                            .weak()
+                                            .small(),
+                                    );
                                 }
-                            });
+                                egui::Grid::new(("presets", cat)).spacing([10.0, 10.0]).show(ui, |ui| {
+                                    let group = self.thumbs.iter().enumerate().filter(|(_, t)| t.category == cat);
+                                    for (k, (i, t)) in group.enumerate() {
+                                        if card(ui, Some(t.texture), t.name, t.description) {
+                                            chosen_builtin = Some(i);
+                                        }
+                                        if k % cols == cols - 1 {
+                                            ui.end_row();
+                                        }
+                                    }
+                                });
+                                ui.add_space(8.0);
+                            }
                         });
                     }
                     1 => {

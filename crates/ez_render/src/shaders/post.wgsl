@@ -388,7 +388,46 @@ fn bayer4(p: vec2<u32>) -> f32 {
 }
 
 fn sample_scene(uv: vec2<f32>, bloom_k: f32) -> vec3<f32> {
-    return textureSampleLevel(t_a, s_lin, uv, 0.0).rgb + textureSampleLevel(t_b, s_lin, uv, 0.0).rgb * bloom_k;
+    return vi_filter(uv) + textureSampleLevel(t_b, s_lin, uv, 0.0).rgb * bloom_k;
+}
+
+// Retro 3D: the Nintendo 64's video output filter. P.v[25]: amount (0 =
+// off), one console pixel (uv across, down). Neighbours within a dither
+// step of the middle are averaged in (de-dither), then the picture is
+// softened sideways.
+fn vi_filter(uv: vec2<f32>) -> vec3<f32> {
+    let c = textureSampleLevel(t_a, s_lin, uv, 0.0).rgb;
+    let k = P.v[25].x;
+    if (k <= 0.0) {
+        return c;
+    }
+    let dx = vec2<f32>(P.v[25].y, 0.0);
+    let dy = vec2<f32>(0.0, P.v[25].z);
+    let l = textureSampleLevel(t_a, s_lin, uv - dx, 0.0).rgb;
+    let r = textureSampleLevel(t_a, s_lin, uv + dx, 0.0).rgb;
+    let u = textureSampleLevel(t_a, s_lin, uv - dy, 0.0).rgb;
+    let d = textureSampleLevel(t_a, s_lin, uv + dy, 0.0).rgb;
+    // A dither step is 1/32 of the gamma range; compare in gamma.
+    let gc = sqrt(max(c, vec3<f32>(0.0)));
+    var sum = c;
+    var n = 1.0;
+    for (var i = 0; i < 4; i = i + 1) {
+        var nb = l;
+        if (i == 1) {
+            nb = r;
+        } else if (i == 2) {
+            nb = u;
+        } else if (i == 3) {
+            nb = d;
+        }
+        let diff = abs(sqrt(max(nb, vec3<f32>(0.0))) - gc);
+        let close = select(0.0, 1.0, max(diff.r, max(diff.g, diff.b)) < 0.07);
+        sum = sum + nb * close;
+        n = n + close;
+    }
+    let even = sum / n;
+    let soft = (l + even * 2.0 + r) * 0.25;
+    return mix(c, mix(even, soft, 0.5), clamp(k, 0.0, 1.0));
 }
 
 struct FinalOut {

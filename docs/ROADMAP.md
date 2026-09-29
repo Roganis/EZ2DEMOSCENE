@@ -1445,12 +1445,173 @@ turns sun shadows on.
 
 ---
 
+## Phase 12 — Retro 3D (5th-generation consoles)
+
+The quirks of PS1, Saturn, N64 and Quake-era renderers. Where each fits:
+a scene-wide **Retro 3D** setting (`Project::retro`, its own panel) for
+what the whole machine did (resolution, snapping, warp, dithering,
+near-plane culling, colormap lighting); **material** options for what
+differed per surface (texture filter, mesh transparency, turbulent
+warp); **layers** for new things to draw (two-layer skies, the Mode 7
+floor); **post** only for what happened after the picture was drawn
+(N64 VI blur). Every time-based piece runs whole cycles per loop and is
+added to the loop tests; off is byte-identical (golden images).
+
+### ☑ 12.1 Vertex snapping (PS1 jitter)
+**Done.** `retro_snap` in `common.wgsl` snaps clip-space positions to a
+grid after projection (`round(ndc × grid/2) / (grid/2)`, blended by the
+animatable *Amount*) in the mesh, terrain and sprite vertex stages; the
+grid is a 4:3 console size fitted to the output (height kept, width
+from the aspect). Only the camera's views (and its reflection) snap:
+the sun's shadow pass keeps exact positions.
+
+### ☑ 12.2 Affine texture mapping
+**Done.** The vertex stage passes `uv × w` and `w` (perspective-
+interpolated, which works on WebGL2 where `@interpolate(linear)` may
+not); the fragment divides them for screen-linear coordinates and
+blends with the perspective ones by *Texture warp*. Meshes and terrain.
+Subdividing a shape cuts the warp (measured 33.4 → 3.7 mean difference
+at three levels).
+
+### ☑ 12.3 Low internal resolution
+**Done.** With a resolution set, the main scene pass draws into a small
+colour + depth target without MSAA (the reflection pass's single-sample
+pipelines plus single-sample floor, contact-shadow, background-upscale
+and liquid pipelines, and a fourth globals buffer with the low `res`).
+The full-size pass then blows it up with `retro_up.wgsl` (nearest
+texels, and the depth written with `frag_depth`, sampled with a
+non-filtering sampler because WebGL2 can't `textureLoad` depth), and
+draws text layers sharp on top, still depth-tested. Logos are drawn
+after the scene anyway; without *Sharp text & logos* they get pixel
+blocks of one low-resolution pixel. Reflections, fog shafts and post
+effects run at full size on the upscaled picture.
+
+### ☑ 12.4 Texture filters per material
+**Done.** *Material → Filter*: Smooth, Nearest (the old *Chunky
+pixels*), Bilinear without mipmaps (a sampler with `lod_max_clamp` 0),
+and 3-point (N64), worked out in `three_point` from four nearest texels
+(the triangle the fraction falls in). Retro 3D can set one filter for
+every shape and the terrain. Presets: **PSX Crypt**, **Stage Select**.
+
+### ☑ 12.5 N64 look
+**Done.** *N64 fog* in Retro 3D (not the scene's exponential fog): a
+straight ramp from *Starts at* (close to the camera) to solid at *Solid
+at*, in `fog_amount` / `fog_amount_at` so every lit surface, sprite and
+liquid follows; height fog still multiplies on top. The *video blur* is
+part of Retro 3D too, worked out where the final post pass reads the
+scene (`vi_filter`): the four neighbours one console pixel away (the
+low resolution's, or 320 × 240's) that differ from the middle by less
+than a dither step in gamma are averaged in (de-dither), then a 1-2-1
+horizontal blend. The *Nintendo 64* look: 320 × 240, 3-point filter
+for everything, N64 fog, dithered 15-bit colour, video blur. Preset
+**Fog Island**. Measured: a ball beyond *Solid at* disappears; video
+blur cuts the dithered picture's neighbour roughness 8.75 → 6.62.
+
+### ☑ 12.6 15-bit colour + 4×4 ordered dither per polygon
+**Done.** `retro_color` at the end of the mesh, terrain and sprite
+fragment shaders (after fog, before post): gamma 2.2, plus a 4 × 4
+Bayer offset (±½ level × *Dither*) in the pass's pixels (console pixels
+at a low resolution), rounded to 32 levels. 2915 → 178 colours on a
+lit ball.
+
+### ☑ 12.7 Saturn mesh transparency
+**Done.** *Material → See-through (mesh)* (animatable): a pixel is
+dropped when its Bayer threshold is under the amount, so 0.5 is exactly
+the checkerboard and other values fade in dithered steps; the shape
+stays solid (depth, no sorting). Sprites: a *Mesh (Saturn)* blend drawn
+as a cutout with the checkerboard left out. Both measured at half the
+solid coverage. The *Saturn* look: 320 × 224, snapping, 0.6 warp,
+nearest, undithered 15-bit colour. Preset **Saturn Ghosts**.
+
+### ☑ 12.8 Near-plane culling
+**Done.** The vertex stage marks a corner closer than the distance (view
+depth `w`, so corners behind the camera count); the mark is
+interpolated, so it is above 0 across any triangle with a marked corner
+and the fragment stage drops the whole triangle. Works on every backend
+(no geometry shaders or primitive IDs). Meshes and terrain, the
+camera's views only (not the sun's shadow map).
+### ☑ 12.9 Light styles
+**Done.** `LightStyle { pattern, plays }` (letters 'a' = 0, 'm' = 1,
+'z' ≈ 2.08, stepped, no blending), a pure function of the phase with
+whole plays per loop; the editor shows letters per second and snaps to
+the nearest whole number of plays for Quake's 10/s. On the sun and
+ambient light (`Environment::eval`), a material's glow, sprites and
+particles, all multiplied on the CPU. Nine built-in patterns of our own
+(steady, flicker, candle, torch, pulse, slow pulse, strobe, slow strobe,
+broken fluorescent).
+
+### ☑ 12.10 Turbulent warp
+**Done.** `turb_warp` (`uv + amount · sin(uv.yx · 2π · waves + angle)`,
+angle whole turns per loop): *Material → Turbulence* (amount in tiles,
+waves per tile, wobbles per loop), terrain liquids (in whole pattern
+cells, so the scrolling terrain still wraps; the ground's biome noise
+keeps the unwarped coordinates) and waterfalls (a wobble per streak
+run).
+
+### ☑ 12.11 Two-layer scrolling sky
+**Done.** Background kind *Two-layer sky (Quake)*: the direction
+squashed upwards (`xz / |(x, flatten·|y|, z)|`) onto a flat dome, far
+and near layers each scrolling whole tiles per loop, the near one's
+see-through colour showing the far one. The two pictures are packed
+side by side into one texture on the CPU (the background keeps its one
+texture binding) and read with `textureLoad` (nearest, no seams).
+Built-in `sky_far` and `sky_near` textures.
+
+### ☑ 12.12 Palette-space lighting (colormap)
+**Done.** *Retro 3D → Palette lighting*. On the CPU: a 32³ colour cube →
+nearest palette entry, and a 256 × levels table of each entry lit from
+black to twice as bright (scaled in gamma) → the nearest lit entry;
+fullbright entries keep their colour. Bound in group 3 (two small
+textures, read with `textureLoad`), rebuilt when the palette or levels
+change. The fragment finds the albedo's entry, the light as lit ÷ albedo
+luminance (converted to gamma), and reads the table. Our own
+"Software 3D (256)" palette: 14 lit ramps of 16 and 32 fullbrights;
+any retro palette works too. 3666 → 34 colours on a lit marble ball.
+
+### ☑ 12.13 Square particles
+**Done.** Particle sprite *Solid square (Quake)*: an opaque, unsmoothed
+square of the particle's colour (discard outside, alpha 1), through the
+15-bit colour when on. Presets **Slipgate Courtyard**, **Slime Falls**;
+one-click *Quake (software)* look (320 × 200, nearest, colormap).
+### ☑ 12.14 Stepped animation
+**Done.** *Layer → Placement & motion → Animate on* (fps, 0 = smooth):
+`step_count` rounds fps × loop seconds to whole steps, and
+`EvalCtx::stepped` holds the phase (and beat phase) on them. The
+renderer evaluates each layer's motion with the held context (transform,
+copies on the CPU and in the compute shader, deform, sprite frames, and
+the glitch's clock, now passed per draw instead of read from the
+globals) and keeps the smooth one for texture scroll, glow, hue, colour
+ramps, material values, turbulence and particles; simulation bakes are
+read at the held phase. The camera is untouched. Tested: two moments in
+one step are identical (0.000), a smooth copy moves (2.39), the orbiting
+camera still moves, and it loops. Preset **Stop-Motion Shelf**.
+
+### ☑ 12.15 Mode 7 floor layer
+**Done.** New layer *Mode 7 floor* (`mode7.wgsl`): a fullscreen pass
+meeting each view ray with the plane at the layer's height, discarding
+rays that never reach it (a hard horizon), turning around the layer's
+position (whole turns per loop plus its Y rotation) and scrolling whole
+tiles per loop, unlit, optional fog, and writing `frag_depth` so shapes
+stand on it and vanish below it. Drawn with the solid geometry (in the
+retro low-resolution pass too), not in the mirror floor's reflection.
+New built-in `track` texture. Preset **Mode 7 Circuit**.
+
+### ☑ 12.16 Retro console presets
+**Done.** Presets have a category; the gallery groups them under *Demo
+scenes* and *Retro console* (PSX Crypt, Stage Select, Saturn Ghosts, Fog
+Island, Slipgate Courtyard, Slime Falls, Mode 7 Circuit). One-click
+looks in *Retro 3D*: PlayStation (320 × 240, snap, affine, nearest,
+dithered 15-bit), Saturn, Nintendo 64, Quake.
+
+---
+
 ## Order of work
 
 0.1 → 1.1 → 1.2 → 2.1 → 2.3 → 2.4 → 2.5 → 2.2 → 2.6 → 3.1 → 3.2 → 3.3 →
 4.1 → 4.2 → 5.1 → 5.2 → 6.1 → 6.2 → 6.3 → 7.1 → 7.2 → 7.3 → 8.1 → 8.2 →
 8.3 → 8.4 → 9.1 → 9.2 → 9.3 → 9.4 → 9.5 → 9.6 → 10.1 → 10.2 → 10.3 →
-11.1 → 11.2 → 10.4 → 10.5 → 11.3 → 11.4. (Environment light and PBR
+11.1 → 11.2 → 10.4 → 10.5 → 11.3 → 11.4 → 12.1 → 12.2 → 12.3 → 12.4
+→ 12.5 … 12.16. (Environment light and PBR
 come before rigid bodies and fluids, so the fluid's liquid surface and
 the physics presets are shaded by them.)
 

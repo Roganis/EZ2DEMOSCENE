@@ -157,7 +157,7 @@ pub fn randomize(project: &mut Project, seed: u64, opt: RandomizeOptions) {
                 }
             }
             // The words and the picture are the user's.
-            LayerKind::Logo(_) => {}
+            LayerKind::Logo(_) | LayerKind::Mode7(_) => {}
             LayerKind::Text(t) => {
                 // The words are the user's; only the motion changes.
                 if opt.motion && matches!(t.style, TextStyle::SineScroller) {

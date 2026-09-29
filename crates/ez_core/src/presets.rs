@@ -7,8 +7,16 @@ use crate::palette::PaletteId;
 use crate::param::{Param, Wave};
 use crate::scene::*;
 
+/// Preset groups in the gallery, in order.
+pub const CATEGORY_DEMO: &str = "Demo scenes";
+/// PlayStation, Saturn, Nintendo 64, Quake and 16-bit looks.
+pub const CATEGORY_RETRO: &str = "Retro console";
+pub const CATEGORIES: [&str; 2] = [CATEGORY_DEMO, CATEGORY_RETRO];
+
 pub struct Preset {
     pub name: &'static str,
+    /// Its group in the gallery (one of [`CATEGORIES`]).
+    pub category: &'static str,
     pub description: &'static str,
     pub project: Project,
 }
@@ -17,215 +25,305 @@ pub fn all() -> Vec<Preset> {
     vec![
         Preset {
             name: "Neon Arena",
+            category: CATEGORY_DEMO,
             description: "Black glossy crystal arena, red neon strips, red nebula sky.",
             project: neon_arena(),
         },
         Preset {
             name: "Gold Kaleido Room",
+            category: CATEGORY_DEMO,
             description: "Mirrored golden hall, walls of orbs, sparkling chandelier.",
             project: gold_room(),
         },
         Preset {
             name: "Orbiting Solid",
+            category: CATEGORY_DEMO,
             description: "A glossy blue dodecahedron with a swarm of orbiting debris.",
             project: orbiting_solid(),
         },
         Preset {
             name: "Retro Tunnel",
+            category: CATEGORY_DEMO,
             description: "90s raymarched tunnel, warp stars, EGA palette and CRT.",
             project: retro_tunnel(),
         },
         Preset {
             name: "Plasma Kaleidoscope",
+            category: CATEGORY_DEMO,
             description: "Oldschool plasma, spinning tori, full-screen kaleidoscope.",
             project: plasma_kaleido(),
         },
         Preset {
             name: "Synth Sunset",
+            category: CATEGORY_DEMO,
             description: "Synthwave sun, neon grid mirror floor, floating pyramids.",
             project: synth_sunset(),
         },
         Preset {
             name: "Vector Valley",
+            category: CATEGORY_DEMO,
             description: "Wireframe landscape rushing past, laser fans and a neon ribbon.",
             project: vector_valley(),
         },
         Preset {
             name: "Glitch Shrine",
+            category: CATEGORY_DEMO,
             description: "A glitching Menger sponge, flashing gems and a pulsing rose.",
             project: glitch_shrine(),
         },
         Preset {
             name: "Sponge Dive",
+            category: CATEGORY_DEMO,
             description: "Flight through a Menger sponge, a breathing displaced chrome orb.",
             project: sponge_dive(),
         },
         Preset {
             name: "Stormy Lake",
+            category: CATEGORY_DEMO,
             description: "Rain, lightning and storm clouds over a mountain lake.",
             project: stormy_lake(),
         },
         Preset {
             name: "Lava World",
+            category: CATEGORY_DEMO,
             description: "Glowing lava rivers in volcanic canyons, embers and god rays.",
             project: lava_world(),
         },
         Preset {
             name: "Sunbeam Peaks",
+            category: CATEGORY_DEMO,
             description: "Volumetric clouds, sunbeams and lens flare over alpine peaks.",
             project: sunbeam_peaks(),
         },
         Preset {
             name: "Aurora Tundra",
+            category: CATEGORY_DEMO,
             description: "Northern lights over a frozen lake, gently falling snow.",
             project: aurora_tundra(),
         },
         Preset {
             name: "Dune Sea",
+            category: CATEGORY_DEMO,
             description: "Sand dunes under a hazy sun, a sandstorm and a toxic oasis.",
             project: dune_sea(),
         },
         Preset {
             name: "Club Spotlights",
+            category: CATEGORY_DEMO,
             description:
                 "Sweeping spotlight cones in a hazy club, pools of light on a mirror floor.",
             project: club_spotlights(),
         },
         Preset {
             name: "Rainbow Falls",
+            category: CATEGORY_DEMO,
             description:
                 "A day passes over a waterfall valley: rainbow, valley mist, stars at night.",
             project: rainbow_falls(),
         },
         Preset {
             name: "Sunken Temple",
+            category: CATEGORY_DEMO,
             description: "Underwater ruins with rippling caustics, sunbeams and rising bubbles.",
             project: sunken_temple(),
         },
         Preset {
             name: "Twister",
+            category: CATEGORY_DEMO,
             description: "A tornado crossing wet, stormy plains with lightning and puddles.",
             project: twister(),
         },
         Preset {
             name: "Music Reactor",
+            category: CATEGORY_DEMO,
             description:
                 "Load a song: an equalizer wall, kick flashes, melody colours and time warp.",
             project: music_reactor(),
         },
         Preset {
             name: "Signal Flow",
+            category: CATEGORY_DEMO,
             description:
                 "Node graph: a sequence and a smoothed random walk drive the glow and size.",
             project: signal_flow(),
         },
         Preset {
             name: "Crystal Garden",
+            category: CATEGORY_DEMO,
             description: "Twisted crystals standing on a scrolling tundra, beads riding a halo, colours travelling along.",
             project: crystal_garden(),
         },
         Preset {
             name: "Oldschool Intro",
+            category: CATEGORY_DEMO,
             description: "Chrome logo, sine scroller and greetings over the XOR tunnel.",
             project: oldschool_intro(),
         },
         Preset {
             name: "Scene Tour",
+            category: CATEGORY_DEMO,
             description: "A timeline of three scenes: wipe, iris and glitch transitions, looping as one.",
             project: scene_tour(),
         },
         Preset {
             name: "Liquid Metal",
+            category: CATEGORY_DEMO,
             description: "Chrome metaballs melting together, orbited by gyroid lattice balls, all raymarched.",
             project: liquid_metal(),
         },
         Preset {
             name: "Campfire Sprites",
+            category: CATEGORY_DEMO,
             description: "Sprite-sheet flames round a fire, twinkling sparkles and a ring of spinning pixel coins under the aurora.",
             project: campfire_sprites(),
         },
         Preset {
             name: "Tesla Swarm",
+            category: CATEGORY_DEMO,
             description: "Orbiting Solid wired up: lightning arcs jump from the core to the nearest debris and around a ring of coils.",
             project: tesla_swarm(),
         },
         Preset {
             name: "Galaxy Swarm",
+            category: CATEGORY_DEMO,
             description: "40,000 glowing shards in a turning spiral galaxy, placed by the graphics card.",
             project: galaxy_swarm(),
         },
         Preset {
             name: "Chrome Studio",
+            category: CATEGORY_DEMO,
             description: "Chrome, gold and plastic lit by a sunset panorama that turns once per loop, with the sun and its shadows taken from the map.",
             project: chrome_studio(),
         },
         Preset {
             name: "Liquid Gold",
+            category: CATEGORY_DEMO,
             description: "A rocking bowl of molten gold sloshing from side to side under a studio sky, simulated ahead of time into a loop.",
             project: liquid_gold(),
         },
         Preset {
             name: "Cathedral Light",
+            category: CATEGORY_DEMO,
             description: "Low sunlight streaming between stone columns through hazy air onto a polished marble floor, under a sunset sky; a golden orb turns in the light.",
             project: cathedral_light(),
         },
         Preset {
             name: "Material Gallery",
+            category: CATEGORY_DEMO,
             description: "The nine physical material presets on spinning shapes in a softbox studio: metals, rubber, car paint, glass, velvet and ceramic.",
             project: material_gallery(),
         },
         Preset {
             name: "Banners",
+            category: CATEGORY_DEMO,
             description: "A row of flags on poles, flapping in a turning, gusting wind: simulated cloth that loops.",
             project: banners(),
         },
         Preset {
             name: "Beat Demolition",
+            category: CATEGORY_DEMO,
             description: "A wall of glowing blocks blown apart on the beat and rebuilt, with pearls raining behind: rigid bodies that loop.",
             project: beat_demolition(),
         },
         Preset {
             name: "Starling Dusk",
+            category: CATEGORY_DEMO,
             description: "A flock of 600 starlings wheeling through a sunset, scattering on every bar: simulated, and looping.",
             project: starling_dusk(),
         },
         Preset {
             name: "Sunset Title",
+            category: CATEGORY_DEMO,
             description: "Synth Sunset with a title card: a bevelled chrome logo pulsing to the beat with a glint on every bar, and a pixel tag in the corner.",
             project: sunset_title(),
         },
         Preset {
             name: "Logo Morph",
+            category: CATEGORY_DEMO,
             description: "Neon Arena with a logo that melts from one word into another and back, extruded, stacked in outlines, with rings rippling out on the beat.",
             project: logo_morph(),
         },
         Preset {
             name: "Copper Logo",
+            category: CATEGORY_DEMO,
             description: "Retro Tunnel with an Amiga logo: copper bars scrolling through the letters, a sine sway, and slices glitching on the kick.",
             project: copper_logo(),
         },
         Preset {
             name: "C64 Title",
+            category: CATEGORY_DEMO,
             description: "Vector Valley with a title in C64 colours cycling by brightness, pixelating in every loop, under scanlines.",
             project: c64_title(),
         },
         Preset {
             name: "Glass Galaxy",
+            category: CATEGORY_DEMO,
             description: "Galaxy Swarm behind a glass logo that bends the stars, casting shadow rays through their light, with echoes as it sways.",
             project: glass_galaxy(),
         },
         Preset {
             name: "Colour Wheel Arena",
+            category: CATEGORY_DEMO,
             description: "Neon Arena under a colour scheme: every colour follows three hues of one key colour, turning round the colour wheel once per loop.",
             project: colour_wheel_arena(),
         },
         Preset {
             name: "Battle Screen",
+            category: CATEGORY_DEMO,
             description: "A retro RPG battle: two cycling patterns wobbling line by line behind a spinning crystal foe, on a CRT.",
             project: battle_screen(),
         },
         Preset {
+            name: "PSX Crypt",
+            category: CATEGORY_RETRO,
+            description: "A PlayStation crypt: swimming brick textures, wobbling polygons and chunky 320 × 240 pixels.",
+            project: psx_crypt(),
+        },
+        Preset {
+            name: "Stage Select",
+            category: CATEGORY_RETRO,
+            description: "A 256 × 224 flight over checkered hills with spinning stars and a sharp stage title.",
+            project: stage_select(),
+        },
+        Preset {
+            name: "Fog Island",
+            category: CATEGORY_RETRO,
+            description: "Nintendo 64: soft 3-point textures, fog rolling in close to the camera, dithered colour and the video blur.",
+            project: fog_island(),
+        },
+        Preset {
+            name: "Saturn Ghosts",
+            category: CATEGORY_RETRO,
+            description: "Sega Saturn: checkerboard see-through ghosts and wisps in a stone hall; pillars vanish as the camera brushes them.",
+            project: saturn_ghosts(),
+        },
+        Preset {
+            name: "Slipgate Courtyard",
+            category: CATEGORY_RETRO,
+            description: "Quake: light stepping through a 256-colour palette, flickering torches, a wobbling lava pool, square embers and a two-layer sky.",
+            project: slipgate_courtyard(),
+        },
+        Preset {
+            name: "Slime Falls",
+            category: CATEGORY_RETRO,
+            description: "Quake: a slime canyon and slime waterfall wobbling with the turbulent warp, a scrolling two-layer sky and a broken-tube strobe.",
+            project: slime_falls(),
+        },
+        Preset {
+            name: "Mode 7 Circuit",
+            category: CATEGORY_RETRO,
+            description: "A SNES-style Mode 7 race: an endless track turning and scrolling to a hard horizon, coins spinning on twos, 256 × 224.",
+            project: mode7_circuit(),
+        },
+        Preset {
+            name: "Stop-Motion Shelf",
+            category: CATEGORY_DEMO,
+            description: "Clay toys animating on 12, 8 and 6 frames a second while the camera glides smoothly.",
+            project: stop_motion_shelf(),
+        },
+        Preset {
             name: "Empty",
+            category: CATEGORY_DEMO,
             description: "A blank stage with a floor and a sky.",
             project: empty(),
         },
@@ -1084,6 +1182,962 @@ pub fn scene_tour() -> Project {
     p
 }
 
+/// A PlayStation crypt: big brick polygons whose textures swim (affine
+/// warp), vertices that wobble on a 320 × 240 grid and chunky pixels.
+pub fn psx_crypt() -> Project {
+    let nearest = |color: u32, tex: &str, scale: f32| Material {
+        base_color: hex(color),
+        metallic: Param::new(0.0),
+        roughness: Param::new(0.9),
+        texture: Some(tex.into()),
+        texture_scale: Param::new(scale),
+        pixelated: true,
+        filter: crate::TexFilter::Nearest,
+        rim: Param::new(0.0),
+        ..Default::default()
+    };
+    let mut p = Project {
+        name: "PSX Crypt".into(),
+        timing: crate::Timing {
+            bpm: 96.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            target: [0.0, 1.4, 0.0],
+            distance: Param::new(4.6),
+            height: Param::new(0.6).osc(Wave::Sine, 0.5, 2),
+            swing: Param::new(0.0),
+            orbit_turns: 1,
+            fov: Param::new(62.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0x1c1410),
+            fog_density: Param::new(0.05),
+            sky_color: hex(0xb08860),
+            ground_color: hex(0x604030),
+            light_dir: [0.5, 0.8, 0.3],
+            light_color: hex(0xffd8a8),
+            light_intensity: Param::new(1.8),
+            ambient: Param::new(0.9),
+            ..Default::default()
+        },
+        layers: vec![
+            Layer::new(
+                "Sky",
+                LayerKind::Backdrop(Backdrop {
+                    kind: BackdropKind::Gradient,
+                    color_a: hex(0x000000),
+                    color_b: hex(0x120c0a),
+                    color_c: hex(0x2a1810),
+                    ..Default::default()
+                }),
+            ),
+            Layer::new(
+                "Floor",
+                LayerKind::Mesh(mesh(Primitive::Plane, nearest(0xb09070, "wood", 5.0))),
+            )
+            .scaled(14.0),
+            Layer::new(
+                "Walls",
+                LayerKind::Mesh(MeshLayer {
+                    instancer: Instancer::Radial {
+                        count: 8,
+                        radius: 5.2,
+                    },
+                    ..mesh(Primitive::Cube, nearest(0xf0d8c8, "brick", 2.0))
+                }),
+            )
+            .at([0.0, 2.2, 0.0])
+            .stretched([2.2, 2.4, 0.3])
+            .scaled(1.0),
+            Layer::new(
+                "Pillars",
+                LayerKind::Mesh(MeshLayer {
+                    instancer: Instancer::Radial {
+                        count: 4,
+                        radius: 2.8,
+                    },
+                    ..mesh(Primitive::Cube, nearest(0xe0e4f0, "metal_plate", 1.0))
+                }),
+            )
+            .at([0.0, 1.4, 0.0])
+            .stretched([0.45, 1.6, 0.45])
+            .scaled(1.0),
+            Layer::new(
+                "Idol",
+                LayerKind::Mesh(mesh(
+                    Primitive::Gem { facets: 6 },
+                    Material {
+                        base_color: hex(0xffc040),
+                        metallic: Param::new(0.9),
+                        roughness: Param::new(0.3),
+                        emissive_color: hex(0xff8020),
+                        emissive: Param::new(0.6).osc(Wave::Pulse, 1.2, 16),
+                        texture: Some("marble".into()),
+                        pixelated: true,
+                        filter: crate::TexFilter::Nearest,
+                        flat_shading: true,
+                        ..Default::default()
+                    },
+                )),
+            )
+            .at([0.0, 1.4, 0.0])
+            .scaled(0.7)
+            .spin([0, 2, 0]),
+        ],
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    p.layers[4].transform.bob = Param::new(0.0).osc(Wave::Sine, 0.15, 4);
+    p.retro.apply_style(crate::RetroStyle::Ps1);
+    p
+}
+
+/// A 16:9 flight over a textured landscape at 256 × 224 (wider, keeping
+/// the console's pixel shape), with wobbling hills and a stage title kept
+/// sharp on top.
+pub fn stage_select() -> Project {
+    let mut p = Project {
+        name: "Stage Select".into(),
+        timing: crate::Timing {
+            bpm: 128.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Pendulum,
+            swing: Param::new(12.0),
+            target: [0.0, 1.0, -12.0],
+            distance: Param::new(12.0),
+            height: Param::new(2.6),
+            fov: Param::new(60.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0x80a8e8),
+            fog_density: Param::new(0.025),
+            sky_color: hex(0xa0c0ff),
+            ground_color: hex(0x304020),
+            light_dir: [0.5, 0.8, 0.3],
+            light_color: hex(0xfff0d0),
+            light_intensity: Param::new(1.4),
+            ambient: Param::new(0.5),
+            ..Default::default()
+        },
+        layers: vec![
+            Layer::new(
+                "Sky",
+                LayerKind::Backdrop(Backdrop {
+                    kind: BackdropKind::Gradient,
+                    color_a: hex(0x2040c0),
+                    color_b: hex(0x80a8e8),
+                    color_c: hex(0xe0e8ff),
+                    ..Default::default()
+                }),
+            ),
+            Layer::new(
+                "Land",
+                LayerKind::Terrain(Terrain {
+                    size: 80.0,
+                    cells: 48,
+                    height: Param::new(3.5),
+                    hills: 3,
+                    roughness: Param::new(0.3),
+                    scroll: 1,
+                    valley: Param::new(0.4),
+                    style: TerrainStyle::Solid,
+                    fill_color: hex(0x70c050),
+                    texture: Some("checker".into()),
+                    tiles: 16,
+                    pixelated: true,
+                    seed: 4,
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, -1.0, -30.0]),
+            Layer::new(
+                "Coins",
+                LayerKind::Mesh(MeshLayer {
+                    instancer: Instancer::Radial {
+                        count: 6,
+                        radius: 2.2,
+                    },
+                    ..mesh(
+                        Primitive::Star {
+                            points: 5,
+                            inner: 0.5,
+                            depth: 0.3,
+                        },
+                        Material {
+                            base_color: hex(0xffd030),
+                            metallic: Param::new(0.8),
+                            roughness: Param::new(0.35),
+                            emissive_color: hex(0xffa000),
+                            emissive: Param::new(0.4),
+                            flat_shading: true,
+                            ..Default::default()
+                        },
+                    )
+                }),
+            )
+            .at([0.0, 1.6, -8.0])
+            .scaled(0.45)
+            .spin([0, 1, 0]),
+            Layer::new(
+                "Title",
+                LayerKind::Text(TextLayer {
+                    text: "STAGE 1".into(),
+                    size: 0.9,
+                    color_top: hex(0xffffff),
+                    color_bottom: hex(0xffd030),
+                    outline: 0.6,
+                    outline_color: hex(0x102060),
+                    shadow: 0.8,
+                    face_camera: true,
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, 3.4, -8.0]),
+        ],
+        ..Default::default()
+    };
+    p.retro = crate::Retro3d {
+        enabled: true,
+        resolution: crate::RetroRes::R256x224,
+        snap: true,
+        snap_res: [256, 224],
+        affine: Param::new(0.8),
+        ..Default::default()
+    };
+    p
+}
+
+/// A Nintendo 64 island: soft 3-point filtered grass and stone, fog that
+/// starts close to the camera, dithered colour smoothed by the video blur.
+pub fn fog_island() -> Project {
+    let soft = |color: u32, tex: &str, scale: f32| Material {
+        base_color: hex(color),
+        metallic: Param::new(0.0),
+        roughness: Param::new(0.8),
+        texture: Some(tex.into()),
+        texture_scale: Param::new(scale),
+        filter: crate::TexFilter::ThreePoint,
+        rim: Param::new(0.0),
+        ..Default::default()
+    };
+    let mut p = Project {
+        name: "Fog Island".into(),
+        timing: crate::Timing {
+            bpm: 110.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            target: [0.0, 2.0, 0.0],
+            distance: Param::new(9.0),
+            height: Param::new(2.5),
+            swing: Param::new(0.0),
+            orbit_turns: 1,
+            fov: Param::new(58.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0xa8b8d0),
+            fog_density: Param::new(0.0),
+            sky_color: hex(0xc0d0f0),
+            ground_color: hex(0x405030),
+            light_dir: [0.4, 0.9, 0.3],
+            light_color: hex(0xfff4e0),
+            light_intensity: Param::new(1.5),
+            ambient: Param::new(0.6),
+            ..Default::default()
+        },
+        layers: vec![
+            Layer::new(
+                "Sky",
+                LayerKind::Backdrop(Backdrop {
+                    kind: BackdropKind::Gradient,
+                    color_a: hex(0x5078c0),
+                    color_b: hex(0xa8b8d0),
+                    color_c: hex(0xa8b8d0),
+                    ..Default::default()
+                }),
+            ),
+            Layer::new(
+                "Hills",
+                LayerKind::Terrain(Terrain {
+                    size: 90.0,
+                    cells: 64,
+                    height: Param::new(4.0),
+                    hills: 3,
+                    roughness: Param::new(0.3),
+                    scroll: 0,
+                    valley: Param::new(0.8),
+                    style: TerrainStyle::Solid,
+                    fill_color: hex(0x68b040),
+                    texture: Some("noise".into()),
+                    tiles: 12,
+                    seed: 21,
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, -0.5, 0.0]),
+            Layer::new(
+                "Tower",
+                LayerKind::Mesh(mesh(Primitive::Cube, soft(0xe8e0d0, "brick", 1.5))),
+            )
+            .at([0.0, 2.2, 0.0])
+            .stretched([1.4, 3.6, 1.4])
+            .scaled(1.0),
+            Layer::new(
+                "Roof",
+                LayerKind::Mesh(mesh(
+                    Primitive::Cone { segments: 8 },
+                    soft(0xd03020, "metal_plate", 2.0),
+                )),
+            )
+            .at([0.0, 4.55, 0.0])
+            .stretched([1.3, 1.1, 1.3])
+            .scaled(1.0),
+            Layer::new(
+                "Stars",
+                LayerKind::Mesh(MeshLayer {
+                    instancer: Instancer::Radial {
+                        count: 8,
+                        radius: 4.5,
+                    },
+                    ..mesh(
+                        Primitive::Star {
+                            points: 5,
+                            inner: 0.5,
+                            depth: 0.35,
+                        },
+                        Material {
+                            base_color: hex(0xffd020),
+                            metallic: Param::new(0.6),
+                            roughness: Param::new(0.4),
+                            emissive_color: hex(0xffb000),
+                            emissive: Param::new(0.5),
+                            flat_shading: true,
+                            ..Default::default()
+                        },
+                    )
+                }),
+            )
+            .at([0.0, 1.6, 0.0])
+            .scaled(0.5)
+            .spin([0, -1, 0]),
+        ],
+        ..Default::default()
+    };
+    p.layers[4].transform.bob = Param::new(0.0).osc(Wave::Sine, 0.25, 8);
+    p.retro.apply_style(crate::RetroStyle::N64);
+    p.retro.fog.near = Param::new(3.0);
+    p.retro.fog.far = Param::new(30.0);
+    p
+}
+
+/// Saturn ghosts: see-through "mesh" shapes and sprites (a checkerboard of
+/// left-out pixels instead of blending) drifting through a stone hall at
+/// 320 × 224; pillars the camera brushes past vanish (near-plane culling).
+pub fn saturn_ghosts() -> Project {
+    let stone = |color: u32, tex: &str, scale: f32| Material {
+        base_color: hex(color),
+        metallic: Param::new(0.0),
+        roughness: Param::new(0.9),
+        texture: Some(tex.into()),
+        texture_scale: Param::new(scale),
+        rim: Param::new(0.0),
+        ..Default::default()
+    };
+    let mut p = Project {
+        name: "Saturn Ghosts".into(),
+        timing: crate::Timing {
+            bpm: 90.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            target: [0.0, 1.5, 0.0],
+            distance: Param::new(4.2),
+            height: Param::new(0.4),
+            swing: Param::new(0.0),
+            orbit_turns: 1,
+            fov: Param::new(66.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0x101030),
+            fog_density: Param::new(0.05),
+            sky_color: hex(0x8090d0),
+            ground_color: hex(0x403860),
+            light_dir: [-0.3, 1.0, 0.4],
+            light_color: hex(0xd0d8ff),
+            light_intensity: Param::new(1.6),
+            ambient: Param::new(1.1),
+            ..Default::default()
+        },
+        layers: vec![
+            Layer::new(
+                "Floor",
+                // Small tiles: big polygons would warp and vanish near
+                // the camera, as on the console.
+                LayerKind::Mesh(MeshLayer {
+                    subdivide: 4,
+                    ..mesh(Primitive::Plane, stone(0xb0b0d0, "metal_plate", 5.0))
+                }),
+            )
+            .scaled(16.0),
+            Layer::new(
+                "Pillars",
+                LayerKind::Mesh(MeshLayer {
+                    instancer: Instancer::Radial {
+                        count: 6,
+                        radius: 3.9,
+                    },
+                    ..mesh(Primitive::Cube, stone(0xd0c8e0, "sierpinski", 1.0))
+                }),
+            )
+            .at([0.0, 2.0, 0.0])
+            .stretched([0.6, 4.0, 0.6])
+            .scaled(1.0),
+            Layer::new(
+                "Ghosts",
+                LayerKind::Mesh(MeshLayer {
+                    instancer: Instancer::Orbit {
+                        count: 5,
+                        radius: 1.8,
+                        spread: 0.6,
+                        speed: 1,
+                        seed: 3,
+                    },
+                    ..mesh(
+                        Primitive::Capsule {
+                            length: 0.6,
+                            segments: 12,
+                        },
+                        Material {
+                            base_color: hex(0xe0f0ff),
+                            emissive_color: hex(0x80c0ff),
+                            emissive: Param::new(0.8),
+                            mesh: Param::new(0.5),
+                            rim: Param::new(1.0),
+                            ..Default::default()
+                        },
+                    )
+                }),
+            )
+            .at([0.0, 1.6, 0.0])
+            .scaled(0.35),
+            Layer::new(
+                "Wisps",
+                LayerKind::Sprite(SpriteLayer {
+                    blend: SpriteBlend::Mesh,
+                    tint: hex(0x90e0ff),
+                    glow: Param::new(1.5),
+                    size: Param::new(0.5),
+                    instancer: Instancer::Scatter {
+                        count: 24,
+                        radius: 3.0,
+                        shell: false,
+                        seed: 7,
+                    },
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, 2.0, 0.0])
+            .spin([0, 1, 0]),
+        ],
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    p.retro.apply_style(crate::RetroStyle::Saturn);
+    p.retro.near_cull = Param::new(0.9);
+    p
+}
+
+/// A Quake courtyard: light stepping through a 256-colour palette,
+/// torches flickering by light styles, a turbulent lava pool, square
+/// embers and a two-layer sky.
+pub fn slipgate_courtyard() -> Project {
+    let timing = crate::Timing {
+        bpm: 120.0,
+        loop_beats: 16,
+    };
+    let secs = timing.loop_seconds();
+    let stone = |color: u32, tex: &str, scale: f32| Material {
+        base_color: hex(color),
+        metallic: Param::new(0.0),
+        roughness: Param::new(0.9),
+        texture: Some(tex.into()),
+        texture_scale: Param::new(scale),
+        rim: Param::new(0.0),
+        ..Default::default()
+    };
+    let mut p = Project {
+        name: "Slipgate Courtyard".into(),
+        timing,
+        camera: Camera {
+            target: [0.0, 1.2, 0.0],
+            distance: Param::new(6.5),
+            height: Param::new(1.4),
+            swing: Param::new(0.0),
+            orbit_turns: 1,
+            fov: Param::new(70.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0x100808),
+            fog_density: Param::new(0.0),
+            sky_color: hex(0x806050),
+            ground_color: hex(0x402820),
+            light_dir: [0.3, 1.0, 0.5],
+            light_color: hex(0xffe0c0),
+            light_intensity: Param::new(1.3),
+            ambient: Param::new(0.7),
+            light_style: crate::LightStylePreset::Flicker.style(secs),
+            ..Default::default()
+        },
+        layers: vec![
+            Layer::new(
+                "Sky",
+                LayerKind::Backdrop(Backdrop {
+                    kind: BackdropKind::LayeredSky,
+                    ..Default::default()
+                }),
+            ),
+            Layer::new(
+                "Floor",
+                LayerKind::Mesh(MeshLayer {
+                    subdivide: 2,
+                    ..mesh(Primitive::Plane, stone(0x9a8a78, "metal_plate", 6.0))
+                }),
+            )
+            .scaled(24.0),
+            Layer::new(
+                "Walls",
+                LayerKind::Mesh(MeshLayer {
+                    instancer: Instancer::Radial {
+                        count: 10,
+                        radius: 9.0,
+                    },
+                    ..mesh(Primitive::Cube, stone(0xb09880, "brick", 2.0))
+                }),
+            )
+            .at([0.0, 1.6, 0.0])
+            .stretched([5.6, 3.2, 0.6])
+            .scaled(1.0),
+            Layer::new(
+                "Pillars",
+                LayerKind::Mesh(MeshLayer {
+                    instancer: Instancer::Radial {
+                        count: 4,
+                        radius: 3.6,
+                    },
+                    ..mesh(Primitive::Cube, stone(0xd8c8b0, "metal_plate", 1.0))
+                }),
+            )
+            .at([0.0, 1.5, 0.0])
+            .stretched([0.6, 3.0, 0.6])
+            .scaled(1.0),
+            Layer::new(
+                "Lava pool",
+                LayerKind::Mesh(mesh(
+                    Primitive::Plane,
+                    Material {
+                        base_color: hex(0xffffff),
+                        texture: Some("lava".into()),
+                        texture_scale: Param::new(1.5),
+                        emissive_color: hex(0xff6010),
+                        emissive: Param::new(1.2),
+                        emissive_mode: EmissiveMode::Texture,
+                        turbulence: crate::Turbulence {
+                            amount: Param::new(0.12),
+                            waves: 1.0,
+                            cycles: 4,
+                        },
+                        rim: Param::new(0.0),
+                        ..Default::default()
+                    },
+                )),
+            )
+            .at([0.0, 0.02, 0.0])
+            .scaled(3.4),
+            Layer::new(
+                "Torches",
+                LayerKind::Sprite(SpriteLayer {
+                    image: Some("sheet_flame".into()),
+                    columns: 4,
+                    rows: 4,
+                    cycles: 8,
+                    random_start: true,
+                    facing: SpriteFacing::Upright,
+                    blend: SpriteBlend::Additive,
+                    size: Param::new(0.9),
+                    glow: Param::new(1.3),
+                    glow_style: crate::LightStylePreset::Torch.style(secs),
+                    instancer: Instancer::Radial {
+                        count: 4,
+                        radius: 3.6,
+                    },
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, 3.4, 0.0]),
+            Layer::new(
+                "Embers",
+                LayerKind::Particles(ParticleLayer {
+                    emitter: Emitter::Fountain,
+                    count: 400,
+                    lifetimes: 4,
+                    size: Param::new(0.06),
+                    speed: Param::new(0.6),
+                    radius: Param::new(2.0),
+                    color_a: hex(0xffc040),
+                    color_b: hex(0xc03000),
+                    intensity: Param::new(1.5),
+                    sprite: Sprite::SolidSquare,
+                    seed: 5,
+                    ..Default::default()
+                }),
+            ),
+        ],
+        ..Default::default()
+    };
+    p.retro.apply_style(crate::RetroStyle::Quake);
+    p
+}
+
+/// Slime falls: a canyon of toxic slime and a slime waterfall, both
+/// wobbling with Quake's turbulent warp, under a scrolling two-layer sky;
+/// the light strobes like a broken fluorescent tube.
+pub fn slime_falls() -> Project {
+    let timing = crate::Timing {
+        bpm: 100.0,
+        loop_beats: 16,
+    };
+    let secs = timing.loop_seconds();
+    let mut p = Project {
+        name: "Slime Falls".into(),
+        timing,
+        camera: Camera {
+            mode: CameraMode::Pendulum,
+            swing: Param::new(14.0),
+            target: [0.0, 2.0, -6.0],
+            distance: Param::new(12.0),
+            height: Param::new(3.0),
+            fov: Param::new(62.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0x101810),
+            fog_density: Param::new(0.02),
+            sky_color: hex(0x708870),
+            ground_color: hex(0x302820),
+            light_dir: [0.2, 0.8, 0.6],
+            light_color: hex(0xe0ffe0),
+            light_intensity: Param::new(1.4),
+            ambient: Param::new(0.6),
+            light_style: crate::LightStylePreset::Fluorescent.style(secs),
+            ..Default::default()
+        },
+        layers: vec![
+            Layer::new(
+                "Sky",
+                LayerKind::Backdrop(Backdrop {
+                    kind: BackdropKind::LayeredSky,
+                    sky: LayeredSky {
+                        far_scroll: [1, 0],
+                        near_scroll: [3, 1],
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }),
+            ),
+            Layer::new(
+                "Canyon",
+                LayerKind::Terrain(Terrain {
+                    size: 70.0,
+                    cells: 64,
+                    height: Param::new(7.0),
+                    hills: 3,
+                    roughness: Param::new(0.4),
+                    scroll: 1,
+                    valley: Param::new(0.3),
+                    style: TerrainStyle::Solid,
+                    fill_color: hex(0x806a58),
+                    texture: Some("brick".into()),
+                    tiles: 20,
+                    pixelated: true,
+                    seed: 12,
+                    shape: TerrainShape::Canyons,
+                    liquid: Liquid {
+                        kind: LiquidKind::Toxic,
+                        level: Param::new(0.06),
+                        color: hex(0x40ff30),
+                        glow: Param::new(1.1),
+                        turbulence: Param::new(0.25),
+                        turb_cycles: 2,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, -1.0, -25.0]),
+            Layer::new(
+                "Slime fall",
+                LayerKind::Falls(Falls {
+                    kind: FallKind::Toxic,
+                    color: FallKind::Toxic.default_color(),
+                    width: 3.0,
+                    height: 7.0,
+                    turbulence: Param::new(0.25),
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, 6.0, -12.0]),
+        ],
+        ..Default::default()
+    };
+    p.retro.apply_style(crate::RetroStyle::Quake);
+    p
+}
+
+/// A SNES-style Mode 7 race: an endless track floor turning and
+/// scrolling under a low camera, a hard horizon, coins spinning on steps,
+/// at 256 × 224 with a sharp lap counter.
+pub fn mode7_circuit() -> Project {
+    let mut floor = Layer::new(
+        "Track",
+        LayerKind::Mode7(Mode7Floor {
+            texture: Some("track".into()),
+            tile_size: 24.0,
+            turns: 1,
+            scroll: [0, 6],
+            ..Default::default()
+        }),
+    );
+    floor.transform.position = [0.0, 0.0, -30.0];
+    let mut coins = Layer::new(
+        "Coins",
+        LayerKind::Mesh(MeshLayer {
+            instancer: Instancer::Grid {
+                counts: [3, 1, 1],
+                spacing: [2.4, 1.0, 1.0],
+            },
+            ..mesh(
+                Primitive::Ring {
+                    arc: 360.0,
+                    width: 0.35,
+                    height: 0.3,
+                    segments: 16,
+                },
+                Material {
+                    base_color: hex(0xffd030),
+                    metallic: Param::new(0.9),
+                    roughness: Param::new(0.3),
+                    emissive_color: hex(0xffa000),
+                    emissive: Param::new(0.6),
+                    flat_shading: true,
+                    ..Default::default()
+                },
+            )
+        }),
+    )
+    .at([0.0, 1.2, -5.0])
+    .scaled(0.6)
+    .spin([0, 8, 0]);
+    // Coins spin on twos, like sprites in a 16-bit game.
+    coins.step_fps = 12.0;
+    let mut p = Project {
+        name: "Mode 7 Circuit".into(),
+        timing: crate::Timing {
+            bpm: 140.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Static,
+            target: [0.0, 0.6, -10.0],
+            distance: Param::new(10.0),
+            height: Param::new(2.2),
+            fov: Param::new(62.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0x6090e0),
+            fog_density: Param::new(0.0),
+            sky_color: hex(0xa0c0ff),
+            ground_color: hex(0x305020),
+            light_dir: [0.3, 1.0, 0.6],
+            light_intensity: Param::new(1.4),
+            ambient: Param::new(0.7),
+            ..Default::default()
+        },
+        layers: vec![
+            Layer::new(
+                "Sky",
+                LayerKind::Backdrop(Backdrop {
+                    kind: BackdropKind::Gradient,
+                    color_a: hex(0x2050d0),
+                    color_b: hex(0xa0d0ff),
+                    color_c: hex(0xffffff),
+                    ..Default::default()
+                }),
+            ),
+            floor,
+            coins,
+            Layer::new(
+                "Lap",
+                LayerKind::Text(TextLayer {
+                    text: "LAP 1".into(),
+                    size: 0.7,
+                    color_top: hex(0xffffff),
+                    color_bottom: hex(0xffe040),
+                    outline: 0.6,
+                    outline_color: hex(0x000040),
+                    face_camera: true,
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, 3.2, -6.0]),
+        ],
+        ..Default::default()
+    };
+    p.retro = crate::Retro3d {
+        enabled: true,
+        resolution: crate::RetroRes::R256x224,
+        ..Default::default()
+    };
+    p
+}
+
+/// Stop-motion toys on a shelf: each toy animates on its own steps (12,
+/// 8 and 6 frames a second) while the camera glides smoothly round.
+pub fn stop_motion_shelf() -> Project {
+    let toy = |name: &str, prim: Primitive, color: u32, x: f32, fps: f32, spin: [i32; 3]| {
+        let mut l = Layer::new(
+            name,
+            LayerKind::Mesh(mesh(
+                prim,
+                Material {
+                    base_color: hex(color),
+                    metallic: Param::new(0.0),
+                    roughness: Param::new(0.75),
+                    rim: Param::new(0.2),
+                    ..Default::default()
+                },
+            )),
+        )
+        .at([x, 0.9, 0.0])
+        .scaled(0.8)
+        .spin(spin);
+        l.transform.bob = Param::new(0.0).osc(Wave::Sine, 0.35, 4);
+        l.step_fps = fps;
+        l
+    };
+    Project {
+        name: "Stop-Motion Shelf".into(),
+        timing: crate::Timing {
+            bpm: 96.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            target: [0.0, 0.9, 0.0],
+            distance: Param::new(6.0),
+            height: Param::new(1.2),
+            swing: Param::new(35.0),
+            mode: CameraMode::Pendulum,
+            fov: Param::new(45.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0x2a2018),
+            fog_density: Param::new(0.01),
+            sky_color: hex(0xf0d8b8),
+            ground_color: hex(0x604830),
+            light_dir: [0.4, 0.9, 0.5],
+            light_color: hex(0xfff0d8),
+            light_intensity: Param::new(1.6),
+            ambient: Param::new(0.5),
+            shadows: Shadows {
+                enabled: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        layers: vec![
+            Layer::new(
+                "Wall",
+                LayerKind::Backdrop(Backdrop {
+                    kind: BackdropKind::Gradient,
+                    color_a: hex(0x3a2c20),
+                    color_b: hex(0x1a120c),
+                    color_c: hex(0x604830),
+                    ..Default::default()
+                }),
+            ),
+            Layer::new(
+                "Shelf",
+                LayerKind::Mesh(mesh(
+                    Primitive::Cube,
+                    Material {
+                        base_color: hex(0xc09060),
+                        texture: Some("wood".into()),
+                        roughness: Param::new(0.8),
+                        metallic: Param::new(0.0),
+                        rim: Param::new(0.0),
+                        ..Default::default()
+                    },
+                )),
+            )
+            .stretched([7.0, 0.2, 2.0])
+            .scaled(1.0),
+            toy(
+                "Clay star",
+                Primitive::Star {
+                    points: 5,
+                    inner: 0.5,
+                    depth: 0.4,
+                },
+                0xe04030,
+                -2.2,
+                12.0,
+                [0, 1, 0],
+            ),
+            toy(
+                "Clay ball",
+                Primitive::Sphere { detail: 2 },
+                0x3080e0,
+                0.0,
+                8.0,
+                [1, 1, 0],
+            ),
+            toy(
+                "Clay gear",
+                Primitive::Gear {
+                    teeth: 8,
+                    depth: 0.4,
+                },
+                0x40b050,
+                2.2,
+                6.0,
+                [0, 0, 2],
+            ),
+        ],
+        ..Default::default()
+    }
+}
+
 pub fn by_name(name: &str) -> Option<Project> {
     all()
         .into_iter()
@@ -1264,6 +2318,7 @@ pub fn neon_arena() -> Project {
                     detail: Param::new(1.2),
                     texture: None,
                     ray: Default::default(),
+                    ..Default::default()
                 }),
             ),
             Layer::new(
@@ -1424,6 +2479,7 @@ pub fn neon_arena() -> Project {
                     sprite: Sprite::Glow,
                     seed: 5,
                     smoke: false,
+                    ..Default::default()
                 }),
             ),
         ],
@@ -1664,6 +2720,7 @@ pub fn gold_room() -> Project {
                     sprite: Sprite::Star,
                     seed: 9,
                     smoke: false,
+                    ..Default::default()
                 }),
             )
             .at([0.0, 4.0, -3.0]),
@@ -1733,6 +2790,7 @@ pub fn orbiting_solid() -> Project {
                     detail: Param::new(1.0),
                     texture: None,
                     ray: Default::default(),
+                    ..Default::default()
                 }),
             ),
             Layer::new(
@@ -1840,6 +2898,7 @@ pub fn orbiting_solid() -> Project {
                     sprite: Sprite::Glow,
                     seed: 3,
                     smoke: false,
+                    ..Default::default()
                 }),
             )
             .rotated([15.0, 0.0, 0.0]),
@@ -1902,6 +2961,7 @@ pub fn retro_tunnel() -> Project {
                     detail: Param::new(1.0),
                     texture: Some("xor".into()),
                     ray: Default::default(),
+                    ..Default::default()
                 }),
             ),
             Layer::new(
@@ -1941,6 +3001,7 @@ pub fn retro_tunnel() -> Project {
                     sprite: Sprite::Square,
                     seed: 1,
                     smoke: false,
+                    ..Default::default()
                 }),
             ),
         ],
@@ -2014,6 +3075,7 @@ pub fn plasma_kaleido() -> Project {
                     detail: Param::new(1.0),
                     texture: None,
                     ray: Default::default(),
+                    ..Default::default()
                 }),
             ),
             Layer::new(
@@ -2123,6 +3185,7 @@ pub fn synth_sunset() -> Project {
                     detail: Param::new(1.0),
                     texture: None,
                     ray: Default::default(),
+                    ..Default::default()
                 }),
             ),
             Layer::new(
@@ -2250,6 +3313,7 @@ pub fn vector_valley() -> Project {
                     detail: Param::new(1.0),
                     texture: None,
                     ray: Default::default(),
+                    ..Default::default()
                 }),
             ),
             Layer::new(
@@ -2363,6 +3427,7 @@ pub fn glitch_shrine() -> Project {
                     detail: Param::new(1.0),
                     texture: None,
                     ray: Default::default(),
+                    ..Default::default()
                 }),
             ),
             Layer::new(
@@ -2533,6 +3598,7 @@ pub fn sponge_dive() -> Project {
                         spin: 1,
                         ..Default::default()
                     },
+                    ..Default::default()
                 }),
             ),
             Layer::new(
@@ -2631,6 +3697,7 @@ fn sky(kind: BackdropKind, a: u32, b: u32, c: u32, ray: RaySettings) -> Layer {
             texture: None,
             ray,
             battle: Battle::default(),
+            ..Default::default()
         }),
     )
 }
@@ -2700,6 +3767,7 @@ pub fn stormy_lake() -> Project {
                         glow: Param::new(0.5),
                         waves: Param::new(1.5),
                         flow: 1,
+                        ..Default::default()
                     },
                     ..Default::default()
                 }),
@@ -2811,6 +3879,7 @@ pub fn lava_world() -> Project {
                         glow: Param::new(1.4).osc(Wave::Sine, 0.3, 4),
                         waves: Param::new(1.0),
                         flow: 2,
+                        ..Default::default()
                     },
                     ..Default::default()
                 }),
@@ -3829,6 +4898,7 @@ pub fn aurora_tundra() -> Project {
                         glow: Param::new(1.0),
                         waves: Param::new(1.0),
                         flow: 0,
+                        ..Default::default()
                     },
                     ..Default::default()
                 }),
@@ -3956,6 +5026,7 @@ pub fn dune_sea() -> Project {
                         glow: Param::new(1.2),
                         waves: Param::new(1.0),
                         flow: 1,
+                        ..Default::default()
                     },
                     ..Default::default()
                 }),

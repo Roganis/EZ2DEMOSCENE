@@ -3,7 +3,8 @@
 // D.v[0]: tint rgb, glow
 // D.v[1]: sheet columns, rows, frames used, frame position (0..1 of the frames)
 // D.v[2]: facing (0 camera, 1 upright, 2 fixed), random start, frame aspect (w/h), has image
-// D.v[3]: height, opacity, blend (0 alpha, 1 additive, 2 cutout), _
+// D.v[3]: height, opacity, blend (0 alpha, 1 additive, 2 cutout, 3 Saturn
+//         mesh: cutout with a checkerboard left out), _
 
 @group(2) @binding(0) var t_tex: texture_2d<f32>;
 @group(2) @binding(1) var s_tex: sampler;
@@ -57,7 +58,7 @@ fn vs_main(@builtin(vertex_index) vi: u32, in: SIn) -> SOut {
     let row = floor(f / cols);
     let c = corner * 0.5 + 0.5;
     var out: SOut;
-    out.pos = G.view_proj * vec4<f32>(world, 1.0);
+    out.pos = retro_snap(G.view_proj * vec4<f32>(world, 1.0));
     out.frame = vec2<f32>(col, row);
     out.local = c;
     out.world = world;
@@ -94,15 +95,15 @@ fn fs_main(in: SOut) -> @location(0) vec4<f32> {
     a = clamp(a * D.v[3].y, 0.0, 1.0);
     let fog = fog_amount_at(in.world);
     let mode = i32(D.v[3].z + 0.5);
-    if (mode == 2) {
-        if (a < 0.5) {
+    if (mode >= 2) {
+        if (a < 0.5 || (mode == 3 && retro_mesh_hole(0.5, in.pos.xy))) {
             discard;
         }
-        return vec4<f32>(mix(rgb, G.fog.rgb, fog), 1.0);
+        return vec4<f32>(retro_color(mix(rgb, G.fog.rgb, fog), in.pos.xy), 1.0);
     }
     if (mode == 1) {
         // Additive light fades into the fog.
         return vec4<f32>(rgb * a * (1.0 - fog), 0.0);
     }
-    return vec4<f32>(mix(rgb, G.fog.rgb, fog) * a, a);
+    return vec4<f32>(retro_color(mix(rgb, G.fog.rgb, fog), in.pos.xy) * a, a);
 }

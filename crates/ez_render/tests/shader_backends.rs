@@ -108,6 +108,14 @@ fn modules() -> Vec<(&'static str, String)> {
             "liquid",
             with_common(include_str!("../src/shaders/liquid.wgsl")),
         ),
+        (
+            "mode 7",
+            with_common(include_str!("../src/shaders/mode7.wgsl")),
+        ),
+        (
+            "retro upscale",
+            include_str!("../src/shaders/retro_up.wgsl").to_string(),
+        ),
     ];
     all.append(&mut kinds);
     all

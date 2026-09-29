@@ -594,6 +594,11 @@ pub fn environment_ui(ui: &mut Ui, e: &mut Environment) {
         &mut e.light_dir,
         0.02,
     );
+    light_style_ui(
+        ui,
+        "Sun & ambient flicker (light style)",
+        &mut e.light_style,
+    );
     ui.add_space(6.0);
     env_light_ui(ui, &mut e.env_light);
     let rf = &mut e.reflections;
@@ -1125,6 +1130,342 @@ pub fn post_ui(ui: &mut Ui, post: &mut PostStack) {
     });
 }
 
+/// A Quake light style: presets, the letters, and whole plays per loop
+/// (shown as letters per second).
+pub fn light_style_ui(ui: &mut Ui, label: &str, st: &mut LightStyle) {
+    let secs = loop_seconds(ui);
+    let id = ui.id().with(("light style", label));
+    egui::CollapsingHeader::new(label)
+        .id_salt(id)
+        .default_open(st.is_on())
+        .show(ui, |ui| {
+            row(ui, "Style", "Ready-made flicker patterns", |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    for p in LightStylePreset::ALL {
+                        if ui.small_button(p.label()).clicked() {
+                            *st = p.style(secs);
+                        }
+                    }
+                });
+            });
+            row(
+                ui,
+                "Letters",
+                "Brightness step by step: a = dark, m = normal, z = twice as bright",
+                |ui| {
+                    let r =
+                        ui.add(egui::TextEdit::singleline(&mut st.pattern).desired_width(170.0));
+                    if r.changed() {
+                        st.pattern.retain(|c| c.is_ascii_alphabetic());
+                        st.pattern.make_ascii_lowercase();
+                    }
+                },
+            );
+            if st.is_on() {
+                row(
+                    ui,
+                    "Plays / loop",
+                    "Whole plays of the letters per loop, so the loop stays seamless",
+                    |ui| {
+                        ui.add(
+                            egui::DragValue::new(&mut st.plays)
+                                .range(1..=256)
+                                .speed(0.2),
+                        );
+                        ui.label(
+                            RichText::new(format!("≈ {:.1} letters/s", st.rate(secs)))
+                                .weak()
+                                .small(),
+                        );
+                        if ui
+                            .small_button("Quake speed")
+                            .on_hover_text(
+                                "The nearest whole number of plays to 10 letters a second",
+                            )
+                            .clicked()
+                        {
+                            st.plays = st.plays_for_rate(ez_core::retro::LIGHT_STYLE_RATE, secs);
+                        }
+                    },
+                );
+            }
+        });
+}
+
+/// Quake's wobbling liquid warp of a texture.
+fn turbulence_ui(ui: &mut Ui, t: &mut Turbulence) {
+    param(
+        ui,
+        "Turbulence",
+        "Quake's wobbling water, lava and slime: the texture sways by a sine of itself (in tiles)",
+        &mut t.amount,
+        0.0..=0.5,
+    );
+    if t.is_on() {
+        slider(
+            ui,
+            "Waves / tile",
+            "How many wobbles across a texture tile",
+            &mut t.waves,
+            0.1..=4.0,
+        );
+        drag_i(
+            ui,
+            "Wobbles / loop",
+            "Whole wobbles per loop",
+            &mut t.cycles,
+            -32..=32,
+        );
+    }
+}
+
+/// "Animate on steps": the layer's motion held at a lower frame rate,
+/// snapped to a whole number of steps per loop (shown).
+fn step_ui(ui: &mut Ui, fps: &mut f32) {
+    let secs = loop_seconds(ui);
+    row(
+        ui,
+        "Animate on",
+        "Hold the layer's motion (spins, bobbing, copies moving, deform, glitch, sprite frames) \
+         at a lower frame rate, like stop-motion or games animating \"on twos\"; the camera stays \
+         smooth. Snapped to a whole number of steps per loop so it still loops.",
+        |ui| {
+            let label = |f: f32| {
+                if f <= 0.0 {
+                    "Smooth".to_string()
+                } else {
+                    format!("{f:.0} fps")
+                }
+            };
+            egui::ComboBox::from_id_salt(ui.id().with("animate on"))
+                .selected_text(label(*fps))
+                .width(90.0)
+                .show_ui(ui, |ui| {
+                    for f in [0.0, 30.0, 24.0, 15.0, 12.0, 10.0, 8.0, 6.0, 4.0] {
+                        ui.selectable_value(fps, f, label(f));
+                    }
+                });
+            if *fps > 0.0 {
+                ui.add(
+                    egui::DragValue::new(fps)
+                        .range(1.0..=60.0)
+                        .speed(0.1)
+                        .suffix(" fps"),
+                );
+            }
+        },
+    );
+    if let Some(n) = ez_core::step_count(*fps, secs) {
+        ui.label(
+            RichText::new(format!(
+                "{n} steps per loop ({:.2} fps on this loop)",
+                n as f32 / secs
+            ))
+            .weak()
+            .small(),
+        );
+    }
+}
+
+/// Two numbers (a size in pixels).
+fn size_row(ui: &mut Ui, label: &str, tip: &str, v: &mut [u32; 2]) {
+    row(ui, label, tip, |ui| {
+        ui.add(egui::DragValue::new(&mut v[0]).range(16..=4096).speed(1.0));
+        ui.label("×");
+        ui.add(egui::DragValue::new(&mut v[1]).range(16..=4096).speed(1.0));
+    });
+}
+
+/// The quirks of 5th-generation 3D for the whole scene.
+pub fn retro_ui(ui: &mut Ui, r: &mut Retro3d, out: (u32, u32)) {
+    ui.heading("Retro 3D");
+    ui.label(
+        RichText::new(
+            "Draw the 3D scene like a 90s console: chunky pixels, wobbly polygons and warped \
+             textures. Pick a look, then fine-tune it.",
+        )
+        .weak()
+        .small(),
+    );
+    row(ui, "Look", "Turn on a console's bundle of settings", |ui| {
+        ui.horizontal_wrapped(|ui| {
+            for st in RetroStyle::ALL {
+                if ui.small_button(st.label()).clicked() {
+                    r.apply_style(st);
+                }
+            }
+        });
+    });
+    check(ui, "On", "Use the settings below", &mut r.enabled);
+    ui.add_enabled_ui(r.enabled, |ui| {
+        section(ui, "Resolution", true, |ui| {
+            combo(
+                ui,
+                "Draw the scene at",
+                "Draw the 3D scene small without smoothing and blow it up with square pixels: \
+                 edges, shading and textures alias as on the console (unlike the Pixelate effect, \
+                 which only blocks the finished picture). Sizes are for a 4:3 TV; wider outputs \
+                 keep the height and the pixels' shape.",
+                &mut r.resolution,
+                &RetroRes::ALL,
+                |x| x.label(),
+            );
+            if r.resolution == RetroRes::Custom {
+                size_row(ui, "Size", "Pixels across and down on a 4:3 screen", &mut r.custom);
+            }
+            if let Some((w, h)) = r.internal_size(out) {
+                ui.label(
+                    RichText::new(format!("At this output: {w} × {h} pixels."))
+                        .weak()
+                        .small(),
+                );
+            }
+            check(
+                ui,
+                "Sharp text & logos",
+                "Text layers and logos stay at full resolution on top of the chunky scene",
+                &mut r.sharp_overlays,
+            );
+        });
+        section(ui, "Polygons & textures", true, |ui| {
+            check(
+                ui,
+                "Snap vertices",
+                "Corners of triangles jump to a coarse grid of screen pixels, so shapes wobble \
+                 and crawl as they move",
+                &mut r.snap,
+            );
+            ui.add_enabled_ui(r.snap, |ui| {
+                size_row(
+                    ui,
+                    "Grid",
+                    "Snapping grid (pixels across and down on a 4:3 screen)",
+                    &mut r.snap_res,
+                );
+                param(
+                    ui,
+                    "Amount",
+                    "How far corners move to the grid (fade the wobble in and out)",
+                    &mut r.snap_amount,
+                    0.0..=1.0,
+                );
+            });
+            let mut own = r.filter.is_none();
+            if check(
+                ui,
+                "Each material's filter",
+                "Untick to give every shape and the terrain one texture filter",
+                &mut own,
+            ) {
+                r.filter = if own { None } else { Some(TexFilter::Nearest) };
+            }
+            if let Some(f) = &mut r.filter {
+                combo(
+                    ui,
+                    "Texture filter",
+                    "Nearest: square pixels (PS1, Saturn, Quake). Bilinear without mipmaps: soft up \
+                     close, sparkling far away. 3-point: the N64's soft, grainy blend.",
+                    f,
+                    &TexFilter::ALL,
+                    |x| x.label(),
+                );
+            }
+            param(
+                ui,
+                "Texture warp",
+                "Textures stretched straight across each triangle (affine), not in perspective: \
+                 they bend and swim on big polygons. Subdivide a shape to make the warp smaller, \
+                 as PlayStation games did.",
+                &mut r.affine,
+                0.0..=1.0,
+            );
+            param(
+                ui,
+                "Near-plane culling",
+                "Triangles with a corner closer to the camera than this (world units) vanish, \
+                 as on the PlayStation: walls pop open when you get close. 0 = off.",
+                &mut r.near_cull,
+                0.0..=3.0,
+            );
+        });
+        section(ui, "Colour", true, |ui| {
+            check(
+                ui,
+                "15-bit colour",
+                "Round every polygon's colours to 32 levels per channel as it is drawn, like the \
+                 consoles' frame buffers (subtler than the Retro palette post effect)",
+                &mut r.color_15bit,
+            );
+            ui.add_enabled_ui(r.color_15bit, |ui| {
+                param(
+                    ui,
+                    "Dither",
+                    "A fixed 4 × 4 pattern that hides the steps between the levels \
+                     (PlayStation: on, Saturn: off)",
+                    &mut r.dither,
+                    0.0..=1.0,
+                );
+            });
+        });
+        section(ui, "Palette lighting (Quake)", false, |ui| {
+            let c = &mut r.colormap;
+            check(
+                ui,
+                "Colormap",
+                "Light steps through a palette's own colours, like Quake's software renderer: each \
+                 surface colour becomes its nearest palette colour, and shading picks darker or \
+                 brighter palette colours for it (up to twice as bright)",
+                &mut c.enabled,
+            );
+            ui.add_enabled_ui(c.enabled, |ui| {
+                let mut opts = vec![ColormapPalette::Software256];
+                opts.extend(ez_core::palette::PaletteId::ALL.map(ColormapPalette::Retro));
+                row(ui, "Palette", "The colours shading steps through", |ui| {
+                    egui::ComboBox::from_id_salt("colormap palette")
+                        .selected_text(c.palette.label())
+                        .width(150.0)
+                        .show_ui(ui, |ui| {
+                            for o in opts {
+                                ui.selectable_value(&mut c.palette, o, o.label());
+                            }
+                        });
+                });
+                drag_u(ui, "Light levels", "Steps from black to twice as bright (Quake: 32)", &mut c.levels, 2..=64);
+                if c.palette == ColormapPalette::Software256 {
+                    check(
+                        ui,
+                        "Fullbrights",
+                        "The palette's last 32 colours (fire, lamps) glow whatever the light",
+                        &mut c.fullbrights,
+                    );
+                }
+            });
+        });
+        section(ui, "Nintendo 64", true, |ui| {
+            let f = &mut r.fog;
+            check(
+                ui,
+                "N64 fog",
+                "Fog that starts close to the camera and thickens in a straight line to solid \
+                 fog (in the scene's fog colour), instead of the scene's fog",
+                &mut f.enabled,
+            );
+            ui.add_enabled_ui(f.enabled, |ui| {
+                param(ui, "Starts at", "Distance where the fog begins", &mut f.near, 0.0..=40.0);
+                param(ui, "Solid at", "Distance where nothing shows through", &mut f.far, 1.0..=200.0);
+            });
+            param(
+                ui,
+                "Video blur",
+                "The N64's video output filter: smooths dither patterns away and softens the \
+                 picture sideways, one console pixel wide",
+                &mut r.vi_blur,
+                0.0..=1.0,
+            );
+        });
+    });
+}
+
 fn palette_swatch(ui: &mut Ui, p: PaletteId) {
     let cols = p.colors();
     if cols.is_empty() {
@@ -1230,6 +1571,7 @@ pub fn layer_ui(ui: &mut Ui, layer: &mut Layer, textures: &[UserTexture], lref: 
         LayerKind::Sprite(sp) => sprite_ui(ui, sp, textures, lref),
         LayerKind::Arcs(a) => arcs_ui(ui, a),
         LayerKind::Logo(g) => logo_ui(ui, g, &layer.name, textures, lref),
+        LayerKind::Mode7(f) => mode7_ui(ui, f, textures),
     }
     let is_mesh_like = matches!(
         layer.kind,
@@ -1243,6 +1585,7 @@ pub fn layer_ui(ui: &mut Ui, layer: &mut Layer, textures: &[UserTexture], lref: 
     let placed = !matches!(layer.kind, LayerKind::Backdrop(_) | LayerKind::Logo(_));
     if placed {
         section(ui, "Placement & motion", true, |ui| {
+            step_ui(ui, &mut layer.step_fps);
             let t = &mut layer.transform;
             if matches!(layer.kind, LayerKind::Mirror(_)) {
                 slider(ui, "Floor height", "", &mut t.position[1], -10.0..=10.0);
@@ -1894,12 +2237,21 @@ fn material_ui(ui: &mut Ui, mat: &mut Material, textures: &[UserTexture], lref: 
         &EmissiveMode::ALL,
         |m| m.label(),
     );
+    light_style_ui(ui, "Glow flicker (light style)", &mut mat.glow_style);
     param(
         ui,
         "Hue shift",
         "Rotate the colours (in turns)",
         &mut mat.hue_shift,
         -1.0..=1.0,
+    );
+    param(
+        ui,
+        "See-through (mesh)",
+        "The Saturn's transparency: pixels are left out in a fixed pattern instead of \
+         blending. 0.5 is its checkerboard; animate it to fade a shape in or out.",
+        &mut mat.mesh,
+        0.0..=1.0,
     );
     ui.separator();
     texture_picker(
@@ -1930,12 +2282,21 @@ fn material_ui(ui: &mut Ui, mat: &mut Material, textures: &[UserTexture], lref: 
                 );
             },
         );
-        check(
+        turbulence_ui(ui, &mut mat.turbulence);
+        let mut filter = mat.tex_filter();
+        if combo(
             ui,
-            "Chunky pixels",
-            "Nearest-neighbour sampling",
-            &mut mat.pixelated,
-        );
+            "Filter",
+            "How the texture is smoothed between its pixels: Smooth (modern), Nearest (square \
+             pixels, PlayStation), Bilinear without mipmaps (shimmers in the distance), \
+             3-point (the Nintendo 64's softer, grainier blend)",
+            &mut filter,
+            &TexFilter::ALL,
+            |f| f.label(),
+        ) {
+            mat.pixelated = filter == TexFilter::Nearest;
+            mat.filter = filter;
+        }
     }
     texture_picker(
         ui,
@@ -2889,6 +3250,7 @@ fn particles_ui(ui: &mut Ui, p: &mut ParticleLayer) {
         } else {
             param(ui, "Brightness", "", &mut p.intensity, 0.0..=10.0);
         }
+        light_style_ui(ui, "Flicker (light style)", &mut p.glow_style);
         drag_u(
             ui,
             "Trail",
@@ -2964,6 +3326,72 @@ fn backdrop_ui(ui: &mut Ui, b: &mut Backdrop, textures: &[UserTexture], lref: La
             );
         }
     });
+    if b.kind == BackdropKind::LayeredSky {
+        let k = &mut b.sky;
+        section(ui, "Two-layer sky", true, |ui| {
+            ui.label(
+                RichText::new(
+                    "Quake's sky: a far layer and a near layer scrolling over it; the near layer's \
+                     see-through colour shows the far one. None = the built-in cloud layers.",
+                )
+                .weak()
+                .small(),
+            );
+            texture_picker(
+                ui,
+                "Far layer",
+                &mut b.texture,
+                textures,
+                Some((lref, TexSlot::Backdrop)),
+            );
+            texture_picker(ui, "Near layer", &mut k.near_texture, textures, None);
+            color(
+                ui,
+                "See-through colour",
+                "Colour of the near layer that shows the far one",
+                &mut k.cutout,
+            );
+            slider(
+                ui,
+                "Tolerance",
+                "How close to that colour counts",
+                &mut k.tolerance,
+                0.0..=1.0,
+            );
+            let scroll = |ui: &mut Ui, label: &str, v: &mut [i32; 2]| {
+                row(ui, label, "Tiles scrolled per loop (x, z)", |ui| {
+                    ui.add(
+                        egui::DragValue::new(&mut v[0])
+                            .range(-32..=32)
+                            .speed(0.1)
+                            .prefix("x "),
+                    );
+                    ui.add(
+                        egui::DragValue::new(&mut v[1])
+                            .range(-32..=32)
+                            .speed(0.1)
+                            .prefix("z "),
+                    );
+                });
+            };
+            scroll(ui, "Far scroll / loop", &mut k.far_scroll);
+            scroll(ui, "Near scroll / loop", &mut k.near_scroll);
+            slider(
+                ui,
+                "Tiles",
+                "Tiles across the dome",
+                &mut k.tiles,
+                0.5..=12.0,
+            );
+            slider(
+                ui,
+                "Flatten",
+                "How flat the dome is (Quake: 3): flatter squeezes more tiles towards the horizon",
+                &mut k.flatten,
+                1.0..=8.0,
+            );
+        });
+    }
     if b.kind == BackdropKind::Battle {
         let bt = &mut b.battle;
         section(ui, "Battle background", true, |ui| {
@@ -3364,6 +3792,22 @@ fn liquid_ui(ui: &mut Ui, l: &mut Liquid) {
             -8..=8,
         );
     }
+    param(
+        ui,
+        "Turbulence",
+        "Quake's wobbling liquid: the surface patterns sway by a sine of themselves (in pattern cells)",
+        &mut l.turbulence,
+        0.0..=0.5,
+    );
+    if l.turbulence.base != 0.0 || l.turbulence.is_animated() {
+        drag_i(
+            ui,
+            "Wobbles / loop",
+            "Whole wobbles per loop",
+            &mut l.turb_cycles,
+            -32..=32,
+        );
+    }
 }
 
 fn falls_ui(ui: &mut Ui, f: &mut Falls) {
@@ -3415,6 +3859,13 @@ fn falls_ui(ui: &mut Ui, f: &mut Falls) {
             "Puffs at the foot (0 = none)",
             &mut f.foam,
             0.0..=3.0,
+        );
+        param(
+            ui,
+            "Turbulence",
+            "Quake's wobbling liquid: the streaks sway, a wobble per streak run",
+            &mut f.turbulence,
+            0.0..=0.5,
         );
         drag_u(ui, "Seed", "", &mut f.seed, 0..=9999);
     });
@@ -4045,6 +4496,12 @@ pub fn add_layer_menu(ui: &mut Ui, templates: &[Layer]) -> Option<Layer> {
             }
         }
     });
+    if ui.button("🏁 Mode 7 floor").clicked() {
+        out = Some(Layer::new(
+            "Mode 7 floor",
+            LayerKind::Mode7(Mode7Floor::default()),
+        ));
+    }
     if ui.button("⊞ Mirror floor").clicked() {
         out = Some(Layer::new(
             "Mirror floor",
@@ -4094,7 +4551,70 @@ pub fn layer_icon(l: &Layer) -> &'static str {
         LayerKind::Sprite(_) => "🖼",
         LayerKind::Logo(_) => "🏷",
         LayerKind::Arcs(_) => "⚡",
+        LayerKind::Mode7(_) => "🏁",
     }
+}
+
+fn mode7_ui(ui: &mut Ui, f: &mut Mode7Floor, textures: &[UserTexture]) {
+    section(ui, "Mode 7 floor", true, |ui| {
+        ui.label(
+            RichText::new(
+                "An endless flat picture at the layer's height, up to a hard horizon, like SNES \
+                 racing games and Saturn floors. It turns around the layer's position. Set the \
+                 height with Placement → Position y; Size scales the tiles.",
+            )
+            .weak()
+            .small(),
+        );
+        texture_picker(ui, "Picture", &mut f.texture, textures, None);
+        slider(
+            ui,
+            "Tile size",
+            "World units per tile of the picture",
+            &mut f.tile_size,
+            0.25..=40.0,
+        );
+        drag_i(
+            ui,
+            "Turns / loop",
+            "Whole turns around the layer's position per loop",
+            &mut f.turns,
+            -16..=16,
+        );
+        row(
+            ui,
+            "Scroll / loop",
+            "Tiles scrolled per loop (x, z)",
+            |ui| {
+                ui.add(
+                    egui::DragValue::new(&mut f.scroll[0])
+                        .range(-64..=64)
+                        .speed(0.1)
+                        .prefix("x "),
+                );
+                ui.add(
+                    egui::DragValue::new(&mut f.scroll[1])
+                        .range(-64..=64)
+                        .speed(0.1)
+                        .prefix("z "),
+                );
+            },
+        );
+        color(ui, "Tint", "Multiplies the picture", &mut f.tint);
+        param(ui, "Brightness", "", &mut f.brightness, 0.0..=3.0);
+        check(
+            ui,
+            "Square pixels",
+            "No smoothing between the picture's pixels (the console look)",
+            &mut f.pixelated,
+        );
+        check(
+            ui,
+            "Fade into fog",
+            "Fade into the fog colour in the distance; off keeps the hard, bright horizon",
+            &mut f.fog,
+        );
+    });
 }
 
 pub fn deform_ui(ui: &mut Ui, d: &mut Deform) {
@@ -4249,6 +4769,7 @@ fn sprite_ui(ui: &mut Ui, sp: &mut SpriteLayer, textures: &[UserTexture], lref: 
             &mut sp.glow,
             0.0..=5.0,
         );
+        light_style_ui(ui, "Flicker (light style)", &mut sp.glow_style);
         ui.checkbox(&mut sp.pixelated, "Pixelated (sharp pixel art)");
     });
     section(

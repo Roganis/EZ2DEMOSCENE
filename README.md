@@ -175,6 +175,32 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   CRT phosphors…). Imported images can be *retro-ized*: downscaled,
   palette-reduced and dithered, and tiled *mirrored* so photos repeat
   without seams.
+- **Retro 3D (5th-generation consoles).** Draw the whole 3D scene like
+  a PlayStation: at **320 × 240, 256 × 224, 640 × 480** or your own size
+  with native aliasing and square-pixel upscaling (text and logos can
+  stay sharp), **vertex snapping** (the PS1 wobble), **affine texture
+  warp** (reduced by subdividing, as PS1 games did), and per-material
+  texture filters: nearest, bilinear without mipmaps and the N64's
+  **3-point** filter. Per-polygon **15-bit colour with 4×4 dither**,
+  **N64 fog** starting close to the camera and the N64 **video blur**
+  (de-dither and soften), **Saturn mesh transparency** (checkerboard
+  see-through shapes and sprites) and PS1 **near-plane culling**. One
+  click turns on the PlayStation, Saturn, Nintendo 64 or Quake bundle.
+- **Quake features.** **Light styles** (flicker strings from 'a' dark to
+  'z' bright, playing a whole number of times per loop) on the sun and
+  ambient light, glows, sprites and particles; **turbulent warp** for
+  water, lava and slime textures, terrain liquids and waterfalls; a
+  **two-layer scrolling sky**; **palette lighting** (colormap) through our
+  own 256-colour palette with fullbrights, or any retro palette; and
+  solid **square particles**.
+- **Animate on steps.** Any layer's motion (spins, copies, simulations,
+  deform, sprite frames) can be held at 30, 24, 15, 12, 10, 8 or 6 fps,
+  snapped to a whole number of steps per loop, while the camera stays
+  smooth.
+- **Mode 7 floor.** A SNES / Saturn VDP2 style endless textured plane
+  with a hard horizon that turns and scrolls whole turns and tiles per
+  loop (a race-track texture included). A **Retro console** preset group
+  has PlayStation, Saturn, Nintendo 64, Quake and 16-bit scenes.
 - **Post FX.** Bloom, **god rays** (light shafts from the sun or the
   picture centre) with lens flare, **heat haze**, **depth of field**
   (auto focus, round bokeh), **feedback trails** (zoom/turn/hue-drifting

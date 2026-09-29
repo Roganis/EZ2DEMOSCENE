@@ -3583,3 +3583,909 @@ fn liquid_draws_and_loops() {
         assert!(mean_abs_diff(a.as_raw(), b.as_raw()) < 0.05);
     }
 }
+
+/// Retro 3D: the scene drawn at a low resolution aliases natively (square
+/// pixels), snapping and texture warp change the picture, subdividing
+/// shrinks the warp, every texture filter looks different, and it all
+/// loops.
+#[test]
+fn retro_3d_is_chunky_wobbly_and_loops() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let dir = snapshot_dir().join("retro3d");
+    std::fs::create_dir_all(&dir).unwrap();
+    let scene = |retro: Retro3d, subdivide: u32, filter: TexFilter| {
+        let mut p = presets::empty();
+        p.retro = retro;
+        p.camera = Camera {
+            target: [0.0, 0.0, 0.0],
+            distance: Param::new(3.2),
+            height: Param::new(1.2),
+            orbit_turns: 1,
+            swing: Param::new(0.0),
+            fov: Param::new(50.0),
+            ..Default::default()
+        };
+        p.environment.fog_density = Param::new(0.0);
+        p.post.bloom.enabled = false;
+        p.post.grade.vignette = Param::new(0.0);
+        p.post.grade.grain = Param::new(0.0);
+        // Only the sky of the empty scene.
+        p.layers.truncate(1);
+        let mut floor = Layer::new(
+            "Floor",
+            LayerKind::Mesh(MeshLayer {
+                source: MeshSource::Primitive(Primitive::Plane),
+                subdivide,
+                material: Material {
+                    base_color: [1.0; 3],
+                    texture: Some("checker".into()),
+                    texture_scale: Param::new(3.0),
+                    filter,
+                    rim: Param::new(0.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+        )
+        .at([0.0, -0.8, 0.0])
+        .scaled(6.0);
+        floor.transform.spin = [0, 1, 0];
+        p.layers.push(floor);
+        p.layers.push(
+            Layer::new(
+                "Box",
+                LayerKind::Mesh(MeshLayer {
+                    source: MeshSource::Primitive(Primitive::Cube),
+                    subdivide,
+                    material: Material {
+                        base_color: [1.0, 0.8, 0.6],
+                        texture: Some("brick".into()),
+                        filter,
+                        rim: Param::new(0.0),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }),
+            )
+            .spin([1, 2, 0]),
+        );
+        p
+    };
+    let ps1 = || {
+        let mut r = Retro3d::default();
+        r.apply_style(RetroStyle::Ps1);
+        // Dithering breaks up flat areas on purpose (tested on its own).
+        r.color_15bit = false;
+        r
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
+    let (w, h) = (640u32, 360u32);
+    let target = r.create_target(w, h);
+    let at = |p: &Project, phase: f32| EvalCtx::new(&p.timing, phase, None);
+    // Share of neighbouring pixels (across) that are exactly the same.
+    let same = |img: &image::RgbaImage| {
+        let mut n = 0u32;
+        for y in 0..h {
+            for x in 0..w - 1 {
+                n += (img.get_pixel(x, y) == img.get_pixel(x + 1, y)) as u32;
+            }
+        }
+        n as f32 / (h * (w - 1)) as f32
+    };
+
+    let off = scene(Retro3d::default(), 0, TexFilter::Smooth);
+    let on = scene(ps1(), 0, TexFilter::Nearest);
+    let a = r.render_image(&off, &at(&off, 0.3), &target);
+    let b = r.render_image(&on, &at(&on, 0.3), &target);
+    assert!(r.errors.is_empty(), "{:?}", r.errors);
+    a.save(dir.join("off.png")).unwrap();
+    b.save(dir.join("ps1.png")).unwrap();
+    let (sa, sb) = (same(&a), same(&b));
+    eprintln!("equal neighbours: off {sa:.3}, PS1 {sb:.3}");
+    // 320 × 240 on a 16:9 output is 427 × 240: every low pixel covers
+    // about 1.5 × 1.5 output pixels.
+    assert!(sb > sa + 0.06, "not chunky: {sa} -> {sb}");
+
+    // Loops: the first and last frames match.
+    for p in [&on, &scene(ps1(), 2, TexFilter::ThreePoint)] {
+        let first = r.render_image(p, &at(p, 0.0), &target);
+        let last = r.render_image(p, &at(p, 1.0), &target);
+        let mid = r.render_image(p, &at(p, 0.37), &target);
+        let seam = mean_abs_diff(first.as_raw(), last.as_raw());
+        let motion = mean_abs_diff(first.as_raw(), mid.as_raw());
+        eprintln!("retro seam {seam:.3}, motion {motion:.2}");
+        assert!(seam < 0.6, "retro 3D does not loop: {seam}");
+        assert!(motion > 2.0, "retro 3D scene does not move: {motion}");
+    }
+
+    // Snapping and warp each change the full-resolution picture.
+    let full = |snap: bool, affine: f32| Retro3d {
+        enabled: true,
+        snap,
+        affine: Param::new(affine),
+        ..Default::default()
+    };
+    let plain = r.render_image(
+        &scene(full(false, 0.0), 0, TexFilter::Smooth),
+        &at(&off, 0.3),
+        &target,
+    );
+    let d_off = mean_abs_diff(plain.as_raw(), a.as_raw());
+    assert!(
+        d_off < 0.01,
+        "Retro 3D on with nothing set changed the picture: {d_off}"
+    );
+    let snapped = r.render_image(
+        &scene(full(true, 0.0), 0, TexFilter::Smooth),
+        &at(&off, 0.3),
+        &target,
+    );
+    let d_snap = mean_abs_diff(plain.as_raw(), snapped.as_raw());
+    let warped = r.render_image(
+        &scene(full(false, 1.0), 0, TexFilter::Smooth),
+        &at(&off, 0.3),
+        &target,
+    );
+    let d_warp = mean_abs_diff(plain.as_raw(), warped.as_raw());
+    let plain_sub = r.render_image(
+        &scene(full(false, 0.0), 3, TexFilter::Smooth),
+        &at(&off, 0.3),
+        &target,
+    );
+    let warped_sub = r.render_image(
+        &scene(full(false, 1.0), 3, TexFilter::Smooth),
+        &at(&off, 0.3),
+        &target,
+    );
+    let d_warp_sub = mean_abs_diff(plain_sub.as_raw(), warped_sub.as_raw());
+    snapped.save(dir.join("snapped.png")).unwrap();
+    warped.save(dir.join("warped.png")).unwrap();
+    warped_sub.save(dir.join("warped_subdivided.png")).unwrap();
+    eprintln!("snap {d_snap:.2}, warp {d_warp:.2}, warp after subdividing {d_warp_sub:.2}");
+    assert!(d_snap > 0.3, "snapping shows no change: {d_snap}");
+    assert!(d_warp > 1.0, "texture warp shows no change: {d_warp}");
+    assert!(
+        d_warp_sub < d_warp * 0.6,
+        "subdividing doesn't reduce the warp: {d_warp} -> {d_warp_sub}"
+    );
+
+    // Every texture filter is its own look.
+    let shots: Vec<(TexFilter, image::RgbaImage)> = TexFilter::ALL
+        .iter()
+        .map(|&f| {
+            let mut p = scene(Retro3d::default(), 0, f);
+            // A pattern that changes every texel, magnified near the
+            // camera and shrunk in the distance.
+            if let LayerKind::Mesh(m) = &mut p.layers[1].kind {
+                m.material.texture = Some("dither".into());
+                m.material.texture_scale = Param::new(0.4);
+            }
+            (f, r.render_image(&p, &at(&p, 0.3), &target))
+        })
+        .collect();
+    for (i, (fa, ia)) in shots.iter().enumerate() {
+        ia.save(dir.join(format!("filter_{}.png", fa.index())))
+            .unwrap();
+        for (fb, ib) in &shots[i + 1..] {
+            let d = mean_abs_diff(ia.as_raw(), ib.as_raw());
+            eprintln!("{:?} vs {:?}: {d:.3}", fa, fb);
+            assert!(d > 0.05, "{fa:?} and {fb:?} look the same: {d}");
+        }
+    }
+
+    // Text drawn sharp on top of the chunky scene, or as chunky.
+    let mut text = on.clone();
+    text.layers
+        .push(Layer::new("Title", LayerKind::Text(TextLayer::default())));
+    let sharp = r.render_image(&text, &at(&text, 0.3), &target);
+    text.retro.sharp_overlays = false;
+    let chunky = r.render_image(&text, &at(&text, 0.3), &target);
+    sharp.save(dir.join("text_sharp.png")).unwrap();
+    chunky.save(dir.join("text_chunky.png")).unwrap();
+    let d_text = mean_abs_diff(sharp.as_raw(), chunky.as_raw());
+    eprintln!("sharp vs chunky text: {d_text:.3}");
+    assert!(d_text > 0.05, "sharp text setting does nothing: {d_text}");
+}
+
+/// Retro 3D console quirks: N64 fog, 15-bit colour and dither, the N64
+/// video blur, Saturn mesh transparency (shapes and sprites) and
+/// near-plane culling each do what they say, and the N64 look loops.
+#[test]
+fn retro_console_quirks_show_and_loop() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let dir = snapshot_dir().join("retro_quirks");
+    std::fs::create_dir_all(&dir).unwrap();
+    // A box `dist` away from a still camera, over the fog colour (no
+    // background).
+    let scene = |dist: f32, retro: Retro3d, material: Material| {
+        let mut p = presets::empty();
+        p.layers.clear();
+        p.retro = retro;
+        p.camera = Camera {
+            mode: CameraMode::Static,
+            target: [0.0; 3],
+            distance: Param::new(dist),
+            height: Param::new(0.0),
+            angle: Param::new(30.0),
+            fov: Param::new(40.0),
+            ..Default::default()
+        };
+        p.environment.fog_color = [0.02, 0.02, 0.02];
+        p.environment.fog_density = Param::new(0.0);
+        p.post.bloom.enabled = false;
+        p.post.grade.vignette = Param::new(0.0);
+        p.post.grade.grain = Param::new(0.0);
+        p.layers.push(
+            Layer::new(
+                "Box",
+                LayerKind::Mesh(MeshLayer {
+                    source: MeshSource::Primitive(Primitive::Sphere { detail: 4 }),
+                    material,
+                    ..Default::default()
+                }),
+            )
+            .scaled(1.2),
+        );
+        p
+    };
+    let lit = || Material {
+        base_color: [0.9, 0.7, 0.5],
+        metallic: Param::new(0.0),
+        roughness: Param::new(0.6),
+        rim: Param::new(0.0),
+        ..Default::default()
+    };
+    let on = |f: &dyn Fn(&mut Retro3d)| {
+        let mut r = Retro3d {
+            enabled: true,
+            ..Default::default()
+        };
+        f(&mut r);
+        r
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let (w, h) = (320u32, 180u32);
+    let target = r.create_target(w, h);
+    let ctx = EvalCtx::at(0.0);
+    let empty = {
+        let mut p = scene(6.0, Retro3d::default(), lit());
+        p.layers.clear();
+        r.render_image(&p, &ctx, &target)
+    };
+    // Share of pixels that differ from the empty background.
+    let cover = |img: &image::RgbaImage| {
+        img.pixels()
+            .zip(empty.pixels())
+            .filter(|(p, e)| (0..3).any(|c| (p[c] as i32 - e[c] as i32).abs() > 12))
+            .count() as f32
+            / (w * h) as f32
+    };
+
+    // N64 fog: solid at 6, so a ball 12 away is gone; 3 away it shows.
+    let fog = |near: f32, far: f32| {
+        on(&|r: &mut Retro3d| {
+            r.fog.enabled = true;
+            r.fog.near = Param::new(near);
+            r.fog.far = Param::new(far);
+        })
+    };
+    let plain = r.render_image(&scene(12.0, Retro3d::default(), lit()), &ctx, &target);
+    let fogged = r.render_image(&scene(12.0, fog(1.0, 6.0), lit()), &ctx, &target);
+    let clear = r.render_image(&scene(12.0, fog(20.0, 40.0), lit()), &ctx, &target);
+    plain.save(dir.join("fog_off.png")).unwrap();
+    fogged.save(dir.join("fog_n64.png")).unwrap();
+    let (c_plain, c_fog, c_clear) = (cover(&plain), cover(&fogged), cover(&clear));
+    eprintln!("ball coverage: no fog {c_plain:.3}, N64 fog {c_fog:.3}, fog starting behind it {c_clear:.3}");
+    assert!(c_plain > 0.01, "ball not drawn: {c_plain}");
+    assert!(c_fog < 0.002, "N64 fog doesn't hide the far ball: {c_fog}");
+    assert!(
+        (c_clear - c_plain).abs() < 0.002,
+        "fog starting behind the ball touches it"
+    );
+
+    // 15-bit colour: fewer colours; dither changes the picture; the video
+    // blur smooths the dither away.
+    let unique = |img: &image::RgbaImage| {
+        img.pixels()
+            .map(|p| (p[0], p[1], p[2]))
+            .collect::<std::collections::HashSet<_>>()
+            .len()
+    };
+    let rough = |img: &image::RgbaImage| {
+        let mut s = 0.0;
+        for y in 0..h {
+            for x in 0..w - 1 {
+                let (a, b) = (img.get_pixel(x, y), img.get_pixel(x + 1, y));
+                s += (0..3)
+                    .map(|c| (a[c] as f32 - b[c] as f32).abs())
+                    .sum::<f32>();
+            }
+        }
+        s / (w * h) as f32
+    };
+    let full = r.render_image(&scene(3.0, Retro3d::default(), lit()), &ctx, &target);
+    let banded = r.render_image(
+        &scene(
+            3.0,
+            on(&|r: &mut Retro3d| {
+                r.color_15bit = true;
+                r.dither = Param::new(0.0);
+            }),
+            lit(),
+        ),
+        &ctx,
+        &target,
+    );
+    let dithered = r.render_image(
+        &scene(3.0, on(&|r: &mut Retro3d| r.color_15bit = true), lit()),
+        &ctx,
+        &target,
+    );
+    let vi = r.render_image(
+        &scene(
+            3.0,
+            on(&|r: &mut Retro3d| {
+                r.color_15bit = true;
+                r.vi_blur = Param::new(1.0);
+            }),
+            lit(),
+        ),
+        &ctx,
+        &target,
+    );
+    banded.save(dir.join("15bit.png")).unwrap();
+    dithered.save(dir.join("15bit_dither.png")).unwrap();
+    vi.save(dir.join("15bit_dither_vi.png")).unwrap();
+    let (u_full, u_band) = (unique(&full), unique(&banded));
+    let (r_dith, r_vi) = (rough(&dithered), rough(&vi));
+    let d_dith = mean_abs_diff(banded.as_raw(), dithered.as_raw());
+    eprintln!(
+        "colours: full {u_full}, 15-bit {u_band}; dither changes {d_dith:.3}; \
+         roughness dithered {r_dith:.2}, with video blur {r_vi:.2}"
+    );
+    assert!(
+        (u_band as f32) < u_full as f32 * 0.6,
+        "15-bit colour doesn't band"
+    );
+    assert!(d_dith > 0.2, "dither shows no change: {d_dith}");
+    assert!(r_vi < r_dith * 0.8, "video blur doesn't smooth the dither");
+
+    // Saturn mesh: half of the ball's pixels left out.
+    let solid = cover(&full);
+    let meshed_img = r.render_image(
+        &scene(
+            3.0,
+            Retro3d::default(),
+            Material {
+                mesh: Param::new(0.5),
+                ..lit()
+            },
+        ),
+        &ctx,
+        &target,
+    );
+    meshed_img.save(dir.join("mesh.png")).unwrap();
+    let meshed = cover(&meshed_img);
+    eprintln!("ball coverage: solid {solid:.3}, mesh {meshed:.3}");
+    assert!(
+        (meshed / solid - 0.5).abs() < 0.08,
+        "mesh doesn't leave half out"
+    );
+    let mut sprite = |blend: SpriteBlend| {
+        let mut p = scene(3.0, Retro3d::default(), lit());
+        p.layers = vec![Layer::new(
+            "Dot",
+            LayerKind::Sprite(SpriteLayer {
+                blend,
+                size: Param::new(1.5),
+                ..Default::default()
+            }),
+        )];
+        cover(&r.render_image(&p, &ctx, &target))
+    };
+    let (s_cut, s_mesh) = (sprite(SpriteBlend::Cutout), sprite(SpriteBlend::Mesh));
+    eprintln!("sprite coverage: cutout {s_cut:.3}, mesh {s_mesh:.3}");
+    assert!(
+        s_cut > 0.01 && (s_mesh / s_cut - 0.5).abs() < 0.1,
+        "sprite mesh doesn't leave half out"
+    );
+
+    // Near-plane culling: the ball 3 away vanishes at a distance of 2.5
+    // (its near side is 1.8 away), not at 1.
+    // Shapes are two-sided, so the inside shows through the hole.
+    let mut culled = |d: f32| {
+        r.render_image(
+            &scene(
+                3.0,
+                on(&|r: &mut Retro3d| r.near_cull = Param::new(d)),
+                lit(),
+            ),
+            &ctx,
+            &target,
+        )
+    };
+    let (keep, gone) = (culled(1.0), culled(2.5));
+    gone.save(dir.join("near_cull.png")).unwrap();
+    let (d_keep, d_gone) = (
+        mean_abs_diff(keep.as_raw(), full.as_raw()),
+        mean_abs_diff(gone.as_raw(), full.as_raw()),
+    );
+    eprintln!("near culling: change at 1 {d_keep:.3}, at 2.5 {d_gone:.3}");
+    assert!(d_keep < 0.01, "culling at 1 changed the ball");
+    assert!(d_gone > 3.0, "near triangles weren't culled");
+
+    // The N64 look loops (an orbiting camera, a spinning textured ball).
+    let mut p = scene(4.0, Retro3d::default(), lit());
+    p.retro.apply_style(RetroStyle::N64);
+    p.camera.mode = CameraMode::Orbit;
+    p.camera.swing = Param::new(0.0);
+    p.layers[0].transform.spin = [0, 1, 1];
+    if let LayerKind::Mesh(m) = &mut p.layers[0].kind {
+        m.material.texture = Some("brick".into());
+    }
+    let at = |ph: f32| EvalCtx::new(&p.timing, ph, None);
+    let a = r.render_image(&p, &at(0.0), &target);
+    let b = r.render_image(&p, &at(1.0), &target);
+    let m = r.render_image(&p, &at(0.4), &target);
+    a.save(dir.join("n64.png")).unwrap();
+    let seam = mean_abs_diff(a.as_raw(), b.as_raw());
+    let motion = mean_abs_diff(a.as_raw(), m.as_raw());
+    eprintln!("N64 look: seam {seam:.3}, motion {motion:.2}");
+    assert!(seam < 0.6, "N64 look doesn't loop: {seam}");
+    assert!(motion > 1.0, "N64 scene doesn't move");
+}
+
+/// Quake features: light styles (sun, glow, sprites, particles),
+/// turbulent warp (materials, terrain liquids, waterfalls), the two-layer
+/// sky, palette-space lighting and solid square particles all show and
+/// loop.
+#[test]
+fn quake_features_show_and_loop() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let dir = snapshot_dir().join("quake");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let (w, h) = (240u32, 136u32);
+    let target = r.create_target(w, h);
+    let base = || {
+        let mut p = presets::empty();
+        p.layers.clear();
+        p.camera = Camera {
+            mode: CameraMode::Static,
+            target: [0.0; 3],
+            distance: Param::new(4.0),
+            height: Param::new(1.0),
+            angle: Param::new(20.0),
+            fov: Param::new(50.0),
+            ..Default::default()
+        };
+        p.environment.fog_density = Param::new(0.0);
+        p.post.bloom.enabled = false;
+        p.post.grade.vignette = Param::new(0.0);
+        p.post.grade.grain = Param::new(0.0);
+        p
+    };
+    let ball = |mat: Material| {
+        Layer::new(
+            "Ball",
+            LayerKind::Mesh(MeshLayer {
+                source: MeshSource::Primitive(Primitive::Sphere { detail: 4 }),
+                material: mat,
+                ..Default::default()
+            }),
+        )
+        .scaled(1.3)
+    };
+    let lum = |img: &image::RgbaImage| {
+        img.as_raw().iter().map(|v| *v as f32).sum::<f32>() / img.as_raw().len() as f32
+    };
+    // "az": dark for the first half of the loop, twice as bright after.
+    let az = LightStyle {
+        pattern: "az".into(),
+        plays: 1,
+    };
+    let mut failures = Vec::new();
+    let mut check = |name: &str, p: &Project, r: &mut Renderer, want_change: bool| {
+        let at = |ph: f32| EvalCtx::new(&p.timing, ph, None);
+        let a = r.render_image(p, &at(0.1), &target);
+        let b = r.render_image(p, &at(0.6), &target);
+        let first = r.render_image(p, &at(0.0), &target);
+        let last = r.render_image(p, &at(1.0), &target);
+        // Not a whole fraction of the loop away from 0.1 either.
+        let c = r.render_image(p, &at(0.23), &target);
+        b.save(dir.join(format!("{name}.png"))).unwrap();
+        let (la, lb) = (lum(&a), lum(&b));
+        let change =
+            mean_abs_diff(a.as_raw(), b.as_raw()).max(mean_abs_diff(a.as_raw(), c.as_raw()));
+        let seam = mean_abs_diff(first.as_raw(), last.as_raw());
+        eprintln!("{name:<22} brightness {la:.1} -> {lb:.1}, change {change:.2}, seam {seam:.3}");
+        if seam > 0.6 {
+            failures.push(format!("{name}: seam {seam}"));
+        }
+        if want_change && change < 0.3 {
+            failures.push(format!("{name}: no change over the loop ({change})"));
+        }
+        (a, b)
+    };
+
+    // Light styles.
+    let mut p = base();
+    p.layers.push(ball(Material::default()));
+    p.environment.light_style = az.clone();
+    let (a, b) = check("sun style", &p, &mut r, true);
+    assert!(
+        lum(&b) > lum(&a) + 3.0,
+        "the sun's light style doesn't brighten"
+    );
+    let mut p = base();
+    p.layers.push(ball(Material {
+        emissive: Param::new(1.0),
+        glow_style: az.clone(),
+        ..Default::default()
+    }));
+    let (a, b) = check("glow style", &p, &mut r, true);
+    assert!(
+        lum(&b) > lum(&a) + 3.0,
+        "the glow's light style doesn't brighten"
+    );
+    let mut p = base();
+    p.layers.push(Layer::new(
+        "Dot",
+        LayerKind::Sprite(SpriteLayer {
+            size: Param::new(2.0),
+            glow_style: az.clone(),
+            ..Default::default()
+        }),
+    ));
+    let (a, b) = check("sprite style", &p, &mut r, true);
+    assert!(
+        lum(&b) > lum(&a) + 1.0,
+        "the sprite's light style doesn't brighten"
+    );
+    let particles = |sprite: Sprite, style: LightStyle| {
+        let mut p = base();
+        p.layers.push(Layer::new(
+            "Sparks",
+            LayerKind::Particles(ParticleLayer {
+                emitter: Emitter::Fountain,
+                count: 600,
+                size: Param::new(0.08),
+                radius: Param::new(1.5),
+                sprite,
+                glow_style: style,
+                ..Default::default()
+            }),
+        ));
+        p
+    };
+    let (a, b) = check(
+        "particle style",
+        &particles(Sprite::Glow, az.clone()),
+        &mut r,
+        true,
+    );
+    assert!(
+        lum(&b) > lum(&a) + 0.2,
+        "the particles' light style doesn't brighten"
+    );
+    check(
+        "square particles",
+        &particles(Sprite::SolidSquare, LightStyle::default()),
+        &mut r,
+        true,
+    );
+
+    // Turbulent warp on a textured ball (still: only the warp moves).
+    let turb = |amount: f32| {
+        let mut p = base();
+        p.layers.push(ball(Material {
+            texture: Some("brick".into()),
+            texture_scale: Param::new(2.0),
+            turbulence: Turbulence {
+                amount: Param::new(amount),
+                waves: 1.0,
+                cycles: 3,
+            },
+            ..Default::default()
+        }));
+        p
+    };
+    check("turbulent material", &turb(0.15), &mut r, true);
+    check("still material", &turb(0.0), &mut r, false);
+    // Lava on terrain and a waterfall.
+    let mut p = base();
+    p.camera.distance = Param::new(9.0);
+    p.camera.height = Param::new(4.0);
+    p.layers.push(Layer::new(
+        "Lava",
+        LayerKind::Terrain(Terrain {
+            size: 20.0,
+            cells: 32,
+            scroll: 0,
+            style: TerrainStyle::Solid,
+            liquid: Liquid {
+                kind: LiquidKind::Lava,
+                level: Param::new(0.6),
+                turbulence: Param::new(0.3),
+                turb_cycles: 2,
+                flow: 0,
+                ..Default::default()
+            },
+            ..Default::default()
+        }),
+    ));
+    check("turbulent lava", &p, &mut r, true);
+    // The warp itself, at one moment: with and without.
+    let warp_diff = |p: &Project, off: &Project, r: &mut Renderer| {
+        let a = r.render_image(p, &EvalCtx::at(0.3), &target);
+        let b = r.render_image(off, &EvalCtx::at(0.3), &target);
+        mean_abs_diff(a.as_raw(), b.as_raw())
+    };
+    let mut calm = p.clone();
+    if let LayerKind::Terrain(t) = &mut calm.layers[0].kind {
+        t.liquid.turbulence = Param::new(0.0);
+    }
+    let d_lava = warp_diff(&p, &calm, &mut r);
+    let mut p = base();
+    p.camera.distance = Param::new(12.0);
+    p.layers.push(
+        Layer::new(
+            "Falls",
+            LayerKind::Falls(Falls {
+                turbulence: Param::new(0.2),
+                foam: Param::new(0.0),
+                ..Default::default()
+            }),
+        )
+        .at([0.0, 4.0, 0.0]),
+    );
+    check("turbulent waterfall", &p, &mut r, true);
+    let mut calm = p.clone();
+    if let LayerKind::Falls(f) = &mut calm.layers[0].kind {
+        f.turbulence = Param::new(0.0);
+    }
+    let d_falls = warp_diff(&p, &calm, &mut r);
+    eprintln!("turbulence changes lava by {d_lava:.2}, the waterfall by {d_falls:.2}");
+    assert!(
+        d_lava > 1.0 && d_falls > 0.3,
+        "liquid turbulence shows no change"
+    );
+
+    // The two-layer sky scrolls, and the near layer has holes.
+    let sky = |cutout: [f32; 3]| {
+        let mut p = base();
+        p.camera.height = Param::new(3.0);
+        p.camera.target = [0.0, 3.0, 0.0];
+        p.layers.push(Layer::new(
+            "Sky",
+            LayerKind::Backdrop(Backdrop {
+                kind: BackdropKind::LayeredSky,
+                sky: LayeredSky {
+                    cutout,
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+        ));
+        p
+    };
+    let (a, _) = check("layered sky", &sky([0.0; 3]), &mut r, true);
+    // A see-through colour the near layer doesn't have: no holes.
+    let (solid, _) = check("sky without holes", &sky([1.0, 0.0, 1.0]), &mut r, true);
+    let holes = mean_abs_diff(a.as_raw(), solid.as_raw());
+    eprintln!("near layer holes change the sky by {holes:.2}");
+    assert!(lum(&a) > 5.0, "the sky is black");
+    assert!(
+        holes > 1.0,
+        "the far layer doesn't show through the near one"
+    );
+
+    // Palette-space lighting: far fewer colours, and it loops.
+    let mut p = base();
+    p.layers.push(ball(Material {
+        texture: Some("marble".into()),
+        ..Default::default()
+    }));
+    let plain = r.render_image(&p, &EvalCtx::at(0.3), &target);
+    p.retro.enabled = true;
+    p.retro.colormap.enabled = true;
+    let (cm, _) = check("colormap", &p, &mut r, false);
+    let unique = |img: &image::RgbaImage| {
+        img.pixels()
+            .map(|p| (p[0], p[1], p[2]))
+            .collect::<std::collections::HashSet<_>>()
+            .len()
+    };
+    let (u0, u1) = (unique(&plain), unique(&cm));
+    eprintln!("colours: plain {u0}, colormap {u1}");
+    assert!(
+        u1 < u0 / 3 && u1 < 400,
+        "colormap doesn't step through the palette: {u0} -> {u1}"
+    );
+    p.retro.colormap.palette = ColormapPalette::Retro(palette::PaletteId::C64);
+    let c64 = r.render_image(&p, &EvalCtx::at(0.3), &target);
+    c64.save(dir.join("colormap_c64.png")).unwrap();
+    assert!(
+        unique(&c64) < 60,
+        "the C64 colormap has {} colours",
+        unique(&c64)
+    );
+
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Animating on steps holds a layer's motion between whole steps (the
+/// camera stays smooth), and the Mode 7 floor draws to a hard horizon,
+/// turns and scrolls, hides what is under it, and loops.
+#[test]
+fn stepped_motion_and_mode7_floor() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let dir = snapshot_dir().join("group4");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let (w, h) = (240u32, 136u32);
+    let target = r.create_target(w, h);
+    let base = |orbit: bool| {
+        let mut p = presets::empty();
+        p.layers.clear();
+        p.camera = Camera {
+            mode: if orbit {
+                CameraMode::Orbit
+            } else {
+                CameraMode::Static
+            },
+            target: [0.0; 3],
+            distance: Param::new(5.0),
+            height: Param::new(2.0),
+            swing: Param::new(0.0),
+            fov: Param::new(50.0),
+            ..Default::default()
+        };
+        p.environment.fog_density = Param::new(0.0);
+        p.post.bloom.enabled = false;
+        p.post.grade.vignette = Param::new(0.0);
+        p.post.grade.grain = Param::new(0.0);
+        p
+    };
+    let at = |p: &Project, ph: f32| EvalCtx::new(&p.timing, ph, None);
+
+    // A spinning, bobbing cube on steps: 16 beats at 120 bpm is 8 s, so
+    // 4 fps is 32 steps per loop. Two moments inside one step match.
+    assert_eq!(step_count(4.0, 8.0), Some(32));
+    assert_eq!(step_count(0.0, 8.0), None);
+    let cube = |fps: f32| {
+        let mut l = Layer::new("Cube", LayerKind::Mesh(MeshLayer::default())).spin([1, 2, 0]);
+        l.transform.bob = Param::new(0.0).osc(Wave::Sine, 0.5, 2);
+        l.step_fps = fps;
+        l
+    };
+    let mut still = base(false);
+    still.layers.push(cube(4.0));
+    let (a, b) = (1.0 / 32.0 + 0.002, 2.0 / 32.0 - 0.002);
+    let s1 = r.render_image(&still, &at(&still, a), &target);
+    let s2 = r.render_image(&still, &at(&still, b), &target);
+    let held = mean_abs_diff(s1.as_raw(), s2.as_raw());
+    let mut smooth = base(false);
+    smooth.layers.push(cube(0.0));
+    let m1 = r.render_image(&smooth, &at(&smooth, a), &target);
+    let m2 = r.render_image(&smooth, &at(&smooth, b), &target);
+    let moved = mean_abs_diff(m1.as_raw(), m2.as_raw());
+    let next = r.render_image(&still, &at(&still, b + 0.004), &target);
+    let stepped = mean_abs_diff(s2.as_raw(), next.as_raw());
+    eprintln!("within a step: stepped {held:.3}, smooth {moved:.3}; across a step {stepped:.3}");
+    assert!(held < 0.01, "a stepped layer moves within a step");
+    assert!(moved > 0.3 && stepped > 0.3, "no motion to step");
+    // The camera keeps moving smoothly.
+    let mut orbit = base(true);
+    orbit.layers.push(cube(4.0));
+    let o1 = r.render_image(&orbit, &at(&orbit, a), &target);
+    let o2 = r.render_image(&orbit, &at(&orbit, b), &target);
+    assert!(
+        mean_abs_diff(o1.as_raw(), o2.as_raw()) > 0.3,
+        "the camera stepped with the layer"
+    );
+    for p in [&still, &orbit] {
+        let first = r.render_image(p, &at(p, 0.0), &target);
+        let last = r.render_image(p, &at(p, 1.0), &target);
+        let seam = mean_abs_diff(first.as_raw(), last.as_raw());
+        assert!(seam < 0.6, "stepped motion doesn't loop: {seam}");
+    }
+
+    // Mode 7: ground below the horizon, the background above it.
+    let floor = |height: f32| {
+        let mut l = Layer::new(
+            "Mode 7",
+            LayerKind::Mode7(Mode7Floor {
+                texture: Some("checker".into()),
+                tile_size: 2.0,
+                turns: 1,
+                scroll: [0, 3],
+                ..Default::default()
+            }),
+        );
+        l.transform.position[1] = height;
+        l
+    };
+    let mut p = base(false);
+    // A level camera: the horizon across the middle.
+    p.camera.height = Param::new(0.0);
+    p.camera.target = [0.0, 1.5, 0.0];
+    let empty = r.render_image(&p, &at(&p, 0.3), &target);
+    p.layers.push(floor(0.0));
+    let img = r.render_image(&p, &at(&p, 0.3), &target);
+    img.save(dir.join("mode7.png")).unwrap();
+    let rows_changed = |y0: u32, y1: u32| {
+        let mut n = 0;
+        let mut t = 0;
+        for y in y0..y1 {
+            for x in 0..w {
+                t += 1;
+                let (a, b) = (img.get_pixel(x, y), empty.get_pixel(x, y));
+                n += (0..3).any(|c| (a[c] as i32 - b[c] as i32).abs() > 8) as u32;
+            }
+        }
+        n as f32 / t as f32
+    };
+    let (top, bottom) = (rows_changed(0, h / 4), rows_changed(h * 3 / 4, h));
+    eprintln!("Mode 7 covers {top:.3} of the top rows, {bottom:.3} of the bottom rows");
+    assert!(top < 0.01, "Mode 7 above the horizon");
+    // (Black squares can match the dark background.)
+    assert!(bottom > 0.6, "Mode 7 floor missing below the horizon");
+    let first = r.render_image(&p, &at(&p, 0.0), &target);
+    let last = r.render_image(&p, &at(&p, 1.0), &target);
+    let later = r.render_image(&p, &at(&p, 0.37), &target);
+    let seam = mean_abs_diff(first.as_raw(), last.as_raw());
+    let motion = mean_abs_diff(first.as_raw(), later.as_raw());
+    eprintln!("Mode 7 seam {seam:.3}, motion {motion:.2}");
+    assert!(
+        seam < 0.6 && motion > 2.0,
+        "Mode 7 doesn't turn, scroll and loop"
+    );
+    // A cube under the floor is hidden; above it, it shows.
+    let with_cube = |y: f32, p: &Project, r: &mut Renderer| {
+        let mut q = p.clone();
+        q.layers.push(
+            Layer::new("Cube", LayerKind::Mesh(MeshLayer::default()))
+                .at([0.0, y, 0.0])
+                .scaled(0.6),
+        );
+        r.render_image(&q, &at(&q, 0.3), &target)
+    };
+    let under = with_cube(-1.0, &p, &mut r);
+    let over = with_cube(1.0, &p, &mut r);
+    let (d_under, d_over) = (
+        mean_abs_diff(under.as_raw(), img.as_raw()),
+        mean_abs_diff(over.as_raw(), img.as_raw()),
+    );
+    eprintln!("cube under the floor changes {d_under:.3}, above it {d_over:.3}");
+    assert!(d_under < 0.05, "the floor doesn't hide what is under it");
+    assert!(d_over > 0.1, "a cube above the floor does not show");
+}

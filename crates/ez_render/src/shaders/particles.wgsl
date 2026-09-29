@@ -184,6 +184,13 @@ fn fs_main(in: POut) -> @location(0) vec4<f32> {
     }
     let sprite = i32(D.v[4].x + 0.5);
     let q = in.quad;
+    // Solid, unsmoothed single-colour squares (Quake).
+    if (sprite == 4) {
+        if (max(abs(q.x), abs(q.y)) > 0.6) {
+            discard;
+        }
+        return vec4<f32>(retro_color(in.color, in.pos.xy), 1.0);
+    }
     let r2 = dot(q, q);
     var a = 0.0;
     switch sprite {

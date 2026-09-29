@@ -14,6 +14,10 @@
 //         [on, pattern, tiles, line warp], [amount, waves, wave turn, bands],
 //         [scroll x, scroll y (tile fractions), colour turn, opacity];
 //         D.v[14]: blend, lines (0 = full resolution), palette steps, _
+// Two-layer sky (13): the texture holds the far layer (left half) and the
+//         near one (right half). D.v[8]: far scroll, near scroll (tiles,
+//         0..1); D.v[9]: see-through colour, tolerance; D.v[10]: tiles
+//         across the dome, flattening.
 
 @group(2) @binding(0) var t_tex: texture_2d<f32>;
 @group(2) @binding(1) var s_tex: sampler;
@@ -725,6 +729,27 @@ fn bg_battle(ndc: vec2<f32>, ca: vec3<f32>, cb: vec3<f32>, cc: vec3<f32>) -> vec
     return col;
 }
 
+// One texel of a layer (0 far, 1 near) of the two-layer sky, tiling.
+fn sky_layer(uv: vec2<f32>, layer: i32) -> vec3<f32> {
+    let size = vec2<i32>(textureDimensions(t_tex, 0));
+    let half = max(size.x / 2, 1);
+    let f = fract(uv);
+    let p = clamp(vec2<i32>(f * vec2<f32>(f32(half), f32(size.y))), vec2<i32>(0), vec2<i32>(half - 1, size.y - 1));
+    return textureLoad(t_tex, vec2<i32>(p.x + layer * half, p.y), 0).rgb;
+}
+
+// Quake's sky: the direction squashed upwards onto a flat dome, so the
+// layers stretch towards the horizon, the near one drawn over the far one
+// except where it has the see-through colour.
+fn bg_layered_sky(rd: vec3<f32>) -> vec3<f32> {
+    let d = vec3<f32>(rd.x, abs(rd.y) * D.v[10].y, rd.z);
+    let uv = rd.xz / max(length(d), 1e-4) * D.v[10].x;
+    let far = sky_layer(uv + D.v[8].xy, 0);
+    let near = sky_layer(uv + D.v[8].zw, 1);
+    let see_through = distance(near, D.v[9].rgb) <= D.v[9].w;
+    return select(near, far, see_through);
+}
+
 override BG_KIND: i32 = -1;
 
 @fragment
@@ -819,6 +844,9 @@ fn fs_main(in: FullscreenOut) -> @location(0) vec4<f32> {
             } else {
                 col = env_color(rd, 1.0 - clamp(detail, 0.0, 1.0));
             }
+        }
+        case 13: {
+            col = bg_layered_sky(rd);
         }
         default: {}
     }

@@ -89,6 +89,14 @@ struct GlobalsRaw {
     ibl: [f32; 4],
     /// Its diffuse light (9 spherical-harmonic coefficients, rgb).
     sh: [[f32; 4]; 9],
+    /// Retro 3D: vertex snapping (0 = off), its grid (w, h), affine warp.
+    retro: [f32; 4],
+    /// Nintendo 64 fog: on, start, solid.
+    retro_fog: [f32; 4],
+    /// Colour levels (0 = full), dither, near-plane culling (camera views).
+    retro_col: [f32; 4],
+    /// Colormap light levels (0 = off).
+    retro_cm: [f32; 4],
 }
 
 /// An environment map on the GPU and what the CPU worked out from it.
@@ -135,6 +143,91 @@ struct Group3 {
     shadow_sampler: wgpu::Sampler,
     env_sampler: wgpu::Sampler,
     lut_view: wgpu::TextureView,
+    /// Retro 3D colormap: colour → palette entry, and palette entry ×
+    /// light level → colour (1 × 1 while off), and what they were made
+    /// from.
+    cm_index: wgpu::TextureView,
+    cm_table: wgpu::TextureView,
+    cm_key: String,
+}
+
+/// The colormap's two lookup textures (see `ez_core::retro::Colormap`),
+/// or 1 × 1 stand-ins.
+fn colormap_views(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    t: Option<&ez_core::retro::ColormapTables>,
+) -> (wgpu::TextureView, wgpu::TextureView) {
+    let make = |label, w: u32, h: u32, format, data: &[u8]| {
+        let tex = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some(label),
+            size: wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            tex.as_image_copy(),
+            data,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * w),
+                rows_per_image: Some(h),
+            },
+            wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+        );
+        tex.create_view(&Default::default())
+    };
+    match t {
+        Some(t) => {
+            let c = ez_core::retro::COLORMAP_CUBE;
+            let index: Vec<u8> = t.index.iter().flat_map(|&i| [i, 0, 0, 255]).collect();
+            let table: Vec<u8> = t.table.iter().flatten().copied().collect();
+            (
+                make(
+                    "colormap index",
+                    c * c,
+                    c,
+                    wgpu::TextureFormat::Rgba8Unorm,
+                    &index,
+                ),
+                make(
+                    "colormap table",
+                    256,
+                    t.levels,
+                    wgpu::TextureFormat::Rgba8UnormSrgb,
+                    &table,
+                ),
+            )
+        }
+        None => (
+            make(
+                "colormap off",
+                1,
+                1,
+                wgpu::TextureFormat::Rgba8Unorm,
+                &[0; 4],
+            ),
+            make(
+                "colormap off",
+                1,
+                1,
+                wgpu::TextureFormat::Rgba8UnormSrgb,
+                &[0; 4],
+            ),
+        ),
+    }
 }
 
 /// Size of the sun shadow map.
@@ -164,8 +257,19 @@ struct InstanceRaw {
 
 type Block = [[f32; 4]; 16];
 /// A mesh's pictures: colour, relief, occlusion/roughness/metal, glow,
-/// and whether they are sampled pixelated.
-type MeshTexKey = (String, String, String, String, bool);
+/// and how they are sampled (see [`sampler_kind`]).
+type MeshTexKey = (String, String, String, String, u8);
+
+/// Samplers by texture filter: 0 smooth, 1 nearest (also for the
+/// three-point filter, worked out in the shader), 2 bilinear without
+/// mipmaps.
+fn sampler_kind(f: ez_core::TexFilter) -> u8 {
+    match f {
+        ez_core::TexFilter::Smooth => 0,
+        ez_core::TexFilter::Nearest | ez_core::TexFilter::ThreePoint => 1,
+        ez_core::TexFilter::Bilinear => 2,
+    }
+}
 
 /// Ends the texture key of a picture tiled mirrored.
 const MIRROR_KEY: &str = ":mirror";
@@ -274,6 +378,12 @@ enum Cmd {
         font: String,
         first: u32,
         count: u32,
+    },
+    /// Mode 7 floor: one fullscreen triangle writing its own depth.
+    Mode7 {
+        slot: u32,
+        tex: String,
+        pixelated: bool,
     },
     /// Electric arcs: `count` arcs of `segments` quads each.
     Arcs {
@@ -527,6 +637,7 @@ fn backdrop_load(kind: BackdropKind) -> f32 {
         BackdropKind::Aurora => 0.4,
         BackdropKind::Battle => 0.15,
         BackdropKind::Environment => 0.05,
+        BackdropKind::LayeredSky => 0.1,
     }
 }
 
@@ -542,6 +653,51 @@ fn layer_hash(layer: &Layer) -> u64 {
     h.finish()
 }
 
+/// What the main scene pass draws (see `Renderer::draw_main`).
+struct MainDraw<'a> {
+    back: &'a [Cmd],
+    solid: &'a [Cmd],
+    clear: &'a [Cmd],
+    /// Everything (for the floor's contact shadows).
+    cmds: &'a [Cmd],
+    /// The mirror floor's draw slot and bind group.
+    floor: Option<(u32, &'a wgpu::BindGroup)>,
+    /// The liquid drawn as a surface (its draw slot).
+    liquid: Option<u32>,
+}
+
+/// The pipelines of one main scene pass (they depend on its samples) and
+/// its globals.
+struct PassPipes<'a> {
+    scene: &'a ScenePipes,
+    floor: &'a wgpu::RenderPipeline,
+    contact: &'a wgpu::RenderPipeline,
+    bg_up: &'a wgpu::RenderPipeline,
+    liquid: &'a wgpu::RenderPipeline,
+    globals: usize,
+}
+
+/// Single-sample versions of the main pass's own pipelines, for the retro
+/// low-resolution pass (it draws the scene without antialiasing).
+struct LowPipes {
+    floor: wgpu::RenderPipeline,
+    contact: wgpu::RenderPipeline,
+    bg_up: wgpu::RenderPipeline,
+    liquid: wgpu::RenderPipeline,
+}
+
+/// The retro low-resolution scene of a render target: colour and depth,
+/// and the bind group reading them to blow them up.
+struct RetroTarget {
+    size: (u32, u32),
+    color: wgpu::TextureView,
+    depth: wgpu::TextureView,
+    bg: wgpu::BindGroup,
+}
+
+/// Globals of the camera's view at the retro low resolution.
+const GLOBALS_LOW: usize = 3;
+
 struct ScenePipes {
     /// MSAA samples (picks the matching background pipeline).
     samples: u32,
@@ -556,6 +712,8 @@ struct ScenePipes {
     falls: wgpu::RenderPipeline,
     text: wgpu::RenderPipeline,
     sdf: wgpu::RenderPipeline,
+    /// Mode 7 floors.
+    mode7: wgpu::RenderPipeline,
     /// Sprites: alpha, additive, cutout.
     sprite: [wgpu::RenderPipeline; 3],
     arcs: wgpu::RenderPipeline,
@@ -968,8 +1126,8 @@ pub struct Renderer {
     bgl_floor: wgpu::BindGroupLayout,
     bgl_post: wgpu::BindGroupLayout,
 
-    globals_buf: [wgpu::Buffer; 3],
-    globals_bg: [wgpu::BindGroup; 3],
+    globals_buf: [wgpu::Buffer; 4],
+    globals_bg: [wgpu::BindGroup; 4],
     shadow_mesh_pipe: wgpu::RenderPipeline,
     shadow_sdf_pipe: wgpu::RenderPipeline,
     swarm: Option<SwarmGpu>,
@@ -1007,6 +1165,12 @@ pub struct Renderer {
     main_pipes: ScenePipes,
     refl_pipes: ScenePipes,
     floor_pipe: wgpu::RenderPipeline,
+    /// Retro 3D: the main pass's own pipelines without antialiasing, the
+    /// upscale, and the low-resolution scene per target (by target id).
+    low_pipes: LowPipes,
+    bgl_retro_up: wgpu::BindGroupLayout,
+    retro_up_pipe: wgpu::RenderPipeline,
+    retro_targets: HashMap<u64, RetroTarget>,
     blur_pipe: wgpu::RenderPipeline,
     warp_pipe: wgpu::RenderPipeline,
     bloom_down_pipe: wgpu::RenderPipeline,
@@ -1027,7 +1191,12 @@ pub struct Renderer {
     /// Mirrored tiling, for pictures marked so (see `MIRROR_KEY`).
     sampler_mirror: wgpu::Sampler,
     sampler_mirror_nearest: wgpu::Sampler,
+    /// Bilinear without mipmaps (retro filter), plain and mirrored.
+    sampler_bilinear: wgpu::Sampler,
+    sampler_mirror_bilinear: wgpu::Sampler,
     sampler_clamp: wgpu::Sampler,
+    /// Nearest, clamped, no mipmaps (reading depth textures).
+    sampler_point_clamp: wgpu::Sampler,
 
     meshes: HashMap<String, GpuMesh>,
     /// Mesh keys of models that came without texture coordinates (they got
@@ -1473,17 +1642,39 @@ impl Renderer {
                     },
                     count: None,
                 },
+                // Retro 3D colormap: colour → palette entry, and entry ×
+                // light level → colour (read with textureLoad).
+                wgpu::BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 6,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         });
-        let globals_buf = [0, 1, 2].map(|i| {
+        let globals_buf = [0, 1, 2, 3].map(|i| {
             device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some(["globals main", "globals refl", "globals sun"][i]),
+                label: Some(["globals main", "globals refl", "globals sun", "globals low"][i]),
                 size: globals_size,
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             })
         });
-        let globals_bg = [0, 1, 2].map(|i| {
+        let globals_bg = [0, 1, 2, 3].map(|i| {
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("globals"),
                 layout: &bgl_globals,
@@ -1621,6 +1812,7 @@ impl Renderer {
         let sh_text = shader(device, "text", include_str!("shaders/text.wgsl"), true);
         let sh_sdf = shader(device, "sdf", include_str!("shaders/sdf.wgsl"), true);
         let sh_sprite = shader(device, "sprite", include_str!("shaders/sprite.wgsl"), true);
+        let sh_mode7 = shader(device, "mode 7", include_str!("shaders/mode7.wgsl"), true);
         let sh_arcs = shader(device, "arcs", include_str!("shaders/arcs.wgsl"), true);
         let sh_logo = shader(device, "logo", include_str!("shaders/logo.wgsl"), true);
         // Logos go on the picture after depth of field (no depth, no MSAA:
@@ -1729,6 +1921,20 @@ impl Renderer {
                     },
                 )
             }),
+            mode7: make_pipeline(
+                device,
+                PipeDesc {
+                    label: "mode 7",
+                    layout: &scene_layout,
+                    module: &sh_mode7,
+                    fs: "fs_main",
+                    buffers: &[],
+                    format: HDR_FORMAT,
+                    samples,
+                    depth: Some((true, wgpu::CompareFunction::Less)),
+                    blend: None,
+                },
+            ),
             sdf: make_pipeline(
                 device,
                 PipeDesc {
@@ -2130,15 +2336,18 @@ impl Renderer {
             );
             texture.create_view(&Default::default())
         };
-        let shadow_bg = Self::make_group3(
-            device,
-            &bgl_shadow,
-            &shadow_view,
-            &shadow_sampler,
-            &env_none,
-            &env_sampler,
-            &lut_view,
-        );
+        let (cm_index, cm_table) = colormap_views(device, queue, None);
+        let group3 = Group3 {
+            layout: bgl_shadow.clone(),
+            shadow_view: shadow_view.clone(),
+            shadow_sampler: shadow_sampler.clone(),
+            env_sampler: env_sampler.clone(),
+            lut_view: lut_view.clone(),
+            cm_index,
+            cm_table,
+            cm_key: String::new(),
+        };
+        let shadow_bg = Self::make_group3(device, &group3, &env_none);
         let main_pipes = scene_pipes(msaa);
         let refl_pipes = scene_pipes(1);
         let floor_pipe = make_pipeline(
@@ -2155,6 +2364,63 @@ impl Renderer {
                 // Drawn right after the backgrounds: an endless floor fades
                 // into them at the horizon.
                 blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+            },
+        );
+        // Retro 3D: the low-resolution scene blown up with its depth.
+        let bgl_retro_up = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("retro upscale"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
+                    count: None,
+                },
+            ],
+        });
+        let retro_up_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("retro upscale"),
+            bind_group_layouts: &[Some(&bgl_retro_up)],
+            immediate_size: 0,
+        });
+        let sh_retro_up = shader(
+            device,
+            "retro upscale",
+            include_str!("shaders/retro_up.wgsl"),
+            false,
+        );
+        let retro_up_pipe = make_pipeline(
+            device,
+            PipeDesc {
+                label: "retro upscale",
+                layout: &retro_up_layout,
+                module: &sh_retro_up,
+                fs: "fs_main",
+                buffers: &[],
+                format: HDR_FORMAT,
+                samples: msaa,
+                depth: Some((true, wgpu::CompareFunction::Always)),
+                blend: None,
             },
         );
         let post_pipe = |label: &str, fs: &str, format, blend| {
@@ -2246,7 +2512,9 @@ impl Renderer {
                            fs: &str,
                            buffers: &[Option<wgpu::VertexBufferLayout>],
                            blend: Option<wgpu::BlendState>,
-                           scene: bool| {
+                           scene_samples: u32| {
+            // Drawn in the scene's pass (with its samples) or on its own.
+            let scene = scene_samples > 0;
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
                 layout: Some(&liquid_layout),
@@ -2271,7 +2539,7 @@ impl Renderer {
                     bias: Default::default(),
                 }),
                 multisample: wgpu::MultisampleState {
-                    count: if scene { msaa } else { 1 },
+                    count: scene_samples.max(1),
                     ..Default::default()
                 },
                 fragment: Some(wgpu::FragmentState {
@@ -2301,6 +2569,14 @@ impl Renderer {
                 operation: wgpu::BlendOperation::Min,
             },
         };
+        let low_liquid = liquid_pipe(
+            "liquid composite (retro)",
+            "vs_full",
+            "fs_composite",
+            &[],
+            Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+            1,
+        );
         let liquid_pipes = LiquidPipes {
             splat_dist: liquid_pipe(
                 "liquid splat distance",
@@ -2308,7 +2584,7 @@ impl Renderer {
                 "fs_splat_dist",
                 &splat_buffers,
                 Some(nearest),
-                false,
+                0,
             ),
             splat_thick: liquid_pipe(
                 "liquid splat thickness",
@@ -2316,19 +2592,64 @@ impl Renderer {
                 "fs_splat_thick",
                 &splat_buffers,
                 Some(ADDITIVE),
-                false,
+                0,
             ),
-            blur_h: liquid_pipe("liquid blur h", "vs_full", "fs_blur_h", &[], None, false),
-            blur_v: liquid_pipe("liquid blur v", "vs_full", "fs_blur_v", &[], None, false),
+            blur_h: liquid_pipe("liquid blur h", "vs_full", "fs_blur_h", &[], None, 0),
+            blur_v: liquid_pipe("liquid blur v", "vs_full", "fs_blur_v", &[], None, 0),
             composite: liquid_pipe(
                 "liquid composite",
                 "vs_full",
                 "fs_composite",
                 &[],
                 Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-                true,
+                msaa,
             ),
             layout: bgl_liquid,
+        };
+        let low_pipes = LowPipes {
+            floor: make_pipeline(
+                device,
+                PipeDesc {
+                    label: "floor (retro)",
+                    layout: &floor_layout,
+                    module: &sh_floor,
+                    fs: "fs_main",
+                    buffers: &[],
+                    format: HDR_FORMAT,
+                    samples: 1,
+                    depth: Some((true, wgpu::CompareFunction::Less)),
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                },
+            ),
+            contact: make_pipeline(
+                device,
+                PipeDesc {
+                    label: "contact shadows (retro)",
+                    layout: &particle_layout,
+                    module: &sh_contact,
+                    fs: "fs_main",
+                    buffers: &contact_instances,
+                    format: HDR_FORMAT,
+                    samples: 1,
+                    depth: Some((false, wgpu::CompareFunction::Less)),
+                    blend: Some(MULTIPLY),
+                },
+            ),
+            bg_up: make_pipeline(
+                device,
+                PipeDesc {
+                    label: "bg upscale (retro)",
+                    layout: &scene_layout,
+                    module: &sh_bgup,
+                    fs: "fs_main",
+                    buffers: &[],
+                    format: HDR_FORMAT,
+                    samples: 1,
+                    depth: Some((false, wgpu::CompareFunction::Always)),
+                    blend: None,
+                },
+            ),
+            liquid: low_liquid,
         };
         let ssr_pipe = make_pipeline(
             device,
@@ -2457,6 +2778,25 @@ impl Renderer {
             mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
+        let bilinear = |addr| {
+            device.create_sampler(&wgpu::SamplerDescriptor {
+                label: Some("bilinear"),
+                address_mode_u: addr,
+                address_mode_v: addr,
+                address_mode_w: addr,
+                mag_filter: wgpu::FilterMode::Linear,
+                min_filter: wgpu::FilterMode::Linear,
+                mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+                lod_max_clamp: 0.0,
+                ..Default::default()
+            })
+        };
+        let sampler_point_clamp = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("point clamp"),
+            ..Default::default()
+        });
+        let sampler_bilinear = bilinear(wgpu::AddressMode::Repeat);
+        let sampler_mirror_bilinear = bilinear(wgpu::AddressMode::MirrorRepeat);
 
         let mut r = Renderer {
             device: device.clone(),
@@ -2492,13 +2832,7 @@ impl Renderer {
             },
             sky: None,
             bgl_globals: bgl_globals.clone(),
-            group3: Group3 {
-                layout: bgl_shadow,
-                shadow_view,
-                shadow_sampler,
-                env_sampler,
-                lut_view,
-            },
+            group3,
             bgl_draw,
             draw_buf,
             draw_cap,
@@ -2508,6 +2842,10 @@ impl Renderer {
             inst_cap,
             main_pipes,
             refl_pipes,
+            low_pipes,
+            bgl_retro_up,
+            retro_up_pipe,
+            retro_targets: HashMap::new(),
             floor_pipe,
             blur_pipe,
             warp_pipe,
@@ -2525,6 +2863,9 @@ impl Renderer {
             sampler_nearest,
             sampler_mirror,
             sampler_mirror_nearest,
+            sampler_bilinear,
+            sampler_mirror_bilinear,
+            sampler_point_clamp,
             sampler_clamp,
             meshes: HashMap::new(),
             box_uv_meshes: Default::default(),
@@ -3186,12 +3527,17 @@ impl Renderer {
             let n = colors.len() as f32;
             ((ctx.phase * g.palette_cycles as f32).rem_euclid(1.0) * n).floor() % n
         };
-        e2[6] = [
-            g.pixelate.eval(ctx).max(0.0),
-            count,
-            g.dither.clamp(0.0, 1.0),
-            shift,
-        ];
+        // Retro 3D without sharp logos: at least as chunky as the scene
+        // (a low-resolution pixel, in logo heights).
+        let mut block = g.pixelate.eval(ctx).max(0.0);
+        if let (Some((_, lh)), false) = (
+            project.retro.internal_size((w, h)),
+            project.retro.sharp_overlays,
+        ) {
+            let size = g.size.eval(ctx).max(1e-3);
+            block = block.max(1.0 / (lh as f32 * size));
+        }
+        e2[6] = [block, count, g.dither.clamp(0.0, 1.0), shift];
         e2[7] = [
             if g.palette_by_brightness { 1.0 } else { 0.0 },
             g.halftone.eval(ctx).clamp(0.0, 1.0),
@@ -3422,13 +3768,79 @@ impl Renderer {
         }
     }
 
+    /// The picture of a texture name (built-in or the project's image).
+    fn image_of(&mut self, project: &Project, name: &str) -> Option<RgbaImage> {
+        if texgen::is_builtin(name) {
+            return Some(texgen::generate(name));
+        }
+        let (path, retro) = match project.find_texture(name) {
+            Some(t) => (t.path.clone(), t.retro.clone()),
+            None => (name.to_string(), None),
+        };
+        let decoded = ez_core::store::read(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|b| image::load_from_memory(&b).map_err(|e| e.to_string()));
+        match decoded {
+            Ok(img) => {
+                let img = img.to_rgba8();
+                Some(match &retro {
+                    Some(r) => texgen::retroize(&img, r),
+                    None => img,
+                })
+            }
+            Err(e) => {
+                self.errors
+                    .insert(format!("sky:{name}"), format!("sky picture '{name}': {e}"));
+                None
+            }
+        }
+    }
+
+    /// The two-layer sky's pictures side by side in one texture (far on
+    /// the left, near on the right, the near one scaled to the far one's
+    /// size), so the background keeps its one texture.
+    fn sky_pair_key(&mut self, project: &Project, b: &ez_core::Backdrop) -> String {
+        let far = b.texture.clone().unwrap_or_else(|| "sky_far".into());
+        let near = b
+            .sky
+            .near_texture
+            .clone()
+            .unwrap_or_else(|| "sky_near".into());
+        let key = format!("sky:{far}|{near}");
+        if self.textures.contains_key(&key) {
+            return key;
+        }
+        let (Some(f), Some(n)) = (self.image_of(project, &far), self.image_of(project, &near))
+        else {
+            return self.texture_key(project, None);
+        };
+        let n = image::imageops::resize(
+            &n,
+            f.width(),
+            f.height(),
+            image::imageops::FilterType::Nearest,
+        );
+        let mut pair = RgbaImage::new(f.width() * 2, f.height());
+        image::imageops::replace(&mut pair, &f, 0, 0);
+        image::imageops::replace(&mut pair, &n, f.width() as i64, 0);
+        self.upload_texture(key.clone(), &pair);
+        key
+    }
+
     /// The sampler for texture `key`: mirrored tiling when its key says so.
     fn sampler_for(&self, key: &str, nearest: bool) -> &wgpu::Sampler {
-        match (key.ends_with(MIRROR_KEY), nearest) {
-            (false, false) => &self.sampler_repeat,
-            (false, true) => &self.sampler_nearest,
-            (true, false) => &self.sampler_mirror,
-            (true, true) => &self.sampler_mirror_nearest,
+        self.sampler_of(key, nearest as u8)
+    }
+
+    /// The sampler of a texture by kind (see [`sampler_kind`]).
+    fn sampler_of(&self, key: &str, kind: u8) -> &wgpu::Sampler {
+        match (key.ends_with(MIRROR_KEY), kind) {
+            (false, 1) => &self.sampler_nearest,
+            (false, 2) => &self.sampler_bilinear,
+            (false, _) => &self.sampler_repeat,
+            (true, 1) => &self.sampler_mirror_nearest,
+            (true, 2) => &self.sampler_mirror_bilinear,
+            (true, _) => &self.sampler_mirror,
         }
     }
 
@@ -3456,7 +3868,7 @@ impl Renderer {
     }
 
     fn mesh_tex_bind_group(&mut self, k: &MeshTexKey) {
-        let (tex, relief, orm, emit, nearest) = (&k.0[..], &k.1[..], &k.2[..], &k.3[..], k.4);
+        let (tex, relief, orm, emit, kind) = (&k.0[..], &k.1[..], &k.2[..], &k.3[..], k.4);
         if self.mesh_tex_bgs.contains_key(k) {
             return;
         }
@@ -3470,7 +3882,7 @@ impl Renderer {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Sampler(self.sampler_for(tex, nearest)),
+                    resource: wgpu::BindingResource::Sampler(self.sampler_of(tex, kind)),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
@@ -3478,7 +3890,7 @@ impl Renderer {
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
-                    resource: wgpu::BindingResource::Sampler(self.sampler_for(relief, nearest)),
+                    resource: wgpu::BindingResource::Sampler(self.sampler_of(relief, kind)),
                 },
                 wgpu::BindGroupEntry {
                     binding: 4,
@@ -3876,16 +4288,18 @@ impl Renderer {
 
     fn make_group3(
         device: &wgpu::Device,
-        layout: &wgpu::BindGroupLayout,
-        shadow_view: &wgpu::TextureView,
-        shadow_sampler: &wgpu::Sampler,
+        g: &Group3,
         env_view: &wgpu::TextureView,
-        env_sampler: &wgpu::Sampler,
-        lut_view: &wgpu::TextureView,
     ) -> wgpu::BindGroup {
+        let (shadow_view, shadow_sampler, env_sampler, lut_view) = (
+            &g.shadow_view,
+            &g.shadow_sampler,
+            &g.env_sampler,
+            &g.lut_view,
+        );
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("shadow and environment"),
-            layout,
+            layout: &g.layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -3907,8 +4321,33 @@ impl Renderer {
                     binding: 4,
                     resource: wgpu::BindingResource::TextureView(lut_view),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::TextureView(&g.cm_index),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::TextureView(&g.cm_table),
+                },
             ],
         })
+    }
+
+    /// Make the colormap's tables for the project's Retro 3D settings
+    /// when they changed.
+    fn ensure_colormap(&mut self, project: &Project) {
+        let cm = &project.retro.colormap;
+        let on = project.retro.enabled && cm.enabled;
+        let key = if on { cm.key() } else { String::new() };
+        if key == self.group3.cm_key {
+            return;
+        }
+        let tables = on.then(|| cm.tables());
+        let (index, table) = colormap_views(&self.device, &self.queue, tables.as_ref());
+        self.group3.cm_index = index;
+        self.group3.cm_table = table;
+        self.group3.cm_key = key;
+        self.shadow_bg = Self::make_group3(&self.device, &self.group3, &self.env.view);
     }
 
     /// What an environment map is made from (its cache key).
@@ -4005,15 +4444,7 @@ impl Renderer {
             }
         }
         self.env = env;
-        self.shadow_bg = Self::make_group3(
-            &self.device,
-            &self.group3.layout,
-            &self.group3.shadow_view,
-            &self.group3.shadow_sampler,
-            &self.env.view,
-            &self.group3.env_sampler,
-            &self.group3.lut_view,
-        );
+        self.shadow_bg = Self::make_group3(&self.device, &self.group3, &self.env.view);
     }
 
     /// Makes the sky capture's textures and pipeline (once).
@@ -4447,6 +4878,10 @@ impl Renderer {
                 .bytes(name.as_bytes())
                 .u64(i as u64)
                 .finish();
+            // Read the bake on the layer's steps when it animates on steps.
+            let sim_phase = layer
+                .motion_ctx(ctx)
+                .map_or(ctx.beat_phase, |c| c.beat_phase);
             // Everything a bake depends on, and the bake itself.
             let mut bake_of =
                 |settings: String, music: bool, make: &dyn Fn(&SimClock) -> BakeJob| {
@@ -4492,7 +4927,7 @@ impl Renderer {
                 let Some(bake) = bake_of(json, cloth.uses_music(), &make) else {
                     continue;
                 };
-                bake.sample(ctx.beat_phase, &mut self.sim_frame);
+                bake.sample(sim_phase, &mut self.sim_frame);
                 // A cross-faded cloth is the two halves mixed by weight.
                 let mut pos = vec![Vec3::ZERO; bake.len()];
                 for l in &self.sim_frame.layers {
@@ -4552,7 +4987,7 @@ impl Renderer {
                 continue;
             };
             // The simulation ran in real time: read it at the real phase.
-            bake.sample(ctx.beat_phase, &mut self.sim_frame);
+            bake.sample(sim_phase, &mut self.sim_frame);
             let mut mats = Vec::with_capacity(bake.len() * self.sim_frame.layers.len());
             for l in &self.sim_frame.layers {
                 for b in &l.bodies {
@@ -4691,6 +5126,42 @@ impl Renderer {
             shadow: [0.0; 4],
             ibl: fx.ibl,
             sh: fx.sh,
+            // Only the camera's views snap (see `render_scene`).
+            retro: [
+                0.0,
+                1.0,
+                1.0,
+                if project.retro.enabled {
+                    project.retro.affine.eval(ctx).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                },
+            ],
+            retro_fog: {
+                let f = &project.retro.fog;
+                if project.retro.enabled && f.enabled {
+                    let near = f.near.eval(ctx).max(0.0);
+                    [1.0, near, f.far.eval(ctx).max(near + 0.01), 0.0]
+                } else {
+                    [0.0; 4]
+                }
+            },
+            retro_col: {
+                let r = &project.retro;
+                if r.enabled && r.color_15bit {
+                    [31.0, r.dither.eval(ctx).clamp(0.0, 1.0), 0.0, 0.0]
+                } else {
+                    [0.0; 4]
+                }
+            },
+            retro_cm: {
+                let c = &project.retro.colormap;
+                if project.retro.enabled && c.enabled {
+                    [c.levels.clamp(2, 64) as f32, 0.0, 0.0, 0.0]
+                } else {
+                    [0.0; 4]
+                }
+            },
         }
     }
 
@@ -4852,6 +5323,7 @@ impl Renderer {
 
     /// Render one scene (no sequence).
     fn render_scene(&mut self, project: &Project, ctx: &EvalCtx, target: &RenderTarget) {
+        self.ensure_colormap(project);
         let mut layers = project.scene_layers(ctx);
         self.link_sims(project, ctx, &mut layers);
         let (w, h) = (target.width, target.height);
@@ -4895,6 +5367,12 @@ impl Renderer {
             let Some(flash) = layer.blink.eval(ctx.beat_phase) else {
                 continue;
             };
+            // Animating on steps: motion (placement, copies, deform,
+            // glitch, sprite frames) is held on whole steps; `smooth` keeps
+            // what flows on (texture scroll, glow and colour, particles).
+            let smooth = ctx;
+            let stepped = layer.motion_ctx(ctx);
+            let ctx = stepped.as_ref().unwrap_or(smooth);
             let mut ls = LayerStats {
                 index: li,
                 name: layer.name.clone(),
@@ -4914,6 +5392,7 @@ impl Renderer {
                     };
                     let tex = match &pano {
                         Some(k) => k.clone(),
+                        None if b.kind == BackdropKind::LayeredSky => self.sky_pair_key(project, b),
                         None => self.texture_key(project, b.texture.as_deref()),
                     };
                     self.tex_bind_group(&tex, false);
@@ -4961,6 +5440,20 @@ impl Renderer {
                     if b.kind == BackdropKind::Battle {
                         battle_block(&mut blk, &b.battle, ctx, mirror);
                     }
+                    if b.kind == BackdropKind::LayeredSky {
+                        // Whole tiles per loop, wrapped so the last frame
+                        // is exactly the first.
+                        let k = &b.sky;
+                        let off = |n: i32| (ctx.phase * n as f32).rem_euclid(1.0);
+                        blk[8] = [
+                            off(k.far_scroll[0]),
+                            off(k.far_scroll[1]),
+                            off(k.near_scroll[0]),
+                            off(k.near_scroll[1]),
+                        ];
+                        blk[9] = c4(k.cutout, k.tolerance.clamp(0.0, 1.0));
+                        blk[10] = [k.tiles.max(0.1), k.flatten.max(1.0), 0.0, 0.0];
+                    }
                     ls.draws = 1;
                     ls.load = backdrop_load(b.kind);
                     cmds.push(Cmd::Backdrop {
@@ -5002,7 +5495,12 @@ impl Renderer {
                         "__white".to_string()
                     };
                     // The fields need smooth (linear) sampling.
-                    let pixelated = mat.pixelated && !morph;
+                    let filter = if morph {
+                        ez_core::TexFilter::Smooth
+                    } else {
+                        project.retro.filter_for(mat.tex_filter())
+                    };
+                    let pixelated = sampler_kind(filter);
                     let pbr = &mat.pbr;
                     let orm = self.texture_key_as(project, pbr.orm_map.as_deref(), true);
                     let emit = self.texture_key(project, pbr.emissive_map.as_deref());
@@ -5129,7 +5627,9 @@ impl Renderer {
                     ls.load = ls.triangles as f32 / 150_000.0 + count as f32 / 20_000.0;
                     let mut blk: Block = Zeroable::zeroed();
                     blk[0] = c4(mat.base_color, mat.metallic.eval(ctx));
-                    let e = mat.emissive.eval(ctx).max(0.0) * flash;
+                    let e = mat.emissive.eval(smooth).max(0.0)
+                        * flash
+                        * mat.glow_style.eval(smooth.phase);
                     blk[1] = c4(color::scale(mat.emissive_color, e), mat.roughness.eval(ctx));
                     let mode = EmissiveMode::ALL
                         .iter()
@@ -5145,10 +5645,10 @@ impl Renderer {
                     // by pairs so the loop still closes.
                     let tiles = if tex.ends_with(MIRROR_KEY) { 2.0 } else { 1.0 };
                     blk[3] = [
-                        ctx.phase * mat.scroll[0] as f32 * tiles,
-                        ctx.phase * mat.scroll[1] as f32 * tiles,
-                        mat.rim.eval(ctx),
-                        mat.hue_shift.eval(ctx),
+                        smooth.phase * mat.scroll[0] as f32 * tiles,
+                        smooth.phase * mat.scroll[1] as f32 * tiles,
+                        mat.rim.eval(smooth),
+                        mat.hue_shift.eval(smooth),
                     ];
                     let g = &mat.glitch;
                     blk[4] = [
@@ -5158,7 +5658,8 @@ impl Renderer {
                         g.chance.eval(ctx).clamp(0.0, 1.0),
                     ];
                     let tri = self.triplanar_meshes.contains(&mesh);
-                    blk[5] = [g.seed as f32, if tri { 1.0 } else { 0.0 }, 0.0, 0.0];
+                    // The glitch's clock (held on steps like the motion).
+                    blk[5] = [g.seed as f32, if tri { 1.0 } else { 0.0 }, ctx.phase, 0.0];
                     blk[8] = [
                         rel.bump.eval(ctx),
                         rel.displace.eval(ctx),
@@ -5187,7 +5688,7 @@ impl Renderer {
                                 RampMode::Gradient => 0.0,
                                 RampMode::Steps => 1.0,
                             },
-                            (ctx.phase * ramp.cycles as f32).rem_euclid(1.0),
+                            (smooth.phase * ramp.cycles as f32).rem_euclid(1.0),
                             if ramp.glow { 1.0 } else { 0.0 },
                         ];
                     }
@@ -5257,10 +5758,24 @@ impl Renderer {
                         bounds,
                     });
                     blocks.push(blk);
-                    blocks.push(pbr_block(mat, ctx));
+                    let mut pb = pbr_block(mat, smooth);
+                    pb[3][0] = filter.index() as f32;
+                    pb[3][1] = mat.mesh.eval(ctx).clamp(0.0, 1.0);
+                    let tb = &mat.turbulence;
+                    if tb.is_on() {
+                        pb[4] = [
+                            tb.amount.eval(ctx),
+                            tb.waves.max(0.0),
+                            TAU * (smooth.phase * tb.cycles as f32).rem_euclid(1.0),
+                            0.0,
+                        ];
+                    }
+                    blocks.push(pb);
                 }
                 LayerKind::Particles(p) => {
                     let lm = layer_matrix(&layer.transform, ctx);
+                    // The particles themselves keep flowing.
+                    let ctx = smooth;
                     let count = p.count.min(200_000) * (p.trail.min(16) + 1);
                     let syms = symmetry_matrices(&layer.symmetry);
                     ls.particles = count as u64 * syms.len() as u64;
@@ -5275,7 +5790,10 @@ impl Renderer {
                             p.seed as f32,
                         ];
                         blk[1] = c4(p.color_a, p.size.eval(ctx).max(0.0));
-                        blk[2] = c4(p.color_b, p.intensity.eval(ctx).max(0.0) * flash);
+                        blk[2] = c4(
+                            p.color_b,
+                            p.intensity.eval(ctx).max(0.0) * flash * p.glow_style.eval(ctx.phase),
+                        );
                         blk[3] = [
                             p.speed.eval(ctx),
                             p.radius.eval(ctx),
@@ -5299,7 +5817,15 @@ impl Renderer {
                 }
                 LayerKind::Terrain(t) => {
                     let tex = self.texture_key(project, t.texture.as_deref());
-                    self.tex_bind_group(&tex, t.pixelated);
+                    // Retro 3D may set one filter for everything (terrain
+                    // has square or smooth pixels).
+                    let own = if t.pixelated {
+                        ez_core::TexFilter::Nearest
+                    } else {
+                        ez_core::TexFilter::Smooth
+                    };
+                    let t_nearest = sampler_kind(project.retro.filter_for(own)) == 1;
+                    self.tex_bind_group(&tex, t_nearest);
                     let lm = layer_matrix(&layer.transform, ctx);
                     let cells = t.cells.clamp(4, t.max_cells());
                     let drawn = t.drawn_cells();
@@ -5358,6 +5884,13 @@ impl Renderer {
                             TAU * (ctx.phase * bars).rem_euclid(1.0),
                             0.0,
                         ];
+                        // Quake's turbulent warp of the liquid's patterns.
+                        blk[14] = [
+                            lq.turbulence.eval(ctx),
+                            TAU * (ctx.phase * lq.turb_cycles as f32).rem_euclid(1.0),
+                            0.0,
+                            0.0,
+                        ];
                         let model = sym * lm;
                         blk[8..12].copy_from_slice(&m4(model));
                         if t.lod {
@@ -5376,7 +5909,7 @@ impl Renderer {
                             slot: blocks.len() as u32,
                             vertices: drawn * drawn * 6,
                             tex: tex.clone(),
-                            pixelated: t.pixelated,
+                            pixelated: t_nearest,
                         });
                         blocks.push(blk);
                     }
@@ -5489,6 +6022,35 @@ impl Renderer {
                             count,
                         });
                     }
+                    blocks.push(blk);
+                }
+                LayerKind::Mode7(f) => {
+                    let tex =
+                        self.texture_key(project, Some(f.texture.as_deref().unwrap_or("checker")));
+                    self.tex_bind_group(&tex, f.pixelated);
+                    let tr = &layer.transform;
+                    let wrap = |n: i32| (ctx.phase * n as f32).rem_euclid(1.0);
+                    let mut blk: Block = Zeroable::zeroed();
+                    blk[0] = [
+                        tr.position[1] + tr.bob.eval(ctx),
+                        f.tile_size.max(0.01) * tr.scale.eval(ctx).abs().max(1e-3),
+                        TAU * wrap(f.turns) + tr.rotation[1].to_radians(),
+                        f.brightness.eval(smooth).max(0.0) * flash,
+                    ];
+                    blk[1] = [
+                        tr.position[0],
+                        tr.position[2],
+                        wrap(f.scroll[0]),
+                        wrap(f.scroll[1]),
+                    ];
+                    blk[2] = c4(f.tint, if f.fog { 1.0 } else { 0.0 });
+                    ls.draws = 1;
+                    ls.load = 0.05;
+                    cmds.push(Cmd::Mode7 {
+                        slot: blocks.len() as u32,
+                        tex,
+                        pixelated: f.pixelated,
+                    });
                     blocks.push(blk);
                 }
                 LayerKind::Logo(g) => {
@@ -5688,7 +6250,10 @@ impl Renderer {
                         1.0
                     };
                     let mut blk: Block = Zeroable::zeroed();
-                    blk[0] = c4(sp.tint, sp.glow.eval(ctx).max(0.0) * flash);
+                    blk[0] = c4(
+                        sp.tint,
+                        sp.glow.eval(smooth).max(0.0) * flash * sp.glow_style.eval(smooth.phase),
+                    );
                     blk[1] = [
                         cols as f32,
                         rows as f32,
@@ -5712,6 +6277,7 @@ impl Renderer {
                             SpriteBlend::Alpha => 0.0,
                             SpriteBlend::Additive => 1.0,
                             SpriteBlend::Cutout => 2.0,
+                            SpriteBlend::Mesh => 3.0,
                         },
                         0.0,
                     ];
@@ -5720,7 +6286,11 @@ impl Renderer {
                             slot: blocks.len() as u32,
                             tex,
                             pixelated: sp.pixelated,
-                            blend: sp.blend,
+                            // The Saturn mesh is a solid cutout with holes.
+                            blend: match sp.blend {
+                                SpriteBlend::Mesh => SpriteBlend::Cutout,
+                                b => b,
+                            },
                             first,
                             count,
                         });
@@ -5748,6 +6318,12 @@ impl Renderer {
                             (fl.seed % 65536) as f32,
                             (fl.flow / 2).max(1) as f32,
                         ];
+                        blk[3] = [
+                            fl.turbulence.eval(ctx),
+                            TAU * (ctx.phase * fl.flow as f32).rem_euclid(1.0),
+                            0.0,
+                            0.0,
+                        ];
                         blk[8..12].copy_from_slice(&m4(sym * lm));
                         cmds.push(Cmd::Falls {
                             slot: blocks.len() as u32,
@@ -5763,7 +6339,7 @@ impl Renderer {
                 LayerKind::Ribbon(r) => {
                     let mesh = self.ribbon_key(r);
                     let tex = self.texture_key(project, None);
-                    let texs = (tex.clone(), tex.clone(), tex.clone(), tex, false);
+                    let texs = (tex.clone(), tex.clone(), tex.clone(), tex, 0);
                     self.mesh_tex_bind_group(&texs);
                     let lm = layer_matrix(&layer.transform, ctx);
                     let first = instances.len() as u32;
@@ -6148,9 +6724,27 @@ impl Renderer {
             Vec4::ZERO,
             &fx,
         );
-        let main_globals = with_shadow(main_globals);
+        let mut main_globals = with_shadow(main_globals);
+        // Retro 3D: the camera's views snap their vertices to a grid.
+        if let Some((gw, gh)) = project.retro.snap_grid((w, h)) {
+            main_globals.retro[0] = project.retro.snap_amount.eval(ctx).clamp(0.0, 1.0);
+            main_globals.retro[1] = gw as f32;
+            main_globals.retro[2] = gh as f32;
+        }
+        if project.retro.enabled {
+            main_globals.retro_col[2] = project.retro.near_cull.eval(ctx).max(0.0);
+        }
         self.queue
             .write_buffer(&self.globals_buf[0], 0, bytemuck::bytes_of(&main_globals));
+        // ...and may be drawn at a low resolution.
+        let retro_size = project.retro.internal_size((w, h));
+        if let Some((lw, lh)) = retro_size {
+            self.ensure_retro_target(target.id, (lw, lh));
+            let mut g = main_globals;
+            g.res = [lw as f32, lh as f32, 1.0 / lw as f32, 1.0 / lh as f32];
+            self.queue
+                .write_buffer(&self.globals_buf[GLOBALS_LOW], 0, bytemuck::bytes_of(&g));
+        }
         if let Some((_, _, fh, _)) = &floor {
             let mirror = Mat4::from_translation(Vec3::Y * 2.0 * fh)
                 * Mat4::from_scale(Vec3::new(1.0, -1.0, 1.0));
@@ -6167,7 +6761,9 @@ impl Renderer {
                 Vec4::new(0.0, 1.0, 0.0, -fh + 0.001),
                 &fx,
             );
-            let g = with_shadow(g);
+            let mut g = with_shadow(g);
+            g.retro = main_globals.retro;
+            g.retro_col = main_globals.retro_col;
             self.queue
                 .write_buffer(&self.globals_buf[1], 0, bytemuck::bytes_of(&g));
         }
@@ -6327,8 +6923,8 @@ impl Renderer {
                             }
                     )
                 });
-                self.draw_scene(&mut pass, &self.refl_pipes, 1, &solid);
-                self.draw_scene(&mut pass, &self.refl_pipes, 1, &clear);
+                self.draw_scene(&mut pass, &self.refl_pipes, 1, &solid, false);
+                self.draw_scene(&mut pass, &self.refl_pipes, 1, &clear, false);
             }
             self.post_pass(
                 &mut enc,
@@ -6460,6 +7056,104 @@ impl Renderer {
         }
 
         // --- main scene -------------------------------------------------------
+        // Backdrops first, then the floor, then everything else.
+        let (back, rest): (Vec<Cmd>, Vec<Cmd>) = cmds
+            .iter()
+            .cloned()
+            .partition(|c| matches!(c, Cmd::Backdrop { .. } | Cmd::SkyFx));
+        let back: Vec<Cmd> = back
+            .into_iter()
+            .map(|c| match c {
+                Cmd::Backdrop { res, .. } if res > 1 => Cmd::BackdropUp { res },
+                other => other,
+            })
+            .collect();
+        // Solid geometry before anything see-through, which doesn't
+        // write depth and would otherwise be painted over.
+        // Skip what is entirely outside the view (the reflection and the
+        // shadow map still get everything).
+        let planes = frustum_planes(proj * view);
+        let rest: Vec<Cmd> = rest
+            .into_iter()
+            .filter(|c| match self.cmd_bounds(c, &blocks) {
+                Some((centre, r)) => sphere_visible(&planes, centre, r),
+                None => true,
+            })
+            .collect();
+        let (solid, clear): (Vec<Cmd>, Vec<Cmd>) = rest.into_iter().partition(|c| {
+            matches!(
+                c,
+                Cmd::Mesh { .. }
+                    | Cmd::Mode7 { .. }
+                    | Cmd::Terrain { .. }
+                    | Cmd::Sprite {
+                        blend: SpriteBlend::Cutout,
+                        ..
+                    }
+            )
+        });
+        // Retro 3D at a low resolution: the scene is drawn small, then
+        // blown up; text can stay sharp, drawn after at full size.
+        let low = retro_size.and_then(|_| self.retro_targets.get(&target.id));
+        let (clear, overlay): (Vec<Cmd>, Vec<Cmd>) =
+            if low.is_some() && project.retro.sharp_overlays {
+                clear
+                    .into_iter()
+                    .partition(|c| !matches!(c, Cmd::Text { .. }))
+            } else {
+                (clear, Vec::new())
+            };
+        let main = MainDraw {
+            back: &back,
+            solid: &solid,
+            clear: &clear,
+            cmds: &cmds,
+            floor: floor
+                .as_ref()
+                .zip(floor_bg)
+                .map(|((slot, ..), bg)| (*slot, bg)),
+            liquid: liquids.last().map(|l| l.0),
+        };
+        let fog_clear = wgpu::Color {
+            r: main_globals.fog[0] as f64,
+            g: main_globals.fog[1] as f64,
+            b: main_globals.fog[2] as f64,
+            a: 1.0,
+        };
+        if let Some(rt) = low {
+            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("scene (retro low resolution)"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &rt.color,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(fog_clear),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &rt.depth,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            let set = PassPipes {
+                scene: &self.refl_pipes,
+                floor: &self.low_pipes.floor,
+                contact: &self.low_pipes.contact,
+                bg_up: &self.low_pipes.bg_up,
+                liquid: &self.low_pipes.liquid,
+                globals: GLOBALS_LOW,
+            };
+            self.draw_main(&mut pass, &set, target, &main);
+        }
         {
             let (view_tex, resolve) = match &target.msaa_color {
                 Some(ms) => (ms, Some(&target.hdr)),
@@ -6472,12 +7166,7 @@ impl Renderer {
                     depth_slice: None,
                     resolve_target: resolve,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: main_globals.fog[0] as f64,
-                            g: main_globals.fog[1] as f64,
-                            b: main_globals.fog[2] as f64,
-                            a: 1.0,
-                        }),
+                        load: wgpu::LoadOp::Clear(fog_clear),
                         store: if resolve.is_some() {
                             wgpu::StoreOp::Discard
                         } else {
@@ -6497,87 +7186,24 @@ impl Renderer {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            // Backdrops first, then the floor, then everything else.
-            let (back, rest): (Vec<Cmd>, Vec<Cmd>) = cmds
-                .iter()
-                .cloned()
-                .partition(|c| matches!(c, Cmd::Backdrop { .. } | Cmd::SkyFx));
-            let back: Vec<Cmd> = back
-                .into_iter()
-                .map(|c| match c {
-                    Cmd::Backdrop { res, .. } if res > 1 => Cmd::BackdropUp { res },
-                    other => other,
-                })
-                .collect();
-            for c in &back {
-                if let Cmd::BackdropUp { res } = c {
-                    if let Some((_, _, bg)) = target.bg_low.iter().find(|(d, _, _)| d == res) {
-                        pass.set_pipeline(&self.bg_up_pipe);
-                        pass.set_bind_group(0, &self.globals_bg[0], &[]);
-                        pass.set_bind_group(1, &self.draw_bg, &[0]);
-                        pass.set_bind_group(2, bg, &[]);
-                        pass.draw(0..3, 0..1);
-                    }
-                }
-            }
-            self.draw_scene(&mut pass, &self.main_pipes, 0, &back);
-            if let (Some((slot, _, _, _)), Some(bg)) = (&floor, &floor_bg) {
-                pass.set_pipeline(&self.floor_pipe);
-                pass.set_bind_group(0, &self.globals_bg[0], &[]);
-                pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
-                pass.set_bind_group(2, *bg, &[]);
-                pass.set_bind_group(3, &self.shadow_bg, &[]);
-                pass.draw(0..6, 0..1);
-                for c in &cmds {
-                    if let Cmd::Contact {
-                        slot,
-                        first,
-                        count,
-                        gpu,
-                    } = c
-                    {
-                        pass.set_pipeline(&self.contact_pipe);
-                        pass.set_bind_group(0, &self.globals_bg[0], &[]);
-                        pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
-                        pass.set_vertex_buffer(0, self.mesh_instances(*gpu).slice(..));
-                        pass.draw(0..6, *first..*first + *count);
-                    }
-                }
-            }
-            // Solid geometry before anything see-through, which doesn't
-            // write depth and would otherwise be painted over.
-            // Skip what is entirely outside the view (the reflection and the
-            // shadow map still get everything).
-            let planes = frustum_planes(proj * view);
-            let rest: Vec<Cmd> = rest
-                .into_iter()
-                .filter(|c| match self.cmd_bounds(c, &blocks) {
-                    Some((centre, r)) => sphere_visible(&planes, centre, r),
-                    None => true,
-                })
-                .collect();
-            let (solid, clear): (Vec<Cmd>, Vec<Cmd>) = rest.into_iter().partition(|c| {
-                matches!(
-                    c,
-                    Cmd::Mesh { .. }
-                        | Cmd::Terrain { .. }
-                        | Cmd::Sprite {
-                            blend: SpriteBlend::Cutout,
-                            ..
-                        }
-                )
-            });
-            self.draw_scene(&mut pass, &self.main_pipes, 0, &solid);
-            // The liquid surface, with its own depth.
-            if let Some(&(slot, ..)) = liquids.last() {
-                pass.set_pipeline(&self.liquid_pipes.composite);
-                pass.set_bind_group(0, &self.globals_bg[0], &[]);
-                pass.set_bind_group(1, &self.draw_mesh_bg, &mesh_offsets(slot));
-                pass.set_bind_group(2, &target.bg_liquid[3], &[]);
-                pass.set_bind_group(3, &self.shadow_bg, &[]);
+            if let Some(rt) = low {
+                // The low-resolution scene with square pixels, then what
+                // stays sharp.
+                pass.set_pipeline(&self.retro_up_pipe);
+                pass.set_bind_group(0, &rt.bg, &[]);
                 pass.draw(0..3, 0..1);
+                self.draw_scene(&mut pass, &self.main_pipes, 0, &overlay, true);
+            } else {
+                let set = PassPipes {
+                    scene: &self.main_pipes,
+                    floor: &self.floor_pipe,
+                    contact: &self.contact_pipe,
+                    bg_up: &self.bg_up_pipe,
+                    liquid: &self.liquid_pipes.composite,
+                    globals: 0,
+                };
+                self.draw_main(&mut pass, &set, target, &main);
             }
-            self.draw_scene(&mut pass, &self.main_pipes, 0, &clear);
         }
 
         // --- distance to the camera (depth of field) and what surfaces
@@ -6987,6 +7613,60 @@ impl Renderer {
         self.queue.submit([enc.finish()]);
     }
 
+    /// Make the retro low-resolution scene of target `id` (`size` pixels)
+    /// if it isn't there at that size.
+    fn ensure_retro_target(&mut self, id: u64, size: (u32, u32)) {
+        if self.retro_targets.get(&id).is_some_and(|t| t.size == size) {
+            return;
+        }
+        let tex = |label, format| {
+            self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size: wgpu::Extent3d {
+                    width: size.0,
+                    height: size.1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+        };
+        let color = tex("retro scene", HDR_FORMAT).create_view(&Default::default());
+        let depth = tex("retro depth", DEPTH_FORMAT).create_view(&Default::default());
+        let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("retro upscale"),
+            layout: &self.bgl_retro_up,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&color),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&depth),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler_point_clamp),
+                },
+            ],
+        });
+        self.retro_targets.insert(
+            id,
+            RetroTarget {
+                size,
+                color,
+                depth,
+                bg,
+            },
+        );
+    }
+
     /// A bounding sphere of what a command draws, when it is cheap to know.
     fn cmd_bounds(&self, cmd: &Cmd, blocks: &[Block]) -> Option<(Vec3, f32)> {
         let model = |slot: u32| {
@@ -7148,12 +7828,74 @@ impl Renderer {
         }
     }
 
+    /// The main scene: backgrounds, the floor, solid then see-through
+    /// geometry, with the pipelines of the pass drawn into (full size or
+    /// the retro low resolution).
+    fn draw_main(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        set: &PassPipes<'_>,
+        target: &RenderTarget,
+        m: &MainDraw<'_>,
+    ) {
+        let g = &self.globals_bg[set.globals];
+        for c in m.back {
+            if let Cmd::BackdropUp { res } = c {
+                if let Some((_, _, bg)) = target.bg_low.iter().find(|(d, _, _)| d == res) {
+                    pass.set_pipeline(set.bg_up);
+                    pass.set_bind_group(0, g, &[]);
+                    pass.set_bind_group(1, &self.draw_bg, &[0]);
+                    pass.set_bind_group(2, bg, &[]);
+                    pass.draw(0..3, 0..1);
+                }
+            }
+        }
+        self.draw_scene(pass, set.scene, set.globals, m.back, true);
+        if let Some((slot, bg)) = m.floor {
+            pass.set_pipeline(set.floor);
+            pass.set_bind_group(0, g, &[]);
+            pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+            pass.set_bind_group(2, bg, &[]);
+            pass.set_bind_group(3, &self.shadow_bg, &[]);
+            pass.draw(0..6, 0..1);
+            for c in m.cmds {
+                if let Cmd::Contact {
+                    slot,
+                    first,
+                    count,
+                    gpu,
+                } = c
+                {
+                    pass.set_pipeline(set.contact);
+                    pass.set_bind_group(0, g, &[]);
+                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                    pass.set_vertex_buffer(0, self.mesh_instances(*gpu).slice(..));
+                    pass.draw(0..6, *first..*first + *count);
+                }
+            }
+        }
+        self.draw_scene(pass, set.scene, set.globals, m.solid, true);
+        // The liquid surface, with its own depth.
+        if let Some(slot) = m.liquid {
+            pass.set_pipeline(set.liquid);
+            pass.set_bind_group(0, g, &[]);
+            pass.set_bind_group(1, &self.draw_mesh_bg, &mesh_offsets(slot));
+            pass.set_bind_group(2, &target.bg_liquid[3], &[]);
+            pass.set_bind_group(3, &self.shadow_bg, &[]);
+            pass.draw(0..3, 0..1);
+        }
+        self.draw_scene(pass, set.scene, set.globals, m.clear, true);
+    }
+
+    /// Draw `cmds` with `pipes`. With `surface_liquids`, a liquid drawn as
+    /// a surface (by its own passes) leaves out its droplets.
     fn draw_scene(
         &self,
         pass: &mut wgpu::RenderPass<'_>,
         pipes: &ScenePipes,
         globals: usize,
         cmds: &[Cmd],
+        surface_liquids: bool,
     ) {
         for cmd in cmds {
             match cmd {
@@ -7193,7 +7935,7 @@ impl Renderer {
                     let i = match blend {
                         SpriteBlend::Alpha => 0,
                         SpriteBlend::Additive => 1,
-                        SpriteBlend::Cutout => 2,
+                        SpriteBlend::Cutout | SpriteBlend::Mesh => 2,
                     };
                     pass.set_pipeline(&pipes.sprite[i]);
                     pass.set_bind_group(0, &self.globals_bg[globals], &[]);
@@ -7226,7 +7968,7 @@ impl Renderer {
                 } => {
                     // A liquid surface is drawn by its own passes (its
                     // droplets still show in the floor's reflection).
-                    if *count == 0 || (*liquid && std::ptr::eq(pipes, &self.main_pipes)) {
+                    if *count == 0 || (*liquid && surface_liquids) {
                         continue;
                     }
                     let m = &self.meshes[mesh];
@@ -7266,6 +8008,21 @@ impl Renderer {
                     pass.draw(0..6, 0..*beams);
                 }
                 Cmd::Contact { .. } => {}
+                Cmd::Mode7 {
+                    slot,
+                    tex,
+                    pixelated,
+                } => {
+                    // Not in the mirror floor's reflection.
+                    if globals == 1 {
+                        continue;
+                    }
+                    pass.set_pipeline(&pipes.mode7);
+                    pass.set_bind_group(0, &self.globals_bg[globals], &[]);
+                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                    pass.set_bind_group(2, &self.tex_bgs[&(tex.clone(), *pixelated)], &[]);
+                    pass.draw(0..3, 0..1);
+                }
                 Cmd::SkyFx => {
                     for pipe in [&pipes.sky_mul, &pipes.sky_add] {
                         pass.set_pipeline(pipe);
@@ -7557,6 +8314,19 @@ impl Renderer {
             ];
             if let Some(c) = ascii.color.rgb() {
                 f[24] = [c[0], c[1], c[2], 1.0];
+            }
+        }
+        // Retro 3D: the N64 video filter, one console pixel wide (the
+        // low resolution's, or 320 × 240's at full resolution).
+        let rt = &project.retro;
+        if rt.enabled {
+            let vi = rt.vi_blur.eval(ctx).clamp(0.0, 1.0);
+            if vi > 0.0 {
+                let out = (target.width, target.height);
+                let (cw, ch) = rt
+                    .internal_size(out)
+                    .unwrap_or_else(|| ez_core::retro::fit_to_output([320, 240], out));
+                slots[SLOT_FINAL as usize][25] = [vi, 1.0 / cw as f32, 1.0 / ch as f32, 0.0];
             }
         }
         for (i, s) in slots.iter().enumerate() {
