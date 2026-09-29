@@ -53,6 +53,8 @@ struct Globals {
     // x: colour levels per channel (0 = full colour, 31 = 15-bit),
     // y: dither (0..1), z: near-plane culling distance (0 = off)
     retro_col: vec4<f32>,
+    // x: colormap light levels (0 = off)
+    retro_cm: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> G: Globals;
@@ -144,6 +146,29 @@ fn hue_rotate(c: vec3<f32>, turns: f32) -> vec3<f32> {
 @group(3) @binding(2) var t_env: texture_cube<f32>;
 @group(3) @binding(3) var s_env: sampler;
 @group(3) @binding(4) var t_brdf: texture_2d<f32>;
+// Retro 3D colormap (see colormap_shade).
+@group(3) @binding(5) var t_cm_index: texture_2d<f32>;
+@group(3) @binding(6) var t_cm_table: texture_2d<f32>;
+
+// Palette-space lighting, as in Quake's software renderer: the surface's
+// colour becomes its nearest palette entry, and the light (how much
+// brighter `lit` is than `base`, 0..2) picks one of the colormap's light
+// levels for it, so shading steps through palette colours. Fullbright
+// entries keep their colour whatever the light.
+fn colormap_shade(base: vec3<f32>, lit: vec3<f32>) -> vec3<f32> {
+    let levels = G.retro_cm.x;
+    if (levels <= 0.0) {
+        return lit;
+    }
+    let g = pow(clamp(base, vec3<f32>(0.0), vec3<f32>(1.0)), vec3<f32>(1.0 / 2.2));
+    let q = vec3<i32>(round(g * 31.0));
+    let entry = i32(round(textureLoad(t_cm_index, vec2<i32>(q.r + q.g * 32, q.b), 0).r * 255.0));
+    let w = vec3<f32>(0.299, 0.587, 0.114);
+    // The table scales palette colours in gamma: the light too.
+    let light = clamp(pow(dot(lit, w) / max(dot(base, w), 1e-4), 1.0 / 2.2), 0.0, 2.0);
+    let level = i32(round(light * 0.5 * (levels - 1.0)));
+    return textureLoad(t_cm_table, vec2<i32>(entry, level), 0).rgb;
+}
 
 // A world direction in the environment map's own frame (it turns around
 // +y by G.ibl.y).
@@ -792,6 +817,16 @@ fn three_point(t: texture_2d<f32>, s: sampler, uv: vec2<f32>) -> vec4<f32> {
     let lower = c00 + f.x * (c10 - c00) + f.y * (c01 - c00);
     let upper = c11 + (1.0 - f.x) * (c01 - c11) + (1.0 - f.y) * (c10 - c11);
     return select(upper, lower, f.x + f.y <= 1.0);
+}
+
+// Quake's turbulent warp: each coordinate wobbles by a sine of the other.
+// `amount` in tiles, `waves` per tile, `angle` the time (whole turns per
+// loop, so it loops).
+fn turb_warp(uv: vec2<f32>, amount: f32, waves: f32, angle: f32) -> vec2<f32> {
+    if (amount == 0.0) {
+        return uv;
+    }
+    return uv + amount * sin(uv.yx * (TAU * waves) + angle);
 }
 
 // Ordered dither threshold of a pixel, -0.5..0.5 (4 × 4 Bayer), by bit

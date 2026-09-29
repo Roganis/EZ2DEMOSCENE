@@ -364,6 +364,9 @@ pub struct Environment {
     /// Sunbeams in the fog, cut by the sun's shadows.
     #[serde(skip_serializing_if = "is_default")]
     pub shafts: LightShafts,
+    /// The sun and ambient light flicker by a Quake light style.
+    #[serde(skip_serializing_if = "is_default")]
+    pub light_style: crate::retro::LightStyle,
 }
 
 /// Light shafts: the fog lit by the sun where the sun reaches it, so
@@ -781,8 +784,8 @@ impl Environment {
             ground_color: self.ground_color,
             light_dir: ld,
             light_color: self.light_color,
-            light_intensity: self.light_intensity.eval(ctx),
-            ambient: self.ambient.eval(ctx),
+            light_intensity: self.light_intensity.eval(ctx) * self.light_style.eval(ctx.phase),
+            ambient: self.ambient.eval(ctx) * self.light_style.eval(ctx.phase),
             sun_dir: ld,
             night: 0.0,
             dusk: 0.0,
@@ -866,6 +869,7 @@ impl Default for Environment {
             env_light: EnvLight::default(),
             reflections: Reflections::default(),
             shafts: LightShafts::default(),
+            light_style: Default::default(),
         }
     }
 }
@@ -1208,6 +1212,14 @@ impl Shake {
             || self.turn.base != 0.0
             || self.turn.is_animated()
     }
+}
+
+fn two() -> i32 {
+    2
+}
+
+fn is_two(v: &i32) -> bool {
+    *v == 2
 }
 
 fn is_no_tilt(p: &Param) -> bool {
@@ -2092,6 +2104,12 @@ pub struct Material {
     /// 0.5 is the Saturn's checkerboard "mesh".
     #[serde(skip_serializing_if = "is_off")]
     pub mesh: Param,
+    /// The glow flickers by a Quake light style.
+    #[serde(skip_serializing_if = "is_default")]
+    pub glow_style: crate::retro::LightStyle,
+    /// Quake's wobbling liquid textures.
+    #[serde(skip_serializing_if = "is_default")]
+    pub turbulence: crate::retro::Turbulence,
     /// Faceted look (normals from the triangle faces).
     pub flat_shading: bool,
     /// Rim / fresnel light strength.
@@ -2377,6 +2395,8 @@ impl Default for Material {
             pixelated: false,
             filter: Default::default(),
             mesh: Param::new(0.0),
+            glow_style: Default::default(),
+            turbulence: Default::default(),
             flat_shading: false,
             rim: Param::new(0.3),
             hue_shift: Param::new(0.0),
@@ -2458,16 +2478,25 @@ pub enum Sprite {
     Square,
     Star,
     Ring,
+    /// Solid, unsmoothed single-colour squares (Quake).
+    SolidSquare,
 }
 
 impl Sprite {
-    pub const ALL: [Sprite; 4] = [Sprite::Glow, Sprite::Square, Sprite::Star, Sprite::Ring];
+    pub const ALL: [Sprite; 5] = [
+        Sprite::Glow,
+        Sprite::Square,
+        Sprite::Star,
+        Sprite::Ring,
+        Sprite::SolidSquare,
+    ];
     pub fn label(self) -> &'static str {
         match self {
             Sprite::Glow => "Soft glow",
             Sprite::Square => "Pixel square",
             Sprite::Star => "Star",
             Sprite::Ring => "Ring",
+            Sprite::SolidSquare => "Solid square (Quake)",
         }
     }
     pub fn index(self) -> u32 {
@@ -2498,6 +2527,9 @@ pub struct ParticleLayer {
     /// instead of adding light. Brightness becomes opacity.
     #[serde(skip_serializing_if = "is_default")]
     pub smoke: bool,
+    /// The brightness flickers by a Quake light style.
+    #[serde(skip_serializing_if = "is_default")]
+    pub glow_style: crate::retro::LightStyle,
 }
 
 impl Default for ParticleLayer {
@@ -2517,6 +2549,7 @@ impl Default for ParticleLayer {
             sprite: Sprite::Glow,
             seed: 1,
             smoke: false,
+            glow_style: Default::default(),
         }
     }
 }
@@ -2548,10 +2581,13 @@ pub enum BackdropKind {
     /// The environment map (Light & fog → Environment light) all around,
     /// turned with it; *Detail* blurs it.
     Environment,
+    /// Quake's sky: a far and a near cloud layer (with see-through holes)
+    /// scrolling at their own speeds (see [`LayeredSky`]).
+    LayeredSky,
 }
 
 impl BackdropKind {
-    pub const ALL: [BackdropKind; 13] = [
+    pub const ALL: [BackdropKind; 14] = [
         BackdropKind::Gradient,
         BackdropKind::Nebula,
         BackdropKind::Starfield,
@@ -2565,6 +2601,7 @@ impl BackdropKind {
         BackdropKind::Aurora,
         BackdropKind::Battle,
         BackdropKind::Environment,
+        BackdropKind::LayeredSky,
     ];
     pub fn label(self) -> &'static str {
         match self {
@@ -2581,6 +2618,7 @@ impl BackdropKind {
             BackdropKind::Aurora => "Aurora night sky",
             BackdropKind::Battle => "Battle background (retro RPG)",
             BackdropKind::Environment => "Environment map",
+            BackdropKind::LayeredSky => "Two-layer sky (Quake)",
         }
     }
 
@@ -2626,6 +2664,45 @@ pub struct Backdrop {
     /// Settings of the battle background.
     #[serde(skip_serializing_if = "is_default")]
     pub battle: Battle,
+    /// Settings of the two-layer sky (its far layer is `texture`).
+    #[serde(skip_serializing_if = "is_default")]
+    pub sky: LayeredSky,
+}
+
+/// Quake's sky: two pictures projected on a flattened dome, the near one
+/// drawn over the far one except where it has the see-through colour.
+/// Each scrolls a whole number of tiles per loop.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LayeredSky {
+    /// The near layer (built-in or your image); `None`: built-in clouds.
+    pub near_texture: Option<String>,
+    /// Colour of the near layer that is see-through.
+    pub cutout: Rgb,
+    /// How close to the see-through colour counts (0..1).
+    pub tolerance: f32,
+    /// Tiles scrolled per loop (x, z) by the far and near layers.
+    pub far_scroll: [i32; 2],
+    pub near_scroll: [i32; 2],
+    /// Tiles across the dome.
+    pub tiles: f32,
+    /// How flat the dome is (Quake: 3; higher = flatter, more tiles near
+    /// the horizon).
+    pub flatten: f32,
+}
+
+impl Default for LayeredSky {
+    fn default() -> Self {
+        LayeredSky {
+            near_texture: None,
+            cutout: [0.0, 0.0, 0.0],
+            tolerance: 0.1,
+            far_scroll: [1, 1],
+            near_scroll: [2, 2],
+            tiles: 3.0,
+            flatten: 3.0,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -2783,6 +2860,7 @@ impl Default for Backdrop {
             ray: RaySettings::default(),
             resolution: BgResolution::Full,
             battle: Battle::default(),
+            sky: LayeredSky::default(),
         }
     }
 }
@@ -3956,6 +4034,13 @@ pub struct Liquid {
     pub waves: Param,
     /// Current: whole drifts of the surface pattern per loop.
     pub flow: i32,
+    /// Quake's wobbling warp of the surface patterns, in pattern cells
+    /// (0 = off; animatable), `flow`-independent: whole turns per loop
+    /// set by `turb_cycles`.
+    #[serde(skip_serializing_if = "is_off")]
+    pub turbulence: Param,
+    #[serde(skip_serializing_if = "is_two", default = "two")]
+    pub turb_cycles: i32,
 }
 
 impl Default for Liquid {
@@ -3967,6 +4052,8 @@ impl Default for Liquid {
             glow: Param::new(1.0),
             waves: Param::new(1.0),
             flow: 1,
+            turbulence: Param::new(0.0),
+            turb_cycles: 2,
         }
     }
 }
@@ -4975,6 +5062,9 @@ pub struct SpriteLayer {
     pub pixelated: bool,
     pub instancer: Instancer,
     pub variation: Variation,
+    /// The glow flickers by a Quake light style.
+    #[serde(skip_serializing_if = "is_default")]
+    pub glow_style: crate::retro::LightStyle,
 }
 
 impl Default for SpriteLayer {
@@ -4995,6 +5085,7 @@ impl Default for SpriteLayer {
             pixelated: false,
             instancer: Instancer::Single,
             variation: Variation::default(),
+            glow_style: Default::default(),
         }
     }
 }
@@ -5398,6 +5489,10 @@ pub struct Falls {
     /// Foam, spray and mist at the foot (0 = none).
     pub foam: Param,
     pub seed: u32,
+    /// Quake's wobbling warp of the streaks (0 = off; animatable), a
+    /// whole number of wobbles per loop (`flow`).
+    #[serde(skip_serializing_if = "is_off")]
+    pub turbulence: Param,
 }
 
 impl Default for Falls {
@@ -5412,6 +5507,7 @@ impl Default for Falls {
             flow: 4,
             foam: Param::new(1.0),
             seed: 1,
+            turbulence: Param::new(0.0),
         }
     }
 }

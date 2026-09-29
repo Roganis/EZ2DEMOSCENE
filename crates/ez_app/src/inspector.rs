@@ -594,6 +594,11 @@ pub fn environment_ui(ui: &mut Ui, e: &mut Environment) {
         &mut e.light_dir,
         0.02,
     );
+    light_style_ui(
+        ui,
+        "Sun & ambient flicker (light style)",
+        &mut e.light_style,
+    );
     ui.add_space(6.0);
     env_light_ui(ui, &mut e.env_light);
     let rf = &mut e.reflections;
@@ -1125,6 +1130,95 @@ pub fn post_ui(ui: &mut Ui, post: &mut PostStack) {
     });
 }
 
+/// A Quake light style: presets, the letters, and whole plays per loop
+/// (shown as letters per second).
+pub fn light_style_ui(ui: &mut Ui, label: &str, st: &mut LightStyle) {
+    let secs = loop_seconds(ui);
+    let id = ui.id().with(("light style", label));
+    egui::CollapsingHeader::new(label)
+        .id_salt(id)
+        .default_open(st.is_on())
+        .show(ui, |ui| {
+            row(ui, "Style", "Ready-made flicker patterns", |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    for p in LightStylePreset::ALL {
+                        if ui.small_button(p.label()).clicked() {
+                            *st = p.style(secs);
+                        }
+                    }
+                });
+            });
+            row(
+                ui,
+                "Letters",
+                "Brightness step by step: a = dark, m = normal, z = twice as bright",
+                |ui| {
+                    let r =
+                        ui.add(egui::TextEdit::singleline(&mut st.pattern).desired_width(170.0));
+                    if r.changed() {
+                        st.pattern.retain(|c| c.is_ascii_alphabetic());
+                        st.pattern.make_ascii_lowercase();
+                    }
+                },
+            );
+            if st.is_on() {
+                row(
+                    ui,
+                    "Plays / loop",
+                    "Whole plays of the letters per loop, so the loop stays seamless",
+                    |ui| {
+                        ui.add(
+                            egui::DragValue::new(&mut st.plays)
+                                .range(1..=256)
+                                .speed(0.2),
+                        );
+                        ui.label(
+                            RichText::new(format!("≈ {:.1} letters/s", st.rate(secs)))
+                                .weak()
+                                .small(),
+                        );
+                        if ui
+                            .small_button("Quake speed")
+                            .on_hover_text(
+                                "The nearest whole number of plays to 10 letters a second",
+                            )
+                            .clicked()
+                        {
+                            st.plays = st.plays_for_rate(ez_core::retro::LIGHT_STYLE_RATE, secs);
+                        }
+                    },
+                );
+            }
+        });
+}
+
+/// Quake's wobbling liquid warp of a texture.
+fn turbulence_ui(ui: &mut Ui, t: &mut Turbulence) {
+    param(
+        ui,
+        "Turbulence",
+        "Quake's wobbling water, lava and slime: the texture sways by a sine of itself (in tiles)",
+        &mut t.amount,
+        0.0..=0.5,
+    );
+    if t.is_on() {
+        slider(
+            ui,
+            "Waves / tile",
+            "How many wobbles across a texture tile",
+            &mut t.waves,
+            0.1..=4.0,
+        );
+        drag_i(
+            ui,
+            "Wobbles / loop",
+            "Whole wobbles per loop",
+            &mut t.cycles,
+            -32..=32,
+        );
+    }
+}
+
 /// Two numbers (a size in pixels).
 fn size_row(ui: &mut Ui, label: &str, tip: &str, v: &mut [u32; 2]) {
     row(ui, label, tip, |ui| {
@@ -1263,6 +1357,40 @@ pub fn retro_ui(ui: &mut Ui, r: &mut Retro3d, out: (u32, u32)) {
                     &mut r.dither,
                     0.0..=1.0,
                 );
+            });
+        });
+        section(ui, "Palette lighting (Quake)", false, |ui| {
+            let c = &mut r.colormap;
+            check(
+                ui,
+                "Colormap",
+                "Light steps through a palette's own colours, like Quake's software renderer: each \
+                 surface colour becomes its nearest palette colour, and shading picks darker or \
+                 brighter palette colours for it (up to twice as bright)",
+                &mut c.enabled,
+            );
+            ui.add_enabled_ui(c.enabled, |ui| {
+                let mut opts = vec![ColormapPalette::Software256];
+                opts.extend(ez_core::palette::PaletteId::ALL.map(ColormapPalette::Retro));
+                row(ui, "Palette", "The colours shading steps through", |ui| {
+                    egui::ComboBox::from_id_salt("colormap palette")
+                        .selected_text(c.palette.label())
+                        .width(150.0)
+                        .show_ui(ui, |ui| {
+                            for o in opts {
+                                ui.selectable_value(&mut c.palette, o, o.label());
+                            }
+                        });
+                });
+                drag_u(ui, "Light levels", "Steps from black to twice as bright (Quake: 32)", &mut c.levels, 2..=64);
+                if c.palette == ColormapPalette::Software256 {
+                    check(
+                        ui,
+                        "Fullbrights",
+                        "The palette's last 32 colours (fire, lamps) glow whatever the light",
+                        &mut c.fullbrights,
+                    );
+                }
             });
         });
         section(ui, "Nintendo 64", true, |ui| {
@@ -2059,6 +2187,7 @@ fn material_ui(ui: &mut Ui, mat: &mut Material, textures: &[UserTexture], lref: 
         &EmissiveMode::ALL,
         |m| m.label(),
     );
+    light_style_ui(ui, "Glow flicker (light style)", &mut mat.glow_style);
     param(
         ui,
         "Hue shift",
@@ -2103,6 +2232,7 @@ fn material_ui(ui: &mut Ui, mat: &mut Material, textures: &[UserTexture], lref: 
                 );
             },
         );
+        turbulence_ui(ui, &mut mat.turbulence);
         let mut filter = mat.tex_filter();
         if combo(
             ui,
@@ -3070,6 +3200,7 @@ fn particles_ui(ui: &mut Ui, p: &mut ParticleLayer) {
         } else {
             param(ui, "Brightness", "", &mut p.intensity, 0.0..=10.0);
         }
+        light_style_ui(ui, "Flicker (light style)", &mut p.glow_style);
         drag_u(
             ui,
             "Trail",
@@ -3145,6 +3276,72 @@ fn backdrop_ui(ui: &mut Ui, b: &mut Backdrop, textures: &[UserTexture], lref: La
             );
         }
     });
+    if b.kind == BackdropKind::LayeredSky {
+        let k = &mut b.sky;
+        section(ui, "Two-layer sky", true, |ui| {
+            ui.label(
+                RichText::new(
+                    "Quake's sky: a far layer and a near layer scrolling over it; the near layer's \
+                     see-through colour shows the far one. None = the built-in cloud layers.",
+                )
+                .weak()
+                .small(),
+            );
+            texture_picker(
+                ui,
+                "Far layer",
+                &mut b.texture,
+                textures,
+                Some((lref, TexSlot::Backdrop)),
+            );
+            texture_picker(ui, "Near layer", &mut k.near_texture, textures, None);
+            color(
+                ui,
+                "See-through colour",
+                "Colour of the near layer that shows the far one",
+                &mut k.cutout,
+            );
+            slider(
+                ui,
+                "Tolerance",
+                "How close to that colour counts",
+                &mut k.tolerance,
+                0.0..=1.0,
+            );
+            let scroll = |ui: &mut Ui, label: &str, v: &mut [i32; 2]| {
+                row(ui, label, "Tiles scrolled per loop (x, z)", |ui| {
+                    ui.add(
+                        egui::DragValue::new(&mut v[0])
+                            .range(-32..=32)
+                            .speed(0.1)
+                            .prefix("x "),
+                    );
+                    ui.add(
+                        egui::DragValue::new(&mut v[1])
+                            .range(-32..=32)
+                            .speed(0.1)
+                            .prefix("z "),
+                    );
+                });
+            };
+            scroll(ui, "Far scroll / loop", &mut k.far_scroll);
+            scroll(ui, "Near scroll / loop", &mut k.near_scroll);
+            slider(
+                ui,
+                "Tiles",
+                "Tiles across the dome",
+                &mut k.tiles,
+                0.5..=12.0,
+            );
+            slider(
+                ui,
+                "Flatten",
+                "How flat the dome is (Quake: 3): flatter squeezes more tiles towards the horizon",
+                &mut k.flatten,
+                1.0..=8.0,
+            );
+        });
+    }
     if b.kind == BackdropKind::Battle {
         let bt = &mut b.battle;
         section(ui, "Battle background", true, |ui| {
@@ -3545,6 +3742,22 @@ fn liquid_ui(ui: &mut Ui, l: &mut Liquid) {
             -8..=8,
         );
     }
+    param(
+        ui,
+        "Turbulence",
+        "Quake's wobbling liquid: the surface patterns sway by a sine of themselves (in pattern cells)",
+        &mut l.turbulence,
+        0.0..=0.5,
+    );
+    if l.turbulence.base != 0.0 || l.turbulence.is_animated() {
+        drag_i(
+            ui,
+            "Wobbles / loop",
+            "Whole wobbles per loop",
+            &mut l.turb_cycles,
+            -32..=32,
+        );
+    }
 }
 
 fn falls_ui(ui: &mut Ui, f: &mut Falls) {
@@ -3596,6 +3809,13 @@ fn falls_ui(ui: &mut Ui, f: &mut Falls) {
             "Puffs at the foot (0 = none)",
             &mut f.foam,
             0.0..=3.0,
+        );
+        param(
+            ui,
+            "Turbulence",
+            "Quake's wobbling liquid: the streaks sway, a wobble per streak run",
+            &mut f.turbulence,
+            0.0..=0.5,
         );
         drag_u(ui, "Seed", "", &mut f.seed, 0..=9999);
     });
@@ -4430,6 +4650,7 @@ fn sprite_ui(ui: &mut Ui, sp: &mut SpriteLayer, textures: &[UserTexture], lref: 
             &mut sp.glow,
             0.0..=5.0,
         );
+        light_style_ui(ui, "Flicker (light style)", &mut sp.glow_style);
         ui.checkbox(&mut sp.pixelated, "Pixelated (sharp pixel art)");
     });
     section(

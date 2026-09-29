@@ -245,6 +245,16 @@ pub fn all() -> Vec<Preset> {
             project: saturn_ghosts(),
         },
         Preset {
+            name: "Slipgate Courtyard",
+            description: "Quake: light stepping through a 256-colour palette, flickering torches, a wobbling lava pool, square embers and a two-layer sky.",
+            project: slipgate_courtyard(),
+        },
+        Preset {
+            name: "Slime Falls",
+            description: "Quake: a slime canyon and slime waterfall wobbling with the turbulent warp, a scrolling two-layer sky and a broken-tube strobe.",
+            project: slime_falls(),
+        },
+        Preset {
             name: "Empty",
             description: "A blank stage with a floor and a sky.",
             project: empty(),
@@ -1588,6 +1598,253 @@ pub fn saturn_ghosts() -> Project {
     p
 }
 
+/// A Quake courtyard: light stepping through a 256-colour palette,
+/// torches flickering by light styles, a turbulent lava pool, square
+/// embers and a two-layer sky.
+pub fn slipgate_courtyard() -> Project {
+    let timing = crate::Timing {
+        bpm: 120.0,
+        loop_beats: 16,
+    };
+    let secs = timing.loop_seconds();
+    let stone = |color: u32, tex: &str, scale: f32| Material {
+        base_color: hex(color),
+        metallic: Param::new(0.0),
+        roughness: Param::new(0.9),
+        texture: Some(tex.into()),
+        texture_scale: Param::new(scale),
+        rim: Param::new(0.0),
+        ..Default::default()
+    };
+    let mut p = Project {
+        name: "Slipgate Courtyard".into(),
+        timing,
+        camera: Camera {
+            target: [0.0, 1.2, 0.0],
+            distance: Param::new(6.5),
+            height: Param::new(1.4),
+            swing: Param::new(0.0),
+            orbit_turns: 1,
+            fov: Param::new(70.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0x100808),
+            fog_density: Param::new(0.0),
+            sky_color: hex(0x806050),
+            ground_color: hex(0x402820),
+            light_dir: [0.3, 1.0, 0.5],
+            light_color: hex(0xffe0c0),
+            light_intensity: Param::new(1.3),
+            ambient: Param::new(0.7),
+            light_style: crate::LightStylePreset::Flicker.style(secs),
+            ..Default::default()
+        },
+        layers: vec![
+            Layer::new(
+                "Sky",
+                LayerKind::Backdrop(Backdrop {
+                    kind: BackdropKind::LayeredSky,
+                    ..Default::default()
+                }),
+            ),
+            Layer::new(
+                "Floor",
+                LayerKind::Mesh(MeshLayer {
+                    subdivide: 2,
+                    ..mesh(Primitive::Plane, stone(0x9a8a78, "metal_plate", 6.0))
+                }),
+            )
+            .scaled(24.0),
+            Layer::new(
+                "Walls",
+                LayerKind::Mesh(MeshLayer {
+                    instancer: Instancer::Radial {
+                        count: 10,
+                        radius: 9.0,
+                    },
+                    ..mesh(Primitive::Cube, stone(0xb09880, "brick", 2.0))
+                }),
+            )
+            .at([0.0, 1.6, 0.0])
+            .stretched([5.6, 3.2, 0.6])
+            .scaled(1.0),
+            Layer::new(
+                "Pillars",
+                LayerKind::Mesh(MeshLayer {
+                    instancer: Instancer::Radial {
+                        count: 4,
+                        radius: 3.6,
+                    },
+                    ..mesh(Primitive::Cube, stone(0xd8c8b0, "metal_plate", 1.0))
+                }),
+            )
+            .at([0.0, 1.5, 0.0])
+            .stretched([0.6, 3.0, 0.6])
+            .scaled(1.0),
+            Layer::new(
+                "Lava pool",
+                LayerKind::Mesh(mesh(
+                    Primitive::Plane,
+                    Material {
+                        base_color: hex(0xffffff),
+                        texture: Some("lava".into()),
+                        texture_scale: Param::new(1.5),
+                        emissive_color: hex(0xff6010),
+                        emissive: Param::new(1.2),
+                        emissive_mode: EmissiveMode::Texture,
+                        turbulence: crate::Turbulence {
+                            amount: Param::new(0.12),
+                            waves: 1.0,
+                            cycles: 4,
+                        },
+                        rim: Param::new(0.0),
+                        ..Default::default()
+                    },
+                )),
+            )
+            .at([0.0, 0.02, 0.0])
+            .scaled(3.4),
+            Layer::new(
+                "Torches",
+                LayerKind::Sprite(SpriteLayer {
+                    image: Some("sheet_flame".into()),
+                    columns: 4,
+                    rows: 4,
+                    cycles: 8,
+                    random_start: true,
+                    facing: SpriteFacing::Upright,
+                    blend: SpriteBlend::Additive,
+                    size: Param::new(0.9),
+                    glow: Param::new(1.3),
+                    glow_style: crate::LightStylePreset::Torch.style(secs),
+                    instancer: Instancer::Radial {
+                        count: 4,
+                        radius: 3.6,
+                    },
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, 3.4, 0.0]),
+            Layer::new(
+                "Embers",
+                LayerKind::Particles(ParticleLayer {
+                    emitter: Emitter::Fountain,
+                    count: 400,
+                    lifetimes: 4,
+                    size: Param::new(0.06),
+                    speed: Param::new(0.6),
+                    radius: Param::new(2.0),
+                    color_a: hex(0xffc040),
+                    color_b: hex(0xc03000),
+                    intensity: Param::new(1.5),
+                    sprite: Sprite::SolidSquare,
+                    seed: 5,
+                    ..Default::default()
+                }),
+            ),
+        ],
+        ..Default::default()
+    };
+    p.retro.apply_style(crate::RetroStyle::Quake);
+    p
+}
+
+/// Slime falls: a canyon of toxic slime and a slime waterfall, both
+/// wobbling with Quake's turbulent warp, under a scrolling two-layer sky;
+/// the light strobes like a broken fluorescent tube.
+pub fn slime_falls() -> Project {
+    let timing = crate::Timing {
+        bpm: 100.0,
+        loop_beats: 16,
+    };
+    let secs = timing.loop_seconds();
+    let mut p = Project {
+        name: "Slime Falls".into(),
+        timing,
+        camera: Camera {
+            mode: CameraMode::Pendulum,
+            swing: Param::new(14.0),
+            target: [0.0, 2.0, -6.0],
+            distance: Param::new(12.0),
+            height: Param::new(3.0),
+            fov: Param::new(62.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0x101810),
+            fog_density: Param::new(0.02),
+            sky_color: hex(0x708870),
+            ground_color: hex(0x302820),
+            light_dir: [0.2, 0.8, 0.6],
+            light_color: hex(0xe0ffe0),
+            light_intensity: Param::new(1.4),
+            ambient: Param::new(0.6),
+            light_style: crate::LightStylePreset::Fluorescent.style(secs),
+            ..Default::default()
+        },
+        layers: vec![
+            Layer::new(
+                "Sky",
+                LayerKind::Backdrop(Backdrop {
+                    kind: BackdropKind::LayeredSky,
+                    sky: LayeredSky {
+                        far_scroll: [1, 0],
+                        near_scroll: [3, 1],
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }),
+            ),
+            Layer::new(
+                "Canyon",
+                LayerKind::Terrain(Terrain {
+                    size: 70.0,
+                    cells: 64,
+                    height: Param::new(7.0),
+                    hills: 3,
+                    roughness: Param::new(0.4),
+                    scroll: 1,
+                    valley: Param::new(0.3),
+                    style: TerrainStyle::Solid,
+                    fill_color: hex(0x806a58),
+                    texture: Some("brick".into()),
+                    tiles: 20,
+                    pixelated: true,
+                    seed: 12,
+                    shape: TerrainShape::Canyons,
+                    liquid: Liquid {
+                        kind: LiquidKind::Toxic,
+                        level: Param::new(0.06),
+                        color: hex(0x40ff30),
+                        glow: Param::new(1.1),
+                        turbulence: Param::new(0.25),
+                        turb_cycles: 2,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, -1.0, -25.0]),
+            Layer::new(
+                "Slime fall",
+                LayerKind::Falls(Falls {
+                    kind: FallKind::Toxic,
+                    color: FallKind::Toxic.default_color(),
+                    width: 3.0,
+                    height: 7.0,
+                    turbulence: Param::new(0.25),
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, 6.0, -12.0]),
+        ],
+        ..Default::default()
+    };
+    p.retro.apply_style(crate::RetroStyle::Quake);
+    p
+}
+
 pub fn by_name(name: &str) -> Option<Project> {
     all()
         .into_iter()
@@ -1768,6 +2025,7 @@ pub fn neon_arena() -> Project {
                     detail: Param::new(1.2),
                     texture: None,
                     ray: Default::default(),
+                    ..Default::default()
                 }),
             ),
             Layer::new(
@@ -1928,6 +2186,7 @@ pub fn neon_arena() -> Project {
                     sprite: Sprite::Glow,
                     seed: 5,
                     smoke: false,
+                    ..Default::default()
                 }),
             ),
         ],
@@ -2168,6 +2427,7 @@ pub fn gold_room() -> Project {
                     sprite: Sprite::Star,
                     seed: 9,
                     smoke: false,
+                    ..Default::default()
                 }),
             )
             .at([0.0, 4.0, -3.0]),
@@ -2237,6 +2497,7 @@ pub fn orbiting_solid() -> Project {
                     detail: Param::new(1.0),
                     texture: None,
                     ray: Default::default(),
+                    ..Default::default()
                 }),
             ),
             Layer::new(
@@ -2344,6 +2605,7 @@ pub fn orbiting_solid() -> Project {
                     sprite: Sprite::Glow,
                     seed: 3,
                     smoke: false,
+                    ..Default::default()
                 }),
             )
             .rotated([15.0, 0.0, 0.0]),
@@ -2406,6 +2668,7 @@ pub fn retro_tunnel() -> Project {
                     detail: Param::new(1.0),
                     texture: Some("xor".into()),
                     ray: Default::default(),
+                    ..Default::default()
                 }),
             ),
             Layer::new(
@@ -2445,6 +2708,7 @@ pub fn retro_tunnel() -> Project {
                     sprite: Sprite::Square,
                     seed: 1,
                     smoke: false,
+                    ..Default::default()
                 }),
             ),
         ],
@@ -2518,6 +2782,7 @@ pub fn plasma_kaleido() -> Project {
                     detail: Param::new(1.0),
                     texture: None,
                     ray: Default::default(),
+                    ..Default::default()
                 }),
             ),
             Layer::new(
@@ -2627,6 +2892,7 @@ pub fn synth_sunset() -> Project {
                     detail: Param::new(1.0),
                     texture: None,
                     ray: Default::default(),
+                    ..Default::default()
                 }),
             ),
             Layer::new(
@@ -2754,6 +3020,7 @@ pub fn vector_valley() -> Project {
                     detail: Param::new(1.0),
                     texture: None,
                     ray: Default::default(),
+                    ..Default::default()
                 }),
             ),
             Layer::new(
@@ -2867,6 +3134,7 @@ pub fn glitch_shrine() -> Project {
                     detail: Param::new(1.0),
                     texture: None,
                     ray: Default::default(),
+                    ..Default::default()
                 }),
             ),
             Layer::new(
@@ -3037,6 +3305,7 @@ pub fn sponge_dive() -> Project {
                         spin: 1,
                         ..Default::default()
                     },
+                    ..Default::default()
                 }),
             ),
             Layer::new(
@@ -3135,6 +3404,7 @@ fn sky(kind: BackdropKind, a: u32, b: u32, c: u32, ray: RaySettings) -> Layer {
             texture: None,
             ray,
             battle: Battle::default(),
+            ..Default::default()
         }),
     )
 }
@@ -3204,6 +3474,7 @@ pub fn stormy_lake() -> Project {
                         glow: Param::new(0.5),
                         waves: Param::new(1.5),
                         flow: 1,
+                        ..Default::default()
                     },
                     ..Default::default()
                 }),
@@ -3315,6 +3586,7 @@ pub fn lava_world() -> Project {
                         glow: Param::new(1.4).osc(Wave::Sine, 0.3, 4),
                         waves: Param::new(1.0),
                         flow: 2,
+                        ..Default::default()
                     },
                     ..Default::default()
                 }),
@@ -4333,6 +4605,7 @@ pub fn aurora_tundra() -> Project {
                         glow: Param::new(1.0),
                         waves: Param::new(1.0),
                         flow: 0,
+                        ..Default::default()
                     },
                     ..Default::default()
                 }),
@@ -4460,6 +4733,7 @@ pub fn dune_sea() -> Project {
                         glow: Param::new(1.2),
                         waves: Param::new(1.0),
                         flow: 1,
+                        ..Default::default()
                     },
                     ..Default::default()
                 }),

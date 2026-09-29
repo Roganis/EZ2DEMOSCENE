@@ -33,7 +33,10 @@ pub use audio::AudioEnvelope;
 pub use clock::{EvalCtx, Timing};
 pub use music::{AudioSource, MusicFrame, MusicMod, MusicMode, MusicSettings, TimeWarp};
 pub use param::{Curve, EnvPoint, EnvRef, Envelope, Param, Stamp, Wave, WAVE_GROUPS};
-pub use retro::{N64Fog, Retro3d, RetroRes, RetroStyle, TexFilter};
+pub use retro::{
+    Colormap, ColormapPalette, LightStyle, LightStylePreset, N64Fog, Retro3d, RetroRes, RetroStyle,
+    TexFilter, Turbulence,
+};
 pub use scene::*;
 
 /// File extension used for project files.

@@ -4,6 +4,7 @@
 // D.v[0]: kind (0 water, 1 lava, 2 toxic), width, height, push
 // D.v[1]: colour, glow
 // D.v[2]: streak offset (0..1), foam, seed, puff lives per loop
+// D.v[3]: turbulent warp amount, its time angle, _, _
 // D.v[8..11]: layer model matrix
 
 const COLS: u32 = 12u;
@@ -134,10 +135,12 @@ fn fs_main(in: FOut) -> @location(0) vec4<f32> {
     let u = in.uv.x;
     let t = in.uv.y;
     let seed = u32(D.v[2].z);
+    // Quake's turbulent warp of the streaks (whole wobbles per loop).
+    let wv = turb_warp(vec2<f32>(u, t) * 6.0, D.v[3].x, 1.0, D.v[3].y) / 6.0;
     // Streaks: long along the fall, scrolling down (periodic along t).
-    let y = (t - D.v[2].x) * f32(STREAK_P);
-    let s1 = f_noise(vec2<f32>(u * 22.0, y), STREAK_P, seed);
-    let s2 = f_noise(vec2<f32>(u * 61.0, y * 3.0), STREAK_P * 3, seed + 5u);
+    let y = (wv.y - D.v[2].x) * f32(STREAK_P);
+    let s1 = f_noise(vec2<f32>(wv.x * 22.0, y), STREAK_P, seed);
+    let s2 = f_noise(vec2<f32>(wv.x * 61.0, y * 3.0), STREAK_P * 3, seed + 5u);
     let streak = s1 * 0.65 + s2 * 0.35;
     let edges = smoothstep(0.0, 0.07, u) * smoothstep(1.0, 0.93, u) * smoothstep(0.0, 0.02, t) * smoothstep(1.0, 0.9, t);
     let n = normalize(in.normal);

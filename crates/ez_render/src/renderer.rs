@@ -95,6 +95,8 @@ struct GlobalsRaw {
     retro_fog: [f32; 4],
     /// Colour levels (0 = full), dither, near-plane culling (camera views).
     retro_col: [f32; 4],
+    /// Colormap light levels (0 = off).
+    retro_cm: [f32; 4],
 }
 
 /// An environment map on the GPU and what the CPU worked out from it.
@@ -141,6 +143,91 @@ struct Group3 {
     shadow_sampler: wgpu::Sampler,
     env_sampler: wgpu::Sampler,
     lut_view: wgpu::TextureView,
+    /// Retro 3D colormap: colour → palette entry, and palette entry ×
+    /// light level → colour (1 × 1 while off), and what they were made
+    /// from.
+    cm_index: wgpu::TextureView,
+    cm_table: wgpu::TextureView,
+    cm_key: String,
+}
+
+/// The colormap's two lookup textures (see `ez_core::retro::Colormap`),
+/// or 1 × 1 stand-ins.
+fn colormap_views(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    t: Option<&ez_core::retro::ColormapTables>,
+) -> (wgpu::TextureView, wgpu::TextureView) {
+    let make = |label, w: u32, h: u32, format, data: &[u8]| {
+        let tex = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some(label),
+            size: wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            tex.as_image_copy(),
+            data,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * w),
+                rows_per_image: Some(h),
+            },
+            wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+        );
+        tex.create_view(&Default::default())
+    };
+    match t {
+        Some(t) => {
+            let c = ez_core::retro::COLORMAP_CUBE;
+            let index: Vec<u8> = t.index.iter().flat_map(|&i| [i, 0, 0, 255]).collect();
+            let table: Vec<u8> = t.table.iter().flatten().copied().collect();
+            (
+                make(
+                    "colormap index",
+                    c * c,
+                    c,
+                    wgpu::TextureFormat::Rgba8Unorm,
+                    &index,
+                ),
+                make(
+                    "colormap table",
+                    256,
+                    t.levels,
+                    wgpu::TextureFormat::Rgba8UnormSrgb,
+                    &table,
+                ),
+            )
+        }
+        None => (
+            make(
+                "colormap off",
+                1,
+                1,
+                wgpu::TextureFormat::Rgba8Unorm,
+                &[0; 4],
+            ),
+            make(
+                "colormap off",
+                1,
+                1,
+                wgpu::TextureFormat::Rgba8UnormSrgb,
+                &[0; 4],
+            ),
+        ),
+    }
 }
 
 /// Size of the sun shadow map.
@@ -544,6 +631,7 @@ fn backdrop_load(kind: BackdropKind) -> f32 {
         BackdropKind::Aurora => 0.4,
         BackdropKind::Battle => 0.15,
         BackdropKind::Environment => 0.05,
+        BackdropKind::LayeredSky => 0.1,
     }
 }
 
@@ -1546,6 +1634,28 @@ impl Renderer {
                     },
                     count: None,
                 },
+                // Retro 3D colormap: colour → palette entry, and entry ×
+                // light level → colour (read with textureLoad).
+                wgpu::BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 6,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         });
         let globals_buf = [0, 1, 2, 3].map(|i| {
@@ -2203,15 +2313,18 @@ impl Renderer {
             );
             texture.create_view(&Default::default())
         };
-        let shadow_bg = Self::make_group3(
-            device,
-            &bgl_shadow,
-            &shadow_view,
-            &shadow_sampler,
-            &env_none,
-            &env_sampler,
-            &lut_view,
-        );
+        let (cm_index, cm_table) = colormap_views(device, queue, None);
+        let group3 = Group3 {
+            layout: bgl_shadow.clone(),
+            shadow_view: shadow_view.clone(),
+            shadow_sampler: shadow_sampler.clone(),
+            env_sampler: env_sampler.clone(),
+            lut_view: lut_view.clone(),
+            cm_index,
+            cm_table,
+            cm_key: String::new(),
+        };
+        let shadow_bg = Self::make_group3(device, &group3, &env_none);
         let main_pipes = scene_pipes(msaa);
         let refl_pipes = scene_pipes(1);
         let floor_pipe = make_pipeline(
@@ -2696,13 +2809,7 @@ impl Renderer {
             },
             sky: None,
             bgl_globals: bgl_globals.clone(),
-            group3: Group3 {
-                layout: bgl_shadow,
-                shadow_view,
-                shadow_sampler,
-                env_sampler,
-                lut_view,
-            },
+            group3,
             bgl_draw,
             draw_buf,
             draw_cap,
@@ -3638,6 +3745,65 @@ impl Renderer {
         }
     }
 
+    /// The picture of a texture name (built-in or the project's image).
+    fn image_of(&mut self, project: &Project, name: &str) -> Option<RgbaImage> {
+        if texgen::is_builtin(name) {
+            return Some(texgen::generate(name));
+        }
+        let (path, retro) = match project.find_texture(name) {
+            Some(t) => (t.path.clone(), t.retro.clone()),
+            None => (name.to_string(), None),
+        };
+        let decoded = ez_core::store::read(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|b| image::load_from_memory(&b).map_err(|e| e.to_string()));
+        match decoded {
+            Ok(img) => {
+                let img = img.to_rgba8();
+                Some(match &retro {
+                    Some(r) => texgen::retroize(&img, r),
+                    None => img,
+                })
+            }
+            Err(e) => {
+                self.errors
+                    .insert(format!("sky:{name}"), format!("sky picture '{name}': {e}"));
+                None
+            }
+        }
+    }
+
+    /// The two-layer sky's pictures side by side in one texture (far on
+    /// the left, near on the right, the near one scaled to the far one's
+    /// size), so the background keeps its one texture.
+    fn sky_pair_key(&mut self, project: &Project, b: &ez_core::Backdrop) -> String {
+        let far = b.texture.clone().unwrap_or_else(|| "sky_far".into());
+        let near = b
+            .sky
+            .near_texture
+            .clone()
+            .unwrap_or_else(|| "sky_near".into());
+        let key = format!("sky:{far}|{near}");
+        if self.textures.contains_key(&key) {
+            return key;
+        }
+        let (Some(f), Some(n)) = (self.image_of(project, &far), self.image_of(project, &near))
+        else {
+            return self.texture_key(project, None);
+        };
+        let n = image::imageops::resize(
+            &n,
+            f.width(),
+            f.height(),
+            image::imageops::FilterType::Nearest,
+        );
+        let mut pair = RgbaImage::new(f.width() * 2, f.height());
+        image::imageops::replace(&mut pair, &f, 0, 0);
+        image::imageops::replace(&mut pair, &n, f.width() as i64, 0);
+        self.upload_texture(key.clone(), &pair);
+        key
+    }
+
     /// The sampler for texture `key`: mirrored tiling when its key says so.
     fn sampler_for(&self, key: &str, nearest: bool) -> &wgpu::Sampler {
         self.sampler_of(key, nearest as u8)
@@ -4099,16 +4265,18 @@ impl Renderer {
 
     fn make_group3(
         device: &wgpu::Device,
-        layout: &wgpu::BindGroupLayout,
-        shadow_view: &wgpu::TextureView,
-        shadow_sampler: &wgpu::Sampler,
+        g: &Group3,
         env_view: &wgpu::TextureView,
-        env_sampler: &wgpu::Sampler,
-        lut_view: &wgpu::TextureView,
     ) -> wgpu::BindGroup {
+        let (shadow_view, shadow_sampler, env_sampler, lut_view) = (
+            &g.shadow_view,
+            &g.shadow_sampler,
+            &g.env_sampler,
+            &g.lut_view,
+        );
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("shadow and environment"),
-            layout,
+            layout: &g.layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -4130,8 +4298,33 @@ impl Renderer {
                     binding: 4,
                     resource: wgpu::BindingResource::TextureView(lut_view),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::TextureView(&g.cm_index),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::TextureView(&g.cm_table),
+                },
             ],
         })
+    }
+
+    /// Make the colormap's tables for the project's Retro 3D settings
+    /// when they changed.
+    fn ensure_colormap(&mut self, project: &Project) {
+        let cm = &project.retro.colormap;
+        let on = project.retro.enabled && cm.enabled;
+        let key = if on { cm.key() } else { String::new() };
+        if key == self.group3.cm_key {
+            return;
+        }
+        let tables = on.then(|| cm.tables());
+        let (index, table) = colormap_views(&self.device, &self.queue, tables.as_ref());
+        self.group3.cm_index = index;
+        self.group3.cm_table = table;
+        self.group3.cm_key = key;
+        self.shadow_bg = Self::make_group3(&self.device, &self.group3, &self.env.view);
     }
 
     /// What an environment map is made from (its cache key).
@@ -4228,15 +4421,7 @@ impl Renderer {
             }
         }
         self.env = env;
-        self.shadow_bg = Self::make_group3(
-            &self.device,
-            &self.group3.layout,
-            &self.group3.shadow_view,
-            &self.group3.shadow_sampler,
-            &self.env.view,
-            &self.group3.env_sampler,
-            &self.group3.lut_view,
-        );
+        self.shadow_bg = Self::make_group3(&self.device, &self.group3, &self.env.view);
     }
 
     /// Makes the sky capture's textures and pipeline (once).
@@ -4942,6 +5127,14 @@ impl Renderer {
                     [0.0; 4]
                 }
             },
+            retro_cm: {
+                let c = &project.retro.colormap;
+                if project.retro.enabled && c.enabled {
+                    [c.levels.clamp(2, 64) as f32, 0.0, 0.0, 0.0]
+                } else {
+                    [0.0; 4]
+                }
+            },
         }
     }
 
@@ -5103,6 +5296,7 @@ impl Renderer {
 
     /// Render one scene (no sequence).
     fn render_scene(&mut self, project: &Project, ctx: &EvalCtx, target: &RenderTarget) {
+        self.ensure_colormap(project);
         let mut layers = project.scene_layers(ctx);
         self.link_sims(project, ctx, &mut layers);
         let (w, h) = (target.width, target.height);
@@ -5165,6 +5359,7 @@ impl Renderer {
                     };
                     let tex = match &pano {
                         Some(k) => k.clone(),
+                        None if b.kind == BackdropKind::LayeredSky => self.sky_pair_key(project, b),
                         None => self.texture_key(project, b.texture.as_deref()),
                     };
                     self.tex_bind_group(&tex, false);
@@ -5211,6 +5406,20 @@ impl Renderer {
                     ];
                     if b.kind == BackdropKind::Battle {
                         battle_block(&mut blk, &b.battle, ctx, mirror);
+                    }
+                    if b.kind == BackdropKind::LayeredSky {
+                        // Whole tiles per loop, wrapped so the last frame
+                        // is exactly the first.
+                        let k = &b.sky;
+                        let off = |n: i32| (ctx.phase * n as f32).rem_euclid(1.0);
+                        blk[8] = [
+                            off(k.far_scroll[0]),
+                            off(k.far_scroll[1]),
+                            off(k.near_scroll[0]),
+                            off(k.near_scroll[1]),
+                        ];
+                        blk[9] = c4(k.cutout, k.tolerance.clamp(0.0, 1.0));
+                        blk[10] = [k.tiles.max(0.1), k.flatten.max(1.0), 0.0, 0.0];
                     }
                     ls.draws = 1;
                     ls.load = backdrop_load(b.kind);
@@ -5385,7 +5594,8 @@ impl Renderer {
                     ls.load = ls.triangles as f32 / 150_000.0 + count as f32 / 20_000.0;
                     let mut blk: Block = Zeroable::zeroed();
                     blk[0] = c4(mat.base_color, mat.metallic.eval(ctx));
-                    let e = mat.emissive.eval(ctx).max(0.0) * flash;
+                    let e =
+                        mat.emissive.eval(ctx).max(0.0) * flash * mat.glow_style.eval(ctx.phase);
                     blk[1] = c4(color::scale(mat.emissive_color, e), mat.roughness.eval(ctx));
                     let mode = EmissiveMode::ALL
                         .iter()
@@ -5516,6 +5726,15 @@ impl Renderer {
                     let mut pb = pbr_block(mat, ctx);
                     pb[3][0] = filter.index() as f32;
                     pb[3][1] = mat.mesh.eval(ctx).clamp(0.0, 1.0);
+                    let tb = &mat.turbulence;
+                    if tb.is_on() {
+                        pb[4] = [
+                            tb.amount.eval(ctx),
+                            tb.waves.max(0.0),
+                            TAU * (ctx.phase * tb.cycles as f32).rem_euclid(1.0),
+                            0.0,
+                        ];
+                    }
                     blocks.push(pb);
                 }
                 LayerKind::Particles(p) => {
@@ -5534,7 +5753,10 @@ impl Renderer {
                             p.seed as f32,
                         ];
                         blk[1] = c4(p.color_a, p.size.eval(ctx).max(0.0));
-                        blk[2] = c4(p.color_b, p.intensity.eval(ctx).max(0.0) * flash);
+                        blk[2] = c4(
+                            p.color_b,
+                            p.intensity.eval(ctx).max(0.0) * flash * p.glow_style.eval(ctx.phase),
+                        );
                         blk[3] = [
                             p.speed.eval(ctx),
                             p.radius.eval(ctx),
@@ -5623,6 +5845,13 @@ impl Renderer {
                             lq.waves.eval(ctx).max(0.0),
                             (ctx.phase * lq.flow as f32).rem_euclid(1.0),
                             TAU * (ctx.phase * bars).rem_euclid(1.0),
+                            0.0,
+                        ];
+                        // Quake's turbulent warp of the liquid's patterns.
+                        blk[14] = [
+                            lq.turbulence.eval(ctx),
+                            TAU * (ctx.phase * lq.turb_cycles as f32).rem_euclid(1.0),
+                            0.0,
                             0.0,
                         ];
                         let model = sym * lm;
@@ -5955,7 +6184,10 @@ impl Renderer {
                         1.0
                     };
                     let mut blk: Block = Zeroable::zeroed();
-                    blk[0] = c4(sp.tint, sp.glow.eval(ctx).max(0.0) * flash);
+                    blk[0] = c4(
+                        sp.tint,
+                        sp.glow.eval(ctx).max(0.0) * flash * sp.glow_style.eval(ctx.phase),
+                    );
                     blk[1] = [
                         cols as f32,
                         rows as f32,
@@ -6019,6 +6251,12 @@ impl Renderer {
                             fl.foam.eval(ctx).max(0.0),
                             (fl.seed % 65536) as f32,
                             (fl.flow / 2).max(1) as f32,
+                        ];
+                        blk[3] = [
+                            fl.turbulence.eval(ctx),
+                            TAU * (ctx.phase * fl.flow as f32).rem_euclid(1.0),
+                            0.0,
+                            0.0,
                         ];
                         blk[8..12].copy_from_slice(&m4(sym * lm));
                         cmds.push(Cmd::Falls {

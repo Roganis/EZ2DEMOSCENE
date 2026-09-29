@@ -13,6 +13,7 @@
 // D.v[8..11]: layer model matrix
 // D.v[12]: level of detail: focus u, focus w (0..1), grading kx, kz
 // D.v[13]: grid index at the focus x, z; drawn cells (0 = uniform grid), _
+// D.v[14]: liquid turbulent warp: amount (pattern cells), time angle, _, _
 @group(2) @binding(0) var t_tex: texture_2d<f32>;
 @group(2) @binding(1) var s_tex: sampler;
 
@@ -286,6 +287,15 @@ fn l_sky(r: vec3<f32>) -> vec3<f32> {
     return mix(G.fog.rgb * 1.1 + G.sky.rgb * 0.1, G.sky.rgb * 0.9 + G.fog.rgb * 0.2, up);
 }
 
+// Liquid coordinates: 0..1 across the terrain, scrolling with it, with
+// Quake's turbulent warp (D.v[14]: amount in pattern cells, time angle)
+// in whole pattern cells, so the terrain still wraps seamlessly.
+fn liquid_q(grid: vec2<f32>) -> vec2<f32> {
+    let q = grid / max(D.v[0].y, 1.0);
+    let cells = f32(max(i32(D.v[0].w + 0.5), 1) * 6);
+    return turb_warp(q * cells, D.v[14].x, 1.0, D.v[14].y) / cells;
+}
+
 fn shade_liquid(in: TOut, depth: f32, q: vec2<f32>) -> vec3<f32> {
     let kind = i32(D.v[5].z + 0.5);
     let lcol = D.v[6].rgb;
@@ -455,7 +465,7 @@ fn fs_main(in: TOut) -> @location(0) vec4<f32> {
     }
     let dist = length(G.cam_pos.xyz - in.world);
     // Liquid coordinates: 0..1 across the terrain, scrolling with it.
-    let q = in.grid / max(D.v[0].y, 1.0);
+    let q = liquid_q(in.grid);
     if (in_liquid) {
         var col = shade_liquid(in, depth, q);
         // Grid lines shine faintly through the surface.
@@ -490,7 +500,8 @@ fn fs_main(in: TOut) -> @location(0) vec4<f32> {
         if (biome > 0) {
             let hn = in.hraw / max(D.v[0].z, 1e-3);
             let hills = max(i32(D.v[0].w + 0.5), 1);
-            let nv = l_noise(q, hills * 16, u32(D.v[2].w) + 77u);
+            // The ground doesn't wobble with the liquid's warp.
+            let nv = l_noise(in.grid / max(D.v[0].y, 1.0), hills * 16, u32(D.v[2].w) + 77u);
             var shore = 0.0;
             if (liquid_kind == 1) {
                 shore = smoothstep(0.35, 0.05, -depth) * (1.0 - smoothstep(0.3, 0.6, in.slope));
@@ -508,7 +519,7 @@ fn fs_main(in: TOut) -> @location(0) vec4<f32> {
         ground = ground * (1.0 - 0.4 * G.caus_col.w);
         let snow = snow_cover(in.world, n);
         ground = mix(ground, vec3<f32>(0.88, 0.91, 0.96), snow);
-        col = ground * (diffuse + ambient + caustic_light(in.world, n)) + emit;
+        col = colormap_shade(ground, ground * (diffuse + ambient + caustic_light(in.world, n))) + emit;
         // Puddles mirror the sky.
         let pud = puddle(in.world, n) * (1.0 - snow);
         if (pud > 0.0) {
@@ -578,7 +589,7 @@ fn fs_depth(in: TOut) -> DistOut {
     let depth = D.v[5].w - in.hraw;
     let style = i32(D.v[1].w + 0.5);
     if (liquid_kind > 0 && depth > 0.0) {
-        let q = in.grid / max(D.v[0].y, 1.0);
+        let q = liquid_q(in.grid);
         return dist_out(in.world, liquid_mirror(in, depth, q));
     }
     var n = normalize(in.normal);

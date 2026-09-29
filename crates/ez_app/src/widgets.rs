@@ -165,6 +165,14 @@ fn music(ui: &Ui) -> Option<MusicPreview> {
     ui.ctx().data(|d| d.get_temp(egui::Id::new("ez2_music")))
 }
 
+/// Length of the current project's loop in seconds.
+pub fn loop_seconds(ui: &Ui) -> f32 {
+    music(ui)
+        .map(|m| m.timing.loop_seconds())
+        .unwrap_or(8.0)
+        .max(0.01)
+}
+
 /// Beats per loop of the current project (for beat-synced defaults).
 pub fn loop_beats(ui: &Ui) -> u32 {
     clock(ui).loop_beats

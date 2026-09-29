@@ -1,55 +1,59 @@
 {
   "version": 2,
-  "name": "Stage Select",
+  "name": "Slime Falls",
   "timing": {
-    "bpm": 128.0,
+    "bpm": 100.0,
     "loop_beats": 16
   },
   "camera": {
     "mode": "Pendulum",
     "target": [
       0.0,
-      1.0,
-      -12.0
+      2.0,
+      -6.0
     ],
     "distance": 12.0,
-    "height": 2.6,
+    "height": 3.0,
     "angle": 0.0,
     "orbit_turns": 1,
-    "swing": 12.0,
-    "fov": 60.0,
+    "swing": 14.0,
+    "fov": 62.0,
     "roll": 0.0,
     "beat_shake": 0.0
   },
   "environment": {
     "fog_color": [
-      0.21586053,
-      0.39157256,
-      0.80695236
+      0.005181517,
+      0.009134057,
+      0.005181517
     ],
-    "fog_density": 0.025,
+    "fog_density": 0.02,
     "sky_color": [
-      0.3515327,
-      0.5271152,
-      1.0
+      0.1620294,
+      0.2462014,
+      0.1620294
     ],
     "ground_color": [
       0.029556833,
-      0.051269468,
+      0.02121901,
       0.014443844
     ],
     "light_dir": [
-      0.5,
+      0.2,
       0.8,
-      0.3
+      0.6
     ],
     "light_color": [
+      0.74540436,
       1.0,
-      0.8713672,
-      0.6307572
+      0.74540436
     ],
     "light_intensity": 1.4,
-    "ambient": 0.5
+    "ambient": 0.6,
+    "light_style": {
+      "pattern": "mmammmmmamamaaammmmmmammma",
+      "plays": 4
+    }
   },
   "layers": [
     {
@@ -84,36 +88,55 @@
       },
       "kind": {
         "type": "Backdrop",
-        "kind": "Gradient",
+        "kind": "LayeredSky",
         "color_a": [
-          0.014443844,
-          0.051269468,
-          0.5271152
+          0.001517635,
+          0.001517635,
+          0.00303527
         ],
         "color_b": [
-          0.21586053,
-          0.39157256,
-          0.80695236
+          0.029556833,
+          0.014443844,
+          0.051269468
         ],
         "color_c": [
-          0.74540436,
-          0.80695236,
-          1.0
+          0.08021983,
+          0.11697067,
+          0.3515327
         ],
         "speed": 1,
         "intensity": 1.0,
         "detail": 1.0,
-        "texture": null
+        "texture": null,
+        "sky": {
+          "near_texture": null,
+          "cutout": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "tolerance": 0.1,
+          "far_scroll": [
+            1,
+            0
+          ],
+          "near_scroll": [
+            3,
+            1
+          ],
+          "tiles": 3.0,
+          "flatten": 3.0
+        }
       }
     },
     {
-      "name": "Land",
+      "name": "Canyon",
       "enabled": true,
       "transform": {
         "position": [
           0.0,
           -1.0,
-          -30.0
+          -25.0
         ],
         "rotation": [
           0.0,
@@ -138,13 +161,13 @@
       },
       "kind": {
         "type": "Terrain",
-        "size": 80.0,
-        "cells": 48,
-        "height": 3.5,
+        "size": 70.0,
+        "cells": 64,
+        "height": 7.0,
         "hills": 3,
-        "roughness": 0.3,
+        "roughness": 0.4,
         "scroll": 1,
-        "valley": 0.4,
+        "valley": 0.3,
         "style": "Solid",
         "line_color": [
           1.0,
@@ -153,108 +176,39 @@
         ],
         "glow": 1.0,
         "fill_color": [
-          0.1620294,
-          0.5271152,
-          0.08021983
+          0.21586053,
+          0.14412849,
+          0.09758736
         ],
-        "seed": 4,
-        "texture": "checker",
-        "tiles": 16,
+        "seed": 12,
+        "texture": "brick",
+        "tiles": 20,
         "texture_lines": false,
-        "pixelated": true
-      }
-    },
-    {
-      "name": "Coins",
-      "enabled": true,
-      "transform": {
-        "position": [
-          0.0,
-          1.6,
-          -8.0
-        ],
-        "rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "scale": 0.45,
-        "stretch": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "spin": [
-          0,
-          1,
-          0
-        ],
-        "bob": 0.0
-      },
-      "symmetry": {
-        "type": "None"
-      },
-      "kind": {
-        "type": "Mesh",
-        "source": {
-          "type": "Primitive",
-          "shape": "Star",
-          "points": 5,
-          "inner": 0.5,
-          "depth": 0.3
-        },
-        "material": {
-          "base_color": [
+        "pixelated": true,
+        "shape": "Canyons",
+        "liquid": {
+          "kind": "Toxic",
+          "level": 0.06,
+          "color": [
+            0.051269468,
             1.0,
-            0.6307572,
             0.029556833
           ],
-          "metallic": 0.8,
-          "roughness": 0.35,
-          "emissive_color": [
-            1.0,
-            0.3515327,
-            0.0
-          ],
-          "emissive": 0.4,
-          "emissive_mode": "Full",
-          "texture": null,
-          "texture_scale": 1.0,
-          "scroll": [
-            0,
-            0
-          ],
-          "pixelated": false,
-          "flat_shading": true,
-          "rim": 0.3,
-          "hue_shift": 0.0
-        },
-        "instancer": {
-          "type": "Radial",
-          "count": 6,
-          "radius": 2.2
-        },
-        "variation": {
-          "seed": 1,
-          "rotation": 0.0,
-          "scale": 0.0,
-          "hue": 0.0,
-          "spin": 0,
-          "ripple": 0.0,
-          "ripple_cycles": 1,
-          "ripple_spread": 1.0,
-          "chase": 0.0
+          "glow": 1.1,
+          "waves": 1.0,
+          "flow": 1,
+          "turbulence": 0.25
         }
       }
     },
     {
-      "name": "Title",
+      "name": "Slime fall",
       "enabled": true,
       "transform": {
         "position": [
           0.0,
-          3.4,
-          -8.0
+          6.0,
+          -12.0
         ],
         "rotation": [
           0.0,
@@ -278,40 +232,21 @@
         "type": "None"
       },
       "kind": {
-        "type": "Text",
-        "text": "STAGE 1",
-        "font": "Pixel",
-        "font_file": null,
-        "style": "Static",
-        "size": 0.9,
-        "spacing": 0.0,
-        "width": 12.0,
-        "speed": 1,
-        "wave": 0.4,
-        "wavelength": 8.0,
-        "wave_cycles": 2,
-        "letters_per_beat": 2,
-        "beats_per_line": 4,
-        "color_top": [
+        "type": "Falls",
+        "kind": "Toxic",
+        "width": 3.0,
+        "height": 7.0,
+        "push": 1.0,
+        "color": [
+          0.051269468,
           1.0,
-          1.0,
-          1.0
-        ],
-        "color_bottom": [
-          1.0,
-          0.6307572,
           0.029556833
         ],
         "glow": 1.0,
-        "outline": 0.6,
-        "outline_color": [
-          0.005181517,
-          0.014443844,
-          0.11697067
-        ],
-        "shadow": 0.8,
-        "chrome": 0.0,
-        "face_camera": true
+        "flow": 4,
+        "foam": 1.0,
+        "seed": 1,
+        "turbulence": 0.25
       }
     }
   ],
@@ -371,20 +306,20 @@
   "use_graph": false,
   "retro": {
     "enabled": true,
-    "resolution": "R256x224",
+    "resolution": "Custom",
     "custom": [
+      320,
+      200
+    ],
+    "sharp_overlays": true,
+    "snap": false,
+    "snap_res": [
       320,
       240
     ],
-    "sharp_overlays": true,
-    "snap": true,
-    "snap_res": [
-      256,
-      224
-    ],
     "snap_amount": 1.0,
-    "affine": 0.8,
-    "filter": null,
+    "affine": 0.0,
+    "filter": "Nearest",
     "fog": {
       "enabled": false,
       "near": 1.0,
@@ -395,7 +330,7 @@
     "vi_blur": 0.0,
     "near_cull": 0.0,
     "colormap": {
-      "enabled": false,
+      "enabled": true,
       "palette": "Software256",
       "levels": 32,
       "fullbrights": true

@@ -1530,11 +1530,49 @@ interpolated, so it is above 0 across any triangle with a marked corner
 and the fragment stage drops the whole triangle. Works on every backend
 (no geometry shaders or primitive IDs). Meshes and terrain, the
 camera's views only (not the sun's shadow map).
-### ☐ 12.9 Quake light styles
-### ☐ 12.10 Turbulent warp (water, lava, slime, waterfalls)
-### ☐ 12.11 Two-layer scrolling sky
-### ☐ 12.12 Palette-space lighting (colormap, fullbrights)
-### ☐ 12.13 Square particles
+### ☑ 12.9 Light styles
+**Done.** `LightStyle { pattern, plays }` (letters 'a' = 0, 'm' = 1,
+'z' ≈ 2.08, stepped, no blending), a pure function of the phase with
+whole plays per loop; the editor shows letters per second and snaps to
+the nearest whole number of plays for Quake's 10/s. On the sun and
+ambient light (`Environment::eval`), a material's glow, sprites and
+particles, all multiplied on the CPU. Nine built-in patterns of our own
+(steady, flicker, candle, torch, pulse, slow pulse, strobe, slow strobe,
+broken fluorescent).
+
+### ☑ 12.10 Turbulent warp
+**Done.** `turb_warp` (`uv + amount · sin(uv.yx · 2π · waves + angle)`,
+angle whole turns per loop): *Material → Turbulence* (amount in tiles,
+waves per tile, wobbles per loop), terrain liquids (in whole pattern
+cells, so the scrolling terrain still wraps; the ground's biome noise
+keeps the unwarped coordinates) and waterfalls (a wobble per streak
+run).
+
+### ☑ 12.11 Two-layer scrolling sky
+**Done.** Background kind *Two-layer sky (Quake)*: the direction
+squashed upwards (`xz / |(x, flatten·|y|, z)|`) onto a flat dome, far
+and near layers each scrolling whole tiles per loop, the near one's
+see-through colour showing the far one. The two pictures are packed
+side by side into one texture on the CPU (the background keeps its one
+texture binding) and read with `textureLoad` (nearest, no seams).
+Built-in `sky_far` and `sky_near` textures.
+
+### ☑ 12.12 Palette-space lighting (colormap)
+**Done.** *Retro 3D → Palette lighting*. On the CPU: a 32³ colour cube →
+nearest palette entry, and a 256 × levels table of each entry lit from
+black to twice as bright (scaled in gamma) → the nearest lit entry;
+fullbright entries keep their colour. Bound in group 3 (two small
+textures, read with `textureLoad`), rebuilt when the palette or levels
+change. The fragment finds the albedo's entry, the light as lit ÷ albedo
+luminance (converted to gamma), and reads the table. Our own
+"Software 3D (256)" palette: 14 lit ramps of 16 and 32 fullbrights;
+any retro palette works too. 3666 → 34 colours on a lit marble ball.
+
+### ☑ 12.13 Square particles
+**Done.** Particle sprite *Solid square (Quake)*: an opaque, unsmoothed
+square of the particle's colour (discard outside, alpha 1), through the
+15-bit colour when on. Presets **Slipgate Courtyard**, **Slime Falls**;
+one-click *Quake (software)* look (320 × 200, nearest, colormap).
 ### ☐ 12.14 Stepped animation ("on 2s")
 ### ☐ 12.15 VDP2 / Mode 7 floor layer
 

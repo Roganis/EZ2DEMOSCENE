@@ -185,7 +185,14 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   **N64 fog** starting close to the camera and the N64 **video blur**
   (de-dither and soften), **Saturn mesh transparency** (checkerboard
   see-through shapes and sprites) and PS1 **near-plane culling**. One
-  click turns on the PlayStation, Saturn or Nintendo 64 bundle.
+  click turns on the PlayStation, Saturn, Nintendo 64 or Quake bundle.
+- **Quake features.** **Light styles** (flicker strings from 'a' dark to
+  'z' bright, playing a whole number of times per loop) on the sun and
+  ambient light, glows, sprites and particles; **turbulent warp** for
+  water, lava and slime textures, terrain liquids and waterfalls; a
+  **two-layer scrolling sky**; **palette lighting** (colormap) through our
+  own 256-colour palette with fullbrights, or any retro palette; and
+  solid **square particles**.
 - **Post FX.** Bloom, **god rays** (light shafts from the sun or the
   picture centre) with lens flare, **heat haze**, **depth of field**
   (auto focus, round bokeh), **feedback trails** (zoom/turn/hue-drifting

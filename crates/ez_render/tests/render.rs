@@ -4048,3 +4048,289 @@ fn retro_console_quirks_show_and_loop() {
     assert!(seam < 0.6, "N64 look doesn't loop: {seam}");
     assert!(motion > 1.0, "N64 scene doesn't move");
 }
+
+/// Quake features: light styles (sun, glow, sprites, particles),
+/// turbulent warp (materials, terrain liquids, waterfalls), the two-layer
+/// sky, palette-space lighting and solid square particles all show and
+/// loop.
+#[test]
+fn quake_features_show_and_loop() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let dir = snapshot_dir().join("quake");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let (w, h) = (240u32, 136u32);
+    let target = r.create_target(w, h);
+    let base = || {
+        let mut p = presets::empty();
+        p.layers.clear();
+        p.camera = Camera {
+            mode: CameraMode::Static,
+            target: [0.0; 3],
+            distance: Param::new(4.0),
+            height: Param::new(1.0),
+            angle: Param::new(20.0),
+            fov: Param::new(50.0),
+            ..Default::default()
+        };
+        p.environment.fog_density = Param::new(0.0);
+        p.post.bloom.enabled = false;
+        p.post.grade.vignette = Param::new(0.0);
+        p.post.grade.grain = Param::new(0.0);
+        p
+    };
+    let ball = |mat: Material| {
+        Layer::new(
+            "Ball",
+            LayerKind::Mesh(MeshLayer {
+                source: MeshSource::Primitive(Primitive::Sphere { detail: 4 }),
+                material: mat,
+                ..Default::default()
+            }),
+        )
+        .scaled(1.3)
+    };
+    let lum = |img: &image::RgbaImage| {
+        img.as_raw().iter().map(|v| *v as f32).sum::<f32>() / img.as_raw().len() as f32
+    };
+    // "az": dark for the first half of the loop, twice as bright after.
+    let az = LightStyle {
+        pattern: "az".into(),
+        plays: 1,
+    };
+    let mut failures = Vec::new();
+    let mut check = |name: &str, p: &Project, r: &mut Renderer, want_change: bool| {
+        let at = |ph: f32| EvalCtx::new(&p.timing, ph, None);
+        let a = r.render_image(p, &at(0.1), &target);
+        let b = r.render_image(p, &at(0.6), &target);
+        let first = r.render_image(p, &at(0.0), &target);
+        let last = r.render_image(p, &at(1.0), &target);
+        // Not a whole fraction of the loop away from 0.1 either.
+        let c = r.render_image(p, &at(0.23), &target);
+        b.save(dir.join(format!("{name}.png"))).unwrap();
+        let (la, lb) = (lum(&a), lum(&b));
+        let change =
+            mean_abs_diff(a.as_raw(), b.as_raw()).max(mean_abs_diff(a.as_raw(), c.as_raw()));
+        let seam = mean_abs_diff(first.as_raw(), last.as_raw());
+        eprintln!("{name:<22} brightness {la:.1} -> {lb:.1}, change {change:.2}, seam {seam:.3}");
+        if seam > 0.6 {
+            failures.push(format!("{name}: seam {seam}"));
+        }
+        if want_change && change < 0.3 {
+            failures.push(format!("{name}: no change over the loop ({change})"));
+        }
+        (a, b)
+    };
+
+    // Light styles.
+    let mut p = base();
+    p.layers.push(ball(Material::default()));
+    p.environment.light_style = az.clone();
+    let (a, b) = check("sun style", &p, &mut r, true);
+    assert!(
+        lum(&b) > lum(&a) + 3.0,
+        "the sun's light style doesn't brighten"
+    );
+    let mut p = base();
+    p.layers.push(ball(Material {
+        emissive: Param::new(1.0),
+        glow_style: az.clone(),
+        ..Default::default()
+    }));
+    let (a, b) = check("glow style", &p, &mut r, true);
+    assert!(
+        lum(&b) > lum(&a) + 3.0,
+        "the glow's light style doesn't brighten"
+    );
+    let mut p = base();
+    p.layers.push(Layer::new(
+        "Dot",
+        LayerKind::Sprite(SpriteLayer {
+            size: Param::new(2.0),
+            glow_style: az.clone(),
+            ..Default::default()
+        }),
+    ));
+    let (a, b) = check("sprite style", &p, &mut r, true);
+    assert!(
+        lum(&b) > lum(&a) + 1.0,
+        "the sprite's light style doesn't brighten"
+    );
+    let particles = |sprite: Sprite, style: LightStyle| {
+        let mut p = base();
+        p.layers.push(Layer::new(
+            "Sparks",
+            LayerKind::Particles(ParticleLayer {
+                emitter: Emitter::Fountain,
+                count: 600,
+                size: Param::new(0.08),
+                radius: Param::new(1.5),
+                sprite,
+                glow_style: style,
+                ..Default::default()
+            }),
+        ));
+        p
+    };
+    let (a, b) = check(
+        "particle style",
+        &particles(Sprite::Glow, az.clone()),
+        &mut r,
+        true,
+    );
+    assert!(
+        lum(&b) > lum(&a) + 0.2,
+        "the particles' light style doesn't brighten"
+    );
+    check(
+        "square particles",
+        &particles(Sprite::SolidSquare, LightStyle::default()),
+        &mut r,
+        true,
+    );
+
+    // Turbulent warp on a textured ball (still: only the warp moves).
+    let turb = |amount: f32| {
+        let mut p = base();
+        p.layers.push(ball(Material {
+            texture: Some("brick".into()),
+            texture_scale: Param::new(2.0),
+            turbulence: Turbulence {
+                amount: Param::new(amount),
+                waves: 1.0,
+                cycles: 3,
+            },
+            ..Default::default()
+        }));
+        p
+    };
+    check("turbulent material", &turb(0.15), &mut r, true);
+    check("still material", &turb(0.0), &mut r, false);
+    // Lava on terrain and a waterfall.
+    let mut p = base();
+    p.camera.distance = Param::new(9.0);
+    p.camera.height = Param::new(4.0);
+    p.layers.push(Layer::new(
+        "Lava",
+        LayerKind::Terrain(Terrain {
+            size: 20.0,
+            cells: 32,
+            scroll: 0,
+            style: TerrainStyle::Solid,
+            liquid: Liquid {
+                kind: LiquidKind::Lava,
+                level: Param::new(0.6),
+                turbulence: Param::new(0.3),
+                turb_cycles: 2,
+                flow: 0,
+                ..Default::default()
+            },
+            ..Default::default()
+        }),
+    ));
+    check("turbulent lava", &p, &mut r, true);
+    // The warp itself, at one moment: with and without.
+    let warp_diff = |p: &Project, off: &Project, r: &mut Renderer| {
+        let a = r.render_image(p, &EvalCtx::at(0.3), &target);
+        let b = r.render_image(off, &EvalCtx::at(0.3), &target);
+        mean_abs_diff(a.as_raw(), b.as_raw())
+    };
+    let mut calm = p.clone();
+    if let LayerKind::Terrain(t) = &mut calm.layers[0].kind {
+        t.liquid.turbulence = Param::new(0.0);
+    }
+    let d_lava = warp_diff(&p, &calm, &mut r);
+    let mut p = base();
+    p.camera.distance = Param::new(12.0);
+    p.layers.push(
+        Layer::new(
+            "Falls",
+            LayerKind::Falls(Falls {
+                turbulence: Param::new(0.2),
+                foam: Param::new(0.0),
+                ..Default::default()
+            }),
+        )
+        .at([0.0, 4.0, 0.0]),
+    );
+    check("turbulent waterfall", &p, &mut r, true);
+    let mut calm = p.clone();
+    if let LayerKind::Falls(f) = &mut calm.layers[0].kind {
+        f.turbulence = Param::new(0.0);
+    }
+    let d_falls = warp_diff(&p, &calm, &mut r);
+    eprintln!("turbulence changes lava by {d_lava:.2}, the waterfall by {d_falls:.2}");
+    assert!(
+        d_lava > 1.0 && d_falls > 0.3,
+        "liquid turbulence shows no change"
+    );
+
+    // The two-layer sky scrolls, and the near layer has holes.
+    let sky = |cutout: [f32; 3]| {
+        let mut p = base();
+        p.camera.height = Param::new(3.0);
+        p.camera.target = [0.0, 3.0, 0.0];
+        p.layers.push(Layer::new(
+            "Sky",
+            LayerKind::Backdrop(Backdrop {
+                kind: BackdropKind::LayeredSky,
+                sky: LayeredSky {
+                    cutout,
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+        ));
+        p
+    };
+    let (a, _) = check("layered sky", &sky([0.0; 3]), &mut r, true);
+    // A see-through colour the near layer doesn't have: no holes.
+    let (solid, _) = check("sky without holes", &sky([1.0, 0.0, 1.0]), &mut r, true);
+    let holes = mean_abs_diff(a.as_raw(), solid.as_raw());
+    eprintln!("near layer holes change the sky by {holes:.2}");
+    assert!(lum(&a) > 5.0, "the sky is black");
+    assert!(
+        holes > 1.0,
+        "the far layer doesn't show through the near one"
+    );
+
+    // Palette-space lighting: far fewer colours, and it loops.
+    let mut p = base();
+    p.layers.push(ball(Material {
+        texture: Some("marble".into()),
+        ..Default::default()
+    }));
+    let plain = r.render_image(&p, &EvalCtx::at(0.3), &target);
+    p.retro.enabled = true;
+    p.retro.colormap.enabled = true;
+    let (cm, _) = check("colormap", &p, &mut r, false);
+    let unique = |img: &image::RgbaImage| {
+        img.pixels()
+            .map(|p| (p[0], p[1], p[2]))
+            .collect::<std::collections::HashSet<_>>()
+            .len()
+    };
+    let (u0, u1) = (unique(&plain), unique(&cm));
+    eprintln!("colours: plain {u0}, colormap {u1}");
+    assert!(
+        u1 < u0 / 3 && u1 < 400,
+        "colormap doesn't step through the palette: {u0} -> {u1}"
+    );
+    p.retro.colormap.palette = ColormapPalette::Retro(palette::PaletteId::C64);
+    let c64 = r.render_image(&p, &EvalCtx::at(0.3), &target);
+    c64.save(dir.join("colormap_c64.png")).unwrap();
+    assert!(
+        unique(&c64) < 60,
+        "the C64 colormap has {} colours",
+        unique(&c64)
+    );
+
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

@@ -44,6 +44,11 @@ pub const BUILTIN: &[(&str, &str)] = &[
     ("mosaic", "Random coloured mosaic tiles"),
     ("clouds", "Soft clouds on a blue sky"),
     ("matrix", "Falling green glyph rain"),
+    ("sky_far", "Far sky layer: deep purple clouds (two-layer sky)"),
+    (
+        "sky_near",
+        "Near sky layer: pale clouds with black holes (two-layer sky)",
+    ),
     (
         "sheet_explosion",
         "Sprite sheet (4x4): a fireball bursting into smoke",
@@ -563,6 +568,31 @@ fn pixel(name: &str, x: u32, y: u32, u: f32, v: f32) -> [f32; 3] {
         "clouds" => {
             let t = smooth(0.45, 0.8, fbm(u, v, 4, 5, 55));
             mix(rgb(0x3a7bd5), [1.0, 1.0, 1.0], t)
+        }
+        "sky_far" => {
+            // Chunky clouds in a few purple and blue shades.
+            let t = fbm(u, v, 4, 5, 91);
+            let t = (t * 6.0).floor() / 6.0;
+            ramp(
+                &[
+                    (0.2, 0x100828),
+                    (0.45, 0x2a1850),
+                    (0.65, 0x503078),
+                    (0.85, 0x8060a8),
+                ],
+                t,
+            )
+        }
+        "sky_near" => {
+            // Pale cloud banks; black (see-through in the two-layer sky)
+            // between them.
+            let t = fbm(u, v, 3, 5, 17);
+            if t < 0.52 {
+                [0.0, 0.0, 0.0]
+            } else {
+                let k = ((t - 0.52) / 0.3 * 4.0).floor() / 4.0;
+                mix(rgb(0x7050a0), rgb(0xe0c8ff), k.min(1.0))
+            }
         }
         "matrix" => {
             let (col, row) = ((x / 8) as i32, (y / 8) as i32);

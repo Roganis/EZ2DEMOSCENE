@@ -19,6 +19,7 @@
 // D2.v[2]: sheen rgb, index of refraction
 // D2.v[3]: texture filter (0 smooth, 1 nearest, 2 bilinear, 3 three-point),
 //          Saturn mesh see-through (0..1), _, _
+// D2.v[4]: turbulent warp: amount (tiles), waves per tile, time angle, _
 
 @group(1) @binding(1) var<uniform> D2: Draw;
 
@@ -295,7 +296,7 @@ fn surface(in: VOut) -> Surf {
     // Derivative-based values first (uniform control flow).
     let face_n = normalize(cross(dpdx(in.world), dpdy(in.world)));
     let edge_w = fwidth(in.edge) * 1.5 + 0.035;
-    let uv = affine_uv(in.uv, in.aff.xyz) * tex_scale + scroll;
+    let uv = turb_warp(affine_uv(in.uv, in.aff.xyz) * tex_scale + scroll, D2.v[4].x, D2.v[4].y, D2.v[4].z);
     var texel: vec3<f32>;
     var relief: vec3<f32>;
     var orm = vec3<f32>(1.0);
@@ -416,6 +417,7 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
         col = lit_surface(sf.base, sf.metallic, sf.rough, sf.n, in.world, sf.v, rim_k, 1.0);
     }
 
+    col = colormap_shade(sf.base, col);
     var mask = 1.0;
     switch mode {
         case 1: {
