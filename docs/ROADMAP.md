@@ -736,7 +736,7 @@ at the phase, so the promise still holds: the picture at a phase depends
 only on the settings, the loop length and the loop-window music, never on
 what the preview happened to play before.
 
-### ◐ 10.1 The bake and closing the loop (shared by every simulation)
+### ☑ 10.1 The bake and closing the loop (shared by every simulation)
 **How.**
 - `ez_core::sim`: a small `Sim` trait (`reset(settings, seed)`,
   `step(dt, &EvalCtx)`, `state()`) and a `Bake` that runs it at a fixed
@@ -836,10 +836,22 @@ and velocities are the positions' slope, through the blend too), the
 tail arrives at the start, the cross-fade weights are 0 where each copy
 jumps, ping-pong mirrors, Params drive the simulation at the simulated
 moment, slicing doesn't change a bake, and the cache in both modes.
-Still to do with the first simulated layer (10.2): the "simulating…"
-progress in the viewport bar and exports waiting for bakes.
+Wired in with 10.2: the renderer owns the cache (so the preview, both
+exports, thumbnails and tests share one path) and the music envelope
+(`set_audio`); the app polls it every frame (8 ms of baking per frame in
+the browser) and shows *Simulating… n %* in the viewport bar. Desktop
+exports and stills wait for bakes; the web export job, which shares the
+editor's renderer, renders a frame again until no simulation in it was
+drawn from an old bake. The cache keeps ready bakes by key (so two scenes
+in a transition, or preset thumbnails, never restart each other's bakes)
+and forgets them after 240 frames unused.
+Also: `Param` waves (sine, pulse, exponential fades, swell) and the beat
+pulse now use `sim::math`, since a simulation's settings are Params (every
+golden image unchanged within 0.24/255). Music analysis still uses the
+platform's maths, so a bake *driven by the music* is only as identical
+across platforms as the analysis is.
 
-### ☐ 10.2 Flocking
+### ☑ 10.2 Flocking
 **How.** A new copy layout, **Flock** (`Instancer::Flock`), so any shape
 or sprite layer can flock and keeps materials, shadows, variation and
 colour ramps. Boids with separation, alignment and cohesion on a uniform
@@ -859,6 +871,55 @@ glowing sprites).
 bounds; a scatter hit is visible in the frame after the kick. Preset:
 *Starling Dusk* (thousands of dark birds against a sunset, a
 music-linked attractor).
+
+**Done, differently: a flock holds a loose formation.** Measured first:
+a free flock of 300 ends its loop with each boid 8.5 units (RMS) from its
+start, the whole flock's width, and closing that over a quarter loop
+made boids race at 4–6× their cruising speed. Numbering is arbitrary, so
+no blend can hide that, and matching boids up at the wrap is impossible
+(a copy would have to become another). So each boid also has a place of
+its own: a small tilted circle inside the flock, turned a whole number of
+times per loop at about the cruising speed, all turning the same way (on
+opposite-turning circles boids met head on, too fast to steer apart).
+*Formation* (default 0.8, 0 = free) sets how firmly it keeps to it; the
+flock nearly repeats (seam 1.5 → 0.2 units), and the rest is closed by:
+- **A guided tail that steers.** `Sim::guide` (default: the kinematic
+  pull of 10.1) lets a simulation steer to its start instead: the flock
+  adds critically damped steering, capped at 6× its agility, while
+  separation (inverse distance, capped at 8×) still keeps boids apart.
+- **A short drawn blend when guided.** Blending the drawn positions over
+  the whole tail averaged two arrangements of the flock and put a quarter
+  of the boids on top of each other; guided bakes now blend only the last
+  fifth of the tail (`GUIDED_BLEND`).
+- **A half-loop tail by default.** Steering back over half the loop: the
+  mean speed rises from 2.3 to 3.3 at worst, and about 8% of boids pass
+  closer than a third of their spacing for a moment near the end (none
+  the rest of the loop).
+The flock flies in its target's frame (the target's motion is added on
+top), so it follows a moving target exactly; before, the formation
+spring lagged a quarter loop behind a target on a curve. Steering is
+capped by *Agility*; keeping apart and scatter have their own caps.
+Copies face along their velocity and bank (lift leans into the turn),
+turning smoothed. Neighbours come from a hashed grid built by a counting
+sort (the same order everywhere). Cross-faded flocks shrink each half away
+instead of fading it (shapes have no opacity). Not done: a predator,
+avoiding another layer and "around another layer" targets. Up to 2,000
+boids. Starling Dusk's 600 boids over 9.6 s take 19 MB and about 3 s to
+bake on the 4-core test container (one warm-up loop by default for
+flocks; holding a formation, more changes the seam little: 0.03, 0.008
+and 0.013 RMS for 0, 1 and 2). The browser bakes in 8 ms slices per
+frame, so expect several times that there.
+`ez_core` is now optimised in dev builds too (bakes were ~20× slower).
+Tested: loops (also free), spacing (≤ 2% crowded outside the tail), stays
+in its area at the cruising speed also while closing, faces where it
+flies, follows a path (centre within 1.5 units), a scatter pulse turns
+the flock outward at once and spreads it, the same bake on every platform
+(the hash checked natively and in wasm), saving and loading; on the GPU,
+nothing is drawn until baked (and the frame says so), a waiting renderer
+and a polling preview draw the same birds, they move and the loop closes
+(seam 0.0000); the web export job's frames equal a waiting renderer's.
+Preset: *Starling Dusk* (600 birds on a Lissajous path, scattering on
+every bar).
 
 ### ☐ 10.3 Cloth
 **How.** A new shape source, `MeshSource::Cloth` (flag, curtain, cape,

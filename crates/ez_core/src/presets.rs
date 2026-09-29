@@ -155,6 +155,11 @@ pub fn all() -> Vec<Preset> {
             project: galaxy_swarm(),
         },
         Preset {
+            name: "Starling Dusk",
+            description: "A flock of 600 starlings wheeling through a sunset, scattering on every bar: simulated, and looping.",
+            project: starling_dusk(),
+        },
+        Preset {
             name: "Sunset Title",
             description: "Synth Sunset with a title card: a bevelled chrome logo pulsing to the beat with a glint on every bar, and a pixel tag in the corner.",
             project: sunset_title(),
@@ -2821,6 +2826,118 @@ pub fn lava_world() -> Project {
             },
             grade: Grade {
                 vignette: Param::new(0.6),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+/// A murmuration at dusk: a simulated flock of dark birds following a
+/// looping curve in front of a sunset, scattering on every bar.
+pub fn starling_dusk() -> Project {
+    use crate::sim::{Flock, FlockPath};
+    let flock = Flock {
+        count: 600,
+        seed: 7,
+        speed: Param::new(4.0),
+        spacing: 0.5,
+        sight: 1.4,
+        radius: 6.0,
+        path: Some(FlockPath {
+            curve: RibbonCurve::Lissajous,
+            freq: [1, 2, 1],
+            size: 6.0,
+            laps: 1,
+        }),
+        // A burst outward on every bar (4 per loop).
+        scatter: Param::new(0.0).osc(Wave::Pulse, 0.7, 4),
+        ..Default::default()
+    };
+    let mut birds = Layer::new(
+        "Starlings",
+        LayerKind::Mesh(MeshLayer {
+            instancer: Instancer::Flock {
+                flock: Box::new(flock),
+                placed: None,
+            },
+            variation: Variation {
+                scale: 0.3,
+                ..Default::default()
+            },
+            ..mesh(
+                Primitive::Pyramid,
+                Material {
+                    base_color: hex(0x050406),
+                    metallic: Param::new(0.0),
+                    roughness: Param::new(1.0),
+                    rim: Param::new(0.0),
+                    ..Default::default()
+                },
+            )
+        }),
+    )
+    .scaled(0.17)
+    .at([0.0, 6.0, 0.0]);
+    // Flat and wide: wings, pointing where they fly.
+    birds.transform.stretch = [2.2, 0.25, 1.0];
+    Project {
+        name: "Starling Dusk".into(),
+        timing: crate::Timing {
+            bpm: 100.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Pendulum,
+            swing: Param::new(12.0),
+            target: [0.0, 6.0, 0.0],
+            distance: Param::new(20.0),
+            height: Param::new(1.0),
+            fov: Param::new(55.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0xc07a6a),
+            fog_density: Param::new(0.004),
+            sky_color: hex(0xe09070),
+            ground_color: hex(0x2a1830),
+            light_dir: [-0.4, 0.12, -1.0],
+            light_color: hex(0xffb070),
+            light_intensity: Param::new(1.2),
+            ambient: Param::new(0.15),
+            ..Default::default()
+        },
+        layers: vec![
+            sky(
+                BackdropKind::Clouds,
+                0x40305a,
+                0xf0a070,
+                0x906080,
+                RaySettings {
+                    variant: 0,
+                    size: Param::new(1.2),
+                    warp: Param::new(1.0),
+                    bend: Param::new(1.0),
+                    glow: Param::new(1.6),
+                    fog: Param::new(1.0),
+                    ..Default::default()
+                },
+            ),
+            birds,
+        ],
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                intensity: Param::new(0.5),
+                threshold: Param::new(1.2),
+                radius: Param::new(0.7),
+            },
+            rays: GodRays {
+                enabled: true,
+                intensity: Param::new(0.8),
+                length: Param::new(0.6),
+                threshold: Param::new(0.8),
                 ..Default::default()
             },
             ..Default::default()

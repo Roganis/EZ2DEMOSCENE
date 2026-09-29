@@ -159,7 +159,7 @@ impl EvalCtx {
 
     /// Decaying pulse that fires on every beat (1 at the beat, towards 0 after).
     pub fn beat_pulse(&self, sharpness: f32) -> f32 {
-        (-self.beat_frac() * sharpness).exp()
+        crate::sim::math::exp(-self.beat_frac() * sharpness)
     }
 
     /// Angle helper: `turns` full rotations over the loop, in radians.

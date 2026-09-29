@@ -38,5 +38,10 @@ env_logger = "0.11"
 [profile.dev.package."*"]
 opt-level = 2
 
+# Simulations bake whole loops ahead of time: unoptimised, a flock takes
+# twenty times longer (in the editor's dev builds and in the tests).
+[profile.dev.package.ez_core]
+opt-level = 2
+
 [profile.release]
 lto = "thin"

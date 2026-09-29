@@ -197,7 +197,12 @@ impl Viewport {
     ) -> (egui::TextureId, RenderTarget) {
         let target = self.renderer.create_target(size[0], size[1]);
         let ctx = EvalCtx::new(&project.timing, phase, None);
+        // Flocks in the picture: wait for them where bakes have a thread
+        // (a moment); the browser shows the picture without them.
+        self.renderer
+            .set_wait_for_bakes(cfg!(not(target_arch = "wasm32")));
         self.renderer.render(project, &ctx, &target);
+        self.renderer.set_wait_for_bakes(false);
         let id = self.render_state.renderer.write().register_native_texture(
             &self.render_state.device,
             &target.display_view,

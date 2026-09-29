@@ -14,6 +14,10 @@ pub const KEYS_PER_SECOND: f64 = 60.0;
 pub const MAX_KEYS: usize = 480;
 /// ...and at least this many.
 pub const MIN_KEYS: usize = 16;
+/// A guided tail's simulation arrives (nearly) at the start by itself, so
+/// only this last part of the tail is blended when drawn (blending the
+/// whole tail would average two different arrangements of the bodies).
+const GUIDED_BLEND: f64 = 0.3;
 /// How a guided tail closes: the gap left shrinks like the time left to
 /// this power.
 const GUIDE_RATE: f64 = 3.0;
@@ -280,6 +284,8 @@ pub struct FrameLayer {
 #[derive(Clone, Debug)]
 pub struct Bake {
     grid: Grid,
+    /// Length of the blend when drawn (the tail, or its end when guided).
+    blend_s: f64,
     track: Track,
     seam: Seam,
     warmup_loops: u32,
@@ -365,7 +371,7 @@ impl Bake {
     /// A blended-tail bake at `t` seconds into the loop.
     fn tail_at(&self, t: f64, out: &mut Vec<Body>, scratch: &mut Vec<Body>) {
         let l = self.grid.loop_s;
-        let b = self.grid.tail_s();
+        let b = self.blend_s;
         self.track.state_at(t, out);
         if t < l - b {
             return;
@@ -555,15 +561,8 @@ impl BakeJob {
         };
         self.track.state_at(t - l, &mut self.targets);
         self.drift.resize(self.targets.len(), Vec3::ZERO);
-        let bodies = self.sim.bodies_mut();
-        for ((body, to), drift) in bodies.iter_mut().zip(&self.targets).zip(&mut self.drift) {
-            let moved = (to.pos - body.pos) * gain;
-            body.pos += moved;
-            *drift = moved / dt as f32;
-            body.vel += (to.vel - body.vel) * gain;
-            body.rot = math::rot_nlerp(body.rot, to.rot, gain);
-            body.size += (to.size - body.size) * gain;
-        }
+        self.sim
+            .guide(&self.targets, gain, dt as f32, &mut self.drift);
     }
 
     /// The bake (simulating whatever is left first).
@@ -587,7 +586,13 @@ impl BakeJob {
                 }
             }
         };
+        let tail = self.grid.tail_s();
         Bake {
+            blend_s: if self.set.guide {
+                tail * GUIDED_BLEND
+            } else {
+                tail
+            },
             grid: self.grid,
             track: self.track,
             seam,

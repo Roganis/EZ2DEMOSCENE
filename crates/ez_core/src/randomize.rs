@@ -264,6 +264,10 @@ fn scale_counts(inst: &mut Instancer, rng: &mut Rng, k: f32) {
             *count = f(rng, *count, 10, 400);
             *seed = rng.next_u32() % 1000;
         }
+        Instancer::Flock { flock, .. } => {
+            flock.count = f(rng, flock.count, 20, crate::sim::FLOCK_MAX);
+            flock.seed = rng.next_u32() % 1000;
+        }
         Instancer::Grid { .. } | Instancer::Single => {}
     }
 }

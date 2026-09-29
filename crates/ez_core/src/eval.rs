@@ -372,6 +372,7 @@ pub fn layout_count(inst: &Instancer, surface: Option<&[SurfacePoint]>) -> u32 {
         Instancer::Wall { cols, rows, .. } => cols.clamp(1, 128) * rows.clamp(1, 128),
         Instancer::Spiral { count, .. } | Instancer::Curve { count, .. } => count.clamp(1, 4096),
         Instancer::Surface { .. } => surface.map_or(0, |s| s.len() as u32),
+        Instancer::Flock { ref placed, .. } => placed.as_ref().map_or(0, |p| p.len() as u32),
     }
 }
 
@@ -582,6 +583,7 @@ pub fn instancer_locals(
                 })
                 .collect()
         }
+        Instancer::Flock { ref placed, .. } => placed.as_deref().cloned().unwrap_or_default(),
     }
 }
 
@@ -665,7 +667,10 @@ pub fn instances_are_static(layer: &Layer, mesh: &MeshLayer) -> bool {
         && !t.bob.is_animated()
         && !matches!(
             mesh.instancer,
-            Instancer::Orbit { .. } | Instancer::Swarm { .. } | Instancer::OnTerrain { .. }
+            Instancer::Orbit { .. }
+                | Instancer::Swarm { .. }
+                | Instancer::OnTerrain { .. }
+                | Instancer::Flock { .. }
         )
         && !matches!(mesh.instancer, Instancer::Curve { laps, .. } if laps != 0)
         && v.spin == 0

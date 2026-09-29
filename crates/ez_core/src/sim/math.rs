@@ -149,6 +149,47 @@ pub fn rot_nlerp(a: Rot, b: Rot, t: f32) -> Rot {
     ])
 }
 
+/// The rotation taking the x, y and z axes to `side`, `up` and `fwd` (an
+/// orthonormal, right-handed frame).
+pub fn rot_from_basis(side: glam::Vec3, up: glam::Vec3, fwd: glam::Vec3) -> Rot {
+    let (m00, m11, m22) = (side.x, up.y, fwd.z);
+    let trace = m00 + m11 + m22;
+    let q = if trace > 0.0 {
+        let s = (trace + 1.0).sqrt() * 2.0;
+        [
+            (up.z - fwd.y) / s,
+            (fwd.x - side.z) / s,
+            (side.y - up.x) / s,
+            0.25 * s,
+        ]
+    } else if m00 > m11 && m00 > m22 {
+        let s = (1.0 + m00 - m11 - m22).sqrt() * 2.0;
+        [
+            0.25 * s,
+            (up.x + side.y) / s,
+            (fwd.x + side.z) / s,
+            (up.z - fwd.y) / s,
+        ]
+    } else if m11 > m22 {
+        let s = (1.0 + m11 - m00 - m22).sqrt() * 2.0;
+        [
+            (up.x + side.y) / s,
+            0.25 * s,
+            (fwd.y + up.z) / s,
+            (fwd.x - side.z) / s,
+        ]
+    } else {
+        let s = (1.0 + m22 - m00 - m11).sqrt() * 2.0;
+        [
+            (fwd.x + side.z) / s,
+            (fwd.y + up.z) / s,
+            0.25 * s,
+            (side.y - up.x) / s,
+        ]
+    };
+    rot_normalize(q)
+}
+
 /// Turns `r` by the angular velocity `w` (radians per second, world axes)
 /// over `dt` seconds.
 pub fn rot_integrate(r: Rot, w: glam::Vec3, dt: f32) -> Rot {
@@ -194,6 +235,18 @@ mod tests {
         let neg = q.map(|v| -v);
         let mid = rot_nlerp(q, neg, 0.5);
         assert!((mid[3].abs() - q[3].abs()).abs() < 1e-6);
+        // A frame back to its rotation, for frames in every octant.
+        for (i, axis) in [glam::Vec3::X, glam::Vec3::Y, glam::Vec3::Z, glam::Vec3::ONE]
+            .into_iter()
+            .enumerate()
+        {
+            for k in 0..8 {
+                let g = glam::Quat::from_axis_angle(axis.normalize(), k as f32 * 0.9 + i as f32);
+                let r = rot_from_basis(g * glam::Vec3::X, g * glam::Vec3::Y, g * glam::Vec3::Z);
+                let d: f32 = r.iter().zip(g.to_array()).map(|(a, b)| a * b).sum();
+                assert!(d.abs() > 1.0 - 1e-5, "{axis} {k}: {r:?} vs {g:?}");
+            }
+        }
         // Spinning at 1 rad/s for 1 s turns by 1 rad.
         let mut s = ROT_IDENTITY;
         for _ in 0..100 {

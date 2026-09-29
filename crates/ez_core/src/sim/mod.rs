@@ -20,10 +20,12 @@
 
 mod bake;
 mod cache;
+mod flock;
 pub mod math;
 
 pub use bake::*;
 pub use cache::*;
+pub use flock::*;
 
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
@@ -75,6 +77,30 @@ pub trait Sim: Send {
     /// Whether orientations matter (stored, interpolated and blended).
     fn rotations(&self) -> bool {
         false
+    }
+
+    /// A guided tail: after each step near the loop's end, move the bodies
+    /// the fraction `gain` of the way to `targets` (where they were one
+    /// loop earlier; `gain` reaches 1 at the end). `drift` receives, per
+    /// body, any movement the velocities don't include (per second). The
+    /// default moves them directly ([`pull`]); a simulation can instead
+    /// steer towards the targets, so its own rules (keeping apart) still
+    /// act; the final blend then covers what is left.
+    fn guide(&mut self, targets: &[Body], gain: f32, dt: f32, drift: &mut [Vec3]) {
+        pull(self.bodies_mut(), targets, gain, dt, drift);
+    }
+}
+
+/// Moves `bodies` the fraction `gain` of the way to `targets`, recording
+/// the movement per second in `drift` (the default [`Sim::guide`]).
+pub fn pull(bodies: &mut [Body], targets: &[Body], gain: f32, dt: f32, drift: &mut [Vec3]) {
+    for ((body, to), drift) in bodies.iter_mut().zip(targets).zip(drift) {
+        let moved = (to.pos - body.pos) * gain;
+        body.pos += moved;
+        *drift = moved / dt;
+        body.vel += (to.vel - body.vel) * gain;
+        body.rot = math::rot_nlerp(body.rot, to.rot, gain);
+        body.size += (to.size - body.size) * gain;
     }
 }
 

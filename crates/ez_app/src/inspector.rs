@@ -1022,6 +1022,8 @@ pub fn textures_ui(ui: &mut Ui, textures: &mut Vec<UserTexture>) {
 /// `lref` identifies the layer so file imports can be applied to it later.
 /// egui temp-data key: names of the project's terrain layers.
 pub const TERRAIN_NAMES: &str = "ez2-terrain-names";
+/// Temp data: the selected layer's `Option<SimStatus>` (its bake).
+pub const SIM_STATUS: &str = "ez2-sim-status";
 /// egui temp-data key: names of the shape and sprite layers.
 pub const COPY_LAYER_NAMES: &str = "ez2-copy-layer-names";
 /// Names of the logo layers (what a logo can be attached to).
@@ -1966,6 +1968,199 @@ fn instancer_ui(ui: &mut Ui, inst: &mut Instancer) {
             check(ui, "Follow the slope", "Tilt copies with the ground", align);
             slider(ui, "Lift", "Raise copies off the ground", lift, -2.0..=10.0);
         }
+        Instancer::Flock { flock, .. } => flock_ui(ui, flock),
+    }
+}
+
+fn flock_ui(ui: &mut Ui, f: &mut ez_core::sim::Flock) {
+    use ez_core::sim::{FlockPath, LoopClose, FLOCK_MAX};
+    drag_u(
+        ui,
+        "Count",
+        "Boids in the flock",
+        &mut f.count,
+        1..=FLOCK_MAX,
+    );
+    drag_u(ui, "Seed", "", &mut f.seed, 0..=9999);
+    param(
+        ui,
+        "Speed",
+        "Cruising speed, in units per second",
+        &mut f.speed,
+        0.0..=20.0,
+    );
+    slider(
+        ui,
+        "Area",
+        "How far from the target the boids fly",
+        &mut f.radius,
+        0.5..=40.0,
+    );
+    slider(
+        ui,
+        "Formation",
+        "How firmly each boid keeps its own place in the flock. Free flocking \
+         never repeats, so closing the loop has to catch boids up; holding a \
+         formation makes the flight nearly repeat by itself. 0 = free.",
+        &mut f.formation,
+        0.0..=2.0,
+    );
+    ui.separator();
+    ui.label(RichText::new("Flocking").weak());
+    slider(
+        ui,
+        "Spacing",
+        "Distance boids keep from each other",
+        &mut f.spacing,
+        0.05..=5.0,
+    );
+    slider(
+        ui,
+        "Sight",
+        "How far a boid sees its neighbours",
+        &mut f.sight,
+        0.1..=10.0,
+    );
+    slider(ui, "Keep apart", "", &mut f.separation, 0.0..=3.0);
+    slider(
+        ui,
+        "Fly together",
+        "Match the neighbours' heading",
+        &mut f.alignment,
+        0.0..=3.0,
+    );
+    slider(
+        ui,
+        "Stay close",
+        "Move to the neighbours' middle",
+        &mut f.cohesion,
+        0.0..=3.0,
+    );
+    slider(
+        ui,
+        "Agility",
+        "How hard a boid can steer",
+        &mut f.agility,
+        1.0..=60.0,
+    );
+    slider(
+        ui,
+        "Bank",
+        "Lean into turns (0 = never)",
+        &mut f.bank,
+        0.0..=1.5,
+    );
+    ui.separator();
+    ui.label(RichText::new("Target").weak());
+    for (axis, p) in ["Target x", "Target y", "Target z"]
+        .into_iter()
+        .zip(&mut f.target)
+    {
+        param(
+            ui,
+            axis,
+            "Where the flock gathers, from the layer's origin (animate it or link \
+             it to the music to lead the flock)",
+            p,
+            -20.0..=20.0,
+        );
+    }
+    let mut on_path = f.path.is_some();
+    if check(
+        ui,
+        "Along a curve",
+        "The target also travels a closed curve",
+        &mut on_path,
+    ) {
+        f.path = on_path.then(FlockPath::default);
+    }
+    if let Some(path) = &mut f.path {
+        combo(ui, "Curve", "", &mut path.curve, &RibbonCurve::ALL, |c| {
+            c.label()
+        });
+        row(
+            ui,
+            "Frequencies",
+            "Loops of the curve along x, y, z",
+            |ui| {
+                for v in path.freq.iter_mut() {
+                    ui.add(egui::DragValue::new(v).range(1..=16).speed(0.05));
+                }
+            },
+        );
+        slider(ui, "Curve size", "", &mut path.size, 0.1..=40.0);
+        drag_i(
+            ui,
+            "Laps / loop",
+            "Whole trips around the curve per loop",
+            &mut path.laps,
+            -8..=8,
+        );
+    }
+    param(
+        ui,
+        "Scatter",
+        "Push the boids away from the target (link it to kicks to scatter on hits)",
+        &mut f.scatter,
+        -1.0..=2.0,
+    );
+    ui.separator();
+    ui.label(RichText::new("Closing the loop").weak());
+    let l = &mut f.looping;
+    combo(
+        ui,
+        "Close by",
+        "Blend the tail: the flock steers back to where it started. \
+         Cross-fade: two copies of the flight half a loop apart, each \
+         shrinking away before it jumps back. Ping-pong: forward, then backward.",
+        &mut l.close,
+        &LoopClose::ALL,
+        |c| c.label(),
+    );
+    if l.close == LoopClose::BlendTail {
+        slider(
+            ui,
+            "Tail",
+            "Part of the loop spent steering back to the start",
+            &mut l.blend,
+            0.05..=0.5,
+        );
+        check(
+            ui,
+            "Steer back",
+            "Steer to the start while keeping apart (off: only blend)",
+            &mut l.guide,
+        );
+    }
+    if l.close != LoopClose::PingPong {
+        drag_u(
+            ui,
+            "Warm-up loops",
+            "Loops simulated before the one you see (fewer once it settles)",
+            &mut l.warmup,
+            0..=6,
+        );
+    }
+    let status: Option<ez_render::SimStatus> =
+        ui.data(|d| d.get_temp(egui::Id::new(SIM_STATUS))).flatten();
+    if let Some(st) = status {
+        let text = if !st.ready {
+            "Simulating…".to_string()
+        } else if l.close == LoopClose::PingPong {
+            format!("Baked · {:.1} MB", st.bytes as f32 / 1e6)
+        } else {
+            format!(
+                "Baked · seam {:.2} (largest {:.2}) · {:.1} MB",
+                st.seam.rms,
+                st.seam.max,
+                st.bytes as f32 / 1e6
+            )
+        };
+        ui.label(RichText::new(text).weak()).on_hover_text(
+            "The seam is how far the boids still are from where they started \
+             when the final blend takes over (average and largest, in world \
+             units): smaller means a smoother loop.",
+        );
     }
 }
 

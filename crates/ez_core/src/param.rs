@@ -7,6 +7,7 @@
 use crate::clock::EvalCtx;
 use crate::music::{AudioSource, MusicMod};
 use crate::rng::hash2;
+use crate::sim::math as sim_math;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Oscillator shape.
@@ -159,7 +160,9 @@ impl Wave {
         let n = cycles.unsigned_abs().max(1) as i64;
         let idx = x.floor() as i64;
         match self {
-            Wave::Sine => (f * std::f32::consts::TAU).sin(),
+            // Platform-independent maths, so simulations driven by a
+            // setting bake the same everywhere (see `sim::math`).
+            Wave::Sine => sim_math::sin(f * std::f32::consts::TAU),
             Wave::Triangle => 1.0 - 4.0 * (f - 0.5).abs(),
             Wave::Saw => f * 2.0 - 1.0,
             Wave::RampDown => 1.0 - f * 2.0,
@@ -170,12 +173,15 @@ impl Wave {
                     -1.0
                 }
             }
-            Wave::Pulse => (-f * 7.0).exp(),
-            Wave::ExpIn => ((K * f).exp() - 1.0) / (K.exp() - 1.0),
-            Wave::ExpOut => ((-K * f).exp() - (-K).exp()) / (1.0 - (-K).exp()),
+            Wave::Pulse => sim_math::exp(-f * 7.0),
+            Wave::ExpIn => (sim_math::exp(K * f) - 1.0) / (sim_math::exp(K) - 1.0),
+            Wave::ExpOut => (sim_math::exp(-K * f) - sim_math::exp(-K)) / (1.0 - sim_math::exp(-K)),
             Wave::LinearIn => f,
             Wave::LinearOut => 1.0 - f,
-            Wave::Swell => (f * std::f32::consts::PI).sin().powi(2),
+            Wave::Swell => {
+                let s = sim_math::sin(f * std::f32::consts::PI);
+                s * s
+            }
             Wave::Random => step_rand(idx, n, 0x5eed),
             Wave::SmoothRandom => {
                 let a = step_rand(idx, n, 0x5e1d);

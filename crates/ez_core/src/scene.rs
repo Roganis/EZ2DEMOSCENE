@@ -1677,6 +1677,15 @@ pub enum Instancer {
         #[serde(skip)]
         ground: Option<Box<(Terrain, Transform)>>,
     },
+    /// A flock: copies that fly together, simulated ahead of time into a
+    /// loop (see [`crate::sim::Flock`]).
+    Flock {
+        flock: Box<crate::sim::Flock>,
+        /// Where every copy is at the moment being drawn (from the bake),
+        /// filled in before rendering; none until the flock is baked.
+        #[serde(skip)]
+        placed: Option<std::sync::Arc<Vec<glam::Mat4>>>,
+    },
 }
 
 impl Instancer {
@@ -1693,6 +1702,7 @@ impl Instancer {
             Instancer::Curve { .. } => "Along a curve",
             Instancer::Surface { .. } => "On a shape's surface",
             Instancer::OnTerrain { .. } => "On a terrain",
+            Instancer::Flock { .. } => "Flock",
         }
     }
 
@@ -1763,6 +1773,10 @@ impl Instancer {
                 align: false,
                 lift: 0.0,
                 ground: None,
+            },
+            Instancer::Flock {
+                flock: Box::default(),
+                placed: None,
             },
         ]
     }
@@ -3719,24 +3733,41 @@ impl RibbonCurve {
 
     /// Point at `t` (0..1 around the closed curve), fitting a unit sphere.
     pub fn point(self, freq: [u32; 3], t: f32) -> [f32; 3] {
+        self.point_by(freq, t, |x| x.sin(), |x| x.cos())
+    }
+
+    /// [`RibbonCurve::point`] with the same result on every platform (for
+    /// simulations, see [`crate::sim::math`]).
+    pub fn point_exact(self, freq: [u32; 3], t: f32) -> [f32; 3] {
+        use crate::sim::math;
+        self.point_by(freq, t, math::sin, math::cos)
+    }
+
+    fn point_by(
+        self,
+        freq: [u32; 3],
+        t: f32,
+        sin: impl Fn(f32) -> f32,
+        cos: impl Fn(f32) -> f32,
+    ) -> [f32; 3] {
         use std::f32::consts::{PI, TAU};
         let [a, b, c] = freq.map(|f| f.clamp(1, 16) as f32);
         let x = t * TAU;
         match self {
             RibbonCurve::Lissajous => [
-                (a * x + 0.5 * PI).sin(),
-                (b * x).sin() * 0.6,
-                (c * x + 0.25 * PI).sin(),
+                sin(a * x + 0.5 * PI),
+                sin(b * x) * 0.6,
+                sin(c * x + 0.25 * PI),
             ],
             RibbonCurve::Knot => {
-                let rr = 0.62 + 0.28 * (b * x).cos();
-                [rr * (a * x).cos(), 0.28 * (b * x).sin(), rr * (a * x).sin()]
+                let rr = 0.62 + 0.28 * cos(b * x);
+                [rr * cos(a * x), 0.28 * sin(b * x), rr * sin(a * x)]
             }
-            RibbonCurve::Infinity => [x.sin(), 0.15 * (a * x).sin(), x.sin() * x.cos()],
-            RibbonCurve::Wave => [x.cos(), 0.3 * (a * x).sin(), x.sin()],
+            RibbonCurve::Infinity => [sin(x), 0.15 * sin(a * x), sin(x) * cos(x)],
+            RibbonCurve::Wave => [cos(x), 0.3 * sin(a * x), sin(x)],
             RibbonCurve::Rose => {
-                let rr = (a * x).cos();
-                [rr * x.cos(), 0.1 * (b * x).sin(), rr * x.sin()]
+                let rr = cos(a * x);
+                [rr * cos(x), 0.1 * sin(b * x), rr * sin(x)]
             }
         }
     }

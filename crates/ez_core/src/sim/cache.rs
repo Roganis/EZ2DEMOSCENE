@@ -9,26 +9,31 @@ use std::sync::Arc;
 /// Simulation steps between checks of the time budget (or cancelling).
 const CHUNK: usize = 64;
 
-/// Bakes by slot (one per simulated layer, numbered by the caller) and key
-/// (a hash of everything the bake depends on, see
-/// [`KeyHasher`](super::KeyHasher)). While a slot's new bake runs, it keeps
-/// handing out the previous one, so the preview doesn't blank out while a
-/// setting is dragged.
+/// Bakes by key (a hash of everything a bake depends on, see
+/// [`KeyHasher`](super::KeyHasher)), asked for through a slot (one per
+/// simulated layer, numbered by the caller). While a slot's new bake runs,
+/// it keeps handing out the bake it showed last, so the preview doesn't
+/// blank out while a setting is dragged. Bakes nobody asked for in a while
+/// are forgotten (see [`BakeCache::end_frame`]).
 pub struct BakeCache {
     threads: bool,
-    slots: HashMap<u64, Slot>,
+    /// Frames a bake is kept without being asked for.
+    keep: u64,
+    frame: u64,
+    ready: HashMap<u64, Ready>,
+    work: HashMap<u64, Work>,
+    /// The key each slot showed last, and when it was asked for.
+    slots: HashMap<u64, (u64, u64)>,
 }
 
-#[derive(Default)]
-struct Slot {
-    ready: Option<(u64, Arc<Bake>)>,
-    work: Option<Work>,
-    used: bool,
+struct Ready {
+    bake: Arc<Bake>,
+    used: u64,
 }
 
 struct Work {
-    key: u64,
     run: Run,
+    used: u64,
 }
 
 enum Run {
@@ -63,6 +68,10 @@ impl BakeCache {
     pub fn new() -> BakeCache {
         BakeCache {
             threads: cfg!(not(target_arch = "wasm32")),
+            keep: 240,
+            frame: 0,
+            ready: HashMap::new(),
+            work: HashMap::new(),
             slots: HashMap::new(),
         }
     }
@@ -71,48 +80,55 @@ impl BakeCache {
     pub fn inline() -> BakeCache {
         BakeCache {
             threads: false,
-            slots: HashMap::new(),
+            ..Self::new()
         }
     }
 
-    /// The bake for `key` in `slot`, starting it with `job` if it isn't
-    /// there or on its way. Until it is ready, the slot's previous bake (if
-    /// any); [`BakeCache::is_ready`] tells which.
+    /// Keep bakes for `frames` calls of [`BakeCache::end_frame`] after
+    /// they were last asked for (at least 1).
+    pub fn keep_for(mut self, frames: u64) -> BakeCache {
+        self.keep = frames.max(1);
+        self
+    }
+
+    /// The bake for `key`, starting it with `job` if it isn't there or on
+    /// its way. Until it is ready, the bake `slot` showed last (if any);
+    /// [`BakeCache::is_ready`] tells which.
     pub fn get(&mut self, slot: u64, key: u64, job: impl FnOnce() -> BakeJob) -> Option<Arc<Bake>> {
-        let threads = self.threads;
-        let s = self.slots.entry(slot).or_default();
-        s.used = true;
-        match &s.ready {
-            Some((k, bake)) if *k == key => return Some(bake.clone()),
-            _ => {}
+        let frame = self.frame;
+        if let Some(r) = self.ready.get_mut(&key) {
+            r.used = frame;
+            self.slots.insert(slot, (key, frame));
+            return Some(r.bake.clone());
         }
-        if s.work.as_ref().is_none_or(|w| w.key != key) {
-            s.work = Some(Work {
-                key,
-                run: start(job(), threads),
-            });
+        match self.work.get_mut(&key) {
+            Some(w) => w.used = frame,
+            None => {
+                let run = start(job(), self.threads);
+                self.work.insert(key, Work { run, used: frame });
+            }
         }
-        s.ready.as_ref().map(|(_, b)| b.clone())
+        let shown = self.slots.get_mut(&slot)?;
+        shown.1 = frame;
+        let r = self.ready.get_mut(&shown.0)?;
+        r.used = frame;
+        Some(r.bake.clone())
     }
 
-    /// Whether `slot` holds the bake for `key`.
-    pub fn is_ready(&self, slot: u64, key: u64) -> bool {
-        self.slots
-            .get(&slot)
-            .and_then(|s| s.ready.as_ref())
-            .is_some_and(|(k, _)| *k == key)
+    /// Whether the bake for `key` is ready.
+    pub fn is_ready(&self, key: u64) -> bool {
+        self.ready.contains_key(&key)
     }
 
     /// Whether any bake is running.
     pub fn pending(&self) -> bool {
-        self.slots.values().any(|s| s.work.is_some())
+        !self.work.is_empty()
     }
 
     /// Progress of the running bakes (0..1, the slowest), `None` if none.
     pub fn progress(&self) -> Option<f32> {
-        self.slots
+        self.work
             .values()
-            .filter_map(|s| s.work.as_ref())
             .map(|w| match &w.run {
                 Run::Inline(job) => job.progress(),
                 #[cfg(not(target_arch = "wasm32"))]
@@ -126,11 +142,14 @@ impl BakeCache {
     /// Call every frame: collects finished bakes, and runs inline bakes
     /// for as long as `more()` says there is time (check a clock in it).
     pub fn poll(&mut self, mut more: impl FnMut() -> bool) {
-        for s in self.slots.values_mut() {
-            let Some(work) = s.work.as_mut() else {
+        let mut keys: Vec<u64> = self.work.keys().copied().collect();
+        // Same order every time (inline bakes share the time).
+        keys.sort_unstable();
+        for key in keys {
+            let Some(w) = self.work.get_mut(&key) else {
                 continue;
             };
-            let outcome = match &mut work.run {
+            let outcome = match &mut w.run {
                 Run::Inline(job) => {
                     let mut done = false;
                     while !done && more() {
@@ -151,31 +170,64 @@ impl BakeCache {
                     Err(std::sync::mpsc::TryRecvError::Disconnected) => Outcome::Lost,
                 },
             };
-            outcome.apply(s);
+            self.apply(key, outcome);
         }
     }
 
     /// Waits for every running bake (exports, which must be exact).
     pub fn finish_all(&mut self) {
-        for s in self.slots.values_mut() {
-            let outcome = match s.work.as_ref().map(|w| &w.run) {
+        let keys: Vec<u64> = self.work.keys().copied().collect();
+        for key in keys {
+            let outcome = match self.work.get(&key).map(|w| &w.run) {
                 None => continue,
                 Some(Run::Inline(_)) => Outcome::Finish,
                 #[cfg(not(target_arch = "wasm32"))]
                 Some(Run::Thread { rx, .. }) => rx.recv().map_or(Outcome::Lost, Outcome::Ready),
             };
-            outcome.apply(s);
+            self.apply(key, outcome);
         }
     }
 
-    /// Call once per frame after the `get`s: forgets the slots nobody asked
-    /// for since the last call (deleted layers, simulations turned off).
+    fn apply(&mut self, key: u64, outcome: Outcome) {
+        let used = match outcome {
+            Outcome::Running => return,
+            _ => self.work.get(&key).map_or(self.frame, |w| w.used),
+        };
+        let bake = match outcome {
+            Outcome::Running => return,
+            Outcome::Lost => {
+                self.work.remove(&key);
+                return;
+            }
+            Outcome::Ready(bake) => bake,
+            Outcome::Finish => match self.work.remove(&key).map(|w| w.run) {
+                Some(Run::Inline(job)) => job.finish(),
+                _ => return,
+            },
+        };
+        self.work.remove(&key);
+        self.ready.insert(
+            key,
+            Ready {
+                bake: Arc::new(bake),
+                used,
+            },
+        );
+    }
+
+    /// Call once per frame: forgets bakes (and stops running ones) nobody
+    /// asked for in the last frames (deleted layers, old settings).
     pub fn end_frame(&mut self) {
-        self.slots.retain(|_, s| std::mem::take(&mut s.used));
+        self.frame += 1;
+        let (now, keep) = (self.frame, self.keep);
+        let fresh = |used: u64| now - used <= keep;
+        self.ready.retain(|_, r| fresh(r.used));
+        self.work.retain(|_, w| fresh(w.used));
+        self.slots.retain(|_, (_, used)| fresh(*used));
     }
 }
 
-/// What became of a slot's running bake.
+/// What became of a running bake.
 enum Outcome {
     Running,
     /// An inline bake to run to the end.
@@ -184,29 +236,6 @@ enum Outcome {
     Ready(Bake),
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     Lost,
-}
-
-impl Outcome {
-    fn apply(self, s: &mut Slot) {
-        match self {
-            Outcome::Running => {}
-            Outcome::Finish => {
-                if let Some(Work {
-                    key,
-                    run: Run::Inline(job),
-                }) = s.work.take()
-                {
-                    s.ready = Some((key, Arc::new(job.finish())));
-                }
-            }
-            Outcome::Ready(bake) => {
-                if let Some(w) = s.work.take() {
-                    s.ready = Some((w.key, Arc::new(bake)));
-                }
-            }
-            Outcome::Lost => s.work = None,
-        }
-    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -285,7 +314,7 @@ mod tests {
     fn inline_bakes_run_in_slices_and_keep_the_old_one() {
         let mut cache = BakeCache::inline();
         assert!(cache.get(1, 10, || job(1.0)).is_none());
-        assert!(cache.pending() && !cache.is_ready(1, 10));
+        assert!(cache.pending() && !cache.is_ready(10));
         // A few slices, not the whole bake.
         let mut slices = 3;
         cache.poll(|| {
@@ -295,17 +324,19 @@ mod tests {
         let p = cache.progress().unwrap();
         assert!(p > 0.0 && p < 1.0, "{p}");
         cache.poll(|| true);
-        assert!(!cache.pending() && cache.is_ready(1, 10));
+        assert!(!cache.pending() && cache.is_ready(10));
         assert_eq!(speed(&cache.get(1, 10, || unreachable!()).unwrap()), 1.0);
 
         // New settings: the old bake stays until the new one is done.
         let old = cache.get(1, 11, || job(2.0)).unwrap();
         assert_eq!(speed(&old), 1.0);
-        assert!(cache.pending() && !cache.is_ready(1, 11));
+        assert!(cache.pending() && !cache.is_ready(11));
         // Asking again doesn't restart it.
         cache.get(1, 11, || unreachable!());
         cache.finish_all();
         assert_eq!(speed(&cache.get(1, 11, || unreachable!()).unwrap()), 2.0);
+        // Both are kept while asked for: going back is instant.
+        assert_eq!(speed(&cache.get(1, 10, || unreachable!()).unwrap()), 1.0);
     }
 
     #[test]
@@ -320,7 +351,7 @@ mod tests {
         // Polling picks up a finished bake too.
         cache.get(1, 5, || job(5.0));
         let start = std::time::Instant::now();
-        while !cache.is_ready(1, 5) {
+        while !cache.is_ready(5) {
             assert!(start.elapsed().as_secs() < 30);
             cache.poll(|| false);
             std::thread::yield_now();
@@ -329,17 +360,32 @@ mod tests {
     }
 
     #[test]
-    fn unused_slots_are_forgotten() {
+    fn two_slots_can_share_or_differ() {
+        // Two scenes during a transition: neither restarts the other.
         let mut cache = BakeCache::inline();
+        cache.get(1, 1, || job(1.0));
+        cache.get(2, 2, || job(2.0));
+        cache.finish_all();
+        for _ in 0..3 {
+            assert_eq!(speed(&cache.get(1, 1, || unreachable!()).unwrap()), 1.0);
+            assert_eq!(speed(&cache.get(2, 2, || unreachable!()).unwrap()), 2.0);
+            assert_eq!(speed(&cache.get(3, 1, || unreachable!()).unwrap()), 1.0);
+            cache.end_frame();
+        }
+    }
+
+    #[test]
+    fn unused_bakes_are_forgotten() {
+        let mut cache = BakeCache::inline().keep_for(2);
         cache.get(1, 1, || job(1.0));
         cache.get(2, 2, || job(1.0));
         cache.finish_all();
-        cache.end_frame();
         // Only slot 1 is still asked for.
-        cache.get(1, 1, || unreachable!());
-        cache.end_frame();
-        cache.end_frame();
-        assert!(!cache.is_ready(2, 2));
+        for _ in 0..3 {
+            cache.get(1, 1, || unreachable!());
+            cache.end_frame();
+        }
+        assert!(cache.is_ready(1) && !cache.is_ready(2));
         let mut restarted = false;
         cache.get(2, 2, || {
             restarted = true;

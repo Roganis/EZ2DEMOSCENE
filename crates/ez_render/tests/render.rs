@@ -31,6 +31,7 @@ fn presets_render_and_loop_seamlessly() {
     };
     eprintln!("adapter: {}", gpu.adapter_name());
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
+    r.set_wait_for_bakes(true);
     let target = r.create_target(320, 180);
     let dir = snapshot_dir();
     for preset in presets::all() {
@@ -2512,4 +2513,77 @@ fn lens_and_mirrored_tiling() {
         "mirrored tiling has no seams: {jump_mirror}"
     );
     assert!(seam < 0.6, "mirrored scrolling still loops: {seam}");
+}
+
+/// A flock: nothing until baked (and the frame says so), then the same
+/// birds whether the renderer waited or the preview polled; it moves and
+/// loops.
+#[test]
+fn flocks_bake_fly_and_loop() {
+    use ez_core::sim::Flock;
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut p = presets::starling_dusk();
+    for l in &mut p.layers {
+        if let Some(Instancer::Flock { flock, .. }) = l.kind.instancer_mut() {
+            **flock = Flock {
+                count: 150,
+                ..(**flock).clone()
+            };
+        }
+    }
+    let mut empty = p.clone();
+    empty.layers.retain(|l| l.kind.instancer().is_none());
+    let at = |phase: f32| EvalCtx::new(&p.timing, phase, None);
+
+    // The preview: nothing until the bake is ready, and it says so.
+    let mut preview = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let target = preview.create_target(160, 90);
+    let sky = preview.render_image(&empty, &at(0.2), &target);
+    preview.take_inexact();
+    let before = preview.render_image(&p, &at(0.2), &target);
+    assert!(preview.take_inexact());
+    assert!(mean_abs_diff(before.as_raw(), sky.as_raw()) < 0.01);
+    let start = std::time::Instant::now();
+    while preview.bake_progress().is_some() {
+        assert!(start.elapsed().as_secs() < 120, "bake never finished");
+        preview.poll_bakes(|| false);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let polled = preview.render_image(&p, &at(0.2), &target);
+    assert!(!preview.take_inexact());
+
+    // An export waits, and draws the same.
+    let mut export = Renderer::new(&gpu.device, &gpu.queue, 1);
+    export.set_wait_for_bakes(true);
+    let waited = export.render_image(&p, &at(0.2), &target);
+    assert!(!export.take_inexact());
+    assert_eq!(waited.as_raw(), polled.as_raw());
+    let birds = mean_abs_diff(waited.as_raw(), sky.as_raw());
+    assert!(birds > 0.05, "no birds: {birds}");
+
+    // They fly, and the loop closes.
+    let a = export.render_image(&p, &at(0.0), &target);
+    let b = export.render_image(&p, &at(1.0), &target);
+    let later = export.render_image(&p, &at(0.3), &target);
+    let (seam, motion) = (
+        mean_abs_diff(a.as_raw(), b.as_raw()),
+        mean_abs_diff(waited.as_raw(), later.as_raw()),
+    );
+    // The sky also moves: compare with it.
+    let sky_later = export.render_image(&empty, &at(0.3), &target);
+    let sky_motion = mean_abs_diff(sky.as_raw(), sky_later.as_raw());
+    eprintln!("flock: birds {birds:.3}, seam {seam:.4}, motion {motion:.3} (sky {sky_motion:.3})");
+    assert!(seam < 0.05, "seam {seam}");
+    assert!(
+        motion > sky_motion + 0.02,
+        "birds don't move: {motion} vs {sky_motion}"
+    );
+    waited.save(snapshot_dir().join("flock_0.2.png")).unwrap();
 }

@@ -1394,6 +1394,16 @@ impl EzApp {
             .map(|l| l.name.clone())
             .collect();
         ui.data_mut(|d| d.insert_temp(egui::Id::new(inspector::TERRAIN_NAMES), terrains));
+        // How the selected layer's simulation bake is doing.
+        let sim = match self.selection {
+            Selection::Layer(i) => self
+                .project
+                .layers
+                .get(i)
+                .and_then(|l| self.viewport.renderer.sim_status(&l.name)),
+            _ => None,
+        };
+        ui.data_mut(|d| d.insert_temp(egui::Id::new(inspector::SIM_STATUS), sim));
         // Shape and sprite layers that arcs can reach for.
         let copy_layers: Vec<String> = self
             .project
@@ -1937,6 +1947,15 @@ impl EzApp {
                 ui.label(format!("Analysing music… {:.0}%", task.progress() * 100.0))
                     .on_hover_text("Music-driven settings react once this finishes.");
             }
+            if let Some(p) = self.viewport.renderer.bake_progress() {
+                ui.spinner();
+                ui.label(format!("Simulating… {:.0}%", p * 100.0))
+                    .on_hover_text(
+                        "Flocks are simulated ahead of time into a loop. Until this \
+                     finishes they show their previous version (or nothing); \
+                     exports wait for it.",
+                    );
+            }
             if let Some((msg, err, t)) = &self.status {
                 if self.now - t < 6.0 || (*err && self.now - t < 20.0) {
                     ui.label(RichText::new(msg).color(if *err {
@@ -1992,6 +2011,10 @@ impl EzApp {
             Some(_) => (false, ctx),
             None => (true, ctx),
         };
+        // Simulations: their music, and some baking (in the browser, which
+        // has no threads, a slice of each frame).
+        self.viewport.renderer.set_audio(self.audio_env.clone());
+        self.viewport.renderer.poll_bakes(bake_budget());
         // While exporting, keep showing the last picture: the GPU time goes
         // to the export instead (this matters a lot on phones).
         let tex = match self.viewport.last_texture() {
@@ -2862,6 +2885,21 @@ fn music_meters(ui: &mut Ui, m: &ez_core::MusicFrame) {
             1.0,
             ACCENT,
         );
+    }
+}
+
+/// How long simulations may bake per frame: in the browser (no threads)
+/// about 8 ms; elsewhere bakes run on threads and polling only collects
+/// them.
+fn bake_budget() -> impl FnMut() -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let start = js_sys::Date::now();
+        move || js_sys::Date::now() - start < 8.0
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        || false
     }
 }
 

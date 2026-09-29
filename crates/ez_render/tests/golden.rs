@@ -41,6 +41,7 @@ fn presets_match_golden_images() {
         return;
     }
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
+    r.set_wait_for_bakes(true);
     let target = r.create_target(W, H);
     std::fs::create_dir_all(golden_dir()).unwrap();
     let mut failures = Vec::new();

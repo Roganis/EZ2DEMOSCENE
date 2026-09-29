@@ -71,6 +71,13 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     wall, spiral, curve, big swarms of up to 250,000 in orbits, a cloud,
     a shell or a spiral galaxy) is placed with its variation by a compute
     shader on desktop and WebGPU; WebGL2 runs the same maths on the CPU.
+  - **Flocks** (a copy layout): boids that keep apart, fly together and
+    follow a target (still, animated, music-linked or travelling a
+    curve), bank into turns and scatter on hits. Simulated ahead of time
+    into a loop (on a thread; in the browser a slice per frame) with the
+    same result on every platform: each boid keeps a loose place in a
+    formation so the flight nearly repeats, and the end of the loop steers
+    back to its start. Exports wait for the simulation.
   - **Logos**: text or an image laid flat on the screen (snapped to a
     part of the screen or against another logo, which it then follows,
     like a photo editor's reference points; size and turn animatable),

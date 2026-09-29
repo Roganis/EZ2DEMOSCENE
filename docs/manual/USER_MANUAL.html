@@ -449,6 +449,16 @@ everywhere, then finished on the graphics card.)</p>
   <tr><td>On a terrain</td><td>Terrain (a Terrain layer), Count, Seed, Follow the slope, Lift</td><td>Trees, crystals, lamps and ruins
   standing on the landscape. They ride along as it scrolls, follow its placement and shrink away at its edges where it wraps; on water
   or lava they float.</td></tr>
+  <tr><td>Flock</td><td>Count (up to 2,000), Seed, Speed, Area, Formation; Spacing, Sight, Keep apart, Fly together, Stay close,
+  Agility, Bank; Target x/y/z, Along a curve, Scatter; Close by, Tail, Steer back, Warm-up loops</td><td>Starlings, bats, fish,
+  drones. The copies are <b>simulated</b>: each one steers by its neighbours and heads for the target (animate it, link it to the
+  music or send it along a curve to lead the flock); link <span class="ui">Scatter</span> to kicks to make them burst outward on
+  hits. The flight is worked out ahead of time into a loop. While it is (a few seconds, shown as <i>Simulating…</i> in the viewport
+  bar) the flock shows its previous version or nothing, and exports wait for it. A free flock never repeats, so the end of the loop
+  has to steer every boid back to where it started; <span class="ui">Formation</span> gives each boid a loose place of its own so
+  the flight nearly repeats by itself and the catch-up is gentle. Under the settings, <i>seam</i> says how far the boids still are
+  from their start when the final blend takes over. Use a small, flat shape (a squashed pyramid). The <b>Starling Dusk</b> preset
+  has 600.</td></tr>
 </table>
 <p><b>Variation</b> (appears when there are copies) adds life:</p>
 <ul>

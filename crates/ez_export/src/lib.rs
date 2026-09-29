@@ -507,6 +507,9 @@ pub fn export(
 
     let gpu = Gpu::headless()?;
     let mut renderer = Renderer::new(&gpu.device, &gpu.queue, 4);
+    // Simulations must be exact: wait for their bakes.
+    renderer.set_audio(audio.cloned().map(std::sync::Arc::new));
+    renderer.set_wait_for_bakes(true);
     let target = renderer.create_target(w, h);
 
     let ctx_of = |frame: f64| -> EvalCtx {
@@ -795,6 +798,7 @@ pub fn render_still(
 ) -> Result<()> {
     let gpu = Gpu::headless()?;
     let mut renderer = Renderer::new(&gpu.device, &gpu.queue, 4);
+    renderer.set_wait_for_bakes(true);
     let target = renderer.create_target(width, height);
     let ctx = EvalCtx::new(&project.timing, phase, None);
     let img = renderer.render_image(project, &ctx, &target);

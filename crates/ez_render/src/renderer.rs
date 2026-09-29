@@ -664,6 +664,17 @@ fn gpu_layout(
             // Somewhere on the landscape: always drawn.
             g.reach = None;
         }
+        Instancer::Flock { ref flock, .. } => {
+            // Placed on the CPU from the bake.
+            g.layout = 11;
+            g.lay_u[0] = locals.len() as u32;
+            locals.extend(
+                ez_core::eval::instancer_locals(inst, ctx, surface)
+                    .iter()
+                    .map(|m| m4(*m)),
+            );
+            g.reach = Some(flock.reach());
+        }
     }
     g
 }
@@ -971,6 +982,33 @@ pub struct Renderer {
     uploaded: Vec<InstanceRaw>,
     floor_bg_cache: Option<((String, u64), wgpu::BindGroup)>,
     stats: FrameStats,
+    /// Simulations baked into loops (flocks), and what they may depend on.
+    bakes: ez_core::sim::BakeCache,
+    sim_frame: ez_core::sim::Frame,
+    audio: Option<std::sync::Arc<AudioEnvelope>>,
+    /// Changes with every new music envelope (part of bake keys).
+    audio_id: u64,
+    /// Wait for bakes instead of drawing the last one (exports).
+    wait_for_bakes: bool,
+    /// Whether a simulation was drawn from an old bake, or not drawn, in
+    /// frames since the last [`Renderer::take_inexact`].
+    inexact: bool,
+    /// Per simulated layer (by name), how its bake is doing.
+    sim_status: HashMap<String, SimStatus>,
+}
+
+/// How a simulated layer's bake is doing (for the inspector).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SimStatus {
+    /// The bake for the current settings is ready (else an older one, or
+    /// nothing, is drawn).
+    pub ready: bool,
+    /// The gap closing the loop hides (see [`ez_core::sim::Seam`]).
+    pub seam: ez_core::sim::Seam,
+    /// Loops simulated before recording.
+    pub warmup_loops: u32,
+    /// Memory the bake takes.
+    pub bytes: usize,
 }
 
 /// All size-dependent GPU resources for one output image.
@@ -2074,6 +2112,13 @@ impl Renderer {
             uploaded: Vec::new(),
             floor_bg_cache: None,
             stats: FrameStats::default(),
+            bakes: ez_core::sim::BakeCache::new(),
+            sim_frame: Default::default(),
+            audio: None,
+            audio_id: 0,
+            wait_for_bakes: false,
+            inexact: false,
+            sim_status: HashMap::new(),
         };
         let white = RgbaImage::from_pixel(1, 1, image::Rgba([255, 255, 255, 255]));
         r.upload_texture("__white".into(), &white);
@@ -3248,6 +3293,129 @@ impl Renderer {
     }
 
     // ------------------------------------------------------------------
+    // Simulations
+
+    /// The music simulations may follow (the loop window of the song).
+    pub fn set_audio(&mut self, audio: Option<std::sync::Arc<AudioEnvelope>>) {
+        let same = match (&self.audio, &audio) {
+            (Some(a), Some(b)) => std::sync::Arc::ptr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        };
+        if !same {
+            self.audio = audio;
+            self.audio_id += 1;
+        }
+    }
+
+    /// Wait for simulations to bake before drawing them (exports, stills),
+    /// instead of drawing their last bake meanwhile.
+    pub fn set_wait_for_bakes(&mut self, wait: bool) {
+        self.wait_for_bakes = wait;
+    }
+
+    /// Call once per frame: collects finished bakes and runs bakes that
+    /// can't have a thread (the browser) while `more()` allows.
+    pub fn poll_bakes(&mut self, more: impl FnMut() -> bool) {
+        self.bakes.poll(more);
+        self.bakes.end_frame();
+    }
+
+    /// Progress of the running bakes (0..1), `None` when none runs.
+    pub fn bake_progress(&self) -> Option<f32> {
+        self.bakes.progress()
+    }
+
+    /// Whether a simulation was drawn from an old bake (or not at all)
+    /// since the last call; clears the flag.
+    pub fn take_inexact(&mut self) -> bool {
+        std::mem::take(&mut self.inexact)
+    }
+
+    /// How the bake of the simulated layer `name` is doing.
+    pub fn sim_status(&self, name: &str) -> Option<SimStatus> {
+        self.sim_status.get(name).copied()
+    }
+
+    /// Fills in the copies of flock layers from their bakes, starting the
+    /// bakes they need.
+    fn link_sims(&mut self, project: &Project, ctx: &EvalCtx, layers: &mut Cow<'_, [Layer]>) {
+        use ez_core::sim::{BakeJob, KeyHasher, SimClock};
+        let wants =
+            |l: &Layer| l.enabled && matches!(l.kind.instancer(), Some(Instancer::Flock { .. }));
+        if !layers.iter().any(wants) {
+            return;
+        }
+        for (i, layer) in layers.to_mut().iter_mut().enumerate() {
+            if !wants(layer) {
+                continue;
+            }
+            let name = layer.name.clone();
+            let Some(Instancer::Flock { flock, placed }) = layer.kind.instancer_mut() else {
+                continue;
+            };
+            let music = flock.uses_music();
+            let key = KeyHasher::new()
+                .json(&**flock)
+                .json(&project.timing)
+                .u64(if music { self.audio_id } else { 0 })
+                .json(&if music { Some(&project.music) } else { None })
+                .finish();
+            let slot = KeyHasher::new()
+                .bytes(name.as_bytes())
+                .u64(i as u64)
+                .finish();
+            let clock = SimClock::with_music(
+                project.timing,
+                project.music.clone(),
+                if music { self.audio.clone() } else { None },
+            );
+            let job = || {
+                let sim = flock.sim(&clock.ctx(0.0));
+                BakeJob::new(Box::new(sim), clock.clone(), flock.looping.clone())
+            };
+            let mut bake = self.bakes.get(slot, key, job);
+            if self.wait_for_bakes && !self.bakes.is_ready(key) {
+                self.bakes.finish_all();
+                bake = self.bakes.get(slot, key, job);
+            }
+            let ready = self.bakes.is_ready(key);
+            self.inexact |= !ready;
+            let Some(bake) = bake else {
+                self.sim_status.insert(name, SimStatus::default());
+                continue;
+            };
+            self.sim_status.insert(
+                name,
+                SimStatus {
+                    ready,
+                    seam: bake.seam(),
+                    warmup_loops: bake.warmup_loops(),
+                    bytes: bake.bytes(),
+                },
+            );
+            // The simulation ran in real time: read it at the real phase.
+            bake.sample(ctx.beat_phase, &mut self.sim_frame);
+            let mut mats = Vec::with_capacity(bake.len() * self.sim_frame.layers.len());
+            for l in &self.sim_frame.layers {
+                for b in &l.bodies {
+                    // Cross-faded halves shrink away as they fade.
+                    let size = b.size * l.weight;
+                    if size > 1e-3 {
+                        let rot = glam::Quat::from_array(b.rot).normalize();
+                        mats.push(Mat4::from_scale_rotation_translation(
+                            Vec3::splat(size),
+                            rot,
+                            b.pos,
+                        ));
+                    }
+                }
+            }
+            *placed = Some(std::sync::Arc::new(mats));
+        }
+    }
+
+    // ------------------------------------------------------------------
     // Frame
 
     #[allow(clippy::too_many_arguments)]
@@ -3481,7 +3649,8 @@ impl Renderer {
 
     /// Render one scene (no sequence).
     fn render_scene(&mut self, project: &Project, ctx: &EvalCtx, target: &RenderTarget) {
-        let layers = project.scene_layers(ctx);
+        let mut layers = project.scene_layers(ctx);
+        self.link_sims(project, ctx, &mut layers);
         let (w, h) = (target.width, target.height);
         let cam = project.camera.eval(ctx);
         let view = cam.view();

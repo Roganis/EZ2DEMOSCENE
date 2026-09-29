@@ -209,6 +209,24 @@ impl ExportJob {
         }
     }
 
+    /// Renders the frame at `ctx`; `false` (and nothing to keep) while a
+    /// simulation in it is still baking, after giving the bake some time.
+    fn render_exact(&mut self, renderer: &mut Renderer, ctx: &EvalCtx) -> bool {
+        renderer.take_inexact();
+        renderer.render(&self.project, ctx, &self.target);
+        if !renderer.take_inexact() {
+            return true;
+        }
+        // A slice of baking where bakes can't have a thread (the browser);
+        // elsewhere this collects finished ones.
+        let mut slices = 8;
+        renderer.poll_bakes(|| {
+            slices -= 1;
+            slices >= 0
+        });
+        false
+    }
+
     /// Advance the export. Call repeatedly (e.g. once or twice per UI frame).
     pub fn step(&mut self, renderer: &mut Renderer) -> Result<JobState> {
         // Up to three frames in flight: the GPU renders the next frames
@@ -239,7 +257,9 @@ impl ExportJob {
                 self.looped,
                 (self.frames - self.warmup) as f64,
             );
-            renderer.render(&self.project, &ctx, &self.target);
+            if !self.render_exact(renderer, &ctx) {
+                return Ok(JobState::Running(self.progress()));
+            }
             self.warmup -= 1;
             return Ok(JobState::Running(self.progress()));
         }
@@ -254,7 +274,9 @@ impl ExportJob {
                 self.looped,
                 self.next as f64 + self.blur.offset(self.sub),
             );
-            renderer.render(&self.project, &ctx, &self.target);
+            if !self.render_exact(renderer, &ctx) {
+                return Ok(JobState::Running(self.progress()));
+            }
             self.pending
                 .push_back(renderer.start_readback(&self.target));
             self.sub += 1;
@@ -331,6 +353,52 @@ mod tests {
         let zip_bytes = run(&mut job, &mut r);
         let archive = zip::ZipArchive::new(std::io::Cursor::new(zip_bytes)).unwrap();
         assert_eq!(archive.len(), 12);
+    }
+
+    /// The job keeps rendering a frame until the flock in it has baked,
+    /// so the file has the same birds as a renderer that waits.
+    #[test]
+    fn exports_wait_for_simulations() {
+        use ez_core::Instancer;
+        let Ok(gpu) = Gpu::headless() else {
+            eprintln!("no GPU, skipping");
+            return;
+        };
+        let mut p = presets::starling_dusk();
+        p.timing.bpm = 240.0;
+        p.timing.loop_beats = 2; // 0.5 s -> 6 frames at 12 fps
+        p.post.grade.grain = ez_core::Param::new(0.0);
+        for l in &mut p.layers {
+            if let Some(Instancer::Flock { flock, .. }) = l.kind.instancer_mut() {
+                flock.count = 100;
+            }
+        }
+        let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+        let mut job = ExportJob::new(
+            &r,
+            p.clone(),
+            None,
+            64,
+            36,
+            12.0,
+            1,
+            Box::<PngZipSink>::default(),
+        );
+        let bytes = run(&mut job, &mut r);
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        assert_eq!(zip.len(), 6);
+        let mut exact = Renderer::new(&gpu.device, &gpu.queue, 1);
+        exact.set_wait_for_bakes(true);
+        let target = exact.create_target(64, 36);
+        for i in 0..6 {
+            let mut f = zip.by_index(i).unwrap();
+            let mut v = Vec::new();
+            std::io::Read::read_to_end(&mut f, &mut v).unwrap();
+            let got = image::load_from_memory(&v).unwrap().to_rgba8();
+            let ctx = crate::export_ctx(&p, None, 12.0, 6, true, i as u32);
+            let want = exact.render_image(&p, &ctx, &target);
+            assert_eq!(got.as_raw(), want.as_raw(), "frame {i}");
+        }
     }
 
     #[test]
