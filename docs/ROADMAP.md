@@ -736,7 +736,7 @@ at the phase, so the promise still holds: the picture at a phase depends
 only on the settings, the loop length and the loop-window music, never on
 what the preview happened to play before.
 
-### ☐ 10.1 The bake and closing the loop (shared by every simulation)
+### ◐ 10.1 The bake and closing the loop (shared by every simulation)
 **How.**
 - `ez_core::sim`: a small `Sim` trait (`reset(settings, seed)`,
   `step(dt, &EvalCtx)`, `state()`) and a `Bake` that runs it at a fixed
@@ -794,6 +794,50 @@ flock 2,000 (10,000 desktop), cloth 64 × 64, rigid bodies 300, fluid
 identical; the state is continuous across the blend window's start (no
 jump in position, a bounded one in velocity); baking twice gives the same
 bytes; a golden hash of a small bake catches accidental non-determinism.
+
+**Done (the engine); wiring into the editor and exports comes with 10.2.**
+`ez_core::sim`: a `Sim` moves a fixed set of `Body`s (position, velocity,
+rotation, size; size 0 hides one, so emitters and respawns fit); a
+`BakeJob` runs it a slice at a time into a `Bake`, and `Bake::sample`
+fills a reusable `Frame` of one layer, or two weighted layers for a
+cross-fade. 120 steps and up to 60 keys per second (16–480 keys per
+loop), cubic Hermite between keys, positions, velocities and sizes
+blended, rotations by normalised lerp. The differences from the plan:
+- **The guided tail closes the gap by itself.** A pull of fixed strength
+  only halved the gap of bouncing balls (the collisions push back faster
+  than it pulls). Now each step closes `3 × step / time left` of the gap,
+  eased in at the tail's start, so the gap shrinks like the time left
+  cubed and is exactly zero a few steps before the end; the final blend
+  then has nothing left to hide. The pull's own movement goes into the
+  recorded velocities, so the interpolation between keys stays true.
+  *Seam* reports what the final blend hides: 0 when guided, the natural
+  gap otherwise (the test's chaotic balls: 2.1 units RMS unguided).
+- **Warm-up can stop after any loop.** Warm-up loops cover the same
+  phases as the recording (they start where the pre-roll starts), so
+  stopping after any whole number of loops is seamless. The test springs
+  settle loop by loop (differences 1.08, 0.044, 0.0018, 0.00007) and
+  stop at the fourth.
+- **Keys are f32**, not f16, for now: 2,000 bodies with rotations over a
+  4-second loop take 26 MB, inside the budget. Halve it when a layer
+  needs more.
+Determinism: `sim::math` (sine, cosine, exp by range reduction and
+polynomials in f64, quaternion helpers). Checked for real: the test's
+chaotic bake built for wasm and run in node gives the native hash; the
+same bake with the platform's `sin`/`cos` gives a different hash natively
+(glibc) than in the browser. `same_bake_everywhere` pins the hash, and CI
+runs it on Linux, Windows and macOS (ARM). `BakeCache` runs bakes per
+slot and settings key (`KeyHasher`, a stable FNV-1a): on a thread on
+desktop, in slices from `poll` in the browser, handing out the slot's
+previous bake until the new one is ready; `finish_all` waits (exports),
+`end_frame` forgets slots nobody asked for, and a bake no longer wanted
+stops its thread. Tested: every closing mode is continuous over the whole
+loop (6,000 samples; no layer moves further than its velocity allows,
+and velocities are the positions' slope, through the blend too), the
+tail arrives at the start, the cross-fade weights are 0 where each copy
+jumps, ping-pong mirrors, Params drive the simulation at the simulated
+moment, slicing doesn't change a bake, and the cache in both modes.
+Still to do with the first simulated layer (10.2): the "simulating…"
+progress in the viewport bar and exports waiting for bakes.
 
 ### ☐ 10.2 Flocking
 **How.** A new copy layout, **Flock** (`Instancer::Flock`), so any shape
