@@ -1,59 +1,68 @@
 {
   "version": 2,
-  "name": "Saturn Ghosts",
+  "name": "Dreamcast Sunset",
   "timing": {
-    "bpm": 90.0,
+    "bpm": 118.0,
     "loop_beats": 16
   },
   "camera": {
-    "mode": "Orbit",
+    "mode": "Pendulum",
     "target": [
       0.0,
-      1.5,
+      0.7,
       0.0
     ],
-    "distance": 4.2,
-    "height": 0.4,
+    "distance": 5.0,
+    "height": 0.9,
     "angle": 0.0,
     "orbit_turns": 1,
-    "swing": 0.0,
-    "fov": 66.0,
+    "swing": 40.0,
+    "fov": 50.0,
     "roll": 0.0,
     "beat_shake": 0.0
   },
   "environment": {
     "fog_color": [
-      0.005181517,
-      0.005181517,
-      0.029556833
-    ],
-    "fog_density": 0.05,
-    "sky_color": [
-      0.21586053,
       0.27889434,
-      0.6307572
+      0.47932023,
+      0.80695236
     ],
-    "ground_color": [
-      0.051269468,
-      0.039546236,
-      0.11697067
-    ],
-    "light_dir": [
-      -0.3,
-      1.0,
-      0.4
-    ],
-    "light_color": [
-      0.6307572,
-      0.68668544,
+    "fog_density": 0.008,
+    "sky_color": [
+      0.27889434,
+      0.5271152,
       1.0
     ],
-    "light_intensity": 1.6,
-    "ambient": 1.1
+    "ground_color": [
+      0.11697067,
+      0.051269468,
+      0.029556833
+    ],
+    "light_dir": [
+      -0.6,
+      0.3,
+      0.8
+    ],
+    "light_color": [
+      1.0,
+      0.5271152,
+      0.21586053
+    ],
+    "light_intensity": 2.0,
+    "ambient": 0.6,
+    "env_light": {
+      "source": {
+        "Studio": "Sunset"
+      },
+      "rotation": 0.0,
+      "intensity": 1.0,
+      "sun_from_map": false,
+      "sky_static": false
+    }
   },
   "layers": [
     {
-      "name": "Floor",
+      "name": "Sky",
       "enabled": true,
       "transform": {
         "position": [
@@ -83,31 +92,108 @@
         "type": "None"
       },
       "kind": {
-        "type": "Mode7",
-        "texture": "metal_plate",
-        "tile_size": 3.0,
-        "turns": 0,
-        "scroll": [
-          0,
-          0
-        ],
-        "tint": [
-          0.27889434,
-          0.27889434,
+        "type": "Backdrop",
+        "kind": "Gradient",
+        "color_a": [
+          0.009134057,
+          0.08021983,
           0.5271152
         ],
-        "brightness": 1.0,
-        "pixelated": true,
-        "fog": true
+        "color_b": [
+          0.1620294,
+          0.4341537,
+          1.0
+        ],
+        "color_c": [
+          1.0,
+          0.68668544,
+          0.39157256
+        ],
+        "speed": 1,
+        "intensity": 1.0,
+        "detail": 1.0,
+        "texture": null
       }
     },
     {
-      "name": "Pillars",
+      "name": "Sea",
       "enabled": true,
       "transform": {
         "position": [
           0.0,
-          2.0,
+          -3.0,
+          -40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Terrain",
+        "size": 120.0,
+        "cells": 48,
+        "height": 2.0,
+        "hills": 2,
+        "roughness": 0.5,
+        "scroll": 0,
+        "valley": 0.3,
+        "style": "Solid",
+        "line_color": [
+          1.0,
+          0.02415763,
+          0.6724432
+        ],
+        "glow": 1.0,
+        "fill_color": [
+          0.00303527,
+          0.001214108,
+          0.009134057
+        ],
+        "seed": 1,
+        "texture": null,
+        "tiles": 8,
+        "texture_lines": false,
+        "pixelated": false,
+        "shape": "Dunes",
+        "biome": "Desert",
+        "liquid": {
+          "kind": "Water",
+          "level": 0.7,
+          "color": [
+            0.0,
+            0.11697067,
+            0.5271152
+          ],
+          "glow": 1.0,
+          "waves": 1.0,
+          "flow": 1
+        }
+      }
+    },
+    {
+      "name": "Pier",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          -0.2,
           0.0
         ],
         "rotation": [
@@ -117,9 +203,9 @@
         ],
         "scale": 1.0,
         "stretch": [
-          0.6,
-          4.0,
-          0.6
+          5.0,
+          0.3,
+          4.0
         ],
         "spin": [
           0,
@@ -139,12 +225,12 @@
         },
         "material": {
           "base_color": [
-            0.6307572,
-            0.5775805,
-            0.74540436
+            0.5271152,
+            0.27889434,
+            0.11697067
           ],
           "metallic": 0.0,
-          "roughness": 0.9,
+          "roughness": 0.85,
           "emissive_color": [
             1.0,
             0.029556833,
@@ -152,8 +238,8 @@
           ],
           "emissive": 0.0,
           "emissive_mode": "Full",
-          "texture": "sierpinski",
-          "texture_scale": 1.0,
+          "texture": "wood",
+          "texture_scale": 2.0,
           "scroll": [
             0,
             0
@@ -164,9 +250,7 @@
           "hue_shift": 0.0
         },
         "instancer": {
-          "type": "Radial",
-          "count": 6,
-          "radius": 3.9
+          "type": "Single"
         },
         "variation": {
           "seed": 1,
@@ -182,98 +266,12 @@
       }
     },
     {
-      "name": "Ghosts",
+      "name": "Car",
       "enabled": true,
       "transform": {
         "position": [
           0.0,
-          1.6,
-          0.0
-        ],
-        "rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "scale": 0.35,
-        "stretch": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "spin": [
-          0,
-          0,
-          0
-        ],
-        "bob": 0.0
-      },
-      "symmetry": {
-        "type": "None"
-      },
-      "kind": {
-        "type": "Mesh",
-        "source": {
-          "type": "Primitive",
-          "shape": "Capsule",
-          "length": 0.6,
-          "segments": 12
-        },
-        "material": {
-          "base_color": [
-            0.74540436,
-            0.8713672,
-            1.0
-          ],
-          "metallic": 0.2,
-          "roughness": 0.4,
-          "emissive_color": [
-            0.21586053,
-            0.5271152,
-            1.0
-          ],
-          "emissive": 0.8,
-          "emissive_mode": "Full",
-          "texture": null,
-          "texture_scale": 1.0,
-          "scroll": [
-            0,
-            0
-          ],
-          "pixelated": false,
-          "mesh": 0.5,
-          "flat_shading": false,
-          "rim": 1.0,
-          "hue_shift": 0.0
-        },
-        "instancer": {
-          "type": "Orbit",
-          "count": 5,
-          "radius": 1.8,
-          "spread": 0.6,
-          "speed": 1,
-          "seed": 3
-        },
-        "variation": {
-          "seed": 1,
-          "rotation": 0.0,
-          "scale": 0.0,
-          "hue": 0.0,
-          "spin": 0,
-          "ripple": 0.0,
-          "ripple_cycles": 1,
-          "ripple_spread": 1.0,
-          "chase": 0.0
-        }
-      }
-    },
-    {
-      "name": "Wisps",
-      "enabled": true,
-      "transform": {
-        "position": [
-          0.0,
-          2.0,
+          0.5,
           0.0
         ],
         "rotation": [
@@ -283,9 +281,9 @@
         ],
         "scale": 1.0,
         "stretch": [
-          1.0,
-          1.0,
-          1.0
+          2.4,
+          0.7,
+          1.2
         ],
         "spin": [
           0,
@@ -298,30 +296,149 @@
         "type": "None"
       },
       "kind": {
-        "type": "Sprite",
-        "image": null,
-        "columns": 1,
-        "rows": 1,
-        "frames": 0,
-        "cycles": 1,
-        "random_start": false,
-        "facing": "Camera",
-        "blend": "Mesh",
-        "size": 0.5,
-        "opacity": 1.0,
-        "tint": [
-          0.27889434,
-          0.74540436,
-          1.0
-        ],
-        "glow": 1.5,
-        "pixelated": false,
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "RoundedCube",
+          "radius": 0.35
+        },
+        "material": {
+          "base_color": [
+            0.005181517,
+            0.051269468,
+            0.6307572
+          ],
+          "metallic": 0.3,
+          "roughness": 0.45,
+          "emissive_color": [
+            1.0,
+            0.029556833,
+            0.014443844
+          ],
+          "emissive": 0.0,
+          "emissive_mode": "Full",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": false,
+          "rim": 0.0,
+          "hue_shift": 0.0,
+          "pbr": {
+            "shading": "Physical",
+            "orm_map": null,
+            "emissive_map": null,
+            "clearcoat": 1.0,
+            "clearcoat_roughness": 0.03,
+            "sheen": 0.0,
+            "sheen_color": [
+              1.0,
+              1.0,
+              1.0
+            ],
+            "transmission": 0.0,
+            "ior": 1.5
+          }
+        },
         "instancer": {
-          "type": "Scatter",
-          "count": 24,
-          "radius": 3.0,
-          "shell": false,
-          "seed": 7
+          "type": "Single"
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    },
+    {
+      "name": "Cabin",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.95,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.3,
+          0.45,
+          1.05
+        ],
+        "spin": [
+          0,
+          1,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "RoundedCube",
+          "radius": 0.4
+        },
+        "material": {
+          "base_color": [
+            0.014443844,
+            0.029556833,
+            0.051269468
+          ],
+          "metallic": 0.0,
+          "roughness": 0.03,
+          "emissive_color": [
+            1.0,
+            0.029556833,
+            0.014443844
+          ],
+          "emissive": 0.0,
+          "emissive_mode": "Full",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": false,
+          "rim": 0.0,
+          "hue_shift": 0.0,
+          "pbr": {
+            "shading": "Physical",
+            "orm_map": null,
+            "emissive_map": null,
+            "clearcoat": 0.0,
+            "clearcoat_roughness": 0.05,
+            "sheen": 0.0,
+            "sheen_color": [
+              1.0,
+              1.0,
+              1.0
+            ],
+            "transmission": 1.0,
+            "ior": 1.5
+          }
+        },
+        "instancer": {
+          "type": "Single"
         },
         "variation": {
           "seed": 1,
@@ -385,6 +502,19 @@
       "vignette": 0.35,
       "grain": 0.03,
       "beat_flash": 0.0
+    },
+    "rays": {
+      "enabled": true,
+      "source": "Sun",
+      "intensity": 0.6,
+      "length": 0.7,
+      "threshold": 0.5,
+      "tint": [
+        1.0,
+        0.5271152,
+        0.21586053
+      ],
+      "flare": 0.6
     }
   },
   "textures": [],
@@ -393,29 +523,29 @@
   "use_graph": false,
   "retro": {
     "enabled": true,
-    "resolution": "Custom",
+    "resolution": "R640x480",
     "custom": [
       320,
-      224
+      240
     ],
     "sharp_overlays": true,
-    "snap": true,
+    "snap": false,
     "snap_res": [
       320,
-      224
+      240
     ],
     "snap_amount": 1.0,
-    "affine": 0.6,
-    "filter": "Nearest",
+    "affine": 0.0,
+    "filter": null,
     "fog": {
       "enabled": false,
       "near": 1.0,
       "far": 24.0
     },
-    "color_15bit": true,
-    "dither": 0.0,
+    "color_15bit": false,
+    "dither": 1.0,
     "vi_blur": 0.0,
-    "near_cull": 0.9,
+    "near_cull": 0.0,
     "colormap": {
       "enabled": false,
       "palette": "Software256",

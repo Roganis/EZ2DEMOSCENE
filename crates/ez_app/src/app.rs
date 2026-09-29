@@ -2342,13 +2342,6 @@ impl EzApp {
                             // and Quake looks under "Retro console").
                             for cat in presets::CATEGORIES {
                                 ui.heading(cat);
-                                if cat == presets::CATEGORY_RETRO {
-                                    ui.label(
-                                        RichText::new("5th-generation consoles and Quake: see 🕹 Retro 3D for one-click looks.")
-                                            .weak()
-                                            .small(),
-                                    );
-                                }
                                 egui::Grid::new(("presets", cat)).spacing([10.0, 10.0]).show(ui, |ui| {
                                     let group = self.thumbs.iter().enumerate().filter(|(_, t)| t.category == cat);
                                     for (k, (i, t)) in group.enumerate() {

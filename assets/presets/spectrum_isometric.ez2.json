@@ -1,59 +1,59 @@
 {
   "version": 2,
-  "name": "Fog Island",
+  "name": "Spectrum Isometric",
   "timing": {
-    "bpm": 110.0,
+    "bpm": 120.0,
     "loop_beats": 16
   },
   "camera": {
-    "mode": "Orbit",
+    "mode": "Static",
     "target": [
       0.0,
-      2.0,
+      0.6,
       0.0
     ],
-    "distance": 9.0,
-    "height": 2.5,
-    "angle": 0.0,
+    "distance": 22.0,
+    "height": 16.0,
+    "angle": 45.0,
     "orbit_turns": 1,
-    "swing": 0.0,
-    "fov": 58.0,
+    "swing": 30.0,
+    "fov": 22.0,
     "roll": 0.0,
     "beat_shake": 0.0
   },
   "environment": {
     "fog_color": [
-      0.39157256,
-      0.47932023,
-      0.6307572
+      0.0,
+      0.0,
+      0.0
     ],
     "fog_density": 0.0,
     "sky_color": [
-      0.5271152,
-      0.6307572,
-      0.8713672
+      1.0,
+      1.0,
+      1.0
     ],
     "ground_color": [
-      0.051269468,
-      0.08021983,
-      0.029556833
+      0.0,
+      0.0,
+      0.0
     ],
     "light_dir": [
-      0.4,
-      0.9,
-      0.3
+      0.3,
+      1.0,
+      0.6
     ],
     "light_color": [
       1.0,
-      0.90466136,
-      0.74540436
+      1.0,
+      1.0
     ],
-    "light_intensity": 1.5,
+    "light_intensity": 1.4,
     "ambient": 0.6
   },
   "layers": [
     {
-      "name": "Sky",
+      "name": "Floor",
       "enabled": true,
       "transform": {
         "position": [
@@ -66,7 +66,7 @@
           0.0,
           0.0
         ],
-        "scale": 1.0,
+        "scale": 6.0,
         "stretch": [
           1.0,
           1.0,
@@ -83,37 +83,61 @@
         "type": "None"
       },
       "kind": {
-        "type": "Backdrop",
-        "kind": "Gradient",
-        "color_a": [
-          0.08021983,
-          0.18782076,
-          0.5271152
-        ],
-        "color_b": [
-          0.39157256,
-          0.47932023,
-          0.6307572
-        ],
-        "color_c": [
-          0.39157256,
-          0.47932023,
-          0.6307572
-        ],
-        "speed": 1,
-        "intensity": 1.0,
-        "detail": 1.0,
-        "texture": null
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Plane"
+        },
+        "material": {
+          "base_color": [
+            0.0,
+            1.0,
+            1.0
+          ],
+          "metallic": 0.0,
+          "roughness": 0.85,
+          "emissive_color": [
+            1.0,
+            0.029556833,
+            0.014443844
+          ],
+          "emissive": 0.0,
+          "emissive_mode": "Full",
+          "texture": "checker",
+          "texture_scale": 3.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": false,
+          "rim": 0.0,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Single"
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
       }
     },
     {
-      "name": "Hills",
+      "name": "Back wall",
       "enabled": true,
       "transform": {
         "position": [
           0.0,
-          -0.5,
-          0.0
+          1.0,
+          -3.15
         ],
         "rotation": [
           0.0,
@@ -122,67 +146,9 @@
         ],
         "scale": 1.0,
         "stretch": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "spin": [
-          0,
-          0,
-          0
-        ],
-        "bob": 0.0
-      },
-      "symmetry": {
-        "type": "None"
-      },
-      "kind": {
-        "type": "Terrain",
-        "size": 90.0,
-        "cells": 64,
-        "height": 4.0,
-        "hills": 3,
-        "roughness": 0.3,
-        "scroll": 0,
-        "valley": 0.8,
-        "style": "Solid",
-        "line_color": [
-          1.0,
-          0.02415763,
-          0.6724432
-        ],
-        "glow": 1.0,
-        "fill_color": [
-          0.13843162,
-          0.4341537,
-          0.051269468
-        ],
-        "seed": 21,
-        "texture": "noise",
-        "tiles": 12,
-        "texture_lines": false,
-        "pixelated": false
-      }
-    },
-    {
-      "name": "Tower",
-      "enabled": true,
-      "transform": {
-        "position": [
-          0.0,
-          2.2,
-          0.0
-        ],
-        "rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "scale": 1.0,
-        "stretch": [
-          1.4,
-          3.6,
-          1.4
+          6.3,
+          2.0,
+          0.3
         ],
         "spin": [
           0,
@@ -202,12 +168,12 @@
         },
         "material": {
           "base_color": [
-            0.80695236,
-            0.74540436,
-            0.6307572
+            1.0,
+            0.0,
+            1.0
           ],
           "metallic": 0.0,
-          "roughness": 0.8,
+          "roughness": 0.85,
           "emissive_color": [
             1.0,
             0.029556833,
@@ -216,13 +182,12 @@
           "emissive": 0.0,
           "emissive_mode": "Full",
           "texture": "brick",
-          "texture_scale": 1.5,
+          "texture_scale": 1.0,
           "scroll": [
             0,
             0
           ],
           "pixelated": false,
-          "filter": "ThreePoint",
           "flat_shading": false,
           "rim": 0.0,
           "hue_shift": 0.0
@@ -244,12 +209,12 @@
       }
     },
     {
-      "name": "Roof",
+      "name": "Side wall",
       "enabled": true,
       "transform": {
         "position": [
-          0.0,
-          4.55,
+          -3.15,
+          1.0,
           0.0
         ],
         "rotation": [
@@ -259,9 +224,9 @@
         ],
         "scale": 1.0,
         "stretch": [
-          1.3,
-          1.1,
-          1.3
+          0.3,
+          2.0,
+          6.3
         ],
         "spin": [
           0,
@@ -277,17 +242,16 @@
         "type": "Mesh",
         "source": {
           "type": "Primitive",
-          "shape": "Cone",
-          "segments": 8
+          "shape": "Cube"
         },
         "material": {
           "base_color": [
-            0.6307572,
-            0.029556833,
-            0.014443844
+            1.0,
+            0.0,
+            1.0
           ],
           "metallic": 0.0,
-          "roughness": 0.8,
+          "roughness": 0.85,
           "emissive_color": [
             1.0,
             0.029556833,
@@ -295,14 +259,13 @@
           ],
           "emissive": 0.0,
           "emissive_mode": "Full",
-          "texture": "metal_plate",
-          "texture_scale": 2.0,
+          "texture": "brick",
+          "texture_scale": 1.0,
           "scroll": [
             0,
             0
           ],
           "pixelated": false,
-          "filter": "ThreePoint",
           "flat_shading": false,
           "rim": 0.0,
           "hue_shift": 0.0
@@ -324,13 +287,180 @@
       }
     },
     {
-      "name": "Stars",
+      "name": "Crates",
       "enabled": true,
       "transform": {
         "position": [
+          0.3,
+          0.45,
+          0.3
+        ],
+        "rotation": [
           0.0,
-          1.6,
+          0.0,
           0.0
+        ],
+        "scale": 0.9,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Cube"
+        },
+        "material": {
+          "base_color": [
+            1.0,
+            1.0,
+            0.0
+          ],
+          "metallic": 0.0,
+          "roughness": 0.85,
+          "emissive_color": [
+            1.0,
+            0.029556833,
+            0.014443844
+          ],
+          "emissive": 0.0,
+          "emissive_mode": "Full",
+          "texture": "wood",
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": false,
+          "rim": 0.0,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Grid",
+          "counts": [
+            2,
+            1,
+            2
+          ],
+          "spacing": [
+            2.4,
+            1.0,
+            2.4
+          ]
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    },
+    {
+      "name": "Pillar",
+      "enabled": true,
+      "transform": {
+        "position": [
+          -1.8,
+          1.0,
+          -1.8
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          0.6,
+          2.0,
+          0.6
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Cylinder",
+          "segments": 8
+        },
+        "material": {
+          "base_color": [
+            0.0,
+            1.0,
+            0.0
+          ],
+          "metallic": 0.0,
+          "roughness": 0.85,
+          "emissive_color": [
+            1.0,
+            0.029556833,
+            0.014443844
+          ],
+          "emissive": 0.0,
+          "emissive_mode": "Full",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": true,
+          "rim": 0.0,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Single"
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    },
+    {
+      "name": "Gem",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.5,
+          1.4,
+          0.5
         ],
         "rotation": [
           0.0,
@@ -345,14 +475,14 @@
         ],
         "spin": [
           0,
-          -1,
+          2,
           0
         ],
         "bob": {
           "base": 0.0,
-          "amp": 0.25,
-          "wave": "Sine",
-          "cycles": 8,
+          "amp": 0.8,
+          "wave": "Swell",
+          "cycles": 4,
           "offset": 0.0,
           "audio": 0.0
         }
@@ -360,30 +490,27 @@
       "symmetry": {
         "type": "None"
       },
-      "step_fps": 12.0,
+      "step_fps": 10.0,
       "kind": {
         "type": "Mesh",
         "source": {
           "type": "Primitive",
-          "shape": "Star",
-          "points": 5,
-          "inner": 0.5,
-          "depth": 0.35
+          "shape": "Octahedron"
         },
         "material": {
           "base_color": [
             1.0,
-            0.6307572,
-            0.014443844
-          ],
-          "metallic": 0.6,
-          "roughness": 0.4,
-          "emissive_color": [
             1.0,
-            0.4341537,
             0.0
           ],
-          "emissive": 0.5,
+          "metallic": 0.0,
+          "roughness": 0.85,
+          "emissive_color": [
+            1.0,
+            0.029556833,
+            0.014443844
+          ],
+          "emissive": 0.0,
           "emissive_mode": "Full",
           "texture": null,
           "texture_scale": 1.0,
@@ -393,13 +520,11 @@
           ],
           "pixelated": false,
           "flat_shading": true,
-          "rim": 0.3,
+          "rim": 0.0,
           "hue_shift": 0.0
         },
         "instancer": {
-          "type": "Radial",
-          "count": 8,
-          "radius": 4.5
+          "type": "Single"
         },
         "variation": {
           "seed": 1,
@@ -446,9 +571,9 @@
       "size": 4.0
     },
     "palette": {
-      "enabled": false,
-      "palette": "Ega",
-      "dither": 0.6
+      "enabled": true,
+      "palette": "Spectrum",
+      "dither": 0.0
     },
     "crt": {
       "enabled": false,
@@ -460,8 +585,8 @@
       "exposure": 1.0,
       "contrast": 1.05,
       "saturation": 1.1,
-      "vignette": 0.35,
-      "grain": 0.03,
+      "vignette": 0.0,
+      "grain": 0.0,
       "beat_flash": 0.0
     }
   },
@@ -471,7 +596,7 @@
   "use_graph": false,
   "retro": {
     "enabled": true,
-    "resolution": "R320x240",
+    "resolution": "Full",
     "custom": [
       320,
       240
@@ -484,15 +609,15 @@
     ],
     "snap_amount": 1.0,
     "affine": 0.0,
-    "filter": "ThreePoint",
+    "filter": null,
     "fog": {
-      "enabled": true,
-      "near": 3.0,
-      "far": 30.0
+      "enabled": false,
+      "near": 1.0,
+      "far": 24.0
     },
-    "color_15bit": true,
+    "color_15bit": false,
     "dither": 1.0,
-    "vi_blur": 1.0,
+    "vi_blur": 0.0,
     "near_cull": 0.0,
     "colormap": {
       "enabled": false,
@@ -501,16 +626,16 @@
       "fullbrights": true
     },
     "screen": {
-      "enabled": false,
+      "enabled": true,
       "size": [
-        320,
-        200
+        256,
+        192
       ],
       "frame": "Tv",
       "border": [
         0.0,
         0.0,
-        0.0
+        1.0
       ]
     }
   }

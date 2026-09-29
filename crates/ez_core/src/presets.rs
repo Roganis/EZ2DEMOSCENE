@@ -8,10 +8,18 @@ use crate::param::{Param, Wave};
 use crate::scene::*;
 
 /// Preset groups in the gallery, in order.
-pub const CATEGORY_DEMO: &str = "Demo scenes";
-/// PlayStation, Saturn, Nintendo 64, Quake and 16-bit looks.
-pub const CATEGORY_RETRO: &str = "Retro console";
-pub const CATEGORIES: [&str; 2] = [CATEGORY_DEMO, CATEGORY_RETRO];
+pub const CATEGORY_CONSOLES: &str = "Consoles & arcade";
+pub const CATEGORY_PC: &str = "PC era";
+pub const CATEGORY_HOME: &str = "Home computers & handhelds";
+pub const CATEGORY_DEMO: &str = "Demoscene";
+pub const CATEGORY_ENGINE: &str = "Engine showcases";
+pub const CATEGORIES: [&str; 5] = [
+    CATEGORY_CONSOLES,
+    CATEGORY_PC,
+    CATEGORY_HOME,
+    CATEGORY_DEMO,
+    CATEGORY_ENGINE,
+];
 
 pub struct Preset {
     pub name: &'static str,
@@ -24,6 +32,126 @@ pub struct Preset {
 pub fn all() -> Vec<Preset> {
     vec![
         Preset {
+            name: "PSX Crypt",
+            category: CATEGORY_CONSOLES,
+            description: "A PlayStation crypt: swimming brick textures, wobbling polygons and chunky 320 × 240 pixels.",
+            project: psx_crypt(),
+        },
+        Preset {
+            name: "Saturn Ghosts",
+            category: CATEGORY_CONSOLES,
+            description: "Sega Saturn: checkerboard see-through ghosts and wisps in a stone hall; pillars vanish as the camera brushes them.",
+            project: saturn_ghosts(),
+        },
+        Preset {
+            name: "Fog Island",
+            category: CATEGORY_CONSOLES,
+            description: "Nintendo 64: soft 3-point textures, fog rolling in close to the camera, dithered colour and the video blur.",
+            project: fog_island(),
+        },
+        Preset {
+            name: "Mode 7 Circuit",
+            category: CATEGORY_CONSOLES,
+            description: "A SNES-style Mode 7 race: an endless track turning and scrolling to a hard horizon, coins spinning on twos, 256 × 224.",
+            project: mode7_circuit(),
+        },
+        Preset {
+            name: "Super FX Starship",
+            category: CATEGORY_CONSOLES,
+            description: "SNES Super FX (Star Fox): a flat-shaded starfighter over flat ground, towers flashing past, everything animating at 15 frames a second in a small window.",
+            project: crate::presets_hw::super_fx_starship(),
+        },
+        Preset {
+            name: "Harrier Plains",
+            category: CATEGORY_CONSOLES,
+            description: "Space Harrier (1985 arcade): a chequered floor rushing to the horizon, columns and bushes flying past, pastel sky, 320 × 224.",
+            project: crate::presets_hw::harrier_plains(),
+        },
+        Preset {
+            name: "Polygon Arcade",
+            category: CATEGORY_CONSOLES,
+            description: "Sega Model 1 (Virtua Racing): untextured flat-shaded polygons at 496 × 384, a low-poly car racing past cone trees.",
+            project: crate::presets_hw::polygon_arcade(),
+        },
+        Preset {
+            name: "Battle Screen",
+            category: CATEGORY_CONSOLES,
+            description: "A retro RPG battle: two cycling patterns wobbling line by line behind a spinning crystal foe, on a CRT.",
+            project: battle_screen(),
+        },
+        Preset {
+            name: "Red Visor",
+            category: CATEGORY_CONSOLES,
+            description: "Virtual Boy: red wireframe crystals floating over a wire landscape, four shades of red on black, 384 × 224.",
+            project: crate::presets_hw::red_visor(),
+        },
+        Preset {
+            name: "Dreamcast Sunset",
+            category: CATEGORY_CONSOLES,
+            description: "Dreamcast (1999): clean 640 × 480, a glossy car by a sparkling sea under a low sun with lens flare.",
+            project: crate::presets_hw::dreamcast_sunset(),
+        },
+        Preset {
+            name: "Slipgate Courtyard",
+            category: CATEGORY_PC,
+            description: "Quake: light stepping through a 256-colour palette, flickering torches, a wobbling lava pool, square embers and a two-layer sky.",
+            project: slipgate_courtyard(),
+        },
+        Preset {
+            name: "Slime Falls",
+            category: CATEGORY_PC,
+            description: "Quake: a slime canyon and slime waterfall wobbling with the turbulent warp, a scrolling two-layer sky and a broken-tube strobe.",
+            project: slime_falls(),
+        },
+        Preset {
+            name: "Hangar Base",
+            category: CATEGORY_PC,
+            description: "Early-90s software 3D: 320 × 200, light stepping through a palette, flickering tubes, a slime pool, a camera that never looks up or down.",
+            project: crate::presets_hw::hangar_base(),
+        },
+        Preset {
+            name: "Accelerator Arena",
+            category: CATEGORY_PC,
+            description: "Late-90s 3D cards: 640 × 480, bilinear textures without mipmaps, dithered 16-bit colour, coloured lamps in a dark metal arena.",
+            project: crate::presets_hw::accelerator_arena(),
+        },
+        Preset {
+            name: "Wireframe Trader",
+            category: CATEGORY_PC,
+            description: "BBC Micro Elite (1984): white wireframe ships and a space station on a 1-bit screen, turning at 12 frames a second.",
+            project: crate::presets_hw::wireframe_trader(),
+        },
+        Preset {
+            name: "Screen Saver",
+            category: CATEGORY_PC,
+            description: "A 90s desktop screensaver: neon pipes winding through the dark round a morphing shape, 256 colours at 640 × 480.",
+            project: crate::presets_hw::screen_saver(),
+        },
+        Preset {
+            name: "Amiga Bounce",
+            category: CATEGORY_HOME,
+            description: "The Amiga's bouncing ball: red and white checks spinning and bouncing before a purple grid, with its shadow, 320 × 256.",
+            project: crate::presets_hw::amiga_bounce(),
+        },
+        Preset {
+            name: "C64 Intro",
+            category: CATEGORY_HOME,
+            description: "A C64 cracktro: a raster-barred logo, a sine scroller and sprite coins in double-wide 160 × 200 pixels, 16 colours, inside the border.",
+            project: crate::presets_hw::c64_intro(),
+        },
+        Preset {
+            name: "Spectrum Isometric",
+            category: CATEGORY_HOME,
+            description: "A ZX Spectrum isometric room: bright blocks, a chequered floor and a bouncing gem, 256 × 192 in a blue border.",
+            project: crate::presets_hw::spectrum_isometric(),
+        },
+        Preset {
+            name: "Handheld Quest",
+            category: CATEGORY_HOME,
+            description: "Game Boy: a little world of hills and trees with spinning coins, four greens and LCD ghosting, 160 × 144.",
+            project: crate::presets_hw::handheld_quest(),
+        },
+        Preset {
             name: "Neon Arena",
             category: CATEGORY_DEMO,
             description: "Black glossy crystal arena, red neon strips, red nebula sky.",
@@ -34,12 +162,6 @@ pub fn all() -> Vec<Preset> {
             category: CATEGORY_DEMO,
             description: "Mirrored golden hall, walls of orbs, sparkling chandelier.",
             project: gold_room(),
-        },
-        Preset {
-            name: "Orbiting Solid",
-            category: CATEGORY_DEMO,
-            description: "A glossy blue dodecahedron with a swarm of orbiting debris.",
-            project: orbiting_solid(),
         },
         Preset {
             name: "Retro Tunnel",
@@ -78,252 +200,198 @@ pub fn all() -> Vec<Preset> {
             project: sponge_dive(),
         },
         Preset {
-            name: "Stormy Lake",
-            category: CATEGORY_DEMO,
-            description: "Rain, lightning and storm clouds over a mountain lake.",
-            project: stormy_lake(),
-        },
-        Preset {
-            name: "Lava World",
-            category: CATEGORY_DEMO,
-            description: "Glowing lava rivers in volcanic canyons, embers and god rays.",
-            project: lava_world(),
-        },
-        Preset {
-            name: "Sunbeam Peaks",
-            category: CATEGORY_DEMO,
-            description: "Volumetric clouds, sunbeams and lens flare over alpine peaks.",
-            project: sunbeam_peaks(),
-        },
-        Preset {
-            name: "Aurora Tundra",
-            category: CATEGORY_DEMO,
-            description: "Northern lights over a frozen lake, gently falling snow.",
-            project: aurora_tundra(),
-        },
-        Preset {
-            name: "Dune Sea",
-            category: CATEGORY_DEMO,
-            description: "Sand dunes under a hazy sun, a sandstorm and a toxic oasis.",
-            project: dune_sea(),
-        },
-        Preset {
-            name: "Club Spotlights",
-            category: CATEGORY_DEMO,
-            description:
-                "Sweeping spotlight cones in a hazy club, pools of light on a mirror floor.",
-            project: club_spotlights(),
-        },
-        Preset {
-            name: "Rainbow Falls",
-            category: CATEGORY_DEMO,
-            description:
-                "A day passes over a waterfall valley: rainbow, valley mist, stars at night.",
-            project: rainbow_falls(),
-        },
-        Preset {
-            name: "Sunken Temple",
-            category: CATEGORY_DEMO,
-            description: "Underwater ruins with rippling caustics, sunbeams and rising bubbles.",
-            project: sunken_temple(),
-        },
-        Preset {
-            name: "Twister",
-            category: CATEGORY_DEMO,
-            description: "A tornado crossing wet, stormy plains with lightning and puddles.",
-            project: twister(),
-        },
-        Preset {
-            name: "Music Reactor",
-            category: CATEGORY_DEMO,
-            description:
-                "Load a song: an equalizer wall, kick flashes, melody colours and time warp.",
-            project: music_reactor(),
-        },
-        Preset {
-            name: "Signal Flow",
-            category: CATEGORY_DEMO,
-            description:
-                "Node graph: a sequence and a smoothed random walk drive the glow and size.",
-            project: signal_flow(),
-        },
-        Preset {
-            name: "Crystal Garden",
-            category: CATEGORY_DEMO,
-            description: "Twisted crystals standing on a scrolling tundra, beads riding a halo, colours travelling along.",
-            project: crystal_garden(),
-        },
-        Preset {
             name: "Oldschool Intro",
             category: CATEGORY_DEMO,
             description: "Chrome logo, sine scroller and greetings over the XOR tunnel.",
             project: oldschool_intro(),
         },
         Preset {
-            name: "Scene Tour",
+            name: "Copper Heaven",
             category: CATEGORY_DEMO,
-            description: "A timeline of three scenes: wipe, iris and glitch transitions, looping as one.",
-            project: scene_tour(),
+            description: "An Amiga demo: a striped twister, a copper-barred logo and a sine scroller over rolling copper stripes, 320 × 256.",
+            project: crate::presets_hw::copper_heaven(),
         },
         Preset {
-            name: "Liquid Metal",
+            name: "Demo Party 93",
             category: CATEGORY_DEMO,
-            description: "Chrome metaballs melting together, orbited by gyroid lattice balls, all raymarched.",
-            project: liquid_metal(),
+            description: "A 1993 PC demo: a tunnel, a plasma and a rotozoomer cut together on a timeline, 320 × 200 in VGA colours.",
+            project: crate::presets_hw::demo_party_93(),
         },
         Preset {
-            name: "Campfire Sprites",
+            name: "Rotozoomer",
             category: CATEGORY_DEMO,
-            description: "Sprite-sheet flames round a fire, twinkling sparkles and a ring of spinning pixel coins under the aurora.",
-            project: campfire_sprites(),
+            description: "The rotozoomer: a picture turning and zooming under the camera (a Mode 7 floor seen from above), 320 × 200.",
+            project: crate::presets_hw::rotozoomer(),
         },
         Preset {
-            name: "Tesla Swarm",
+            name: "Vector Balls",
             category: CATEGORY_DEMO,
-            description: "Orbiting Solid wired up: lightning arcs jump from the core to the nearest debris and around a ring of coils.",
-            project: tesla_swarm(),
+            description: "Vector balls: a cube of shiny balls and a ring of balls turning over the stars, 320 × 200 in the Atari ST's 512 colours.",
+            project: crate::presets_hw::vector_balls(),
         },
         Preset {
-            name: "Galaxy Swarm",
+            name: "Glenz Vectors",
             category: CATEGORY_DEMO,
-            description: "40,000 glowing shards in a turning spiral galaxy, placed by the graphics card.",
-            project: galaxy_swarm(),
+            description: "Glenz vectors: see-through faceted solids nested and turning against each other over a moving chequerboard.",
+            project: crate::presets_hw::glenz_vectors(),
         },
         Preset {
-            name: "Chrome Studio",
+            name: "Oldschool Fire",
             category: CATEGORY_DEMO,
-            description: "Chrome, gold and plastic lit by a sunset panorama that turns once per loop, with the sun and its shadows taken from the map.",
-            project: chrome_studio(),
-        },
-        Preset {
-            name: "Liquid Gold",
-            category: CATEGORY_DEMO,
-            description: "A rocking bowl of molten gold sloshing from side to side under a studio sky, simulated ahead of time into a loop.",
-            project: liquid_gold(),
-        },
-        Preset {
-            name: "Cathedral Light",
-            category: CATEGORY_DEMO,
-            description: "Low sunlight streaming between stone columns through hazy air onto a polished marble floor, under a sunset sky; a golden orb turns in the light.",
-            project: cathedral_light(),
+            description: "The DOS fire effect: a wall of flame licking upwards behind flickering flames and a logo, 320 × 200.",
+            project: crate::presets_hw::oldschool_fire(),
         },
         Preset {
             name: "Material Gallery",
-            category: CATEGORY_DEMO,
+            category: CATEGORY_ENGINE,
             description: "The nine physical material presets on spinning shapes in a softbox studio: metals, rubber, car paint, glass, velvet and ceramic.",
             project: material_gallery(),
         },
         Preset {
+            name: "Chrome Studio",
+            category: CATEGORY_ENGINE,
+            description: "Chrome, gold and plastic lit by a sunset panorama that turns once per loop, with the sun and its shadows taken from the map.",
+            project: chrome_studio(),
+        },
+        Preset {
+            name: "Cathedral Light",
+            category: CATEGORY_ENGINE,
+            description: "Low sunlight streaming between stone columns through hazy air onto a polished marble floor, under a sunset sky; a golden orb turns in the light.",
+            project: cathedral_light(),
+        },
+        Preset {
+            name: "Liquid Metal",
+            category: CATEGORY_ENGINE,
+            description: "Chrome metaballs melting together, orbited by gyroid lattice balls, all raymarched.",
+            project: liquid_metal(),
+        },
+        Preset {
+            name: "Liquid Gold",
+            category: CATEGORY_ENGINE,
+            description: "A rocking bowl of molten gold sloshing from side to side under a studio sky, simulated ahead of time into a loop.",
+            project: liquid_gold(),
+        },
+        Preset {
             name: "Banners",
-            category: CATEGORY_DEMO,
+            category: CATEGORY_ENGINE,
             description: "A row of flags on poles, flapping in a turning, gusting wind: simulated cloth that loops.",
             project: banners(),
         },
         Preset {
             name: "Beat Demolition",
-            category: CATEGORY_DEMO,
+            category: CATEGORY_ENGINE,
             description: "A wall of glowing blocks blown apart on the beat and rebuilt, with pearls raining behind: rigid bodies that loop.",
             project: beat_demolition(),
         },
         Preset {
             name: "Starling Dusk",
-            category: CATEGORY_DEMO,
+            category: CATEGORY_ENGINE,
             description: "A flock of 600 starlings wheeling through a sunset, scattering on every bar: simulated, and looping.",
             project: starling_dusk(),
         },
         Preset {
-            name: "Sunset Title",
-            category: CATEGORY_DEMO,
-            description: "Synth Sunset with a title card: a bevelled chrome logo pulsing to the beat with a glint on every bar, and a pixel tag in the corner.",
-            project: sunset_title(),
-        },
-        Preset {
-            name: "Logo Morph",
-            category: CATEGORY_DEMO,
-            description: "Neon Arena with a logo that melts from one word into another and back, extruded, stacked in outlines, with rings rippling out on the beat.",
-            project: logo_morph(),
-        },
-        Preset {
-            name: "Copper Logo",
-            category: CATEGORY_DEMO,
-            description: "Retro Tunnel with an Amiga logo: copper bars scrolling through the letters, a sine sway, and slices glitching on the kick.",
-            project: copper_logo(),
-        },
-        Preset {
-            name: "C64 Title",
-            category: CATEGORY_DEMO,
-            description: "Vector Valley with a title in C64 colours cycling by brightness, pixelating in every loop, under scanlines.",
-            project: c64_title(),
+            name: "Tesla Swarm",
+            category: CATEGORY_ENGINE,
+            description: "Orbiting Solid wired up: lightning arcs jump from the core to the nearest debris and around a ring of coils.",
+            project: tesla_swarm(),
         },
         Preset {
             name: "Glass Galaxy",
-            category: CATEGORY_DEMO,
+            category: CATEGORY_ENGINE,
             description: "Galaxy Swarm behind a glass logo that bends the stars, casting shadow rays through their light, with echoes as it sways.",
             project: glass_galaxy(),
         },
         Preset {
-            name: "Colour Wheel Arena",
-            category: CATEGORY_DEMO,
-            description: "Neon Arena under a colour scheme: every colour follows three hues of one key colour, turning round the colour wheel once per loop.",
-            project: colour_wheel_arena(),
+            name: "Crystal Garden",
+            category: CATEGORY_ENGINE,
+            description: "Twisted crystals standing on a scrolling tundra, beads riding a halo, colours travelling along.",
+            project: crystal_garden(),
         },
         Preset {
-            name: "Battle Screen",
-            category: CATEGORY_DEMO,
-            description: "A retro RPG battle: two cycling patterns wobbling line by line behind a spinning crystal foe, on a CRT.",
-            project: battle_screen(),
+            name: "Stormy Lake",
+            category: CATEGORY_ENGINE,
+            description: "Rain, lightning and storm clouds over a mountain lake.",
+            project: stormy_lake(),
         },
         Preset {
-            name: "PSX Crypt",
-            category: CATEGORY_RETRO,
-            description: "A PlayStation crypt: swimming brick textures, wobbling polygons and chunky 320 × 240 pixels.",
-            project: psx_crypt(),
+            name: "Lava World",
+            category: CATEGORY_ENGINE,
+            description: "Glowing lava rivers in volcanic canyons, embers and god rays.",
+            project: lava_world(),
         },
         Preset {
-            name: "Stage Select",
-            category: CATEGORY_RETRO,
-            description: "A 256 × 224 flight over checkered hills with spinning stars and a sharp stage title.",
-            project: stage_select(),
+            name: "Sunbeam Peaks",
+            category: CATEGORY_ENGINE,
+            description: "Volumetric clouds, sunbeams and lens flare over alpine peaks.",
+            project: sunbeam_peaks(),
         },
         Preset {
-            name: "Fog Island",
-            category: CATEGORY_RETRO,
-            description: "Nintendo 64: soft 3-point textures, fog rolling in close to the camera, dithered colour and the video blur.",
-            project: fog_island(),
+            name: "Aurora Tundra",
+            category: CATEGORY_ENGINE,
+            description: "Northern lights over a frozen lake, gently falling snow.",
+            project: aurora_tundra(),
         },
         Preset {
-            name: "Saturn Ghosts",
-            category: CATEGORY_RETRO,
-            description: "Sega Saturn: checkerboard see-through ghosts and wisps in a stone hall; pillars vanish as the camera brushes them.",
-            project: saturn_ghosts(),
+            name: "Dune Sea",
+            category: CATEGORY_ENGINE,
+            description: "Sand dunes under a hazy sun, a sandstorm and a toxic oasis.",
+            project: dune_sea(),
         },
         Preset {
-            name: "Slipgate Courtyard",
-            category: CATEGORY_RETRO,
-            description: "Quake: light stepping through a 256-colour palette, flickering torches, a wobbling lava pool, square embers and a two-layer sky.",
-            project: slipgate_courtyard(),
+            name: "Club Spotlights",
+            category: CATEGORY_ENGINE,
+            description:
+                "Sweeping spotlight cones in a hazy club, pools of light on a mirror floor.",
+            project: club_spotlights(),
         },
         Preset {
-            name: "Slime Falls",
-            category: CATEGORY_RETRO,
-            description: "Quake: a slime canyon and slime waterfall wobbling with the turbulent warp, a scrolling two-layer sky and a broken-tube strobe.",
-            project: slime_falls(),
+            name: "Rainbow Falls",
+            category: CATEGORY_ENGINE,
+            description:
+                "A day passes over a waterfall valley: rainbow, valley mist, stars at night.",
+            project: rainbow_falls(),
         },
         Preset {
-            name: "Mode 7 Circuit",
-            category: CATEGORY_RETRO,
-            description: "A SNES-style Mode 7 race: an endless track turning and scrolling to a hard horizon, coins spinning on twos, 256 × 224.",
-            project: mode7_circuit(),
+            name: "Sunken Temple",
+            category: CATEGORY_ENGINE,
+            description: "Underwater ruins with rippling caustics, sunbeams and rising bubbles.",
+            project: sunken_temple(),
+        },
+        Preset {
+            name: "Campfire Sprites",
+            category: CATEGORY_ENGINE,
+            description: "Sprite-sheet flames round a fire, twinkling sparkles and a ring of spinning pixel coins under the aurora.",
+            project: campfire_sprites(),
+        },
+        Preset {
+            name: "Music Reactor",
+            category: CATEGORY_ENGINE,
+            description:
+                "Load a song: an equalizer wall, kick flashes, melody colours and time warp.",
+            project: music_reactor(),
+        },
+        Preset {
+            name: "Signal Flow",
+            category: CATEGORY_ENGINE,
+            description:
+                "Node graph: a sequence and a smoothed random walk drive the glow and size.",
+            project: signal_flow(),
+        },
+        Preset {
+            name: "Scene Tour",
+            category: CATEGORY_ENGINE,
+            description: "A timeline of three scenes: wipe, iris and glitch transitions, looping as one.",
+            project: scene_tour(),
         },
         Preset {
             name: "Stop-Motion Shelf",
-            category: CATEGORY_DEMO,
+            category: CATEGORY_ENGINE,
             description: "Clay toys animating on 12, 8 and 6 frames a second while the camera glides smoothly.",
             project: stop_motion_shelf(),
         },
         Preset {
             name: "Empty",
-            category: CATEGORY_DEMO,
+            category: CATEGORY_ENGINE,
             description: "A blank stage with a floor and a sky.",
             project: empty(),
         },
@@ -1296,7 +1364,12 @@ pub fn psx_crypt() -> Project {
         ..Default::default()
     };
     p.layers[4].transform.bob = Param::new(0.0).osc(Wave::Sine, 0.15, 4);
+    if let LayerKind::Mesh(m) = &mut p.layers[4].kind {
+        m.material.glow_style = crate::LightStylePreset::Candle.style(p.timing.loop_seconds());
+    }
     p.retro.apply_style(crate::RetroStyle::Ps1);
+    // Walls pop open when the camera brushes them, as on the console.
+    p.retro.near_cull = Param::new(0.3);
     p
 }
 
@@ -1536,6 +1609,8 @@ pub fn fog_island() -> Project {
         ..Default::default()
     };
     p.layers[4].transform.bob = Param::new(0.0).osc(Wave::Sine, 0.25, 8);
+    // Collectibles spin on twos.
+    p.layers[4].step_fps = 12.0;
     p.retro.apply_style(crate::RetroStyle::N64);
     p.retro.fog.near = Param::new(3.0);
     p.retro.fog.far = Param::new(30.0);
@@ -1582,16 +1657,20 @@ pub fn saturn_ghosts() -> Project {
             ..Default::default()
         },
         layers: vec![
+            // The Saturn drew big floors with its VDP2 background
+            // processor: an endless flat plane, not polygons.
             Layer::new(
                 "Floor",
-                // Small tiles: big polygons would warp and vanish near
-                // the camera, as on the console.
-                LayerKind::Mesh(MeshLayer {
-                    subdivide: 4,
-                    ..mesh(Primitive::Plane, stone(0xb0b0d0, "metal_plate", 5.0))
+                LayerKind::Mode7(Mode7Floor {
+                    texture: Some("metal_plate".into()),
+                    tile_size: 3.0,
+                    turns: 0,
+                    scroll: [0, 0],
+                    tint: hex(0x9090c0),
+                    fog: true,
+                    ..Default::default()
                 }),
-            )
-            .scaled(16.0),
+            ),
             Layer::new(
                 "Pillars",
                 LayerKind::Mesh(MeshLayer {

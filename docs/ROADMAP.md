@@ -1603,6 +1603,32 @@ Island, Slipgate Courtyard, Slime Falls, Mode 7 Circuit). One-click
 looks in *Retro 3D*: PlayStation (320 × 240, snap, affine, nearest,
 dithered 15-bit), Saturn, Nintendo 64, Quake.
 
+### ☑ 12.17 Machine screens, palettes and the preset overhaul
+**Done.**
+- *Retro 3D → Whole screen*: the final pass samples the finished
+  picture once per machine pixel inside the picture's rectangle
+  (`ConsoleScreen::rect`: fill, 4:3 TV or square pixels), the border
+  colour outside, palette and dither per machine pixel, CRT scanlines per
+  machine line. Thirteen machine buttons set size, shape, border and
+  palette. Tested: the border is exactly the border colour, every pixel
+  inside is a C64 colour, and a row changes colour at most 160 times.
+- Palettes: NES (55), 1-bit, Virtual Boy; the Amstrad CPC, Master
+  System, Mega Drive and Amiga colour cubes use the VGA quantiser
+  generalised to any number of levels (`PaletteId::levels`). Post
+  palettes pack four `0xRRGGBB` colours per slot (up to 64); logos keep
+  palettes of up to 16; colormap lighting takes up to 256.
+- Presets regrouped into Consoles & arcade, PC era, Home computers &
+  handhelds, Demoscene and Engine showcases. Out of the gallery (still
+  built by tests): Orbiting Solid, Galaxy Swarm, Twister, Sunset Title,
+  Logo Morph, Colour Wheel Arena, Copper Logo, C64 Title, Stage Select.
+  New (`presets_hw.rs`): Super FX Starship, Harrier Plains, Polygon
+  Arcade, Red Visor, Dreamcast Sunset, Hangar Base, Accelerator Arena,
+  Wireframe Trader, Screen Saver, Amiga Bounce, C64 Intro, Spectrum
+  Isometric, Handheld Quest, Copper Heaven, Demo Party 93, Rotozoomer,
+  Vector Balls, Glenz Vectors, Oldschool Fire; a `boing` texture.
+  PSX Crypt gained candle light and near culling, Fog Island stepped
+  collectibles, Saturn Ghosts a VDP2 (Mode 7) floor.
+
 ---
 
 ## Order of work
@@ -1611,7 +1637,7 @@ dithered 15-bit), Saturn, Nintendo 64, Quake.
 4.1 → 4.2 → 5.1 → 5.2 → 6.1 → 6.2 → 6.3 → 7.1 → 7.2 → 7.3 → 8.1 → 8.2 →
 8.3 → 8.4 → 9.1 → 9.2 → 9.3 → 9.4 → 9.5 → 9.6 → 10.1 → 10.2 → 10.3 →
 11.1 → 11.2 → 10.4 → 10.5 → 11.3 → 11.4 → 12.1 → 12.2 → 12.3 → 12.4
-→ 12.5 … 12.16. (Environment light and PBR
+→ 12.5 … 12.17. (Environment light and PBR
 come before rigid bodies and fluids, so the fluid's liquid surface and
 the physics presets are shaded by them.)
 

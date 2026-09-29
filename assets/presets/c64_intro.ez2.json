@@ -1,59 +1,59 @@
 {
   "version": 2,
-  "name": "C64 Title",
+  "name": "C64 Intro",
   "timing": {
-    "bpm": 120.0,
+    "bpm": 125.0,
     "loop_beats": 16
   },
   "camera": {
-    "mode": "Pendulum",
+    "mode": "Static",
     "target": [
       0.0,
-      3.0,
-      -12.0
+      0.0,
+      0.0
     ],
-    "distance": 16.0,
-    "height": 2.5,
+    "distance": 10.0,
+    "height": 0.0,
     "angle": 0.0,
     "orbit_turns": 1,
-    "swing": 8.0,
-    "fov": 65.0,
+    "swing": 30.0,
+    "fov": 50.0,
     "roll": 0.0,
     "beat_shake": 0.0
   },
   "environment": {
     "fog_color": [
-      0.0021246888,
-      0.000607054,
-      0.010329823
+      0.0,
+      0.0,
+      0.0
     ],
-    "fog_density": 0.025,
+    "fog_density": 0.0,
     "sky_color": [
-      0.11697067,
       0.051269468,
-      1.0
+      0.051269468,
+      0.051269468
     ],
     "ground_color": [
-      0.002428216,
       0.0,
-      0.005181517
+      0.0,
+      0.0
     ],
     "light_dir": [
-      0.0,
       0.4,
-      -1.0
+      0.9,
+      0.5
     ],
     "light_color": [
-      0.5271152,
-      0.21586053,
+      1.0,
+      1.0,
       1.0
     ],
-    "light_intensity": 1.2,
-    "ambient": 0.3
+    "light_intensity": 1.4,
+    "ambient": 0.5
   },
   "layers": [
     {
-      "name": "Stars",
+      "name": "Background",
       "enabled": true,
       "transform": {
         "position": [
@@ -86,18 +86,18 @@
         "type": "Backdrop",
         "kind": "Starfield",
         "color_a": [
-          0.000607054,
           0.0,
-          0.00303527
+          0.0,
+          0.0
         ],
         "color_b": [
-          0.029556833,
-          0.005181517,
-          0.11697067
+          0.035601314,
+          0.02121901,
+          0.19120167
         ],
         "color_c": [
-          0.3515327,
-          0.5271152,
+          1.0,
+          1.0,
           1.0
         ],
         "speed": 1,
@@ -107,177 +107,7 @@
       }
     },
     {
-      "name": "Valley",
-      "enabled": true,
-      "transform": {
-        "position": [
-          0.0,
-          -0.5,
-          -20.0
-        ],
-        "rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "scale": 1.0,
-        "stretch": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "spin": [
-          0,
-          0,
-          0
-        ],
-        "bob": 0.0
-      },
-      "symmetry": {
-        "type": "None"
-      },
-      "kind": {
-        "type": "Terrain",
-        "size": 80.0,
-        "cells": 80,
-        "height": 7.0,
-        "hills": 5,
-        "roughness": 0.45,
-        "scroll": 2,
-        "valley": 0.35,
-        "style": "Both",
-        "line_color": [
-          1.0,
-          0.02415763,
-          0.6724432
-        ],
-        "glow": {
-          "base": 1.2,
-          "amp": 0.6,
-          "wave": "Pulse",
-          "cycles": 16,
-          "offset": 0.0,
-          "audio": 0.0
-        },
-        "fill_color": [
-          0.00303527,
-          0.001214108,
-          0.009134057
-        ],
-        "seed": 7,
-        "texture": null,
-        "tiles": 8,
-        "texture_lines": false,
-        "pixelated": false
-      }
-    },
-    {
-      "name": "Lasers",
-      "enabled": true,
-      "transform": {
-        "position": [
-          0.0,
-          0.5,
-          -45.0
-        ],
-        "rotation": [
-          -20.0,
-          0.0,
-          0.0
-        ],
-        "scale": 1.0,
-        "stretch": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "spin": [
-          0,
-          0,
-          0
-        ],
-        "bob": 0.0
-      },
-      "symmetry": {
-        "type": "MirrorX"
-      },
-      "kind": {
-        "type": "Lasers",
-        "count": 10,
-        "pattern": "Fan",
-        "spread": 80.0,
-        "length": 60.0,
-        "width": 0.1,
-        "color_a": [
-          0.014443844,
-          1.0,
-          0.3515327
-        ],
-        "color_b": [
-          0.014443844,
-          0.3515327,
-          1.0
-        ],
-        "intensity": 3.0,
-        "sweep": 20.0,
-        "sweep_cycles": 2,
-        "strobe": 0.6,
-        "seed": 1
-      }
-    },
-    {
-      "name": "Ribbon",
-      "enabled": true,
-      "transform": {
-        "position": [
-          0.0,
-          6.0,
-          -14.0
-        ],
-        "rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "scale": 4.0,
-        "stretch": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "spin": [
-          0,
-          1,
-          0
-        ],
-        "bob": 0.0
-      },
-      "symmetry": {
-        "type": "None"
-      },
-      "kind": {
-        "type": "Ribbon",
-        "curve": "Wave",
-        "freq": [
-          5,
-          1,
-          1
-        ],
-        "thickness": 0.03,
-        "color": [
-          0.0,
-          0.7835379,
-          1.0
-        ],
-        "glow": 0.8,
-        "pulses": 4,
-        "pulse_speed": 2,
-        "pulse_length": 0.06,
-        "pulse_glow": 8.0
-      }
-    },
-    {
-      "name": "Title",
+      "name": "Logo",
       "enabled": true,
       "transform": {
         "position": [
@@ -309,17 +139,24 @@
       "kind": {
         "type": "Logo",
         "source": "Text",
-        "text": "READY.",
+        "text": "EZ2",
         "font": "Pixel",
         "font_file": null,
         "image": null,
         "mask": "Alpha",
         "attach_to": "",
-        "attach_point": "Top",
-        "x": 0.0,
-        "y": -0.1,
-        "anchor": "Top",
-        "size": 0.22,
+        "attach_point": "BottomLeft",
+        "x": 0.5,
+        "y": {
+          "base": 0.7,
+          "amp": 0.03,
+          "wave": "Sine",
+          "cycles": 2,
+          "offset": 0.0,
+          "audio": 0.0
+        },
+        "anchor": "Centre",
+        "size": 0.3,
         "rotation": 0.0,
         "opacity": 1.0,
         "colors": "Gradient",
@@ -339,13 +176,13 @@
           1.0
         ],
         "glow": 1.0,
-        "outline": 0.0,
+        "outline": 0.4,
         "outline_color": [
           0.0,
           0.0,
           0.0
         ],
-        "shadow": 0.8,
+        "shadow": 0.0,
         "chrome": 0.0,
         "bevel": "Off",
         "bevel_width": 0.4,
@@ -422,17 +259,17 @@
         "morph_text": "LOOP",
         "morph_image": null,
         "copper": 1.0,
-        "copper_bars": 2.0,
-        "copper_cycles": 1,
+        "copper_bars": 5.0,
+        "copper_cycles": 2,
         "copper_a": [
-          1.0,
-          1.0,
-          1.0
+          0.32314324,
+          0.64447975,
+          0.23074007
         ],
         "copper_b": [
-          0.014443844,
-          0.014443844,
-          0.014443844
+          0.1499598,
+          0.111932434,
+          0.46207705
         ],
         "wobble_x": 0.0,
         "wobble_y": 0.0,
@@ -445,25 +282,18 @@
         "glitch_split": 0.02,
         "chroma": 0.0,
         "chroma_angle": 0.0,
-        "pixelate": {
-          "base": 0.0,
-          "amp": 0.12,
-          "wave": "ExpOut",
-          "cycles": 1,
-          "offset": 0.0,
-          "audio": 0.0
-        },
-        "palette": "C64",
-        "dither": 0.6,
-        "palette_by_brightness": true,
-        "palette_cycles": 2,
+        "pixelate": 0.0,
+        "palette": null,
+        "dither": 0.5,
+        "palette_by_brightness": false,
+        "palette_cycles": 0,
         "halftone": 0.0,
         "halftone_size": 0.04,
         "halftone_angle": 45.0,
-        "scanlines": 0.5,
-        "scanline_count": 24.0,
+        "scanlines": 0.0,
+        "scanline_count": 40.0,
         "crt_mask": 0.0,
-        "crt_glow": 0.4,
+        "crt_glow": 0.0,
         "moire": 0.0,
         "moire_lines": 30.0,
         "moire_cycles": 1,
@@ -488,14 +318,151 @@
         "echo_spacing": 0.02,
         "echo_fade": 0.6
       }
+    },
+    {
+      "name": "Coins",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Sprite",
+        "image": "sheet_coin",
+        "columns": 4,
+        "rows": 4,
+        "frames": 0,
+        "cycles": 8,
+        "random_start": false,
+        "facing": "Camera",
+        "blend": "Cutout",
+        "size": 0.9,
+        "opacity": 1.0,
+        "tint": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "glow": 1.0,
+        "pixelated": true,
+        "instancer": {
+          "type": "Orbit",
+          "count": 6,
+          "radius": 3.2,
+          "spread": 0.3,
+          "speed": 1,
+          "seed": 2
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    },
+    {
+      "name": "Scroller",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          -2.6,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Text",
+        "text": "HELLO SCENERS ... EZ2 PRESENTS A LOOP THAT NEVER ENDS ... ",
+        "font": "Pixel",
+        "font_file": null,
+        "style": "SineScroller",
+        "size": 0.9,
+        "spacing": 0.0,
+        "width": 11.0,
+        "speed": 1,
+        "wave": 0.5,
+        "wavelength": 9.0,
+        "wave_cycles": 2,
+        "letters_per_beat": 2,
+        "beats_per_line": 4,
+        "color_top": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "color_bottom": [
+          0.47932023,
+          0.5711249,
+          0.15896086
+        ],
+        "glow": 1.3,
+        "outline": 0.0,
+        "outline_color": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "shadow": 0.0,
+        "chrome": 0.0,
+        "face_camera": false
+      }
     }
   ],
   "post": {
     "bloom": {
       "enabled": true,
-      "intensity": 1.1,
+      "intensity": 0.8,
       "threshold": 0.8,
-      "radius": 0.8
+      "radius": 0.7
     },
     "kaleido": {
       "enabled": false,
@@ -521,27 +488,72 @@
       "size": 4.0
     },
     "palette": {
-      "enabled": false,
-      "palette": "Ega",
-      "dither": 0.6
+      "enabled": true,
+      "palette": "C64",
+      "dither": 0.4
     },
     "crt": {
-      "enabled": false,
+      "enabled": true,
       "scanlines": 0.5,
       "curvature": 0.15,
-      "noise": 0.1
+      "noise": 0.0
     },
     "grade": {
       "exposure": 1.0,
       "contrast": 1.05,
       "saturation": 1.1,
-      "vignette": 0.35,
-      "grain": 0.03,
+      "vignette": 0.0,
+      "grain": 0.0,
       "beat_flash": 0.0
     }
   },
   "textures": [],
   "audio": null,
   "graph": null,
-  "use_graph": false
+  "use_graph": false,
+  "retro": {
+    "enabled": true,
+    "resolution": "Full",
+    "custom": [
+      320,
+      240
+    ],
+    "sharp_overlays": true,
+    "snap": false,
+    "snap_res": [
+      320,
+      240
+    ],
+    "snap_amount": 1.0,
+    "affine": 0.0,
+    "filter": null,
+    "fog": {
+      "enabled": false,
+      "near": 1.0,
+      "far": 24.0
+    },
+    "color_15bit": false,
+    "dither": 1.0,
+    "vi_blur": 0.0,
+    "near_cull": 0.0,
+    "colormap": {
+      "enabled": false,
+      "palette": "Software256",
+      "levels": 32,
+      "fullbrights": true
+    },
+    "screen": {
+      "enabled": true,
+      "size": [
+        160,
+        200
+      ],
+      "frame": "Tv",
+      "border": [
+        0.1499598,
+        0.111932434,
+        0.46207705
+      ]
+    }
+  }
 }

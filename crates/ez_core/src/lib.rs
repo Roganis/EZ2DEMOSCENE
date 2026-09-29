@@ -19,6 +19,7 @@ pub mod music;
 pub mod palette;
 pub mod param;
 pub mod presets;
+pub mod presets_hw;
 pub mod randomize;
 pub mod retro;
 pub mod rng;

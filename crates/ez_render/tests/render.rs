@@ -4520,7 +4520,8 @@ fn console_screens_and_palettes() {
         p
     };
     let rgb = |c: u32| [(c >> 16) as u8, (c >> 8) as u8, c as u8];
-    let near = |p: &image::Rgba<u8>, c: [u8; 3]| (0..3).all(|k| (p[k] as i32 - c[k] as i32).abs() <= 2);
+    let near =
+        |p: &image::Rgba<u8>, c: [u8; 3]| (0..3).all(|k| (p[k] as i32 - c[k] as i32).abs() <= 2);
 
     // C64 multicolour on a 4:3 TV inside a 16:9 output.
     let mut p = scene();
@@ -4559,15 +4560,25 @@ fn console_screens_and_palettes() {
     // Loops.
     let a = r.render_image(&p, &EvalCtx::new(&p.timing, 0.0, None), &target);
     let b = r.render_image(&p, &EvalCtx::new(&p.timing, 1.0, None), &target);
-    assert!(mean_abs_diff(a.as_raw(), b.as_raw()) < 0.6, "the C64 screen doesn't loop");
+    assert!(
+        mean_abs_diff(a.as_raw(), b.as_raw()) < 0.6,
+        "the C64 screen doesn't loop"
+    );
 
     // Game Boy: square pixels, 10:9, four greens.
     let mut p = scene();
     ScreenPreset::GameBoy.apply(&mut p.retro, &mut p.post.palette);
     let img = r.render_image(&p, &EvalCtx::new(&p.timing, 0.3, None), &target);
     img.save(dir.join("gameboy.png")).unwrap();
-    let greens: Vec<[u8; 3]> = PaletteId::GameBoy.colors().iter().map(|c| rgb(*c)).collect();
-    assert!(img.pixels().all(|px| greens.iter().any(|c| near(px, *c))), "Game Boy colours");
+    let greens: Vec<[u8; 3]> = PaletteId::GameBoy
+        .colors()
+        .iter()
+        .map(|c| rgb(*c))
+        .collect();
+    assert!(
+        img.pixels().all(|px| greens.iter().any(|c| near(px, *c))),
+        "Game Boy colours"
+    );
 
     // Palettes over the full picture: the NES list and the Amiga cube.
     let mut p = scene();
@@ -4576,8 +4587,16 @@ fn console_screens_and_palettes() {
     let img = r.render_image(&p, &EvalCtx::new(&p.timing, 0.3, None), &target);
     img.save(dir.join("nes.png")).unwrap();
     let nes: Vec<[u8; 3]> = PaletteId::Nes.colors().iter().map(|c| rgb(*c)).collect();
-    let used = img.pixels().map(|px| [px[0], px[1], px[2]]).collect::<std::collections::HashSet<_>>();
-    assert!(used.iter().all(|u| nes.iter().any(|c| (0..3).all(|k| (u[k] as i32 - c[k] as i32).abs() <= 2))), "NES colours");
+    let used = img
+        .pixels()
+        .map(|px| [px[0], px[1], px[2]])
+        .collect::<std::collections::HashSet<_>>();
+    assert!(
+        used.iter().all(|u| nes
+            .iter()
+            .any(|c| (0..3).all(|k| (u[k] as i32 - c[k] as i32).abs() <= 2))),
+        "NES colours"
+    );
     assert!(used.len() > 8, "only {} NES colours used", used.len());
     for (pal, levels) in [(PaletteId::Amiga, 16u32), (PaletteId::AmstradCpc, 3)] {
         p.post.palette.palette = pal;

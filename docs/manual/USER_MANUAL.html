@@ -154,7 +154,6 @@ pickers and menus. When you like it, you export an MP4, WebM, GIF or a folder of
 <div class="grid3">
   <div class="card"><img src="img/p_neon_arena.jpg"><div class="t">Neon Arena</div><div class="d">Black gloss, red neon, crystal skyline.</div></div>
   <div class="card"><img src="img/p_gold_kaleido_room.jpg"><div class="t">Gold Kaleido Room</div><div class="d">Mirrored hall, orb walls, chandelier.</div></div>
-  <div class="card"><img src="img/p_orbiting_solid.jpg"><div class="t">Orbiting Solid</div><div class="d">Blue dodecahedron and a debris swarm.</div></div>
   <div class="card"><img src="img/p_retro_tunnel.jpg"><div class="t">Retro Tunnel</div><div class="d">XOR tunnel, EGA palette, CRT.</div></div>
   <div class="card"><img src="img/p_plasma_kaleidoscope.jpg"><div class="t">Plasma Kaleidoscope</div><div class="d">Oldschool plasma, spinning tori.</div></div>
   <div class="card"><img src="img/p_synth_sunset.jpg"><div class="t">Synth Sunset</div><div class="d">Striped sun, neon grid, pyramids.</div></div>
@@ -169,8 +168,14 @@ pickers and menus. When you like it, you export an MP4, WebM, GIF or a folder of
   <div class="card"><img src="img/p_club_spotlights.jpg"><div class="t">Club Spotlights</div><div class="d">Spotlight cones, light pools, mist.</div></div>
   <div class="card"><img src="img/p_rainbow_falls.jpg"><div class="t">Rainbow Falls</div><div class="d">Day and night, a rainbow, a waterfall.</div></div>
   <div class="card"><img src="img/p_sunken_temple.jpg"><div class="t">Sunken Temple</div><div class="d">Underwater caustics and bubbles.</div></div>
-  <div class="card"><img src="img/p_twister.jpg"><div class="t">Twister</div><div class="d">A tornado over wet, stormy plains.</div></div>
   <div class="card"><img src="img/p_music_reactor.jpg"><div class="t">Music Reactor</div><div class="d">Load a song: equalizer, kick flashes, time warp.</div></div>
+  <div class="card"><img src="img/p_psx_crypt.jpg"><div class="t">PSX Crypt</div><div class="d">PlayStation: wobbling polygons, swimming textures.</div></div>
+  <div class="card"><img src="img/p_mode_7_circuit.jpg"><div class="t">Mode 7 Circuit</div><div class="d">SNES racing on a turning, endless track.</div></div>
+  <div class="card"><img src="img/p_harrier_plains.jpg"><div class="t">Harrier Plains</div><div class="d">A chequered floor rushing to the horizon.</div></div>
+  <div class="card"><img src="img/p_slipgate_courtyard.jpg"><div class="t">Slipgate Courtyard</div><div class="d">Quake: palette lighting, torches, lava.</div></div>
+  <div class="card"><img src="img/p_wireframe_trader.jpg"><div class="t">Wireframe Trader</div><div class="d">1-bit wireframe ships and a space station.</div></div>
+  <div class="card"><img src="img/p_amiga_bounce.jpg"><div class="t">Amiga Bounce</div><div class="d">The red and white ball, bouncing on a grid.</div></div>
+  <div class="card"><img src="img/p_c64_intro.jpg"><div class="t">C64 Intro</div><div class="d">Raster-barred logo and a sine scroller, 160 × 200.</div></div>
 </div>
 
 <h2>The one big idea: everything loops</h2>
@@ -223,9 +228,21 @@ program is <code>target/release/ez2demoscene</code> (<code>ez2demoscene.exe</cod
 <p>The editor opens on an empty stage, paused (press <span class="ui">Space</span> or ▶ to play), with the <b>preset
 gallery</b> on top. Choosing a preset loads it and starts playing. Tick <span class="ui">Don't show on startup</span> at the
 bottom of the gallery to skip it; it stays one click away under <span class="ui">Presets</span> in the menu bar. The built-in presets
-come in two groups: <b>Demo scenes</b>, and <b>Retro console</b> for the PlayStation, Saturn, Nintendo 64, Quake and 16-bit looks
-(<b>PSX Crypt</b>, <b>Stage Select</b>, <b>Saturn Ghosts</b>, <b>Fog Island</b>, <b>Slipgate Courtyard</b>, <b>Slime Falls</b>,
-<b>Mode 7 Circuit</b>).</p>
+come in five groups:</p>
+<ul>
+  <li><b>Consoles &amp; arcade</b>: PSX Crypt (PlayStation), Saturn Ghosts, Fog Island (Nintendo 64), Mode 7 Circuit (SNES), Super FX
+  Starship (SNES Star Fox), Harrier Plains (Space Harrier arcade), Polygon Arcade (Sega Model 1), Battle Screen (16-bit RPG), Red Visor
+  (Virtual Boy) and Dreamcast Sunset.</li>
+  <li><b>PC era</b>: Slipgate Courtyard and Slime Falls (Quake), Hangar Base (early-90s software 3D), Accelerator Arena (late-90s 3D
+  cards), Wireframe Trader (BBC Micro Elite) and Screen Saver.</li>
+  <li><b>Home computers &amp; handhelds</b>: Amiga Bounce, C64 Intro, Spectrum Isometric and Handheld Quest (Game Boy), each at its
+  machine's resolution, in its palette and inside its border.</li>
+  <li><b>Demoscene</b>: the classic effects: tunnels, plasmas and kaleidoscopes, Copper Heaven (an Amiga demo), Demo Party 93 (a
+  1993 PC demo on a timeline), Rotozoomer, Vector Balls, Glenz Vectors and Oldschool Fire.</li>
+  <li><b>Engine showcases</b>: one idea each: physical materials, reflections and light shafts, simulated liquids, cloth, rigid
+  bodies and flocks, weather and skies, music, nodes, the timeline and stepped animation.</li>
+</ul>
+<p>
 <figure><img src="img/gallery.jpg" ><figcaption>The preset gallery appears at start-up. Hover a card for a description, click to load it.</figcaption></figure>
 
 <!-- ===================================================== 3 -->
@@ -252,7 +269,7 @@ come in two groups: <b>Demo scenes</b>, and <b>Retro console</b> for the PlaySta
 <!-- ===================================================== 4 -->
 <h1 id="quick"><span class="num">4</span>Quick start: your first loop in five minutes</h1>
 <ol class="steps">
-  <li><b>Pick a preset.</b> In the gallery, click <span class="ui">Orbiting Solid</span>. The scene starts playing straight
+  <li><b>Pick a preset.</b> In the gallery, click <span class="ui">Tesla Swarm</span>. The scene starts playing straight
   away.</li>
   <li><b>Change a colour.</b> Click the <span class="ui">Dodecahedron</span> layer on the left. In the inspector under
   <span class="ui">Material</span>, click the <span class="ui">Colour</span> swatch and pick a hot pink.</li>
@@ -464,7 +481,7 @@ everywhere, then finished on the graphics card.)</p>
   <tr><td>Orbit swarm</td><td>Count, Radius, Spread, Orbits / loop, Seed</td><td>Debris orbiting a planet.</td></tr>
   <tr><td>Big swarm</td><td>Form (Orbits, Cloud, Shell, Galaxy), Count up to 250,000, Radius, Spread, Turns / loop, Seed</td><td>Huge
   swarms, placed by the graphics card on desktop and in WebGPU browsers (in WebGL2 browsers the processor places them, the same picture
-  but slower, so keep counts lower there). Use a simple shape such as a tetrahedron. The <b>Galaxy Swarm</b> preset has 40,000.</td></tr>
+  but slower, so keep counts lower there). Use a simple shape such as a tetrahedron. The <b>Glass Galaxy</b> preset has 40,000.</td></tr>
   <tr><td>Wall</td><td>Columns, Rows, Spacing, Curve</td><td>Orb walls, LED walls. Curve bends the wall into an arc.</td></tr>
   <tr><td>Spiral</td><td>Count, Radius, Height, Turns</td><td>Chandeliers, DNA helices.</td></tr>
   <tr><td>Along a curve</td><td>Curve and Frequencies (the ribbon curves), Size, Count, Laps / loop, Face along</td><td>Beads riding a
@@ -813,11 +830,9 @@ bloom, god rays, feedback trails, scanlines and the colour grade apply to it, bu
 </table>
 <p>Every number has <span class="ui">~</span> and 🎵: pulse the glow on the kick, sway the turn, slide the logo in. With the logo selected, the
 viewport shows one handle at its anchor: drag it with <span class="ui">Move</span> to change the offsets, with <span class="ui">Scale</span> to size it
-and with <span class="ui">Rotate</span> to turn it (<kbd>Ctrl</kbd> snaps). The <b>Sunset Title</b> preset has a bevelled chrome title pulsing on
-every beat, with a glint on every bar, and a pixel tag in the corner. <b>Logo Morph</b> melts one word into another over Neon Arena,
-extruded, with stacked outlines and rings on every beat. <b>Copper Logo</b> has copper bars, a sway and a glitch on every beat over the
-Retro Tunnel. <b>C64 Title</b> pixelates in each loop in cycling C64 colours under scanlines. <b>Glass Galaxy</b> has
-glass letters bending a galaxy, casting shadow rays through its light, with echoes as they sway.</p>
+and with <span class="ui">Rotate</span> to turn it (<kbd>Ctrl</kbd> snaps). The <b>C64 Intro</b> and <b>Copper Heaven</b> presets have
+logos with copper bars (the second with a sway), and <b>Glass Galaxy</b> has glass letters bending a galaxy, casting shadow rays through
+its light, with echoes as they sway.</p>
 <div class="tip"><b>Tip</b>The logo's shape is worked out once when you type or pick an image (it becomes a distance field, which keeps the
 edges sharp at any size and gives outlines, glows and bevels for free), so the first frame after a change can take a moment.</div>
 
@@ -1229,7 +1244,7 @@ to force those into a palette.</p>
 <p>Near-greys (black floors, white letters) are left alone. A layer whose colours mean something, like fire, can tick
 <span class="ui">Keep own colours</span> at the top of its settings (shown while a scheme is on). With a scheme on,
 <span class="ui">🎲 Randomize</span> picks a new key colour (and sometimes a new harmony) instead of rotating each layer. The
-<b>Colour Wheel Arena</b> preset is Neon Arena under a triad that turns once per loop.</p>
+try it on <b>Neon Arena</b> with a triad and a turn of once per loop.</p>
 
 <!-- ===================================================== 9 -->
 <h1 id="post"><span class="num">9</span>Post effects</h1>
@@ -1343,8 +1358,8 @@ turn on a console's bundle of settings, then fine-tune it:</p>
 </table>
 <p>None of these animate by themselves, so loops stay seamless: the wobble and warp depend only on where things are, and a
 moving camera or spinning shape produces the same wobble at the end of the loop as at the start. The <b>PSX Crypt</b> preset
-shows the PlayStation look (warped brick walls and wooden floor, a wobbling idol); <b>Stage Select</b> flies over checkered
-hills at 256 × 224 with a sharp stage title; <b>Fog Island</b> is the Nintendo 64 (soft textures, close fog, video blur) and
+shows the PlayStation look (warped brick walls and wooden floor, a candle-lit idol, walls popping open near the camera);
+<b>Fog Island</b> is the Nintendo 64 (soft textures, close fog, video blur) and
 <b>Saturn Ghosts</b> the Saturn (checkerboard see-through ghosts and wisps, pillars vanishing as the camera brushes them).
 <b>Slipgate Courtyard</b> is Quake (palette lighting, torches and a flickering sky light by light styles, a wobbling lava pool,
 square embers, the two-layer sky) and <b>Slime Falls</b> a turbulent slime canyon and waterfall under a strobing light.</p>
@@ -1586,7 +1601,7 @@ film grain, which makes GIFs much larger.</div>
 ez2demoscene --export friend_scene.ez2pack loop.mp4   # packs work too
 ez2demoscene --render "Neon Arena" still.png --phase 0.25 --size 1920x1080
 ez2demoscene --export "Gold Kaleido Room" loop.mp4 --size 1920x1080 --fps 60 --repeats 4
-ez2demoscene --export "Orbiting Solid" smooth.mp4 --fps 30 --motion-blur 8 --shutter 0.5
+ez2demoscene --export "Tesla Swarm" smooth.mp4 --fps 30 --motion-blur 8 --shutter 0.5
 ez2demoscene --export my.ez2.json frames/          # PNG sequence into a folder
 ez2demoscene --write-presets my_presets/           # presets as editable project files
 ez2demoscene --write-textures my_textures/         # the retro texture pack as PNGs</pre>

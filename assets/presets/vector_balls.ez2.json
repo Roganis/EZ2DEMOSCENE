@@ -1,47 +1,47 @@
 {
   "version": 2,
-  "name": "Mode 7 Circuit",
+  "name": "Vector Balls",
   "timing": {
-    "bpm": 140.0,
+    "bpm": 128.0,
     "loop_beats": 16
   },
   "camera": {
     "mode": "Static",
     "target": [
       0.0,
-      0.6,
-      -10.0
+      0.0,
+      0.0
     ],
     "distance": 10.0,
-    "height": 2.2,
+    "height": 1.0,
     "angle": 0.0,
     "orbit_turns": 1,
     "swing": 30.0,
-    "fov": 62.0,
+    "fov": 50.0,
     "roll": 0.0,
     "beat_shake": 0.0
   },
   "environment": {
     "fog_color": [
-      0.11697067,
-      0.27889434,
-      0.74540436
+      0.0,
+      0.0,
+      0.0
     ],
     "fog_density": 0.0,
     "sky_color": [
-      0.3515327,
-      0.5271152,
+      0.21586053,
+      0.27889434,
       1.0
     ],
     "ground_color": [
-      0.029556833,
-      0.08021983,
+      0.005181517,
+      0.0,
       0.014443844
     ],
     "light_dir": [
-      0.3,
-      1.0,
-      0.6
+      0.4,
+      0.9,
+      0.5
     ],
     "light_color": [
       1.0,
@@ -49,11 +49,11 @@
       1.0
     ],
     "light_intensity": 1.4,
-    "ambient": 0.7
+    "ambient": 0.4
   },
   "layers": [
     {
-      "name": "Sky",
+      "name": "Background",
       "enabled": true,
       "transform": {
         "position": [
@@ -84,16 +84,16 @@
       },
       "kind": {
         "type": "Backdrop",
-        "kind": "Gradient",
+        "kind": "Starfield",
         "color_a": [
-          0.014443844,
-          0.08021983,
-          0.6307572
+          0.0,
+          0.0,
+          0.0
         ],
         "color_b": [
-          0.3515327,
-          0.6307572,
-          1.0
+          0.005181517,
+          0.0,
+          0.014443844
         ],
         "color_c": [
           1.0,
@@ -107,28 +107,28 @@
       }
     },
     {
-      "name": "Track",
+      "name": "Cube of balls",
       "enabled": true,
       "transform": {
         "position": [
           0.0,
           0.0,
-          -30.0
+          0.0
         ],
         "rotation": [
           0.0,
           0.0,
           0.0
         ],
-        "scale": 1.0,
+        "scale": 0.35,
         "stretch": [
           1.0,
           1.0,
           1.0
         ],
         "spin": [
-          0,
-          0,
+          1,
+          2,
           0
         ],
         "bob": 0.0
@@ -136,80 +136,27 @@
       "symmetry": {
         "type": "None"
       },
-      "kind": {
-        "type": "Mode7",
-        "texture": "track",
-        "tile_size": 24.0,
-        "turns": 1,
-        "scroll": [
-          0,
-          6
-        ],
-        "tint": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "brightness": 1.0,
-        "pixelated": true,
-        "fog": false
-      }
-    },
-    {
-      "name": "Coins",
-      "enabled": true,
-      "transform": {
-        "position": [
-          0.0,
-          1.2,
-          -5.0
-        ],
-        "rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "scale": 0.6,
-        "stretch": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "spin": [
-          0,
-          8,
-          0
-        ],
-        "bob": 0.0
-      },
-      "symmetry": {
-        "type": "None"
-      },
-      "step_fps": 12.0,
       "kind": {
         "type": "Mesh",
         "source": {
           "type": "Primitive",
-          "shape": "Ring",
-          "arc": 360.0,
-          "width": 0.35,
-          "height": 0.3,
-          "segments": 16
+          "shape": "Sphere",
+          "detail": 2
         },
         "material": {
           "base_color": [
-            1.0,
-            0.6307572,
-            0.029556833
+            0.029556833,
+            0.1620294,
+            1.0
           ],
-          "metallic": 0.9,
-          "roughness": 0.3,
+          "metallic": 0.2,
+          "roughness": 0.15,
           "emissive_color": [
             1.0,
-            0.3515327,
-            0.0
+            0.029556833,
+            0.014443844
           ],
-          "emissive": 0.6,
+          "emissive": 0.0,
           "emissive_mode": "Full",
           "texture": null,
           "texture_scale": 1.0,
@@ -218,21 +165,21 @@
             0
           ],
           "pixelated": false,
-          "flat_shading": true,
-          "rim": 0.3,
+          "flat_shading": false,
+          "rim": 0.6,
           "hue_shift": 0.0
         },
         "instancer": {
           "type": "Grid",
           "counts": [
-            3,
-            1,
-            1
+            4,
+            4,
+            4
           ],
           "spacing": [
-            2.4,
-            1.0,
-            1.0
+            1.1,
+            1.1,
+            1.1
           ]
         },
         "variation": {
@@ -249,20 +196,20 @@
       }
     },
     {
-      "name": "Lap",
+      "name": "Ring of balls",
       "enabled": true,
       "transform": {
         "position": [
           0.0,
-          3.2,
-          -6.0
-        ],
-        "rotation": [
-          0.0,
           0.0,
           0.0
         ],
-        "scale": 1.0,
+        "rotation": [
+          60.0,
+          0.0,
+          0.0
+        ],
+        "scale": 0.3,
         "stretch": [
           1.0,
           1.0,
@@ -270,8 +217,8 @@
         ],
         "spin": [
           0,
-          0,
-          0
+          -1,
+          1
         ],
         "bob": 0.0
       },
@@ -279,40 +226,54 @@
         "type": "None"
       },
       "kind": {
-        "type": "Text",
-        "text": "LAP 1",
-        "font": "Pixel",
-        "font_file": null,
-        "style": "Static",
-        "size": 0.7,
-        "spacing": 0.0,
-        "width": 12.0,
-        "speed": 1,
-        "wave": 0.4,
-        "wavelength": 8.0,
-        "wave_cycles": 2,
-        "letters_per_beat": 2,
-        "beats_per_line": 4,
-        "color_top": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "color_bottom": [
-          1.0,
-          0.74540436,
-          0.051269468
-        ],
-        "glow": 1.0,
-        "outline": 0.6,
-        "outline_color": [
-          0.0,
-          0.0,
-          0.051269468
-        ],
-        "shadow": 0.0,
-        "chrome": 0.0,
-        "face_camera": true
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Sphere",
+          "detail": 2
+        },
+        "material": {
+          "base_color": [
+            1.0,
+            0.029556833,
+            0.11697067
+          ],
+          "metallic": 0.2,
+          "roughness": 0.15,
+          "emissive_color": [
+            1.0,
+            0.029556833,
+            0.014443844
+          ],
+          "emissive": 0.0,
+          "emissive_mode": "Full",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": false,
+          "rim": 0.6,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Radial",
+          "count": 16,
+          "radius": 3.4
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
       }
     }
   ],
@@ -347,9 +308,9 @@
       "size": 4.0
     },
     "palette": {
-      "enabled": false,
-      "palette": "Ega",
-      "dither": 0.6
+      "enabled": true,
+      "palette": "MegaDrive",
+      "dither": 0.0
     },
     "crt": {
       "enabled": false,
@@ -361,8 +322,8 @@
       "exposure": 1.0,
       "contrast": 1.05,
       "saturation": 1.1,
-      "vignette": 0.35,
-      "grain": 0.03,
+      "vignette": 0.0,
+      "grain": 0.0,
       "beat_flash": 0.0
     }
   },
@@ -372,7 +333,7 @@
   "use_graph": false,
   "retro": {
     "enabled": true,
-    "resolution": "R256x224",
+    "resolution": "Full",
     "custom": [
       320,
       240
@@ -402,7 +363,7 @@
       "fullbrights": true
     },
     "screen": {
-      "enabled": false,
+      "enabled": true,
       "size": [
         320,
         200

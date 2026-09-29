@@ -199,8 +199,17 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   smooth.
 - **Mode 7 floor.** A SNES / Saturn VDP2 style endless textured plane
   with a hard horizon that turns and scrolls whole turns and tiles per
-  loop (a race-track texture included). A **Retro console** preset group
-  has PlayStation, Saturn, Nintendo 64, Quake and 16-bit scenes.
+  loop (a race-track texture included).
+- **Whole-screen machine resolutions and palettes.** The whole picture at
+  a C64's 160 × 200 double-wide pixels, a Spectrum's 256 × 192, a Game
+  Boy's 160 × 144 and ten more, on a 4:3 TV or with square pixels inside
+  the machine's border colour, with its palette: NES, 1-bit, Virtual Boy
+  red, and the Amstrad, Master System, Mega Drive and Amiga colour cubes
+  join EGA, CGA, C64, Game Boy, PICO-8, Spectrum and VGA.
+- **Presets in five groups**: Consoles & arcade, PC era, Home computers &
+  handhelds, Demoscene and Engine showcases, from the Amiga ball and a
+  C64 cracktro to Star Fox, Space Harrier, Virtua Racing, Quake, Elite,
+  glenz vectors, a rotozoomer and a 1993 demo on a timeline.
 - **Post FX.** Bloom, **god rays** (light shafts from the sun or the
   picture centre) with lens flare, **heat haze**, **depth of field**
   (auto focus, round bokeh), **feedback trails** (zoom/turn/hue-drifting
@@ -336,7 +345,7 @@ Shortcuts: `Space` play/pause · `Ctrl+S` save · `Ctrl+O` open · `Ctrl+E` expo
 ez2demoscene --list-presets
 ez2demoscene --render "Neon Arena" still.png --phase 0.25 --size 1920x1080
 ez2demoscene --export "Gold Kaleido Room" loop.mp4 --size 1920x1080 --fps 60 --repeats 4
-ez2demoscene --export "Orbiting Solid" smooth.mp4 --fps 30 --motion-blur 8   # film-like motion blur
+ez2demoscene --export "Tesla Swarm" smooth.mp4 --fps 30 --motion-blur 8   # film-like motion blur
 ez2demoscene --export my.ez2.json frames/        # PNG sequence
 ez2demoscene --write-presets assets/presets
 ez2demoscene --write-textures assets/textures
