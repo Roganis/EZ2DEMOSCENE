@@ -457,6 +457,100 @@ pub fn color_scheme_ui(ui: &mut Ui, s: &mut ColorScheme, ctx: &EvalCtx) {
     });
 }
 
+/// Where reflections and ambient light come from.
+fn env_light_ui(ui: &mut Ui, l: &mut EnvLight) {
+    section(ui, "Environment light", false, |ui| {
+        let current = match &l.source {
+            EnvSource::Colours => "The colours above".to_string(),
+            EnvSource::Studio(s) => s.label().to_string(),
+            EnvSource::Hdri(p) => ez_core::store::file_name(p).to_string(),
+            EnvSource::Sky => "From the sky".to_string(),
+        };
+        row(
+            ui,
+            "Light from",
+            "Where reflections and soft light come from: the sky and ground \
+             colours above, a built-in studio, a panorama photo (.hdr) of a \
+             real place, or the scene's own background.",
+            |ui| {
+                egui::ComboBox::from_id_salt("env_light")
+                    .selected_text(current)
+                    .show_ui(ui, |ui| {
+                        if ui
+                            .selectable_label(l.source == EnvSource::Colours, "The colours above")
+                            .clicked()
+                        {
+                            l.source = EnvSource::Colours;
+                        }
+                        for s in Studio::ALL {
+                            let on = l.source == EnvSource::Studio(s);
+                            if ui.selectable_label(on, s.label()).clicked() {
+                                l.source = EnvSource::Studio(s);
+                            }
+                        }
+                        if ui
+                            .selectable_label(l.source == EnvSource::Sky, "From the sky")
+                            .on_hover_text("The background layer, captured all around every frame")
+                            .clicked()
+                        {
+                            l.source = EnvSource::Sky;
+                        }
+                        ui.separator();
+                        if ui.button("Panorama photo (.hdr)…").clicked() {
+                            platform::pick(Purpose::SetEnvMap);
+                        }
+                    });
+            },
+        );
+        if !l.is_on() {
+            return;
+        }
+        param(
+            ui,
+            "Strength",
+            "How strongly the map lights the scene",
+            &mut l.intensity,
+            0.0..=4.0,
+        );
+        param(
+            ui,
+            "Turn",
+            "Turn the map around the vertical, in degrees (a saw of 180° turns \
+             it a whole turn per cycle)",
+            &mut l.rotation,
+            -180.0..=180.0,
+        );
+        match l.source {
+            EnvSource::Sky => {
+                check(
+                    ui,
+                    "Capture once",
+                    "For a sky that doesn't move: capture it once instead of every frame",
+                    &mut l.sky_static,
+                );
+            }
+            _ => {
+                check(
+                    ui,
+                    "Sun from the map",
+                    "Point the sun (and its shadows) at the brightest spot of the \
+                     map, and take that spot out of the map",
+                    &mut l.sun_from_map,
+                );
+            }
+        }
+        ui.label(
+            RichText::new(
+                "Shapes and raymarched objects take the light and reflections. \
+                 To see the map behind the scene, add a background of the kind \
+                 Environment map.",
+            )
+            .weak()
+            .small(),
+        );
+    });
+}
+
 pub fn environment_ui(ui: &mut Ui, e: &mut Environment) {
     ui.heading("Light & atmosphere");
     color(
@@ -501,6 +595,7 @@ pub fn environment_ui(ui: &mut Ui, e: &mut Environment) {
         0.02,
     );
     ui.add_space(6.0);
+    env_light_ui(ui, &mut e.env_light);
     let sh = &mut e.shadows;
     toggle_section(ui, "Sun shadows", &mut sh.enabled, |ui| {
         slider(
@@ -2542,7 +2637,23 @@ fn backdrop_ui(ui: &mut Ui, b: &mut Backdrop, textures: &[UserTexture], lref: La
             );
         }
         param(ui, "Brightness", "", &mut b.intensity, 0.0..=4.0);
-        if !battle {
+        if b.kind == BackdropKind::Environment {
+            param(
+                ui,
+                "Sharpness",
+                "1 = the map as it is, 0 = fully blurred",
+                &mut b.detail,
+                0.0..=1.0,
+            );
+            ui.label(
+                RichText::new(
+                    "Shows the environment light's map (Light & fog → Environment light), \
+                     turned with it.",
+                )
+                .weak()
+                .small(),
+            );
+        } else if !battle {
             param(
                 ui,
                 "Detail",

@@ -82,6 +82,55 @@ struct GlobalsRaw {
     sun: [f32; 4],
     shadow_vp: [[f32; 4]; 4],
     shadow: [f32; 4],
+    /// Environment map: intensity (0 = off), turn (radians), roughest
+    /// mip, sky mode (see `common.wgsl`).
+    ibl: [f32; 4],
+    /// Its diffuse light (9 spherical-harmonic coefficients, rgb).
+    sh: [[f32; 4]; 9],
+}
+
+/// An environment map on the GPU and what the CPU worked out from it.
+struct EnvMaps {
+    /// What it was made from (see `Renderer::env_key`).
+    key: String,
+    view: wgpu::TextureView,
+    sh: [[f32; 4]; 9],
+    /// Its sun, taken out of the map (when asked for).
+    sun: Option<crate::envmap::Sun>,
+    /// The panorama as a texture, for the Environment map background.
+    pano: Option<String>,
+}
+
+/// Side of a captured sky's cube faces.
+const SKY_SIZE: u32 = 64;
+
+/// "From the sky": the background captured into a cube each frame, then
+/// blurred into the environment map's roughness mips.
+struct SkyCapture {
+    /// The capture (one mip) and a face view of each side to draw into.
+    src_faces: Vec<wgpu::TextureView>,
+    /// The environment map: a view per face and mip to draw into, and the
+    /// whole cube to light with.
+    dst_faces: Vec<wgpu::TextureView>,
+    dst_cube: wgpu::TextureView,
+    /// Globals of each face's view.
+    globals: Vec<wgpu::Buffer>,
+    globals_bg: Vec<wgpu::BindGroup>,
+    filter_pipe: wgpu::RenderPipeline,
+    /// One bind group per mip and face (its parameters, the capture).
+    filter_bgs: Vec<wgpu::BindGroup>,
+    /// What was captured last (a sky that doesn't move is captured once).
+    captured: Option<u64>,
+}
+
+/// Group 3 of lit surfaces: the sun shadow map, the environment map and
+/// the BRDF table.
+struct Group3 {
+    layout: wgpu::BindGroupLayout,
+    shadow_view: wgpu::TextureView,
+    shadow_sampler: wgpu::Sampler,
+    env_sampler: wgpu::Sampler,
+    lut_view: wgpu::TextureView,
 }
 
 /// Size of the sun shadow map.
@@ -97,6 +146,9 @@ struct FrameEnv {
     wet: f32,
     /// Snow cover (0..1).
     snow: f32,
+    /// Environment map lighting (see `GlobalsRaw::ibl`, `sh`).
+    ibl: [f32; 4],
+    sh: [[f32; 4]; 9],
 }
 
 #[repr(C)]
@@ -465,6 +517,7 @@ fn backdrop_load(kind: BackdropKind) -> f32 {
         BackdropKind::Clouds => 1.2,
         BackdropKind::Aurora => 0.4,
         BackdropKind::Battle => 0.15,
+        BackdropKind::Environment => 0.05,
     }
 }
 
@@ -914,8 +967,15 @@ pub struct Renderer {
     dof_sdf_pipe: wgpu::RenderPipeline,
     dof_terrain_pipe: wgpu::RenderPipeline,
     dof_floor_pipe: wgpu::RenderPipeline,
-    shadow_view: wgpu::TextureView,
     shadow_bg: wgpu::BindGroup,
+    /// The environment map in use (the black one while the colours light
+    /// the scene).
+    env: EnvMaps,
+    /// What the lit surfaces' group 3 is made of (rebuilt when the
+    /// environment map changes).
+    group3: Group3,
+    sky: Option<SkyCapture>,
+    bgl_globals: wgpu::BindGroupLayout,
     bgl_draw: wgpu::BindGroupLayout,
     draw_buf: wgpu::Buffer,
     draw_cap: u64,
@@ -1288,6 +1348,33 @@ impl Renderer {
                     binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
+                    count: None,
+                },
+                // The environment map, its sampler and the BRDF table.
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::Cube,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
                     count: None,
                 },
             ],
@@ -1883,20 +1970,66 @@ impl Renderer {
             compare: Some(wgpu::CompareFunction::LessEqual),
             ..Default::default()
         });
-        let shadow_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("shadow"),
-            layout: &bgl_shadow,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&shadow_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&shadow_sampler),
-                },
-            ],
+        let env_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("environment"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
+            ..Default::default()
         });
+        // No environment map yet: a black one (unused while the colours
+        // light the scene).
+        let env_none = Self::make_env_cube(device, queue, 1, &[vec![vec![[0.0f32; 4]]; 6]]);
+        let lut_view = {
+            let lut = crate::envmap::brdf_lut();
+            let n = crate::envmap::LUT_SIZE;
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("brdf table"),
+                size: wgpu::Extent3d {
+                    width: n,
+                    height: n,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba16Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+            let bytes: Vec<u8> = lut
+                .iter()
+                .flat_map(|[a, b]| [*a, *b, 0.0, 1.0])
+                .flat_map(|c| crate::logo::f16_bits(c).to_le_bytes())
+                .collect();
+            queue.write_texture(
+                texture.as_image_copy(),
+                &bytes,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(8 * n),
+                    rows_per_image: Some(n),
+                },
+                wgpu::Extent3d {
+                    width: n,
+                    height: n,
+                    depth_or_array_layers: 1,
+                },
+            );
+            texture.create_view(&Default::default())
+        };
+        let shadow_bg = Self::make_group3(
+            device,
+            &bgl_shadow,
+            &shadow_view,
+            &shadow_sampler,
+            &env_none,
+            &env_sampler,
+            &lut_view,
+        );
         let main_pipes = scene_pipes(msaa);
         let refl_pipes = scene_pipes(1);
         let floor_pipe = make_pipeline(
@@ -2070,8 +2203,23 @@ impl Renderer {
             dof_sdf_pipe,
             dof_terrain_pipe,
             dof_floor_pipe,
-            shadow_view,
             shadow_bg,
+            env: EnvMaps {
+                key: String::new(),
+                view: env_none,
+                sh: [[0.0; 4]; 9],
+                sun: None,
+                pano: None,
+            },
+            sky: None,
+            bgl_globals: bgl_globals.clone(),
+            group3: Group3 {
+                layout: bgl_shadow,
+                shadow_view,
+                shadow_sampler,
+                env_sampler,
+                lut_view,
+            },
             bgl_draw,
             draw_buf,
             draw_cap,
@@ -3325,6 +3473,541 @@ impl Renderer {
     // ------------------------------------------------------------------
     // Simulations
 
+    // ------------------------------------------------------------------
+    // Environment light
+
+    /// A cube texture from per-mip, per-face texels (`size` the largest
+    /// face's side).
+    fn make_env_cube(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        size: u32,
+        mips: &[Vec<Vec<[f32; 4]>>],
+    ) -> wgpu::TextureView {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("environment map"),
+            size: wgpu::Extent3d {
+                width: size,
+                height: size,
+                depth_or_array_layers: 6,
+            },
+            mip_level_count: mips.len() as u32,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba16Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        for (mip, faces) in mips.iter().enumerate() {
+            let n = (size >> mip).max(1);
+            for (face, texels) in faces.iter().enumerate() {
+                let bytes: Vec<u8> = texels
+                    .iter()
+                    .flatten()
+                    .flat_map(|c| crate::logo::f16_bits(*c).to_le_bytes())
+                    .collect();
+                queue.write_texture(
+                    wgpu::TexelCopyTextureInfo {
+                        texture: &texture,
+                        mip_level: mip as u32,
+                        origin: wgpu::Origin3d {
+                            x: 0,
+                            y: 0,
+                            z: face as u32,
+                        },
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    &bytes,
+                    wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(8 * n),
+                        rows_per_image: Some(n),
+                    },
+                    wgpu::Extent3d {
+                        width: n,
+                        height: n,
+                        depth_or_array_layers: 1,
+                    },
+                );
+            }
+        }
+        texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::Cube),
+            ..Default::default()
+        })
+    }
+
+    fn make_group3(
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+        shadow_view: &wgpu::TextureView,
+        shadow_sampler: &wgpu::Sampler,
+        env_view: &wgpu::TextureView,
+        env_sampler: &wgpu::Sampler,
+        lut_view: &wgpu::TextureView,
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("shadow and environment"),
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(shadow_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(shadow_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(env_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(env_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(lut_view),
+                },
+            ],
+        })
+    }
+
+    /// What an environment map is made from (its cache key).
+    fn env_key(light: &EnvLight) -> Option<String> {
+        let sun = if light.sun_from_map { ":sun" } else { "" };
+        match &light.source {
+            EnvSource::Colours | EnvSource::Sky => None,
+            EnvSource::Studio(k) => Some(format!("studio:{k:?}{sun}")),
+            EnvSource::Hdri(path) => Some(format!("hdri:{path}{sun}")),
+        }
+    }
+
+    /// Makes the environment map for `key` (from `light`) the current one.
+    fn load_env(&mut self, key: String, light: &EnvLight) {
+        let eq = match &light.source {
+            EnvSource::Studio(k) => Ok(crate::envmap::studio(*k)),
+            EnvSource::Hdri(path) => ez_core::store::read(path)
+                .map_err(|e| e.to_string())
+                .and_then(|b| crate::envmap::load_hdr(&b)),
+            _ => return,
+        };
+        let mut eq = match eq {
+            Ok(eq) => {
+                self.errors.remove(&key);
+                eq
+            }
+            Err(e) => {
+                self.errors
+                    .insert(key.clone(), format!("environment map: {e}"));
+                crate::envmap::Equirect::new(4, 2, |_| [0.0; 3])
+            }
+        };
+        let sun = if light.sun_from_map {
+            crate::envmap::extract_sun(&mut eq)
+        } else {
+            None
+        };
+        let cube = crate::envmap::prefilter(&eq);
+        let sh = crate::envmap::irradiance_sh(&eq).map(|c| [c[0], c[1], c[2], 0.0]);
+        let view = Self::make_env_cube(&self.device, &self.queue, crate::envmap::CUBE_SIZE, &cube);
+        // The panorama for the background (a smaller copy: it is blurred
+        // or far away).
+        let small = eq.at_most(2048);
+        let px: Vec<[f32; 4]> = small.px.iter().map(|c| [c[0], c[1], c[2], 1.0]).collect();
+        let pano = format!("env-pano:{key}");
+        self.upload_float_texture(pano.clone(), small.w as u32, small.h as u32, &px);
+        self.set_env(EnvMaps {
+            key,
+            view,
+            sh,
+            sun,
+            pano: Some(pano),
+        });
+    }
+
+    /// Makes `env` the environment map lit surfaces see.
+    fn set_env(&mut self, env: EnvMaps) {
+        if let Some(old) = self.env.pano.take() {
+            if env.pano.as_ref() != Some(&old) {
+                self.textures.remove(&old);
+                self.tex_bgs.retain(|(k, _), _| *k != old);
+            }
+        }
+        self.env = env;
+        self.shadow_bg = Self::make_group3(
+            &self.device,
+            &self.group3.layout,
+            &self.group3.shadow_view,
+            &self.group3.shadow_sampler,
+            &self.env.view,
+            &self.group3.env_sampler,
+            &self.group3.lut_view,
+        );
+    }
+
+    /// Makes the sky capture's textures and pipeline (once).
+    fn ensure_sky(&mut self) {
+        if self.sky.is_some() {
+            return;
+        }
+        let device = &self.device;
+        let cube = |label: &str, mips: u32| {
+            device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size: wgpu::Extent3d {
+                    width: SKY_SIZE,
+                    height: SKY_SIZE,
+                    depth_or_array_layers: 6,
+                },
+                mip_level_count: mips,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: HDR_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+        };
+        let face_view = |t: &wgpu::Texture, face: u32, mip: u32| {
+            t.create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D2),
+                base_array_layer: face,
+                array_layer_count: Some(1),
+                base_mip_level: mip,
+                mip_level_count: Some(1),
+                ..Default::default()
+            })
+        };
+        let cube_view = |t: &wgpu::Texture| {
+            t.create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::Cube),
+                ..Default::default()
+            })
+        };
+        let mips = crate::envmap::CUBE_MIPS;
+        let src = cube("sky capture", 1);
+        let dst = cube("sky environment map", mips);
+        let src_faces = (0..6).map(|f| face_view(&src, f, 0)).collect();
+        let dst_faces = (0..mips)
+            .flat_map(|m| (0..6).map(move |f| (m, f)))
+            .map(|(m, f)| face_view(&dst, f, m))
+            .collect();
+        let (src_cube, dst_cube) = (cube_view(&src), cube_view(&dst));
+        let globals: Vec<wgpu::Buffer> = (0..6)
+            .map(|_| {
+                device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("globals sky face"),
+                    size: std::mem::size_of::<GlobalsRaw>() as u64,
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                })
+            })
+            .collect();
+        let globals_bg = globals
+            .iter()
+            .map(|b| {
+                device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("globals sky face"),
+                    layout: &self.bgl_globals,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: b.as_entire_binding(),
+                    }],
+                })
+            })
+            .collect();
+        // The blur: its parameters per mip and face, fixed.
+        let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("sky filter"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::Cube,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        const SLOT: u64 = 256;
+        let mut params = vec![0u8; (SLOT * 6 * mips as u64) as usize];
+        for m in 0..mips {
+            for f in 0..6u32 {
+                let at = ((m * 6 + f) as u64 * SLOT) as usize;
+                let v = [
+                    f as f32,
+                    (SKY_SIZE >> m).max(1) as f32,
+                    m as f32 / (mips - 1) as f32,
+                    0.0,
+                ];
+                params[at..at + 16].copy_from_slice(bytemuck::cast_slice(&v));
+            }
+        }
+        let param_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("sky filter params"),
+            contents: &params,
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+        let filter_bgs = (0..6 * mips as u64)
+            .map(|i| {
+                device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("sky filter"),
+                    layout: &bgl,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                                buffer: &param_buf,
+                                offset: i * SLOT,
+                                size: wgpu::BufferSize::new(16),
+                            }),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(&src_cube),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::Sampler(&self.group3.env_sampler),
+                        },
+                    ],
+                })
+            })
+            .collect();
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("sky filter"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/env_filter.wgsl").into()),
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("sky filter"),
+            bind_group_layouts: &[Some(&bgl)],
+            immediate_size: 0,
+        });
+        let filter_pipe = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("sky filter"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &module,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &module,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(HDR_FORMAT.into())],
+            }),
+            primitive: Default::default(),
+            depth_stencil: None,
+            multisample: Default::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+        self.sky = Some(SkyCapture {
+            src_faces,
+            dst_faces,
+            dst_cube,
+            globals,
+            globals_bg,
+            filter_pipe,
+            filter_bgs,
+            captured: None,
+        });
+    }
+
+    /// "From the sky": draws the background all around (`main` is the
+    /// frame's globals, `bg` its background: draw slot, texture, kind) and
+    /// blurs it into the environment map.
+    fn capture_sky(
+        &mut self,
+        enc: &mut wgpu::CommandEncoder,
+        main: &GlobalsRaw,
+        bg: (u32, &str, i32),
+        once: bool,
+    ) {
+        let (slot, tex, kind) = bg;
+        // A sky that doesn't move is captured once per look.
+        let key = ez_core::sim::KeyHasher::new()
+            .u64(slot as u64)
+            .bytes(tex.as_bytes())
+            .u64(kind as u64)
+            .bytes(bytemuck::bytes_of(&main.sky))
+            .bytes(bytemuck::bytes_of(&main.fog))
+            .finish();
+        self.ensure_bg_pipe(kind, 1, true);
+        let Some(sky) = self.sky.as_mut() else {
+            return;
+        };
+        if once && sky.captured == Some(key) {
+            return;
+        }
+        sky.captured = Some(key);
+        // Each face's view: rays through its pixels, as the cube is read.
+        let eye = Vec3::new(main.cam_pos[0], main.cam_pos[1], main.cam_pos[2]);
+        let frames = [
+            (Vec3::X, Vec3::NEG_Z, Vec3::Y),
+            (Vec3::NEG_X, Vec3::Z, Vec3::Y),
+            (Vec3::Y, Vec3::X, Vec3::NEG_Z),
+            (Vec3::NEG_Y, Vec3::X, Vec3::Z),
+            (Vec3::Z, Vec3::X, Vec3::Y),
+            (Vec3::NEG_Z, Vec3::NEG_X, Vec3::Y),
+        ];
+        for (f, (fwd, right, up)) in frames.iter().enumerate() {
+            // Clip (x, y, z) → eye + (right x + up y + fwd) / (a - b z):
+            // near at 1/a, far at 1/(a - b).
+            let (a, b) = (10.0, 9.999);
+            let inv = Mat4::from_cols(
+                right.extend(0.0),
+                up.extend(0.0),
+                (-eye * b).extend(-b),
+                (*fwd + eye * a).extend(a),
+            );
+            let mut g = *main;
+            g.inv_view_proj = m4(inv);
+            g.view_proj = m4(inv.inverse());
+            g.cam_right = v4(*right, 0.0);
+            g.cam_up = v4(*up, 0.0);
+            g.res = [
+                SKY_SIZE as f32,
+                SKY_SIZE as f32,
+                1.0 / SKY_SIZE as f32,
+                1.0 / SKY_SIZE as f32,
+            ];
+            g.clip = [0.0; 4];
+            self.queue
+                .write_buffer(&sky.globals[f], 0, bytemuck::bytes_of(&g));
+        }
+        let pipe = &self.bg_pipes[&(kind, 1, true)];
+        let Some(tex_bg) = self.tex_bgs.get(&(tex.to_string(), false)) else {
+            return;
+        };
+        fn clear(view: &wgpu::TextureView) -> wgpu::RenderPassColorAttachment<'_> {
+            wgpu::RenderPassColorAttachment {
+                view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            }
+        }
+        for f in 0..6 {
+            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("sky capture"),
+                color_attachments: &[Some(clear(&sky.src_faces[f]))],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(pipe);
+            pass.set_bind_group(0, &sky.globals_bg[f], &[]);
+            pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+            pass.set_bind_group(2, tex_bg, &[]);
+            pass.draw(0..3, 0..1);
+        }
+        for (i, view) in sky.dst_faces.iter().enumerate() {
+            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("sky filter"),
+                color_attachments: &[Some(clear(view))],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&sky.filter_pipe);
+            pass.set_bind_group(0, &sky.filter_bgs[i], &[]);
+            pass.draw(0..3, 0..1);
+        }
+    }
+
+    /// Environment light for this frame: the map (loaded when it changed),
+    /// its turn and strength into `fx`, and its sun into `env`.
+    fn apply_env_light(
+        &mut self,
+        project: &Project,
+        ctx: &EvalCtx,
+        env: &mut EnvState,
+        fx: &mut FrameEnv,
+    ) {
+        let light = &project.environment.env_light;
+        if light.source == EnvSource::Sky {
+            self.ensure_sky();
+            if self.env.key != "sky" {
+                let view = self.sky.as_ref().expect("made above").dst_cube.clone();
+                self.set_env(EnvMaps {
+                    key: "sky".into(),
+                    view,
+                    sh: [[0.0; 4]; 9],
+                    sun: None,
+                    pano: None,
+                });
+            }
+            fx.ibl = [
+                light.intensity.eval(ctx).max(0.0).max(1e-6),
+                light.rotation.eval(ctx).to_radians(),
+                (crate::envmap::CUBE_MIPS - 1) as f32,
+                1.0,
+            ];
+            return;
+        }
+        let Some(key) = Self::env_key(light) else {
+            fx.ibl = [0.0; 4];
+            return;
+        };
+        if self.env.key != key {
+            let light = light.clone();
+            self.load_env(key, &light);
+        }
+        let light = &project.environment.env_light;
+        let turn = light.rotation.eval(ctx).to_radians();
+        let strength = light.intensity.eval(ctx).max(0.0);
+        fx.ibl = [
+            strength.max(1e-6),
+            turn,
+            (crate::envmap::CUBE_MIPS - 1) as f32,
+            0.0,
+        ];
+        fx.sh = self.env.sh;
+        if let Some(sun) = self.env.sun {
+            // The map turns by `turn` around +y; so does its sun.
+            let (sa, ca) = turn.sin_cos();
+            let d = sun.dir;
+            let dir =
+                Vec3::new(d.x * ca + d.z * sa, d.y, -d.x * sa + d.z * ca).normalize_or(Vec3::Y);
+            let l = sun.light * strength;
+            let lum = (0.2126 * l.x + 0.7152 * l.y + 0.0722 * l.z).max(1e-6);
+            env.light_dir = dir.into();
+            env.sun_dir = dir.into();
+            env.light_color = (l / lum).into();
+            // Our sun light has no 1/π: match the map's diffuse light.
+            env.light_intensity = lum / std::f32::consts::PI;
+        }
+    }
+
     /// The music simulations may follow (the loop window of the song).
     pub fn set_audio(&mut self, audio: Option<std::sync::Arc<AudioEnvelope>>) {
         let same = match (&self.audio, &audio) {
@@ -3614,6 +4297,8 @@ impl Renderer {
             sun: v4(Vec3::from(env.sun_dir), 0.0),
             shadow_vp: m4(Mat4::IDENTITY),
             shadow: [0.0; 4],
+            ibl: fx.ibl,
+            sh: fx.sh,
         }
     }
 
@@ -3797,7 +4482,8 @@ impl Renderer {
             lightning: (0.0, [1.0; 3]),
             ..Default::default()
         };
-        let env = project.scene_environment(ctx).eval(ctx);
+        let mut env = project.scene_environment(ctx).eval(ctx);
+        self.apply_env_light(project, ctx, &mut env, &mut fx);
 
         // Logos placed against the screen or each other.
         let logo_places = self.place_logos(project, &layers, ctx, w as f32, h as f32);
@@ -3824,7 +4510,20 @@ impl Renderer {
             };
             match &layer.kind {
                 LayerKind::Backdrop(b) => {
-                    let tex = self.texture_key(project, b.texture.as_deref());
+                    // The environment map background shows the map's
+                    // panorama (none while the colours light the scene).
+                    let pano = if b.kind == BackdropKind::Environment {
+                        self.env
+                            .pano
+                            .clone()
+                            .filter(|k| fx.ibl[0] > 0.0 && self.textures.contains_key(k))
+                    } else {
+                        None
+                    };
+                    let tex = match &pano {
+                        Some(k) => k.clone(),
+                        None => self.texture_key(project, b.texture.as_deref()),
+                    };
                     self.tex_bind_group(&tex, false);
                     let mut blk: Block = Zeroable::zeroed();
                     blk[0] = [
@@ -3838,7 +4537,11 @@ impl Renderer {
                     blk[3] = c4(b.color_c, 0.0);
                     let mirror = tex.ends_with(MIRROR_KEY);
                     blk[4] = [
-                        if b.texture.is_some() { 1.0 } else { 0.0 },
+                        if b.texture.is_some() || pano.is_some() {
+                            1.0
+                        } else {
+                            0.0
+                        },
                         if mirror { 1.0 } else { 0.0 },
                         0.0,
                         0.0,
@@ -5058,15 +5761,30 @@ impl Renderer {
                 self.floor_bg_cache = Some((key, bg));
             }
         }
-        let floor_bg = floor
-            .as_ref()
-            .and(self.floor_bg_cache.as_ref().map(|(_, bg)| bg));
-
         let mut enc = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("ez2 frame"),
             });
+
+        // --- the sky as the environment map ------------------------------------
+        let light = &project.environment.env_light;
+        if light.source == EnvSource::Sky {
+            let bg = cmds.iter().find_map(|c| match c {
+                Cmd::Backdrop {
+                    slot, tex, kind, ..
+                } => Some((*slot, tex.clone(), *kind)),
+                _ => None,
+            });
+            if let Some((slot, tex, kind)) = bg {
+                let once = light.sky_static;
+                self.capture_sky(&mut enc, &main_globals, (slot, &tex, kind), once);
+            }
+        }
+
+        let floor_bg = floor
+            .as_ref()
+            .and(self.floor_bg_cache.as_ref().map(|(_, bg)| bg));
 
         // --- big swarms: copies placed by the compute shader ------------------
         if let (Some(sw), false) = (self.swarm.as_mut(), swarm_jobs.is_empty()) {
@@ -5104,7 +5822,7 @@ impl Renderer {
                 label: Some("sun shadow"),
                 color_attachments: &[],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.shadow_view,
+                    view: &self.group3.shadow_view,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Store,

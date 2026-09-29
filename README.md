@@ -125,6 +125,13 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     the scheme can turn round the colour wheel a whole number of times
     per loop.
   - **Sun shadows** (soft shadow map) and contact shadows on floors.
+  - **Environment light** (image-based lighting): shapes are lit and
+    reflect a panorama photo (a `.hdr` file), one of four built-in
+    studios (softbox, overcast, sunset, neon room) or the scene's own
+    background. The map turns (whole turns per loop), its brightest spot
+    can become the sun with shadows, and a background can show it.
+    Blurred for rough surfaces ahead of time (split-sum GGX, spherical
+    harmonics for diffuse light); the *Chrome Studio* preset shows it off.
   - Atmosphere: **mist** pooling in valleys, underwater **caustics**, a
     **rainbow**, and a **day & night cycle** with sunsets, stars and a
     moon.

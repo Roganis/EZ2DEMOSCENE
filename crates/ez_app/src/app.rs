@@ -772,6 +772,8 @@ impl EzApp {
                         Purpose::LoadMusic
                     } else if MIDI_EXTENSIONS.contains(&ext.as_str()) {
                         Purpose::LoadMidi
+                    } else if ext == "hdr" {
+                        Purpose::SetEnvMap
                     } else {
                         self.set_status(format!("Don't know what to do with {}", p.name), true);
                         continue;
@@ -831,6 +833,11 @@ impl EzApp {
                     self.set_status(format!("Added image '{name}'"), false);
                 }
                 Purpose::LoadMusic => self.set_audio(Some(p.path.clone())),
+                Purpose::SetEnvMap => {
+                    let light = &mut self.project.environment.env_light;
+                    light.source = EnvSource::Hdri(p.path.clone());
+                    self.set_status(format!("{} lights the scene", p.name), false);
+                }
                 Purpose::LoadMidi => {
                     self.project.music.midi = Some(p.path.clone());
                     self.reload_audio();

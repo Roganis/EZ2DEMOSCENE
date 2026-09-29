@@ -1086,7 +1086,7 @@ objects themselves, and shafts of sunlight through the fog. Every piece
 is off in old projects (golden images unchanged), and on in new presets
 where it helps. Nothing here depends on history, so loop safety is free.
 
-### ☐ 11.1 Image-based lighting from HDRIs
+### ☑ 11.1 Image-based lighting from HDRIs
 **How.**
 - *Light & fog → Environment light*: **Colours** (today's `env_color`,
   the default), **HDRI** (an imported `.hdr` Radiance file; `image`'s
@@ -1117,6 +1117,46 @@ frame; a *static* option renders once (the sky kinds that don't move).
 **Test.** A white rough sphere under a uniform HDRI matches the uniform
 colour (energy check); rotating a whole turn is identical; a mirror
 sphere shows the map; Colours mode is byte-identical to today.
+
+**Done.** *Light & fog → Environment light* offers Colours (default,
+unchanged), four built-in studios (softbox, overcast, sunset, neon room,
+generated as equirect panoramas), a panorama photo (`.hdr`, picked or
+dropped on the window, stored as an asset) and From the sky. Settings:
+Strength, Turn (animatable degrees), Sun from the map, and Capture once
+for the sky. A new **Environment map** backdrop draws the map, turned
+with the light, with a Sharpness slider (panorama mip level).
+- *Prefiltering is on the CPU*, not a render pass per face and mip: it
+  is simple, identical on every backend and fast enough. Mip 0 is a
+  direct 256² sample; mips 1–5 are GGX lobes (16–64 precomputed
+  samples, Karis-style source LOD) read from a cube pyramid whose
+  downsampling weights rows by sin θ (without that, rough mips lost up
+  to 11% of their energy; now under 2.3%). Faces run on threads
+  (except wasm): ~220 ms in release on the 4-core container, once per
+  map change. Diffuse is 9 SH coefficients in the globals; the
+  split-sum BRDF table is 32² RG in an RGBA16F texture, made at
+  start-up. Cube, sampler and table joined the shadow map in group 3.
+- *Sun from the map* finds the brightest region, turns it into the sun
+  (direction turned with the map, colour and strength from its energy),
+  and removes it from the map before prefiltering, so it isn't counted
+  twice.
+- *From the sky* renders the scene's background into six 64² faces each
+  frame (once with Capture once), then a cone-blur shader
+  (`env_filter.wgsl`, fullscreen fragment passes, WebGL2-safe) makes the
+  six mips; its diffuse light is the roughest mip rather than SH.
+- Measured (`environment_maps_light_the_scene`): a white rough ball
+  under a uniform map reads 195 against the sky's 198; a mirror ball
+  shows red right, green left, blue in the middle of an axes map, and
+  red in the middle turned −90°; a sky-gradient mirror ball is red on
+  top and blue below, and the captured-once version matches; a whole
+  turn is identical; Colours differs from any map. Golden images of the
+  old presets are unchanged. New preset **Chrome Studio**: a chrome
+  knot, gold ball and plastic block under the turning sunset with its
+  sun's shadows.
+- Limits: the environment light goes through `lit_surface` (shapes,
+  models, raymarched shapes); terrain, water, the mirror floor and text
+  chrome keep the classic light. The sky capture is taken from the
+  camera's eye. Specular stays classic Blinn plus split-sum reflection
+  until 11.2.
 
 ### ☐ 11.2 PBR materials
 **How.**

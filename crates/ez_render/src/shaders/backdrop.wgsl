@@ -9,6 +9,7 @@
 // Clouds (9): size = cloud scale, warp = coverage, bend = thickness,
 //         glow = sun glow, fog = haze. Aurora (10): size = height,
 //         twist = sway, warp = ripples, glow = brightness.
+// Environment map (12): the environment light's panorama (the texture).
 // Battle background (11): D.v[8..10] back layer, D.v[11..13] front layer:
 //         [on, pattern, tiles, line warp], [amount, waves, wave turn, bands],
 //         [scroll x, scroll y (tile fractions), colour turn, opacity];
@@ -804,6 +805,20 @@ fn fs_main(in: FullscreenOut) -> @location(0) vec4<f32> {
         case 11: {
             // Flat on the screen: no fog.
             return vec4<f32>(max(bg_battle(in.ndc, ca, cb, cc) * intensity, vec3<f32>(0.0)), 1.0);
+        }
+        case 12: {
+            // The environment map's panorama, turned like its light;
+            // detail 1 is sharp, 0 fully blurred. Without a map: the
+            // colours' environment.
+            if (use_tex) {
+                let d = env_dir(rd);
+                let uv = vec2<f32>(atan2(d.x, -d.z) / TAU + 0.5, acos(clamp(d.y, -1.0, 1.0)) / PI);
+                let size = f32(textureDimensions(t_tex, 0).x);
+                let lod = (1.0 - clamp(detail, 0.0, 1.0)) * log2(size);
+                col = textureSampleLevel(t_tex, s_tex, uv, lod).rgb;
+            } else {
+                col = env_color(rd, 1.0 - clamp(detail, 0.0, 1.0));
+            }
         }
         default: {}
     }

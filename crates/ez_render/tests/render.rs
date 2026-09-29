@@ -2724,3 +2724,214 @@ fn rigid_bodies_fall_and_loop() {
         .unwrap();
     fallen.save(snapshot_dir().join("physics_0.4.png")).unwrap();
 }
+
+/// Image-based lighting: a white rough sphere vanishes into a uniform
+/// environment (the "furnace" test: no light made or lost), a mirror ball
+/// shows the map the right way round, and a whole turn changes nothing.
+#[test]
+fn environment_maps_light_the_scene() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let dir = snapshot_dir().join("ibl");
+    std::fs::create_dir_all(&dir).unwrap();
+    // Panoramas as .hdr files, read back like a user's.
+    let write = |name: &str, f: &dyn Fn(glam::Vec3) -> [f32; 3]| {
+        let (w, h) = (256u32, 128u32);
+        let img = image::Rgb32FImage::from_fn(w, h, |x, y| {
+            let d =
+                ez_render::envmap::dir_of((x as f32 + 0.5) / w as f32, (y as f32 + 0.5) / h as f32);
+            image::Rgb(f(d))
+        });
+        let path = dir.join(name);
+        image::DynamicImage::ImageRgb32F(img)
+            .save_with_format(&path, image::ImageFormat::Hdr)
+            .unwrap();
+        path.to_string_lossy().to_string()
+    };
+    let uniform = write("uniform.hdr", &|_| [0.4, 0.4, 0.4]);
+    // Colour by the main axis: +x red, -x green, +y white, -y black,
+    // +z blue, -z yellow.
+    let axes = write("axes.hdr", &|d| {
+        let a = d.abs();
+        if a.x >= a.y && a.x >= a.z {
+            if d.x > 0.0 {
+                [1.0, 0.0, 0.0]
+            } else {
+                [0.0, 1.0, 0.0]
+            }
+        } else if a.y >= a.z {
+            if d.y > 0.0 {
+                [1.0, 1.0, 1.0]
+            } else {
+                [0.0, 0.0, 0.0]
+            }
+        } else if d.z > 0.0 {
+            [0.0, 0.0, 1.0]
+        } else {
+            [1.0, 1.0, 0.0]
+        }
+    });
+    let scene = |source: EnvSource, metallic: f32, rough: f32, turn: f32| {
+        let mut p = Project {
+            camera: Camera {
+                mode: CameraMode::Static,
+                target: [0.0; 3],
+                distance: Param::new(3.0),
+                height: Param::new(0.0),
+                angle: Param::new(0.0),
+                fov: Param::new(40.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        p.environment.fog_density = Param::new(0.0);
+        p.environment.light_intensity = Param::new(0.0);
+        // No darkened corners: the sky is compared across the picture.
+        p.post.grade.vignette = Param::new(0.0);
+        p.environment.env_light = EnvLight {
+            source,
+            rotation: Param::new(turn),
+            ..Default::default()
+        };
+        p.layers.push(Layer::new(
+            "Map",
+            LayerKind::Backdrop(Backdrop {
+                kind: BackdropKind::Environment,
+                detail: Param::new(1.0),
+                ..Default::default()
+            }),
+        ));
+        p.layers.push(Layer::new(
+            "Ball",
+            LayerKind::Mesh(MeshLayer {
+                source: MeshSource::Primitive(Primitive::Sphere { detail: 4 }),
+                material: Material {
+                    base_color: [1.0; 3],
+                    metallic: Param::new(metallic),
+                    roughness: Param::new(rough),
+                    rim: Param::new(0.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+        ));
+        p
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let (w, h) = (160u32, 160u32);
+    let target = r.create_target(w, h);
+    let ctx = EvalCtx::at(0.0);
+    let px = |img: &image::RgbaImage, x: f32, y: f32| {
+        let p = img.get_pixel((x * w as f32) as u32, (y * h as f32) as u32);
+        [p[0] as f32, p[1] as f32, p[2] as f32]
+    };
+    // Where a point of the ball lands on the picture.
+    let cam = scene(EnvSource::Colours, 0.0, 1.0, 0.0).camera.eval(&ctx);
+    let screen = |p: glam::Vec3| {
+        let c = cam.proj(1.0) * cam.view() * p.extend(1.0);
+        (c.x / c.w * 0.5 + 0.5, 0.5 - c.y / c.w * 0.5)
+    };
+
+    // Furnace: the rough white ball is as bright as the sky around it.
+    let furnace = r.render_image(
+        &scene(EnvSource::Hdri(uniform.clone()), 0.0, 1.0, 0.0),
+        &ctx,
+        &target,
+    );
+    furnace.save(dir.join("furnace.png")).unwrap();
+    assert!(r.errors.is_empty(), "{:?}", r.errors);
+    let (ball, sky) = (px(&furnace, 0.5, 0.5), px(&furnace, 0.5, 0.08));
+    eprintln!("furnace: ball {ball:?}, sky {sky:?}");
+    assert!(sky[0] > 30.0, "the sky is black: {sky:?}");
+    assert!(
+        (ball[0] / sky[0] - 1.0).abs() < 0.08,
+        "ball {ball:?} vs sky {sky:?}"
+    );
+
+    // A mirror ball: +x on its right, -x on its left, +z (towards the
+    // camera) in its middle.
+    let mirror = r.render_image(
+        &scene(EnvSource::Hdri(axes.clone()), 1.0, 0.0, 0.0),
+        &ctx,
+        &target,
+    );
+    mirror.save(dir.join("mirror.png")).unwrap();
+    let s = 0.5f32.sqrt();
+    let (rx, ry) = screen(glam::Vec3::new(s, 0.0, s));
+    let (lx, ly) = screen(glam::Vec3::new(-s, 0.0, s));
+    let (right, left, middle) = (
+        px(&mirror, rx, ry),
+        px(&mirror, lx, ly),
+        px(&mirror, 0.5, 0.5),
+    );
+    eprintln!("mirror: right {right:?}, left {left:?}, middle {middle:?}");
+    assert!(
+        right[0] > 2.0 * right[1] && right[0] > 2.0 * right[2],
+        "right should be red: {right:?}"
+    );
+    assert!(
+        left[1] > 2.0 * left[0] && left[1] > 2.0 * left[2],
+        "left should be green: {left:?}"
+    );
+    assert!(
+        middle[2] > 2.0 * middle[0] && middle[2] > 2.0 * middle[1],
+        "middle should be blue: {middle:?}"
+    );
+    // The map turns around +y: by -90°, its +x comes round to +z, which
+    // the ball's middle reflects.
+    let turned = r.render_image(
+        &scene(EnvSource::Hdri(axes.clone()), 1.0, 0.0, -90.0),
+        &ctx,
+        &target,
+    );
+    let m = px(&turned, 0.5, 0.5);
+    eprintln!("turned -90°: middle {m:?}");
+    assert!(
+        m[0] > 2.0 * m[1] && m[0] > 2.0 * m[2],
+        "turned, the middle should be red: {m:?}"
+    );
+
+    // A whole turn is no turn.
+    let studio = EnvSource::Studio(Studio::Sunset);
+    let a = r.render_image(&scene(studio.clone(), 1.0, 0.2, 0.0), &ctx, &target);
+    let b = r.render_image(&scene(studio.clone(), 1.0, 0.2, 360.0), &ctx, &target);
+    let d = mean_abs_diff(a.as_raw(), b.as_raw());
+    assert!(d < 0.05, "a whole turn changed the picture by {d}");
+    // From the sky: a mirror ball in a gradient sky (red above, blue
+    // below) shows red near its top and blue near its bottom.
+    let mut sky = scene(EnvSource::Sky, 1.0, 0.0, 0.0);
+    if let LayerKind::Backdrop(b) = &mut sky.layers[0].kind {
+        b.kind = BackdropKind::Gradient;
+        b.color_a = [1.0, 0.1, 0.05];
+        b.color_b = [0.05, 0.1, 1.0];
+        b.color_c = [0.0; 3];
+    }
+    let img = r.render_image(&sky, &ctx, &target);
+    img.save(dir.join("sky.png")).unwrap();
+    let (tx, ty) = screen(glam::Vec3::new(0.0, 0.8, 0.6));
+    let (bx, by) = screen(glam::Vec3::new(0.0, -0.8, 0.6));
+    let (top, bottom) = (px(&img, tx, ty), px(&img, bx, by));
+    eprintln!("sky: top {top:?}, bottom {bottom:?}");
+    assert!(
+        top[0] > 2.0 * top[2],
+        "the ball's top should reflect the red sky: {top:?}"
+    );
+    assert!(
+        bottom[2] > 2.0 * bottom[0],
+        "its bottom the blue ground: {bottom:?}"
+    );
+    // Captured once, it stays as it was.
+    sky.environment.env_light.sky_static = true;
+    let once = r.render_image(&sky, &ctx, &target);
+    assert!(mean_abs_diff(once.as_raw(), img.as_raw()) < 0.05);
+
+    // Colours: no map, the old look.
+    let plain = r.render_image(&scene(EnvSource::Colours, 1.0, 0.2, 0.0), &ctx, &target);
+    assert!(mean_abs_diff(a.as_raw(), plain.as_raw()) > 1.0);
+}

@@ -347,6 +347,93 @@ pub struct Environment {
     /// Shadows cast by the sun, and soft contact shadows on floors.
     #[serde(skip_serializing_if = "is_default")]
     pub shadows: Shadows,
+    /// Where reflections and ambient light come from: the colours above,
+    /// or an environment map (a built-in studio, a photo of a real place,
+    /// the scene's own sky).
+    #[serde(skip_serializing_if = "is_default")]
+    pub env_light: EnvLight,
+}
+
+/// Built-in environment maps (generated, no files).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Studio {
+    /// A dark studio with big soft lights: crisp highlights on shiny things.
+    #[default]
+    Softbox,
+    /// A bright, even grey sky.
+    Overcast,
+    /// A low sun over warm clouds and a blue sky.
+    Sunset,
+    /// A dark room with magenta and cyan neon tubes.
+    NeonRoom,
+}
+
+impl Studio {
+    pub const ALL: [Studio; 4] = [
+        Studio::Softbox,
+        Studio::Overcast,
+        Studio::Sunset,
+        Studio::NeonRoom,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Studio::Softbox => "Softbox studio",
+            Studio::Overcast => "Overcast",
+            Studio::Sunset => "Sunset",
+            Studio::NeonRoom => "Neon room",
+        }
+    }
+}
+
+/// Where the environment light comes from.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub enum EnvSource {
+    /// The sky and ground colours (and fake studio bands), as always.
+    #[default]
+    Colours,
+    Studio(Studio),
+    /// A panorama (`.hdr` Radiance file): light from a photo of a real
+    /// place.
+    Hdri(String),
+    /// The scene's own background, captured all around.
+    Sky,
+}
+
+/// Lighting from an environment map (image-based lighting).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EnvLight {
+    pub source: EnvSource,
+    /// Turn around the vertical, in degrees (a saw of ±180° turns it a
+    /// whole turn per cycle).
+    pub rotation: Param,
+    pub intensity: Param,
+    /// Point the sun (and its shadows) at the brightest spot of the map,
+    /// and take that spot out of the map so it isn't counted twice.
+    pub sun_from_map: bool,
+    /// From the sky: capture it once instead of every frame (for skies
+    /// that don't move).
+    pub sky_static: bool,
+}
+
+impl Default for EnvLight {
+    fn default() -> Self {
+        EnvLight {
+            source: EnvSource::Colours,
+            rotation: Param::new(0.0),
+            intensity: Param::new(1.0),
+            sun_from_map: false,
+            sky_static: false,
+        }
+    }
+}
+
+impl EnvLight {
+    /// Whether a map lights the scene (not just the colours).
+    pub fn is_on(&self) -> bool {
+        self.source != EnvSource::Colours
+    }
 }
 
 /// How a colour scheme's hues sit around its key colour.
@@ -710,6 +797,7 @@ impl Default for Environment {
             rainbow: Param::new(0.0),
             day_cycle: DayCycle::default(),
             shadows: Shadows::default(),
+            env_light: EnvLight::default(),
         }
     }
 }
@@ -2183,10 +2271,13 @@ pub enum BackdropKind {
     /// EarthBound-style battle background: flat patterns whose lines
     /// wobble, with cycling colours (see [`Battle`]).
     Battle,
+    /// The environment map (Light & fog → Environment light) all around,
+    /// turned with it; *Detail* blurs it.
+    Environment,
 }
 
 impl BackdropKind {
-    pub const ALL: [BackdropKind; 12] = [
+    pub const ALL: [BackdropKind; 13] = [
         BackdropKind::Gradient,
         BackdropKind::Nebula,
         BackdropKind::Starfield,
@@ -2199,6 +2290,7 @@ impl BackdropKind {
         BackdropKind::Clouds,
         BackdropKind::Aurora,
         BackdropKind::Battle,
+        BackdropKind::Environment,
     ];
     pub fn label(self) -> &'static str {
         match self {
@@ -2214,6 +2306,7 @@ impl BackdropKind {
             BackdropKind::Clouds => "Volumetric clouds",
             BackdropKind::Aurora => "Aurora night sky",
             BackdropKind::Battle => "Battle background (retro RPG)",
+            BackdropKind::Environment => "Environment map",
         }
     }
 

@@ -45,6 +45,8 @@ pub enum Purpose {
     LoadMusic,
     LoadMidi,
     SetFont(LayerRef),
+    /// A panorama (`.hdr`) for the environment light.
+    SetEnvMap,
     /// Dropped on the window: what it is depends on the file extension.
     Dropped,
 }
@@ -62,6 +64,7 @@ impl Purpose {
             Purpose::LoadMusic => ("Audio", crate::app::AUDIO_EXTENSIONS),
             Purpose::LoadMidi => ("MIDI", crate::app::MIDI_EXTENSIONS),
             Purpose::SetFont(_) => ("Fonts", crate::inspector::FONT_EXTENSIONS),
+            Purpose::SetEnvMap => ("HDR panoramas", &["hdr"]),
             Purpose::Dropped => ("Any file", &[]),
         }
     }

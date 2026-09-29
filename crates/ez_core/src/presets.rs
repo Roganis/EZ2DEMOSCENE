@@ -155,6 +155,11 @@ pub fn all() -> Vec<Preset> {
             project: galaxy_swarm(),
         },
         Preset {
+            name: "Chrome Studio",
+            description: "Chrome, gold and plastic lit by a sunset panorama that turns once per loop, with the sun and its shadows taken from the map.",
+            project: chrome_studio(),
+        },
+        Preset {
             name: "Banners",
             description: "A row of flags on poles, flapping in a turning, gusting wind: simulated cloth that loops.",
             project: banners(),
@@ -2949,6 +2954,111 @@ pub fn starling_dusk() -> Project {
                 length: Param::new(0.6),
                 threshold: Param::new(0.8),
                 ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+/// Shiny things lit by an environment map (image-based lighting): the
+/// sunset panorama turns once per loop, its sun lights and shadows.
+pub fn chrome_studio() -> Project {
+    let thing = |name: &str, prim: Primitive, base: u32, metallic: f32, rough: f32, x: f32| {
+        Layer::new(
+            name,
+            LayerKind::Mesh(mesh(
+                prim,
+                Material {
+                    base_color: hex(base),
+                    metallic: Param::new(metallic),
+                    roughness: Param::new(rough),
+                    rim: Param::new(0.0),
+                    ..Default::default()
+                },
+            )),
+        )
+        .at([x, 1.1, 0.0])
+        .spin([0, 1, 0])
+    };
+    Project {
+        name: "Chrome Studio".into(),
+        timing: crate::Timing {
+            bpm: 100.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Pendulum,
+            swing: Param::new(25.0),
+            target: [0.0, 1.0, 0.0],
+            distance: Param::new(7.5),
+            height: Param::new(1.5),
+            fov: Param::new(45.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_density: Param::new(0.0),
+            shadows: Shadows {
+                enabled: true,
+                distance: 20.0,
+                ..Default::default()
+            },
+            env_light: EnvLight {
+                source: EnvSource::Studio(Studio::Sunset),
+                // One whole turn per loop.
+                rotation: Param::new(0.0).osc(Wave::Saw, 180.0, 1),
+                intensity: Param::new(1.0),
+                sun_from_map: true,
+                sky_static: false,
+            },
+            ..Default::default()
+        },
+        layers: vec![
+            Layer::new(
+                "Sky",
+                LayerKind::Backdrop(Backdrop {
+                    kind: BackdropKind::Environment,
+                    detail: Param::new(0.85),
+                    ..Default::default()
+                }),
+            ),
+            Layer::new(
+                "Floor",
+                LayerKind::Mirror(MirrorFloor {
+                    base_color: hex(0x2a2826),
+                    reflectivity: Param::new(0.15),
+                    blur: Param::new(0.6),
+                    ..Default::default()
+                }),
+            ),
+            thing(
+                "Chrome knot",
+                Primitive::TorusKnot {
+                    p: 2,
+                    q: 3,
+                    thickness: 0.12,
+                },
+                0xf0f0f4,
+                1.0,
+                0.04,
+                -2.3,
+            ),
+            thing(
+                "Gold ball",
+                Primitive::Sphere { detail: 4 },
+                0xffc860,
+                1.0,
+                0.3,
+                0.0,
+            ),
+            thing("Plastic block", Primitive::Cube, 0xe8e8e0, 0.0, 0.7, 2.3),
+        ],
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                intensity: Param::new(0.4),
+                threshold: Param::new(1.5),
+                radius: Param::new(0.6),
             },
             ..Default::default()
         },

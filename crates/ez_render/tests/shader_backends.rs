@@ -95,6 +95,10 @@ fn modules() -> Vec<(&'static str, String)> {
             with_common(include_str!("../src/shaders/weather.wgsl")),
         ),
         ("post", include_str!("../src/shaders/post.wgsl").to_string()),
+        (
+            "env filter",
+            include_str!("../src/shaders/env_filter.wgsl").to_string(),
+        ),
     ];
     all.append(&mut kinds);
     all

@@ -306,6 +306,9 @@ selected layer, and <b>right-clicking</b> a layer shows the same options.</p>
   Colour A is the night sky.</td></tr>
   <tr><td>Battle background (retro RPG)</td><td>Flat on the screen like the battles of 16-bit role-playing games: tiled patterns
   whose lines wobble while the colours A → B → C cycle through them. See below.</td></tr>
+  <tr><td>Environment map</td><td>The map of the environment light (<span class="ui">Light &amp; fog → Environment light</span>):
+  the studio or panorama photo that lights the shapes, turned with it. <span class="ui">Sharpness</span> blurs it (lower it to keep the
+  eye on the foreground). With the environment light on Colours it draws the sky and ground colours.</td></tr>
 </table>
 <div class="tip"><b>Tip</b>You can stack two backgrounds, but the later one covers the earlier one (and only that one is drawn).
 Usually one is enough.</div>
@@ -1038,6 +1041,17 @@ yellow line with numbered points.</p>
   <li><span class="ui">Sky light</span> / <span class="ui">Ground light</span> / <span class="ui">Ambient</span>: soft light from above and below.
   The sky colour is also what glossy surfaces reflect, which gives black gloss its highlights.</li>
   <li><span class="ui">Sun colour</span>, <span class="ui">Sun strength</span>, <span class="ui">Sun direction</span>: the main light.</li>
+  <li><span class="ui">Environment light</span>: what surrounds the scene and lights it from every side, and what shiny things
+  reflect. <b>Colours</b> (the default) uses the sky and ground light above. A <b>studio</b> (<i>Softbox</i>, <i>Overcast</i>,
+  <i>Sunset</i>, <i>Neon room</i>) or a <b>panorama photo</b> (<span class="ui">Panorama photo (.hdr)…</span>, or drop a
+  <code>.hdr</code> file on the window; free ones are on sites like Poly Haven) lights shapes like a photo of a real place: chrome
+  shows the room, rough plastic picks up its colours softly. <b>From the sky</b> uses the scene's own background, so clouds and
+  sunsets light the objects; tick <span class="ui">Capture once</span> for a background that doesn't move (it is cheaper).
+  <span class="ui">Strength</span> brightens it, <span class="ui">Turn</span> spins it (<span class="ui">↻</span> once per loop for a
+  slow sweep of reflections). <span class="ui">Sun from the map</span> finds the brightest spot of the map (the sun in a photo) and
+  makes it the sun, with its shadows, so they line up with the picture. Add the <b>Environment map</b> background to see the map
+  behind the scene. Shapes, 3D models and raymarched shapes are lit this way; terrain, water and the mirror floor keep the classic
+  light. The <b>Chrome Studio</b> preset has chrome, gold and plastic under a turning sunset.</li>
   <li><span class="ui">Sun shadows</span>: shapes and terrain cast shadows from the sun (the moon at night) onto shapes, terrain,
   water and the mirror floor. <span class="ui">Darkness</span>, <span class="ui">Softness</span> and <span class="ui">Distance</span>
   (how far around the camera's target shadows reach: smaller is sharper). In dark neon scenes shadows are subtle, because most light

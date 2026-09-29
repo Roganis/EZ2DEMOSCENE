@@ -38,6 +38,13 @@ struct Globals {
     // x: strength (0 = off), y: softness (texels), z: texel size (uv),
     // w: normal offset (world units)
     shadow: vec4<f32>,
+    // Environment map: x: intensity (0 = off, the colours light the
+    // scene), y: turn around +y (radians), z: roughest mip, w: 1 when the
+    // diffuse light comes from the map's roughest mip (a captured sky)
+    // instead of `sh`.
+    ibl: vec4<f32>,
+    // Its diffuse light: 9 spherical-harmonic coefficients (rgb).
+    sh: array<vec4<f32>, 9>,
 };
 
 @group(0) @binding(0) var<uniform> G: Globals;
@@ -124,6 +131,39 @@ fn hue_rotate(c: vec3<f32>, turns: f32) -> vec3<f32> {
 // Sun shadow map (bound for meshes, terrain and the mirror floor only).
 @group(3) @binding(0) var t_shadow: texture_depth_2d;
 @group(3) @binding(1) var s_shadow: sampler_comparison;
+// The environment map (prefiltered cube: mip = roughness × roughest mip)
+// and the split-sum BRDF table (n·v across, roughness down).
+@group(3) @binding(2) var t_env: texture_cube<f32>;
+@group(3) @binding(3) var s_env: sampler;
+@group(3) @binding(4) var t_brdf: texture_2d<f32>;
+
+// A world direction in the environment map's own frame (it turns around
+// +y by G.ibl.y).
+fn env_dir(d: vec3<f32>) -> vec3<f32> {
+    let c = cos(G.ibl.y);
+    let s = sin(G.ibl.y);
+    return vec3<f32>(d.x * c - d.z * s, d.y, d.x * s + d.z * c);
+}
+
+// Light falling on a surface facing `n` from the environment map.
+fn env_irradiance(n: vec3<f32>) -> vec3<f32> {
+    let d = env_dir(n);
+    if (G.ibl.w > 0.5) {
+        return textureSampleLevel(t_env, s_env, d, G.ibl.z).rgb * PI;
+    }
+    var e = G.sh[0].rgb * 0.282095;
+    e = e + G.sh[1].rgb * 0.488603 * d.y + G.sh[2].rgb * 0.488603 * d.z + G.sh[3].rgb * 0.488603 * d.x;
+    e = e + G.sh[4].rgb * 1.092548 * d.x * d.y + G.sh[5].rgb * 1.092548 * d.y * d.z;
+    e = e + G.sh[6].rgb * 0.315392 * (3.0 * d.z * d.z - 1.0) + G.sh[7].rgb * 1.092548 * d.x * d.z;
+    e = e + G.sh[8].rgb * 0.546274 * (d.x * d.x - d.y * d.y);
+    return max(e, vec3<f32>(0.0));
+}
+
+// The environment reflected in direction `r` by a surface of roughness
+// `rough`.
+fn env_specular(r: vec3<f32>, rough: f32) -> vec3<f32> {
+    return textureSampleLevel(t_env, s_env, env_dir(r), clamp(rough, 0.0, 1.0) * G.ibl.z).rgb;
+}
 
 // How much sunlight reaches `world` (1 = lit, 0 = fully shadowed), with a
 // 3x3 soft edge. No derivatives, so it may be called anywhere.
@@ -347,7 +387,7 @@ fn lit_surface(
     let sun_lit = sun_shadow(world, n);
     let ndl = max(dot(n, l), 0.0) * sun_lit;
     let diffuse = G.light_color.rgb * G.ground.w * ndl;
-    let ambient = mix(G.ground.rgb, G.sky.rgb, n.y * 0.5 + 0.5) * G.sky.w * ao;
+    var ambient = mix(G.ground.rgb, G.sky.rgb, n.y * 0.5 + 0.5) * G.sky.w * ao;
     let h = normalize(l + v);
     let shin = mix(512.0, 8.0, rough);
     let spec = pow(max(dot(n, h), 0.0), shin) * (1.0 - rough) * G.ground.w * sun_lit;
@@ -355,10 +395,20 @@ fn lit_surface(
     let fres = pow(1.0 - ndv, 5.0);
     let f0 = mix(vec3<f32>(0.04), base, metallic);
     let fr = f0 + (vec3<f32>(1.0) - f0) * fres;
-    let env = env_color(reflect(-v, n), rough) * ao;
+    var env = env_color(reflect(-v, n), rough) * ao;
+    var refl = env * (1.0 - rough * 0.6) * fr;
+    if (G.ibl.x > 0.0) {
+        // Image-based light: diffuse light from the map, and its
+        // reflection prefiltered for the roughness, scaled by the
+        // split-sum table.
+        ambient = env_irradiance(n) * (G.ibl.x / PI) * ao;
+        env = env_specular(reflect(-v, n), rough) * G.ibl.x * ao;
+        let ab = textureSampleLevel(t_brdf, s_env, vec2<f32>(ndv, rough), 0.0).rg;
+        refl = env * (f0 * ab.x + ab.y);
+    }
 
     var col = base * (1.0 - metallic) * (diffuse + ambient);
-    col = col + (spec * G.light_color.rgb + env * (1.0 - rough * 0.6)) * fr;
+    col = col + spec * G.light_color.rgb * fr + refl;
     col = col + G.sky.rgb * rim_k * pow(1.0 - ndv, 3.0) * 0.6;
     col = col + base * caustic_light(world, n);
     col = col + env * pud * rain_rings(world) * 0.6;
