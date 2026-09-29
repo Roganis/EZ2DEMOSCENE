@@ -38,6 +38,10 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     1,000 low-poly models** (spaceships, vehicles, trees, food, buildings,
     characters… by Kenney, CC0) picked from tiles with previews, and your
     own **glTF/GLB/OBJ** models.
+  - **Cloth**: flags, curtains, banners or a sheet draped over a ball,
+    blown by a wind that can turn and gust on the beat. Position-based
+    dynamics simulated ahead of time into a loop (like flocks), drawn as a
+    shape with every material, texture, copy and shadow option.
   - Morph: any shape or model melts into another like liquid (holes open
     and close, parts bud off), with an animatable amount.
   - Copies (instancing): grid, radial, scatter, orbit swarm, curved wall,

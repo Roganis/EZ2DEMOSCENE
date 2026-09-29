@@ -3003,6 +3003,10 @@ impl Renderer {
     /// them apart, and enough detail for it even at Subdivide 0.
     fn mesh_key_subdivided(&mut self, source: &MeshSource, levels: u32, displaced: bool) -> String {
         let base = self.mesh_key(source);
+        // A cloth's sheet changes every frame: it is as fine as it is.
+        if matches!(source, MeshSource::Cloth { .. }) {
+            return base;
+        }
         let model = matches!(source, MeshSource::File { .. } | MeshSource::Library { .. });
         if displaced && model {
             return self.displaced_model_key(source, &base, levels);
@@ -3099,6 +3103,15 @@ impl Renderer {
             }
             // Every raymarched shape is drawn in the same box.
             MeshSource::Sdf { .. } => return self.sdf_box_key(),
+            // Cloth: this frame's sheet from its bake, or lying at rest
+            // until it is baked.
+            MeshSource::Cloth { cloth, mesh } => match mesh {
+                Some(k) if self.meshes.contains_key(k) => return k.clone(),
+                _ => format!(
+                    "cloth-rest:{}",
+                    serde_json::to_string(&**cloth).unwrap_or_default()
+                ),
+            },
         };
         if self.meshes.contains_key(&key) {
             return key;
@@ -3161,6 +3174,12 @@ impl Renderer {
     fn source_data(&mut self, source: &MeshSource, key: &str) -> MeshData {
         match source {
             MeshSource::Primitive(p) => primitive(p),
+            MeshSource::Cloth { cloth, .. } => {
+                use ez_core::sim::Sim;
+                let pos: Vec<Vec3> = cloth.sim().bodies().iter().map(|b| b.pos).collect();
+                let (cols, rows) = cloth.grid();
+                crate::mesh::cloth_sheet(&pos, cols as usize, rows as usize)
+            }
             // Copies on a raymarched shape stand on a ball of about its size.
             MeshSource::Sdf { .. } => {
                 let mut data = primitive(&Primitive::Sphere { detail: 3 });
@@ -3341,8 +3360,11 @@ impl Renderer {
     /// bakes they need.
     fn link_sims(&mut self, project: &Project, ctx: &EvalCtx, layers: &mut Cow<'_, [Layer]>) {
         use ez_core::sim::{BakeJob, KeyHasher, SimClock};
-        let wants =
-            |l: &Layer| l.enabled && matches!(l.kind.instancer(), Some(Instancer::Flock { .. }));
+        let wants = |l: &Layer| {
+            l.enabled
+                && (matches!(l.kind.instancer(), Some(Instancer::Flock { .. }))
+                    || matches!(&l.kind, LayerKind::Mesh(m) if matches!(m.source, MeshSource::Cloth { .. })))
+        };
         if !layers.iter().any(wants) {
             return;
         }
@@ -3351,49 +3373,81 @@ impl Renderer {
                 continue;
             }
             let name = layer.name.clone();
-            let Some(Instancer::Flock { flock, placed }) = layer.kind.instancer_mut() else {
-                continue;
-            };
-            let music = flock.uses_music();
-            let key = KeyHasher::new()
-                .json(&**flock)
-                .json(&project.timing)
-                .u64(if music { self.audio_id } else { 0 })
-                .json(&if music { Some(&project.music) } else { None })
-                .finish();
             let slot = KeyHasher::new()
                 .bytes(name.as_bytes())
                 .u64(i as u64)
                 .finish();
-            let clock = SimClock::with_music(
-                project.timing,
-                project.music.clone(),
-                if music { self.audio.clone() } else { None },
-            );
-            let job = || {
+            // Everything a bake depends on, and the bake itself.
+            let mut bake_of =
+                |settings: String, music: bool, make: &dyn Fn(&SimClock) -> BakeJob| {
+                    let key = KeyHasher::new()
+                        .bytes(settings.as_bytes())
+                        .json(&project.timing)
+                        .u64(if music { self.audio_id } else { 0 })
+                        .json(&if music { Some(&project.music) } else { None })
+                        .finish();
+                    let clock = SimClock::with_music(
+                        project.timing,
+                        project.music.clone(),
+                        if music { self.audio.clone() } else { None },
+                    );
+                    let job = || make(&clock);
+                    let mut bake = self.bakes.get(slot, key, job);
+                    if self.wait_for_bakes && !self.bakes.is_ready(key) {
+                        self.bakes.finish_all();
+                        bake = self.bakes.get(slot, key, job);
+                    }
+                    let ready = self.bakes.is_ready(key);
+                    self.inexact |= !ready;
+                    self.sim_status.insert(
+                        name.clone(),
+                        bake.as_ref().map_or(SimStatus::default(), |b| SimStatus {
+                            ready,
+                            seam: b.seam(),
+                            warmup_loops: b.warmup_loops(),
+                            bytes: b.bytes(),
+                        }),
+                    );
+                    bake
+                };
+            if let LayerKind::Mesh(MeshLayer {
+                source: MeshSource::Cloth { cloth, mesh },
+                ..
+            }) = &mut layer.kind
+            {
+                let make = |clock: &SimClock| {
+                    BakeJob::new(Box::new(cloth.sim()), clock.clone(), cloth.looping.clone())
+                };
+                let json = serde_json::to_string(&**cloth).unwrap_or_default();
+                let Some(bake) = bake_of(json, cloth.uses_music(), &make) else {
+                    continue;
+                };
+                bake.sample(ctx.beat_phase, &mut self.sim_frame);
+                // A cross-faded cloth is the two halves mixed by weight.
+                let mut pos = vec![Vec3::ZERO; bake.len()];
+                for l in &self.sim_frame.layers {
+                    for (p, b) in pos.iter_mut().zip(&l.bodies) {
+                        *p += b.pos * l.weight;
+                    }
+                }
+                let (cols, rows) = cloth.grid();
+                let data = crate::mesh::cloth_sheet(&pos, cols as usize, rows as usize);
+                let key = format!("cloth:{slot:016x}");
+                self.upload_dynamic_mesh(&key, &data);
+                *mesh = Some(key);
+                continue;
+            }
+            let Some(Instancer::Flock { flock, placed }) = layer.kind.instancer_mut() else {
+                continue;
+            };
+            let make = |clock: &SimClock| {
                 let sim = flock.sim(&clock.ctx(0.0));
                 BakeJob::new(Box::new(sim), clock.clone(), flock.looping.clone())
             };
-            let mut bake = self.bakes.get(slot, key, job);
-            if self.wait_for_bakes && !self.bakes.is_ready(key) {
-                self.bakes.finish_all();
-                bake = self.bakes.get(slot, key, job);
-            }
-            let ready = self.bakes.is_ready(key);
-            self.inexact |= !ready;
-            let Some(bake) = bake else {
-                self.sim_status.insert(name, SimStatus::default());
+            let json = serde_json::to_string(&**flock).unwrap_or_default();
+            let Some(bake) = bake_of(json, flock.uses_music(), &make) else {
                 continue;
             };
-            self.sim_status.insert(
-                name,
-                SimStatus {
-                    ready,
-                    seam: bake.seam(),
-                    warmup_loops: bake.warmup_loops(),
-                    bytes: bake.bytes(),
-                },
-            );
             // The simulation ran in real time: read it at the real phase.
             bake.sample(ctx.beat_phase, &mut self.sim_frame);
             let mut mats = Vec::with_capacity(bake.len() * self.sim_frame.layers.len());
@@ -3413,6 +3467,50 @@ impl Renderer {
             }
             *placed = Some(std::sync::Arc::new(mats));
         }
+    }
+
+    /// Uploads a mesh that changes every frame (same size: rewritten in
+    /// place).
+    fn upload_dynamic_mesh(&mut self, key: &str, data: &MeshData) {
+        let bytes: &[u8] = bytemuck::cast_slice(&data.vertices);
+        if let Some(m) = self.meshes.get_mut(key) {
+            if m.vbuf.size() == bytes.len() as u64 && m.count == data.indices.len() as u32 {
+                self.queue.write_buffer(&m.vbuf, 0, bytes);
+                m.radius = data
+                    .vertices
+                    .iter()
+                    .map(|v| Vec3::from(v.pos).length())
+                    .fold(0.0, f32::max);
+                return;
+            }
+        }
+        let vbuf = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("dynamic mesh vertices"),
+                contents: bytes,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            });
+        let ibuf = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("dynamic mesh indices"),
+                contents: bytemuck::cast_slice(&data.indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+        self.meshes.insert(
+            key.to_string(),
+            GpuMesh {
+                vbuf,
+                ibuf,
+                count: data.indices.len() as u32,
+                radius: data
+                    .vertices
+                    .iter()
+                    .map(|v| Vec3::from(v.pos).length())
+                    .fold(0.0, f32::max),
+            },
+        );
     }
 
     // ------------------------------------------------------------------

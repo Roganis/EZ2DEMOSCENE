@@ -20,11 +20,13 @@
 
 mod bake;
 mod cache;
+mod cloth;
 mod flock;
 pub mod math;
 
 pub use bake::*;
 pub use cache::*;
+pub use cloth::*;
 pub use flock::*;
 
 use glam::Vec3;

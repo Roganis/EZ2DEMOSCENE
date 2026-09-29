@@ -921,7 +921,7 @@ and a polling preview draw the same birds, they move and the loop closes
 Preset: *Starling Dusk* (600 birds on a Lissajous path, scattering on
 every bar).
 
-### ☐ 10.3 Cloth
+### ☑ 10.3 Cloth
 **How.** A new shape source, `MeshSource::Cloth` (flag, curtain, cape,
 banner, tablecloth draped over a sphere or box). Position-based
 dynamics (XPBD): stretch and bend constraints, pinned edges or corners,
@@ -941,6 +941,50 @@ with a seam under a millimetre.
 **Test.** Loops; pinned vertices never move; edge lengths stay within
 stretch; cloth never goes under the floor. Preset: *Banners* (a row of
 flags in a gusting wind, a logo printed on each).
+
+**Done, with measured seams.** `ez_core::sim::Cloth`: a Flag, Curtain,
+Banner or *Drape over a ball*, as `MeshSource::Cloth` (the shape picker
+has a Cloth tile). XPBD with 6 substeps of one constraint pass each (the
+"small steps" way): stiff structural links, nearly stiff shear, bending
+over every other particle with compliance 10⁻²…10⁻⁶ from *Stiffness*
+(computed with `sim::math`, since `powf` is the platform's). Up to 48
+particles across. What the first tries taught:
+- **Wind along a flat flag does nothing.** The sheet started in the plane
+  the wind blows along, so pressure across it was zero and the flag hung
+  perfectly flat, perfectly symmetric. Gusts are now a turbulent vector
+  (strength plus sideways swirl, from value noise travelling a circle in
+  noise space, so it loops), which is what starts a flag flapping.
+- **Air grows with the square of the speed**, across the sheet and
+  (standing for the drag of the flapping, which is what streams a flag
+  out) along it; with linear forces the flag drooped at any wind.
+- **A drape needs grip.** Without friction the sheet slid off its ball
+  and wandered over the floor; contacts now undo most of the sliding.
+Colliders: the ball and the floor. Not done: the terrain and other layers'
+shapes as colliders, self-collision.
+Seams, measured without the guided tail (4 s loop): a flag in a steady
+rhythm of wind is exactly periodic after warm-up (0); with the default
+gusts it settles to 1 cm RMS after 3 warm-up loops, a curtain to 6 cm, a
+fine (48-across) flag to 4–7 cm, and more warm-up hardly helps once the
+flapping is turbulent. The guided tail (pinned particles held in place)
+closes what is left. Bakes: about 1 s at the default detail, 5 s at 48
+across (4-core test container), 3–13 MB.
+Drawing: the renderer samples the bake (a cross-faded cloth mixes its two
+halves by weight), builds the sheet (normals from neighbours, texture
+coordinates over the whole sheet, the border as the outline for edge
+glows) and rewrites one vertex buffer in place each frame; before the
+first bake the cloth lies at rest. The mesh shader already draws both
+sides and turns normals to the viewer, so the sheet is single. Copies,
+materials, shadows, reflections and depth of field work unchanged;
+subdivision is skipped (the sheet is as fine as its detail). `link_sims`
+now shares one bake path between flocks and cloth.
+Tested: loops with the pole fixed, links stretch under 15% for every
+kind, a drape rests on its ball above the floor with the corners hanging,
+the flag streams downwind and follows a turned wind, gusts loop, the same
+bake on every platform (checked natively and in wasm), saving and
+loading; on the GPU, the flags leave their rest pose, wave more than the
+scene moves, a waiting renderer and a polling preview agree, and the loop
+closes (seam 0.0000). Preset: *Banners* (five flags on poles, a gust on
+every bar, the wind swinging ±35°).
 
 ### ☐ 10.4 Rigid bodies
 **How.** A copy layout, **Physics** (`Instancer::Physics`): each copy is

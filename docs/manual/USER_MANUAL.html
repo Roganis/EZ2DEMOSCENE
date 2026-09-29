@@ -386,7 +386,7 @@ second pattern added over them, on a CRT.</figcaption></figure>
 <h2>5.3 Shapes</h2>
 <figure><img src="img/mesh.jpg"><figcaption>A shape layer (Tech panels): Shape, Material, Copies, Variation, Placement &amp; motion, Symmetry.</figcaption></figure>
 <p>Click the <span class="ui">Shape</span> button to open <span class="ui">Choose a shape</span>, a window of tiles with a
-picture of every shape. The <span class="ui">Built-in</span> tab has the 25 built-in shapes, the raymarched ones, 3D text and
+picture of every shape. The <span class="ui">Built-in</span> tab has the 25 built-in shapes, the raymarched ones, 3D text, cloth and
 <span class="ui">3D model file…</span>; the <span class="ui">Library</span> tab has about 1,000 ready-made low-poly models
 (spaceships, vehicles, nature, food, buildings, characters and more), with categories and a search box.</p>
 <div class="note"><b>Library models</b>The models are by Kenney (kenney.nl) and free to use for anything (CC0). They take the
@@ -421,6 +421,15 @@ search and a preview of every model.</figcaption></figure>
   glow). <span class="ui">Motion</span> sets how many times their own movement repeats per loop (0 = still), and copies each get
   their own variation. Textures, relief, deform and glitch don't apply. They cost per pixel they cover, so a few big ones or a dozen
   small ones are fine; the <b>Liquid Metal</b> preset shows both.</td></tr>
+  <tr><td>Cloth</td><td>A sheet of cloth moved by the wind: a <b>Flag</b> (held by a pole along one side), <b>Curtain</b> (held
+  along the top), <b>Banner</b> (held by its two top corners) or a <b>Drape over a ball</b> (a tablecloth or a ghost's sheet, gripping
+  the ball, with an optional floor). Set its <span class="ui">Size</span>, <span class="ui">Detail</span> (finer folds, slower),
+  <span class="ui">Stiffness</span> (silk to canvas) and the <span class="ui">Wind</span>: speed and direction are animatable and
+  music-linkable (an oscillator on <span class="ui">Direction</span> swings it round; a pulse on the speed gusts on the beat), and
+  <span class="ui">Gusts</span> make it vary over the cloth. The motion is <b>simulated</b> ahead of time into a loop, like flocks
+  (<i>Simulating…</i> in the viewport bar; until then the cloth hangs at rest, and exports wait). The picture on the cloth is the
+  material's texture, stretched once over the sheet; every material, copies, shadows and depth of field apply, so a Grid of one flag
+  makes a row of flags. The <b>Banners</b> preset has five.</td></tr>
   <tr><td>3D model file</td><td>Your own <code>.gltf</code>, <code>.glb</code> or <code>.obj</code>. It is centred and scaled to fit automatically, and
   uses the layer's material.</td></tr>
 </table>

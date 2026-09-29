@@ -2587,3 +2587,80 @@ fn flocks_bake_fly_and_loop() {
     );
     waited.save(snapshot_dir().join("flock_0.2.png")).unwrap();
 }
+
+/// Cloth: drawn at rest until baked (and the frame says so), then the same
+/// sheet whether the renderer waited or the preview polled; it waves and
+/// loops.
+#[test]
+fn cloth_waves_and_loops() {
+    use ez_core::*;
+    let gpu = match Gpu::headless() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping GPU test: {e:#}");
+            return;
+        }
+    };
+    let mut p = presets::banners();
+    for l in &mut p.layers {
+        if let LayerKind::Mesh(MeshLayer {
+            source: MeshSource::Cloth { cloth, .. },
+            ..
+        }) = &mut l.kind
+        {
+            cloth.detail = 12;
+        }
+    }
+    let at = |phase: f32| EvalCtx::new(&p.timing, phase, None);
+
+    let mut preview = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let target = preview.create_target(160, 90);
+    preview.take_inexact();
+    let rest = preview.render_image(&p, &at(0.2), &target);
+    assert!(preview.take_inexact());
+    let start = std::time::Instant::now();
+    while preview.bake_progress().is_some() {
+        assert!(start.elapsed().as_secs() < 120, "bake never finished");
+        preview.poll_bakes(|| false);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let polled = preview.render_image(&p, &at(0.2), &target);
+    assert!(!preview.take_inexact());
+
+    let mut export = Renderer::new(&gpu.device, &gpu.queue, 1);
+    export.set_wait_for_bakes(true);
+    let waited = export.render_image(&p, &at(0.2), &target);
+    assert_eq!(waited.as_raw(), polled.as_raw());
+    // Blown by the wind, the flags are not where they rest.
+    let blown = mean_abs_diff(waited.as_raw(), rest.as_raw());
+
+    let a = export.render_image(&p, &at(0.0), &target);
+    let b = export.render_image(&p, &at(1.0), &target);
+    let seam = mean_abs_diff(a.as_raw(), b.as_raw());
+    // They wave: compare with the same scene without the flags (the camera
+    // and the sky move too).
+    let mut still = p.clone();
+    still.layers.retain(|l| l.name != "Flags");
+    let later = export.render_image(&p, &at(0.23), &target);
+    let (s0, s1) = (
+        export.render_image(&still, &at(0.2), &target),
+        export.render_image(&still, &at(0.23), &target),
+    );
+    let (motion, scene_motion) = (
+        mean_abs_diff(waited.as_raw(), later.as_raw()),
+        mean_abs_diff(s0.as_raw(), s1.as_raw()),
+    );
+    eprintln!(
+        "cloth: blown {blown:.3}, seam {seam:.4}, motion {motion:.3} (scene {scene_motion:.3})"
+    );
+    assert!(
+        blown > 0.3,
+        "the flags didn't move off their rest pose: {blown}"
+    );
+    assert!(seam < 0.05, "seam {seam}");
+    assert!(
+        motion > scene_motion + 0.05,
+        "flags don't wave: {motion} vs {scene_motion}"
+    );
+    waited.save(snapshot_dir().join("cloth_0.2.png")).unwrap();
+}

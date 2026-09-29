@@ -1354,6 +1354,7 @@ pub fn shape_label(source: &MeshSource) -> String {
             .unwrap_or_else(|| id.rsplit('/').next().unwrap_or(id).to_string()),
         MeshSource::Text { .. } => "3D text".to_string(),
         MeshSource::Sdf { form, .. } => form.label().to_string(),
+        MeshSource::Cloth { cloth, .. } => cloth.kind.label().to_string(),
     }
 }
 
@@ -1414,6 +1415,7 @@ fn mesh_ui(ui: &mut Ui, m: &mut MeshLayer, textures: &[UserTexture], lref: Layer
         });
         match &mut m.source {
             MeshSource::Primitive(p) => primitive_params_ui(ui, p),
+            MeshSource::Cloth { cloth, .. } => cloth_ui(ui, cloth),
             MeshSource::Text {
                 text,
                 font,
@@ -1973,7 +1975,7 @@ fn instancer_ui(ui: &mut Ui, inst: &mut Instancer) {
 }
 
 fn flock_ui(ui: &mut Ui, f: &mut ez_core::sim::Flock) {
-    use ez_core::sim::{FlockPath, LoopClose, FLOCK_MAX};
+    use ez_core::sim::{FlockPath, FLOCK_MAX};
     drag_u(
         ui,
         "Count",
@@ -2105,14 +2107,24 @@ fn flock_ui(ui: &mut Ui, f: &mut ez_core::sim::Flock) {
         -1.0..=2.0,
     );
     ui.separator();
-    ui.label(RichText::new("Closing the loop").weak());
-    let l = &mut f.looping;
-    combo(
+    sim_loop_ui(
         ui,
-        "Close by",
+        &mut f.looping,
         "Blend the tail: the flock steers back to where it started. \
          Cross-fade: two copies of the flight half a loop apart, each \
          shrinking away before it jumps back. Ping-pong: forward, then backward.",
+    );
+}
+
+/// How a simulation closes its loop, and how its bake is doing.
+fn sim_loop_ui(ui: &mut Ui, l: &mut ez_core::sim::SimLoop, close_tip: &str) {
+    use ez_core::sim::LoopClose;
+    ui.separator();
+    ui.label(RichText::new("Closing the loop").weak());
+    combo(
+        ui,
+        "Close by",
+        close_tip,
         &mut l.close,
         &LoopClose::ALL,
         |c| c.label(),
@@ -2128,7 +2140,7 @@ fn flock_ui(ui: &mut Ui, f: &mut ez_core::sim::Flock) {
         check(
             ui,
             "Steer back",
-            "Steer to the start while keeping apart (off: only blend)",
+            "Steer to the start during the tail (off: only blend)",
             &mut l.guide,
         );
     }
@@ -2157,11 +2169,121 @@ fn flock_ui(ui: &mut Ui, f: &mut ez_core::sim::Flock) {
             )
         };
         ui.label(RichText::new(text).weak()).on_hover_text(
-            "The seam is how far the boids still are from where they started \
+            "The seam is how far the simulation still is from where it started \
              when the final blend takes over (average and largest, in world \
              units): smaller means a smoother loop.",
         );
     }
+}
+
+fn cloth_ui(ui: &mut Ui, c: &mut ez_core::sim::Cloth) {
+    use ez_core::sim::{ClothKind, CLOTH_MAX_DETAIL};
+    combo(
+        ui,
+        "Kind",
+        "What it is and where it hangs from",
+        &mut c.kind,
+        &ClothKind::ALL,
+        |k| k.label(),
+    );
+    row(
+        ui,
+        "Size",
+        "Width and height (a drape: width and depth)",
+        |ui| {
+            for (v, p) in c.size.iter_mut().zip(["w ", "h "]) {
+                ui.add(
+                    egui::DragValue::new(v)
+                        .range(0.1..=40.0)
+                        .speed(0.02)
+                        .prefix(p),
+                );
+            }
+        },
+    );
+    drag_u(
+        ui,
+        "Detail",
+        "Particles across: finer folds, slower to simulate",
+        &mut c.detail,
+        4..=CLOTH_MAX_DETAIL,
+    );
+    slider(
+        ui,
+        "Stiffness",
+        "Resistance to folding: 0 silk, 1 canvas",
+        &mut c.stiffness,
+        0.0..=1.0,
+    );
+    slider(
+        ui,
+        "Damping",
+        "How fast motion dies down",
+        &mut c.damping,
+        0.0..=1.0,
+    );
+    ui.separator();
+    ui.label(RichText::new("Wind").weak());
+    param(
+        ui,
+        "Wind",
+        "Wind speed (link it to the music for gusts on the beat)",
+        &mut c.wind,
+        0.0..=30.0,
+    );
+    param(
+        ui,
+        "Direction",
+        "Where the wind blows to, in degrees around the vertical (0 = along x). \
+         An oscillator of 180° turns it round.",
+        &mut c.wind_direction,
+        -180.0..=180.0,
+    );
+    slider(
+        ui,
+        "Gusts",
+        "How much the wind varies over the cloth and the loop",
+        &mut c.gusts,
+        0.0..=2.0,
+    );
+    ui.separator();
+    ui.label(RichText::new("Bumping into").weak());
+    check(ui, "Floor", "Stop at a floor", &mut c.floor_on);
+    if c.floor_on {
+        slider(
+            ui,
+            "Floor height",
+            "From the layer's origin",
+            &mut c.floor,
+            -20.0..=5.0,
+        );
+    }
+    if c.kind == ClothKind::Drape {
+        row(
+            ui,
+            "Ball",
+            "Where the ball is (from the layer's origin) and its radius",
+            |ui| {
+                for (v, p) in c.ball.iter_mut().zip(["x ", "y ", "z ", "r "]) {
+                    ui.add(egui::DragValue::new(v).speed(0.02).prefix(p));
+                }
+            },
+        );
+    }
+    drag_u(
+        ui,
+        "Seed",
+        "Another pattern of gusts",
+        &mut c.seed,
+        0..=9999,
+    );
+    sim_loop_ui(
+        ui,
+        &mut c.looping,
+        "Blend the tail: the cloth steers back to where it started. \
+         Cross-fade: the loop mixed with itself half a loop apart. \
+         Ping-pong: forward, then backward.",
+    );
 }
 
 fn variation_ui(ui: &mut Ui, v: &mut Variation) {

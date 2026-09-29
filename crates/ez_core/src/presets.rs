@@ -155,6 +155,11 @@ pub fn all() -> Vec<Preset> {
             project: galaxy_swarm(),
         },
         Preset {
+            name: "Banners",
+            description: "A row of flags on poles, flapping in a turning, gusting wind: simulated cloth that loops.",
+            project: banners(),
+        },
+        Preset {
             name: "Starling Dusk",
             description: "A flock of 600 starlings wheeling through a sunset, scattering on every bar: simulated, and looping.",
             project: starling_dusk(),
@@ -2939,6 +2944,136 @@ pub fn starling_dusk() -> Project {
                 length: Param::new(0.6),
                 threshold: Param::new(0.8),
                 ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+/// A row of flags in a gusting wind that swings round: simulated cloth.
+pub fn banners() -> Project {
+    use crate::sim::{Cloth, ClothKind};
+    let row = Instancer::Grid {
+        counts: [5, 1, 1],
+        spacing: [4.5, 1.0, 1.0],
+    };
+    let cloth = Cloth {
+        kind: ClothKind::Flag,
+        size: [3.0, 2.0],
+        detail: 24,
+        stiffness: 0.25,
+        // A gust on every bar, the wind swinging ±35° over the loop.
+        wind: Param::new(9.0).osc(Wave::Pulse, 5.0, 4),
+        wind_direction: Param::new(-20.0).osc(Wave::Sine, 35.0, 1),
+        gusts: 0.5,
+        ..Default::default()
+    };
+    let mut flags = Layer::new(
+        "Flags",
+        LayerKind::Mesh(MeshLayer {
+            source: MeshSource::Cloth {
+                cloth: Box::new(cloth),
+                mesh: None,
+            },
+            instancer: row.clone(),
+            variation: Variation {
+                hue: 0.35,
+                ..Default::default()
+            },
+            material: Material {
+                base_color: hex(0xe8e0d0),
+                roughness: Param::new(0.85),
+                texture: Some("rings".into()),
+                ..Default::default()
+            },
+            ..Default::default()
+        }),
+    )
+    .at([0.0, 4.2, 0.0]);
+    flags.transform.position[0] = -1.5;
+    let mut poles = Layer::new(
+        "Poles",
+        LayerKind::Mesh(MeshLayer {
+            instancer: row,
+            ..mesh(
+                Primitive::Cylinder { segments: 12 },
+                Material {
+                    base_color: hex(0xb8bcc4),
+                    metallic: Param::new(0.9),
+                    roughness: Param::new(0.25),
+                    ..Default::default()
+                },
+            )
+        }),
+    )
+    .at([-1.5, 2.6, 0.0]);
+    poles.transform.stretch = [0.06, 2.6, 0.06];
+    Project {
+        name: "Banners".into(),
+        timing: crate::Timing {
+            bpm: 110.0,
+            loop_beats: 16,
+        },
+        camera: Camera {
+            mode: CameraMode::Pendulum,
+            swing: Param::new(25.0),
+            target: [0.0, 3.2, 0.0],
+            distance: Param::new(17.0),
+            height: Param::new(2.5),
+            fov: Param::new(55.0),
+            ..Default::default()
+        },
+        environment: Environment {
+            fog_color: hex(0xa8bcd4),
+            fog_density: Param::new(0.01),
+            sky_color: hex(0x88aee0),
+            ground_color: hex(0x40464c),
+            light_dir: [0.5, 0.8, 0.6],
+            light_color: hex(0xfff4e0),
+            light_intensity: Param::new(1.5),
+            ambient: Param::new(0.5),
+            shadows: Shadows {
+                enabled: true,
+                distance: 40.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        layers: vec![
+            sky(
+                BackdropKind::Clouds,
+                0x3a70c0,
+                0xc8d8ec,
+                0x8898b0,
+                RaySettings {
+                    variant: 0,
+                    size: Param::new(1.0),
+                    warp: Param::new(1.0),
+                    bend: Param::new(1.0),
+                    glow: Param::new(1.0),
+                    fog: Param::new(1.0),
+                    ..Default::default()
+                },
+            ),
+            Layer::new(
+                "Ground",
+                LayerKind::Mirror(MirrorFloor {
+                    base_color: hex(0x3a4048),
+                    reflectivity: Param::new(0.25),
+                    blur: Param::new(0.5),
+                    ..Default::default()
+                }),
+            ),
+            poles,
+            flags,
+        ],
+        post: PostStack {
+            bloom: Bloom {
+                enabled: true,
+                intensity: Param::new(0.3),
+                threshold: Param::new(1.4),
+                radius: Param::new(0.6),
             },
             ..Default::default()
         },

@@ -1315,6 +1315,15 @@ pub enum MeshSource {
         /// Thickness, in letter heights.
         depth: f32,
     },
+    /// A sheet of cloth (a flag, curtain, banner or drape) moved by a
+    /// simulation baked into a loop (see [`crate::sim::Cloth`]).
+    Cloth {
+        cloth: Box<crate::sim::Cloth>,
+        /// The renderer's mesh of the sheet at the moment being drawn,
+        /// filled in before rendering; none until the cloth is baked.
+        #[serde(skip)]
+        mesh: Option<String>,
+    },
 }
 
 /// Raymarched distance-field shapes (see `sdf.wgsl`).

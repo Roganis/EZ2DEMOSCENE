@@ -1010,6 +1010,43 @@ pub fn primitive(p: &Primitive) -> MeshData {
     }
 }
 
+/// A sheet of cloth from its particles (`cols` across, row by row from
+/// the top): normals from the neighbours, texture coordinates over the
+/// whole sheet, and the outline at its border (for edge glows). Drawn from
+/// both sides (the mesh shader turns normals to the viewer).
+pub fn cloth_sheet(pos: &[Vec3], cols: usize, rows: usize) -> MeshData {
+    let mut data = MeshData {
+        vertices: Vec::with_capacity(cols * rows),
+        indices: Vec::with_capacity((cols - 1) * (rows - 1) * 6),
+    };
+    if cols < 2 || rows < 2 || pos.len() < cols * rows {
+        return data;
+    }
+    let p = |i: usize, j: usize| pos[j * cols + i];
+    for j in 0..rows {
+        for i in 0..cols {
+            let dx = p((i + 1).min(cols - 1), j) - p(i.saturating_sub(1), j);
+            let dy = p(i, (j + 1).min(rows - 1)) - p(i, j.saturating_sub(1));
+            let n = dy.cross(dx).normalize_or(Vec3::Z);
+            let border = i == 0 || j == 0 || i == cols - 1 || j == rows - 1;
+            data.vertices.push(Vertex {
+                pos: p(i, j).into(),
+                normal: n.into(),
+                uv: [i as f32 / (cols - 1) as f32, j as f32 / (rows - 1) as f32],
+                edge: if border { 0.0 } else { 1.0 },
+            });
+        }
+    }
+    for j in 0..rows - 1 {
+        for i in 0..cols - 1 {
+            let a = (j * cols + i) as u32;
+            let (b, c, d) = (a + cols as u32, a + 1, a + cols as u32 + 1);
+            data.indices.extend_from_slice(&[a, b, c, c, b, d]);
+        }
+    }
+    data
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
