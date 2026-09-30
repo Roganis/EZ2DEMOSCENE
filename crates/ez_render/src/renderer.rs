@@ -2383,8 +2383,11 @@ impl Renderer {
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
+                    // The depth as unfilterable float, not Depth: see
+                    // retro_up.wgsl (a depth binding is a sampler2DShadow
+                    // in GLSL, and GL can't sample it without a compare).
                     ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Depth,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
                         view_dimension: wgpu::TextureViewDimension::D2,
                         multisampled: false,
                     },
