@@ -588,6 +588,125 @@ impl<'de> Deserialize<'de> for EnvRef {
     }
 }
 
+labeled_enum! {
+    /// The shape of a one-shot ramp, from its start to its end.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+    pub enum Ease {
+        /// Constant speed.
+        Linear => "Linear",
+        /// Starts slowly, arrives fast.
+        In => "Ease in",
+        /// Starts fast, settles gently (the usual choice for things arriving).
+        #[default]
+        Out => "Ease out",
+        /// Slow at both ends.
+        InOut => "Ease in-out",
+        /// Overshoots a little, then settles.
+        Back => "Overshoot",
+        /// Lands and bounces.
+        Bounce => "Bounce",
+        /// Holds, then jumps at the end.
+        Step => "Jump at end",
+    }
+}
+
+impl Ease {
+    /// Progress 0..1 for time 0..1 (Back goes a little past 1).
+    pub fn apply(self, t: f32) -> f32 {
+        let t = t.clamp(0.0, 1.0);
+        match self {
+            Ease::Linear => t,
+            Ease::In => t * t * t,
+            Ease::Out => 1.0 - (1.0 - t).powi(3),
+            Ease::InOut => {
+                if t < 0.5 {
+                    4.0 * t * t * t
+                } else {
+                    1.0 - (-2.0 * t + 2.0).powi(3) / 2.0
+                }
+            }
+            Ease::Back => {
+                let (c1, c3) = (1.70158, 2.70158);
+                1.0 + c3 * (t - 1.0).powi(3) + c1 * (t - 1.0).powi(2)
+            }
+            Ease::Bounce => {
+                let (n, d) = (7.5625, 2.75);
+                if t < 1.0 / d {
+                    n * t * t
+                } else if t < 2.0 / d {
+                    let t = t - 1.5 / d;
+                    n * t * t + 0.75
+                } else if t < 2.5 / d {
+                    let t = t - 2.25 / d;
+                    n * t * t + 0.9375
+                } else {
+                    let t = t - 2.625 / d;
+                    n * t * t + 0.984375
+                }
+            }
+            Ease::Step => {
+                if t >= 1.0 {
+                    1.0
+                } else {
+                    0.0
+                }
+            }
+        }
+    }
+}
+
+/// A change that happens once: the value moves by `by` from beat `start`
+/// to beat `start + length` of the timeline clip it plays in, then holds.
+/// Outside a timeline the beats count from the start of the loop, so the
+/// ramp plays again every loop (and the loop point shows the jump back).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(default)]
+pub struct Ramp {
+    /// Beat of the clip where the change begins.
+    pub start: f32,
+    /// How many beats it takes (0 = at once).
+    pub length: f32,
+    /// How much the value changes (0 = no ramp).
+    pub by: f32,
+    pub ease: Ease,
+}
+
+impl Ramp {
+    pub const OFF: Ramp = Ramp {
+        start: 0.0,
+        length: 2.0,
+        by: 0.0,
+        ease: Ease::Out,
+    };
+
+    pub fn is_off(&self) -> bool {
+        self.by == 0.0
+    }
+
+    /// What the ramp adds `clip_beats` into the clip.
+    pub fn eval(&self, clip_beats: f32) -> f32 {
+        if self.is_off() {
+            return 0.0;
+        }
+        let t = if self.length <= 0.0 {
+            if clip_beats >= self.start {
+                1.0
+            } else {
+                0.0
+            }
+        } else {
+            (clip_beats - self.start) / self.length
+        };
+        self.by * self.ease.apply(t)
+    }
+}
+
+impl Default for Ramp {
+    fn default() -> Self {
+        Ramp::OFF
+    }
+}
+
 /// An animatable number.
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct Param {
@@ -607,6 +726,8 @@ pub struct Param {
     pub music: MusicMod,
     /// The points of the `Envelope` wave.
     pub env: EnvRef,
+    /// A one-shot change at the start of the clip.
+    pub ramp: Ramp,
 }
 
 impl Param {
@@ -627,6 +748,7 @@ impl Param {
                 length: 0.5,
             },
             env: EnvRef(0),
+            ramp: Ramp::OFF,
         }
     }
 
@@ -656,7 +778,12 @@ impl Param {
     }
 
     pub fn is_animated(&self) -> bool {
-        self.amp != 0.0 || self.audio != 0.0 || self.music.amount != 0.0
+        self.amp != 0.0 || self.audio != 0.0 || self.music.amount != 0.0 || !self.ramp.is_off()
+    }
+
+    /// The farthest the value gets from 0 without the music (for sizing).
+    pub fn reach(&self) -> f32 {
+        self.base.abs() + self.amp.abs() + self.ramp.by.abs()
     }
 
     /// True when the value depends on the music.
@@ -692,6 +819,7 @@ impl Param {
             v += self.audio * ctx.audio;
         }
         v += self.music.eval(&ctx.music, ctx.beat_seconds);
+        v += self.ramp.eval(ctx.clip_beats());
         v
     }
 }
@@ -727,6 +855,10 @@ struct ParamFull {
     /// The points of the `Envelope` wave.
     #[serde(skip_serializing_if = "EnvRef::is_default")]
     env: EnvRef,
+    /// A one-shot change at the start of the clip (in a timeline) or the
+    /// loop: e.g. `{"start": 0, "length": 2, "by": -1, "ease": "Out"}`.
+    #[serde(skip_serializing_if = "Ramp::is_off")]
+    ramp: Ramp,
 }
 
 impl JsonSchema for Param {
@@ -774,6 +906,7 @@ impl Default for ParamFull {
             audio: p.audio,
             music: p.music,
             env: p.env,
+            ramp: p.ramp,
         }
     }
 }
@@ -799,6 +932,7 @@ impl Serialize for Param {
                 audio: self.audio,
                 music: self.music,
                 env: self.env,
+                ramp: self.ramp,
             }
             .serialize(s)
         }
@@ -818,6 +952,7 @@ impl<'de> Deserialize<'de> for Param {
                 audio: f.audio,
                 music: f.music,
                 env: f.env,
+                ramp: f.ramp,
             },
         })
     }
@@ -1062,5 +1197,61 @@ mod tests {
         let s = serde_json::to_string(&a).unwrap();
         let back: Param = serde_json::from_str(&s).unwrap();
         assert_eq!(a, back);
+    }
+
+    #[test]
+    fn eases_start_at_0_and_end_at_1() {
+        for e in Ease::ALL {
+            assert_eq!(e.apply(0.0), 0.0, "{e:?}");
+            assert!((e.apply(1.0) - 1.0).abs() < 1e-5, "{e:?}");
+            assert!((e.apply(-3.0)).abs() < 1e-6 && (e.apply(9.0) - 1.0).abs() < 1e-5);
+        }
+        assert!(Ease::Out.apply(0.5) > 0.5 && Ease::In.apply(0.5) < 0.5);
+        assert!((0..100).any(|i| Ease::Back.apply(i as f32 / 100.0) > 1.0));
+        assert_eq!(Ease::Step.apply(0.99), 0.0);
+    }
+
+    #[test]
+    fn a_ramp_changes_once_then_holds() {
+        let mut p = Param::new(10.0);
+        p.ramp = Ramp {
+            start: 4.0,
+            length: 2.0,
+            by: -10.0,
+            ease: Ease::Linear,
+        };
+        let at_ = |p: &Param, beats: f32| {
+            let mut c = EvalCtx::at(0.0);
+            c.clip_base = beats;
+            p.eval(&c)
+        };
+        assert_eq!(at_(&p, 0.0), 10.0);
+        assert_eq!(at_(&p, 4.0), 10.0);
+        assert!((at_(&p, 5.0) - 5.0).abs() < 1e-5);
+        assert_eq!(at_(&p, 6.0), 0.0);
+        assert_eq!(at_(&p, 100.0), 0.0);
+        // Length 0: a jump at `start`.
+        p.ramp.length = 0.0;
+        assert_eq!((at_(&p, 3.9), at_(&p, 4.0)), (10.0, 0.0));
+        // Outside a timeline, beats count from the start of the loop.
+        p.ramp.length = 16.0;
+        p.ramp.start = 0.0;
+        assert!((p.eval(&EvalCtx::at(0.25)) - 7.5).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_ramp_makes_a_param_animated_and_round_trips() {
+        let mut p = Param::new(2.0);
+        assert!(!p.is_animated());
+        p.ramp.by = 3.0;
+        assert!(p.is_animated());
+        assert_eq!(p.reach(), 5.0);
+        let s = serde_json::to_string(&p).unwrap();
+        assert!(s.contains("\"ramp\""), "{s}");
+        assert_eq!(serde_json::from_str::<Param>(&s).unwrap(), p);
+        // Absent: off, and not written.
+        let plain: Param = serde_json::from_str(r#"{"base": 1.0, "amp": 0.5}"#).unwrap();
+        assert!(plain.ramp.is_off());
+        assert!(!serde_json::to_string(&plain).unwrap().contains("ramp"));
     }
 }

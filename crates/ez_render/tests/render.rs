@@ -4731,3 +4731,73 @@ fn opengl_backend_starts_and_loops() {
     }
     assert!(r.errors.is_empty(), "{:?}", r.errors);
 }
+
+/// Numbers in text: a logo and a text layer counting up with a one-shot
+/// ramp change on screen while the count runs, then hold.
+#[test]
+fn text_numbers_count_and_hold() {
+    use ez_core::*;
+    let gpu = gpu_or_skip!();
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let target = r.create_target(320, 180);
+    let mut plain = presets::empty();
+    plain.post.grade.grain = Param::new(0.0);
+    plain
+        .layers
+        .retain(|l| matches!(l.kind, LayerKind::Backdrop(_)));
+    // A still camera: only the number may change.
+    plain.camera.mode = CameraMode::Static;
+    let mut count = Param::new(0.0);
+    count.ramp = Ramp {
+        start: 0.0,
+        length: 8.0,
+        by: 987650.0,
+        ease: Ease::Linear,
+    };
+    let value = TextValue {
+        value: count,
+        group: true,
+        ..Default::default()
+    };
+    let at = |p: &Project, phase: f32| EvalCtx::new(&p.timing, phase, None);
+    let mut logo = plain.clone();
+    logo.layers.push(Layer::new(
+        "Score",
+        LayerKind::Logo(LogoLayer {
+            text: "SCORE {0}".into(),
+            values: vec![value.clone()],
+            ..Default::default()
+        }),
+    ));
+    let mut text = plain.clone();
+    text.layers.push(Layer::new(
+        "Score",
+        LayerKind::Text(TextLayer {
+            text: "{0}".into(),
+            values: vec![value],
+            size: 1.2,
+            ..Default::default()
+        }),
+    ));
+    for (name, p) in [("logo", &logo), ("text", &text)] {
+        // 16 beats a loop: the count runs over the first half.
+        let early = r.render_image(p, &at(p, 0.1), &target);
+        let later = r.render_image(p, &at(p, 0.3), &target);
+        let done = r.render_image(p, &at(p, 0.6), &target);
+        let still = r.render_image(p, &at(p, 0.9), &target);
+        later
+            .save(snapshot_dir().join(format!("count_{name}.png")))
+            .unwrap();
+        let counting = mean_abs_diff(early.as_raw(), later.as_raw());
+        let held = mean_abs_diff(done.as_raw(), still.as_raw());
+        eprintln!("{name}: counting {counting:.3}, held {held:.4}");
+        assert!(counting > 0.05, "{name}: the number doesn't change");
+        assert!(held < 0.01, "{name}: the number doesn't hold");
+    }
+    // A live logo bakes each number once: many frames of counting keep
+    // working (and are dropped from the cache as they go by).
+    for i in 0..60 {
+        let img = r.render_image(&logo, &at(&logo, i as f32 / 120.0), &target);
+        assert!(lum(&img) > 0.0);
+    }
+}

@@ -3226,9 +3226,24 @@ impl Renderer {
 
     /// A logo layer's baked texture, uploaded, and how it fits; `None` when
     /// there is nothing to draw (no text, no image, an empty mask).
-    fn logo_texture(&mut self, project: &Project, g: &LogoLayer) -> Option<(String, LogoFit)> {
+    fn logo_texture(
+        &mut self,
+        project: &Project,
+        g: &LogoLayer,
+        ctx: &EvalCtx,
+    ) -> Option<(String, LogoFit)> {
+        // Text with numbers can change every frame: bake it quicker, and
+        // forget each version as soon as it is no longer shown.
+        let live = g.source == LogoSource::Text && !g.values.is_empty();
+        let text = ez_core::format_text(&g.text, &g.values, ctx);
         let key = match g.source {
-            LogoSource::Text => format!("__logo:text:{:?}:{:?}:{}", g.font, g.font_file, g.text),
+            LogoSource::Text => format!(
+                "__logo:{}:{:?}:{:?}:{}",
+                if live { "live" } else { "text" },
+                g.font,
+                g.font_file,
+                text
+            ),
             LogoSource::Image => {
                 format!("__logo:image:{}:{:?}", self.image_id(project, g)?, g.mask)
             }
@@ -3261,7 +3276,12 @@ impl Renderer {
                         }
                     }
                 });
-                crate::logo::bake_text(&g.text, g.font, bytes.as_deref())
+                let budget = if live {
+                    crate::logo::Budget::LIVE
+                } else {
+                    crate::logo::Budget::FULL
+                };
+                crate::logo::bake_text_with(&text, g.font, bytes.as_deref(), budget)
             }
             LogoSource::Image => {
                 let name = g.image.as_deref().unwrap_or_default();
@@ -3306,7 +3326,14 @@ impl Renderer {
         let stale: Vec<String> = self
             .logos
             .iter()
-            .filter(|(_, (used, _))| frame - *used > 240)
+            .filter(|(k, (used, _))| {
+                let keep = if k.starts_with("__logo:live:") {
+                    2
+                } else {
+                    240
+                };
+                frame - *used > keep
+            })
             .map(|(k, _)| k.clone())
             .collect();
         for k in stale {
@@ -3397,7 +3424,7 @@ impl Renderer {
         flash: f32,
         fade: f32,
     ) -> Option<LogoDraw> {
-        let (tex, fit) = self.logo_texture(project, g)?;
+        let (tex, fit) = self.logo_texture(project, g, ctx)?;
         let mut blk: Block = Zeroable::zeroed();
         blk[0] = c4(g.color_top, g.glow.eval(ctx).max(0.0) * flash);
         blk[1] = c4(g.color_bottom, g.outline.eval(ctx));
@@ -3482,7 +3509,7 @@ impl Renderer {
                 mask: g.morph_mask.unwrap_or(g.mask),
                 ..g.clone()
             };
-            self.logo_texture(project, &other)
+            self.logo_texture(project, &other, ctx)
         } else {
             None
         };
@@ -3537,12 +3564,12 @@ impl Renderer {
             margin = margin.max(g.contour_reach.max(0.01) * 3.0);
         }
         if g.stack > 0 {
-            let w = g.stack_width.base.abs() + g.stack_width.amp.abs();
+            let w = g.stack_width.reach();
             margin = margin.max(g.stack.min(16) as f32 * (w + g.stack_gap.max(0.0)));
         }
-        margin = margin.max(g.extrude.base.abs() + g.extrude.amp.abs());
+        margin = margin.max(g.extrude.reach());
         // Distortion moves the picture around.
-        let reach = |p: &Param| p.base.abs() + p.amp.abs();
+        let reach = |p: &Param| p.reach();
         margin += reach(&g.wobble_x).max(reach(&g.wobble_y))
             + reach(&g.glitch)
             + reach(&g.chroma)
@@ -3680,7 +3707,9 @@ impl Renderer {
         let fits: Vec<Option<LogoFit>> = layers
             .iter()
             .map(|l| match &l.kind {
-                LayerKind::Logo(g) if l.enabled => self.logo_texture(project, g).map(|(_, f)| f),
+                LayerKind::Logo(g) if l.enabled => {
+                    self.logo_texture(project, g, ctx).map(|(_, f)| f)
+                }
                 _ => None,
             })
             .collect();

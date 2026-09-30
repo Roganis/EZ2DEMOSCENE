@@ -353,6 +353,9 @@ fn run(atlas: &FontAtlas, line: &str, spacing: f32) -> (Vec<(char, f32)>, f32) {
 
 /// Where every visible letter of `t` is at `ctx`.
 pub fn layout(t: &TextLayer, atlas: &FontAtlas, ctx: &EvalCtx) -> Vec<PlacedGlyph> {
+    // With its numbers filled in.
+    let text = ez_core::format_text(&t.text, &t.values, ctx);
+    let text = text.as_ref();
     let spacing = t.spacing;
     // Centre lines on the letters' middle, not their baseline.
     let mid = 0.36;
@@ -372,8 +375,8 @@ pub fn layout(t: &TextLayer, atlas: &FontAtlas, ctx: &EvalCtx) -> Vec<PlacedGlyp
     let beat = ctx.beat_phase.rem_euclid(1.0) * ctx.loop_beats as f32;
     match t.style {
         TextStyle::Static | TextStyle::Typewriter => {
-            let lines: Vec<&str> = t.text.lines().collect();
-            let total: usize = t.text.chars().filter(|c| *c != '\n').count().max(1);
+            let lines: Vec<&str> = text.lines().collect();
+            let total: usize = text.chars().filter(|c| *c != '\n').count().max(1);
             let shown = match t.style {
                 TextStyle::Typewriter => (beat * t.letters_per_beat.max(1) as f32).floor() as usize,
                 _ => usize::MAX,
@@ -398,7 +401,7 @@ pub fn layout(t: &TextLayer, atlas: &FontAtlas, ctx: &EvalCtx) -> Vec<PlacedGlyp
             }
         }
         TextStyle::Greetings => {
-            let lines: Vec<&str> = t.text.lines().filter(|l| !l.trim().is_empty()).collect();
+            let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
             if lines.is_empty() {
                 return out;
             }
@@ -415,7 +418,7 @@ pub fn layout(t: &TextLayer, atlas: &FontAtlas, ctx: &EvalCtx) -> Vec<PlacedGlyp
             }
         }
         TextStyle::Scroller | TextStyle::SineScroller => {
-            let line = t.text.replace('\n', "   ");
+            let line = text.replace('\n', "   ");
             let window = (t.width / t.size.max(1e-3)).max(1.0);
             let (letters, width) = run(atlas, &line, spacing);
             // Leave the window empty between passes.

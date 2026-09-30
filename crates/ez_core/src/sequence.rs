@@ -223,6 +223,8 @@ impl Sequence {
             c.loop_beats = sb as u32;
             c.beat_phase = (beat_offset / sb).rem_euclid(1.0);
             c.phase = (motion_offset / sb).rem_euclid(1.0);
+            // Whole loops of the scene already played in this clip.
+            c.clip_base = motion_offset - c.phase * sb;
             c
         };
         let into = beat - start;
@@ -462,6 +464,45 @@ mod tests {
         let end = at(total as f32 - 1e-3);
         assert!(end.from.is_none());
         assert_eq!(end.scene, f0.from.unwrap().0);
+    }
+
+    /// Ramps follow the clip: its beats count from the clip's start even
+    /// when the scene's own loop is shorter than the clip.
+    #[test]
+    fn clips_count_their_own_beats() {
+        let mut p = two_scene_project();
+        p.sequence.scene_beats = 4;
+        p.sequence.clips[0].beats = 12;
+        p.sync_sequence_length();
+        let total = p.sequence.total_beats() as f32;
+        let at = |beat: f32| {
+            p.sequence
+                .frame_at(&EvalCtx::new(&p.timing, beat / total, None))
+                .unwrap()
+        };
+        // Second clip, 3 beats in.
+        let f = at(12.0 + 3.0);
+        assert!(
+            (f.ctx.clip_beats() - 3.0).abs() < 1e-3,
+            "{}",
+            f.ctx.clip_beats()
+        );
+        // First clip, 9 beats in: past two loops of its 4-beat scene.
+        let f = at(9.0);
+        assert!(
+            (f.ctx.clip_beats() - 9.0).abs() < 1e-3,
+            "{}",
+            f.ctx.clip_beats()
+        );
+        assert!((f.ctx.phase - 0.25).abs() < 1e-4);
+        // During the crossfade into clip 2, the outgoing scene keeps counting.
+        let f = at(12.0 + 1.0);
+        let (_, prev, _, _) = f.from.unwrap();
+        assert!(
+            (prev.clip_beats() - 13.0).abs() < 1e-3,
+            "{}",
+            prev.clip_beats()
+        );
     }
 
     #[test]

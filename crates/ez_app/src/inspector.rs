@@ -5171,6 +5171,7 @@ fn logo_ui(
                         .hint_text("Your logo text"),
                 );
                 font_picker(ui, &mut g.font, &mut g.font_file, lref);
+                text_values_ui(ui, &mut g.values);
             }
             LogoSource::Image => {
                 texture_picker(
@@ -6107,6 +6108,58 @@ fn font_picker(ui: &mut Ui, font: &mut TextFont, file: &mut Option<String>, lref
     });
 }
 
+/// The numbers shown by `{0}`, `{1}`… in a text: each an animatable
+/// value with its digits, decimals and thousands separators.
+fn text_values_ui(ui: &mut Ui, values: &mut Vec<TextValue>) {
+    let mut remove = None;
+    for (i, v) in values.iter_mut().enumerate() {
+        ui.push_id(("text value", i), |ui| {
+            param(
+                ui,
+                &format!("{{{i}}}"),
+                "Shown where the text says {n}. Animate it: count down with a ramp \
+                 (~ then once), count up to a score, follow the music",
+                &mut v.value,
+                0.0..=1000.0,
+            );
+            ui.horizontal(|ui| {
+                ui.add_space(114.0);
+                ui.add(
+                    egui::DragValue::new(&mut v.digits)
+                        .range(0..=12)
+                        .prefix("digits "),
+                )
+                .on_hover_text("Fewest digits, padded with zeros (0 = as needed)");
+                ui.add(
+                    egui::DragValue::new(&mut v.decimals)
+                        .range(0..=6)
+                        .prefix("decimals "),
+                );
+                ui.checkbox(&mut v.group, "1,000")
+                    .on_hover_text("Separate thousands with commas");
+                if ui
+                    .small_button("✕")
+                    .on_hover_text("Remove this number")
+                    .clicked()
+                {
+                    remove = Some(i);
+                }
+            });
+        });
+    }
+    if let Some(i) = remove {
+        values.remove(i);
+    }
+    let next = values.len();
+    if ui
+        .button(format!("+ Number {{{next}}}"))
+        .on_hover_text("A number shown in the text where it says {n}: a timer, a score, a combo…")
+        .clicked()
+    {
+        values.push(TextValue::default());
+    }
+}
+
 fn text_ui(ui: &mut Ui, t: &mut TextLayer, lref: LayerRef) {
     section(ui, "Text", true, |ui| {
         ui.add(
@@ -6115,6 +6168,7 @@ fn text_ui(ui: &mut Ui, t: &mut TextLayer, lref: LayerRef) {
                 .desired_width(f32::INFINITY)
                 .hint_text("Type here. Greetings: one line each."),
         );
+        text_values_ui(ui, &mut t.values);
         combo(ui, "Style", "", &mut t.style, &TextStyle::ALL, |s| {
             s.label()
         });

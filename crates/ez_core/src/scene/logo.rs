@@ -134,7 +134,12 @@ impl LogoAnchor {
 #[serde(default)]
 pub struct LogoLayer {
     pub source: LogoSource,
+    /// `{0}`, `{1}`… show the numbers in `values`.
     pub text: String,
+    /// Numbers shown by the `{0}`, `{1}`… placeholders of the text (and of
+    /// `morph_text`).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub values: Vec<TextValue>,
     pub font: TextFont,
     /// A TTF/OTF file used instead of `font`.
     pub font_file: Option<String>,
@@ -354,6 +359,7 @@ impl Default for LogoLayer {
         LogoLayer {
             source: LogoSource::Text,
             text: "EZ2DEMOSCENE".into(),
+            values: Vec::new(),
             font: TextFont::Mono,
             font_file: None,
             image: None,
