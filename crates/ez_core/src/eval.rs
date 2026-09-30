@@ -818,7 +818,7 @@ mod surface_tests {
 
     #[test]
     fn copies_ride_the_terrain_and_loop() {
-        let mut p = crate::presets::lava_world();
+        let mut p = crate::presets::named("Lava World");
         let tname = p
             .layers
             .iter()

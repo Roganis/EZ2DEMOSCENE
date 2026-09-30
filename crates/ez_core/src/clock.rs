@@ -3,10 +3,11 @@
 
 use crate::audio::{AudioEnvelope, Curve};
 use crate::music::{MusicFrame, MusicMode, MusicSettings};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Tempo and loop length. The loop always spans a whole number of beats.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Timing {
     pub bpm: f32,
@@ -62,6 +63,9 @@ pub struct EvalCtx {
     pub bass: f32,
     /// Everything the music does right now.
     pub music: MusicFrame,
+    /// Beats of the current timeline clip that went by before this loop of
+    /// its scene began (0 outside a timeline); see [`EvalCtx::clip_beats`].
+    pub clip_base: f32,
 }
 
 impl EvalCtx {
@@ -116,6 +120,7 @@ impl EvalCtx {
             audio: 0.0,
             bass: 0.0,
             music: MusicFrame::default(),
+            clip_base: 0.0,
         };
         if let Some(env) = audio {
             ctx.music = crate::music::frame_at(env, music, timing, t);
@@ -150,7 +155,15 @@ impl EvalCtx {
             audio: 0.0,
             bass: 0.0,
             music: MusicFrame::default(),
+            clip_base: 0.0,
         }
+    }
+
+    /// Beats since the timeline clip being played began, on the motion
+    /// clock: what one-shot ramps follow. Outside a timeline, beats since
+    /// the start of the loop.
+    pub fn clip_beats(&self) -> f32 {
+        self.clip_base + self.phase * self.loop_beats as f32
     }
 
     /// Continuous beat position within the loop (0..loop_beats).

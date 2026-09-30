@@ -16,6 +16,7 @@ ez_render = { path = "crates/ez_render" }
 ez_export = { path = "crates/ez_export" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+schemars = "1"
 glam = { version = "0.30", features = ["bytemuck", "serde"] }
 bytemuck = { version = "1", features = ["derive"] }
 wgpu = "30"

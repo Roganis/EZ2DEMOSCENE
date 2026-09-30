@@ -1,0 +1,614 @@
+{
+  "version": 2,
+  "name": "Copper Heaven",
+  "timing": {
+    "bpm": 128.0,
+    "loop_beats": 16
+  },
+  "camera": {
+    "mode": "Static",
+    "target": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "distance": 9.0,
+    "height": 0.0,
+    "angle": 0.0,
+    "orbit_turns": 1,
+    "swing": 30.0,
+    "fov": 50.0,
+    "roll": 0.0,
+    "beat_shake": 0.0
+  },
+  "environment": {
+    "fog_color": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "fog_density": 0.0,
+    "sky_color": [
+      0.3515327,
+      0.3515327,
+      0.5271152
+    ],
+    "ground_color": [
+      0.014443844,
+      0.014443844,
+      0.029556833
+    ],
+    "light_dir": [
+      0.4,
+      0.9,
+      0.5
+    ],
+    "light_color": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "light_intensity": 1.4,
+    "ambient": 0.6
+  },
+  "layers": [
+    {
+      "name": "Copper stripes",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Backdrop",
+        "kind": "Battle",
+        "color_a": [
+          0.0,
+          0.0,
+          0.051269468
+        ],
+        "color_b": [
+          1.0,
+          0.11697067,
+          0.0
+        ],
+        "color_c": [
+          0.014443844,
+          0.21586053,
+          1.0
+        ],
+        "speed": 1,
+        "intensity": 1.0,
+        "detail": 1.0,
+        "texture": null,
+        "battle": {
+          "back": {
+            "enabled": true,
+            "pattern": "Stripes",
+            "tiles": 3.0,
+            "scroll": [
+              1,
+              0
+            ],
+            "warp": "Wave",
+            "amount": 0.04,
+            "waves": 3.0,
+            "wave_speed": 2,
+            "bands": 2.0,
+            "cycles": 4,
+            "opacity": 1.0
+          },
+          "front": {
+            "enabled": false,
+            "pattern": "Diamonds",
+            "tiles": 5.0,
+            "scroll": [
+              0,
+              -1
+            ],
+            "warp": "Interlaced",
+            "amount": 0.03,
+            "waves": 6.0,
+            "wave_speed": -3,
+            "bands": 1.0,
+            "cycles": -2,
+            "opacity": 0.5
+          },
+          "blend": "Mix",
+          "lines": 224,
+          "steps": 8
+        }
+      }
+    },
+    {
+      "name": "Twister",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.4,
+          5.0,
+          1.4
+        ],
+        "spin": [
+          0,
+          1,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Cube"
+        },
+        "material": {
+          "base_color": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "metallic": 0.3,
+          "roughness": 0.4,
+          "emissive_color": [
+            1.0,
+            0.029556833,
+            0.014443844
+          ],
+          "emissive": 0.0,
+          "emissive_mode": "Full",
+          "texture": "copper",
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            2
+          ],
+          "pixelated": false,
+          "flat_shading": false,
+          "rim": 0.3,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "Single"
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        },
+        "subdivide": 3,
+        "deform": {
+          "twist": {
+            "base": 0.0,
+            "amp": 1.2,
+            "wave": "Sine",
+            "cycles": 2,
+            "offset": 0.0,
+            "audio": 0.0
+          },
+          "bend": 0.0,
+          "taper": 0.0,
+          "noise": 0.0,
+          "noise_scale": 2.0,
+          "noise_speed": 1,
+          "explode": 0.0
+        }
+      }
+    },
+    {
+      "name": "Logo",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Logo",
+        "source": "Text",
+        "text": "COPPER",
+        "font": "Pixel",
+        "font_file": null,
+        "image": null,
+        "mask": "Alpha",
+        "attach_to": "",
+        "attach_point": "BottomLeft",
+        "x": 0.5,
+        "y": 0.8,
+        "anchor": "Centre",
+        "size": 0.18,
+        "rotation": 0.0,
+        "opacity": 1.0,
+        "colors": "Gradient",
+        "tint": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "color_top": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "color_bottom": [
+          0.02415763,
+          0.6724432,
+          1.0
+        ],
+        "glow": 1.0,
+        "outline": 0.3,
+        "outline_color": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "shadow": 1.0,
+        "chrome": 0.0,
+        "bevel": "Off",
+        "bevel_width": 0.4,
+        "bevel_depth": 1.0,
+        "steps": 3,
+        "light_angle": 120.0,
+        "light_height": 40.0,
+        "light_color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "lighting": 1.0,
+        "shine": 0.5,
+        "gloss": 0.6,
+        "matcap": null,
+        "matcap_amount": 1.0,
+        "glint": 0.0,
+        "glint_cycles": 1,
+        "glint_width": 0.12,
+        "glint_angle": 20.0,
+        "glint_color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "contours": 0.0,
+        "contour_spacing": 0.08,
+        "contour_cycles": 2,
+        "contour_reach": 0.5,
+        "contour_width": 0.15,
+        "contour_color": [
+          0.051269468,
+          0.74540436,
+          1.0
+        ],
+        "contour_inside": false,
+        "stack": 0,
+        "stack_width": 0.03,
+        "stack_gap": 0.0,
+        "stack_color_a": [
+          1.0,
+          0.02415763,
+          0.6724432
+        ],
+        "stack_color_b": [
+          0.014443844,
+          0.051269468,
+          1.0
+        ],
+        "extrude": 0.0,
+        "extrude_angle": -60.0,
+        "extrude_color": [
+          0.11697067,
+          0.014443844,
+          0.3515327
+        ],
+        "dissolve": 0.0,
+        "dissolve_scale": 6.0,
+        "dissolve_edges": 0.3,
+        "burn_width": 0.08,
+        "burn_color": [
+          1.0,
+          0.1620294,
+          0.014443844
+        ],
+        "dissolve_seed": 1,
+        "reveal": "Grow",
+        "reveal_amount": 1.0,
+        "reveal_angle": 0.0,
+        "reveal_soft": 0.1,
+        "morph": 0.0,
+        "morph_source": "Text",
+        "morph_text": "LOOP",
+        "morph_image": null,
+        "copper": 1.0,
+        "copper_bars": 4.0,
+        "copper_cycles": 2,
+        "copper_a": [
+          1.0,
+          0.6038274,
+          0.033104762
+        ],
+        "copper_b": [
+          0.6038274,
+          0.033104762,
+          0.015996292
+        ],
+        "wobble_x": 0.04,
+        "wobble_y": 0.0,
+        "wobble_waves": 1.0,
+        "wobble_cycles": 2,
+        "glitch": 0.0,
+        "glitch_slices": 12.0,
+        "glitch_chance": 0.3,
+        "glitch_per_loop": 16,
+        "glitch_split": 0.02,
+        "chroma": 0.0,
+        "chroma_angle": 0.0,
+        "pixelate": 0.0,
+        "palette": null,
+        "dither": 0.5,
+        "palette_by_brightness": false,
+        "palette_cycles": 0,
+        "halftone": 0.0,
+        "halftone_size": 0.04,
+        "halftone_angle": 45.0,
+        "scanlines": 0.0,
+        "scanline_count": 40.0,
+        "crt_mask": 0.0,
+        "crt_glow": 0.0,
+        "moire": 0.0,
+        "moire_lines": 30.0,
+        "moire_cycles": 1,
+        "glass": 0.0,
+        "refraction": 0.08,
+        "dispersion": 0.2,
+        "glass_tint": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "rays": 0.0,
+        "rays_length": 0.5,
+        "rays_threshold": 0.0,
+        "rays_shadow": false,
+        "rays_tint": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "echoes": 0,
+        "echo_spacing": 0.02,
+        "echo_fade": 0.6
+      }
+    },
+    {
+      "name": "Scroller",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          -2.8,
+          1.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Text",
+        "text": "AMIGA RULES ... GREETINGS TO ALL COPPER CHASERS ... ",
+        "font": "Pixel",
+        "font_file": null,
+        "style": "SineScroller",
+        "size": 0.7,
+        "spacing": 0.0,
+        "width": 11.0,
+        "speed": 1,
+        "wave": 0.4,
+        "wavelength": 8.0,
+        "wave_cycles": 2,
+        "letters_per_beat": 2,
+        "beats_per_line": 4,
+        "color_top": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "color_bottom": [
+          0.2462014,
+          0.6038274,
+          1.0
+        ],
+        "glow": 1.3,
+        "outline": 0.0,
+        "outline_color": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "shadow": 0.0,
+        "chrome": 0.0,
+        "face_camera": false
+      }
+    }
+  ],
+  "post": {
+    "bloom": {
+      "enabled": true,
+      "intensity": 0.8,
+      "threshold": 0.8,
+      "radius": 0.7
+    },
+    "kaleido": {
+      "enabled": false,
+      "segments": 6,
+      "angle": 0.0,
+      "turns": 0,
+      "zoom": 1.0,
+      "center": [
+        0.5,
+        0.5
+      ]
+    },
+    "mirror": {
+      "enabled": false,
+      "mode": "LeftToRight"
+    },
+    "chroma": {
+      "enabled": false,
+      "amount": 0.004
+    },
+    "pixelate": {
+      "enabled": false,
+      "size": 4.0
+    },
+    "palette": {
+      "enabled": true,
+      "palette": "Amiga",
+      "dither": 0.0
+    },
+    "crt": {
+      "enabled": true,
+      "scanlines": 0.35,
+      "curvature": 0.1,
+      "noise": 0.0
+    },
+    "grade": {
+      "exposure": 1.0,
+      "contrast": 1.05,
+      "saturation": 1.1,
+      "vignette": 0.0,
+      "grain": 0.0,
+      "beat_flash": 0.0
+    }
+  },
+  "textures": [],
+  "audio": null,
+  "graph": null,
+  "use_graph": false,
+  "retro": {
+    "enabled": true,
+    "resolution": "Full",
+    "custom": [
+      320,
+      240
+    ],
+    "sharp_overlays": true,
+    "snap": false,
+    "snap_res": [
+      320,
+      240
+    ],
+    "snap_amount": 1.0,
+    "affine": 0.0,
+    "filter": null,
+    "fog": {
+      "enabled": false,
+      "near": 1.0,
+      "far": 24.0
+    },
+    "color_15bit": false,
+    "dither": 1.0,
+    "vi_blur": 0.0,
+    "near_cull": 0.0,
+    "colormap": {
+      "enabled": false,
+      "palette": "Software256",
+      "levels": 32,
+      "fullbrights": true
+    },
+    "screen": {
+      "enabled": true,
+      "size": [
+        320,
+        256
+      ],
+      "frame": "Tv",
+      "border": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  }
+}

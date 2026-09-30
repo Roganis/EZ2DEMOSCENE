@@ -10,10 +10,11 @@
 use crate::clock::EvalCtx;
 use crate::graph::Graph;
 use crate::scene::*;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// A scene waiting in the sequence (the current one lives in the project).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Scene {
     pub id: u32,
@@ -44,45 +45,28 @@ impl Default for Scene {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum TransitionKind {
-    /// Straight cut.
-    #[default]
-    Cut,
-    Crossfade,
-    /// A soft edge sweeping across at an angle.
-    Wipe,
-    /// A circle opening from the middle.
-    Iris,
-    /// Flash to white and back.
-    Flash,
-    /// Blocks of the next scene glitch in.
-    Glitch,
-    /// Cut on the first kick of the transition (with music).
-    CutOnKick,
+labeled_enum! {
+    /// How one clip of the timeline changes into the next.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+    pub enum TransitionKind {
+        /// Straight cut.
+        #[default]
+        Cut => "Cut",
+        Crossfade => "Crossfade",
+        /// A soft edge sweeping across at an angle.
+        Wipe => "Wipe",
+        /// A circle opening from the middle.
+        Iris => "Iris",
+        /// Flash to white and back.
+        Flash => "Flash",
+        /// Blocks of the next scene glitch in.
+        Glitch => "Glitch",
+        /// Cut on the first kick of the transition (with music).
+        CutOnKick => "Cut on kick",
+    }
 }
 
 impl TransitionKind {
-    pub const ALL: [TransitionKind; 7] = [
-        TransitionKind::Cut,
-        TransitionKind::Crossfade,
-        TransitionKind::Wipe,
-        TransitionKind::Iris,
-        TransitionKind::Flash,
-        TransitionKind::Glitch,
-        TransitionKind::CutOnKick,
-    ];
-    pub fn label(self) -> &'static str {
-        match self {
-            TransitionKind::Cut => "Cut",
-            TransitionKind::Crossfade => "Crossfade",
-            TransitionKind::Wipe => "Wipe",
-            TransitionKind::Iris => "Iris",
-            TransitionKind::Flash => "Flash",
-            TransitionKind::Glitch => "Glitch",
-            TransitionKind::CutOnKick => "Cut on kick",
-        }
-    }
     /// Index used by the compositing shader.
     pub fn index(self) -> u32 {
         Self::ALL.iter().position(|k| *k == self).unwrap_or(0) as u32
@@ -90,7 +74,7 @@ impl TransitionKind {
 }
 
 /// How a clip comes in (over the start of the clip).
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Transition {
     pub kind: TransitionKind,
@@ -111,7 +95,7 @@ impl Default for Transition {
 }
 
 /// One stretch of the timeline showing one scene.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Clip {
     /// Scene id.
@@ -130,7 +114,8 @@ impl Default for Clip {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Several scenes played by a timeline of clips; the whole timeline is the loop.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Sequence {
     /// Id and name of the scene held by the project itself.
@@ -238,6 +223,8 @@ impl Sequence {
             c.loop_beats = sb as u32;
             c.beat_phase = (beat_offset / sb).rem_euclid(1.0);
             c.phase = (motion_offset / sb).rem_euclid(1.0);
+            // Whole loops of the scene already played in this clip.
+            c.clip_base = motion_offset - c.phase * sb;
             c
         };
         let into = beat - start;
@@ -426,7 +413,7 @@ mod tests {
     use super::*;
 
     fn two_scene_project() -> Project {
-        let mut p = crate::presets::orbiting_solid();
+        let mut p = crate::presets::named("Orbiting Solid");
         p.start_sequence();
         let b = p.add_scene(false);
         p.sequence.clips.push(Clip {
@@ -477,6 +464,45 @@ mod tests {
         let end = at(total as f32 - 1e-3);
         assert!(end.from.is_none());
         assert_eq!(end.scene, f0.from.unwrap().0);
+    }
+
+    /// Ramps follow the clip: its beats count from the clip's start even
+    /// when the scene's own loop is shorter than the clip.
+    #[test]
+    fn clips_count_their_own_beats() {
+        let mut p = two_scene_project();
+        p.sequence.scene_beats = 4;
+        p.sequence.clips[0].beats = 12;
+        p.sync_sequence_length();
+        let total = p.sequence.total_beats() as f32;
+        let at = |beat: f32| {
+            p.sequence
+                .frame_at(&EvalCtx::new(&p.timing, beat / total, None))
+                .unwrap()
+        };
+        // Second clip, 3 beats in.
+        let f = at(12.0 + 3.0);
+        assert!(
+            (f.ctx.clip_beats() - 3.0).abs() < 1e-3,
+            "{}",
+            f.ctx.clip_beats()
+        );
+        // First clip, 9 beats in: past two loops of its 4-beat scene.
+        let f = at(9.0);
+        assert!(
+            (f.ctx.clip_beats() - 9.0).abs() < 1e-3,
+            "{}",
+            f.ctx.clip_beats()
+        );
+        assert!((f.ctx.phase - 0.25).abs() < 1e-4);
+        // During the crossfade into clip 2, the outgoing scene keeps counting.
+        let f = at(12.0 + 1.0);
+        let (_, prev, _, _) = f.from.unwrap();
+        assert!(
+            (prev.clip_beats() - 13.0).abs() < 1e-3,
+            "{}",
+            prev.clip_beats()
+        );
     }
 
     #[test]

@@ -4,8 +4,10 @@
 //! Some drivers kill the process outright (e.g. old Intel Vulkan drivers) or
 //! hang while compiling shaders, so there is no error to catch. Instead, the
 //! backend being tried is written to disk before the GPU is touched and
-//! marked good once frames have been drawn; a leftover "trying" means the
-//! last start failed, and the next backend in line is used.
+//! marked good once frames have been drawn and every pipeline compiled (in
+//! the background, see `Renderer::warm_up_in_background`); a leftover
+//! "trying" means the last start failed, and the next backend in line is
+//! used.
 
 use std::path::PathBuf;
 
@@ -145,7 +147,8 @@ pub fn trying() -> bool {
     CURRENT.lock().unwrap().0.is_some()
 }
 
-/// Call once the app has drawn a few frames: the backend works.
+/// Call once the app has drawn a few frames and compiled its pipelines:
+/// the backend works. Safe from any thread.
 pub fn started_ok() {
     if let Some(b) = CURRENT.lock().unwrap().0.take() {
         let _ = std::fs::write(state_file(), format!("{} ok", b.key()));
@@ -157,8 +160,8 @@ pub fn failed_last_time() -> Option<Backend> {
     CURRENT.lock().unwrap().1
 }
 
-/// How long Automatic waits for the first frames before it gives up on a
-/// backend that hangs (e.g. compiling shaders).
+/// How long Automatic waits for the first frames and the pipelines before
+/// it gives up on a backend that hangs (e.g. compiling shaders).
 const START_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// If the automatic backend has not drawn its first frames in time, start

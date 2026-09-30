@@ -428,6 +428,10 @@
           ],
           "pixelated": true,
           "filter": "Nearest",
+          "glow_style": {
+            "pattern": "mmmlmmnmmmlklmmmmnnmmlmmmkmm",
+            "plays": 4
+          },
           "flat_shading": true,
           "rim": 0.3,
           "hue_shift": 0.0
@@ -527,12 +531,25 @@
     "color_15bit": true,
     "dither": 1.0,
     "vi_blur": 0.0,
-    "near_cull": 0.0,
+    "near_cull": 0.3,
     "colormap": {
       "enabled": false,
       "palette": "Software256",
       "levels": 32,
       "fullbrights": true
+    },
+    "screen": {
+      "enabled": false,
+      "size": [
+        320,
+        200
+      ],
+      "frame": "Tv",
+      "border": [
+        0.0,
+        0.0,
+        0.0
+      ]
     }
   }
 }

@@ -769,6 +769,7 @@ pub fn param(
                 }
             });
             changed |= music_row(ui, id, p, span);
+            changed |= ramp_row(ui, id, p, span);
             if wake && p.amp == 0.0 {
                 p.amp = span * 0.25;
             }
@@ -780,6 +781,57 @@ pub fn param(
         });
     }
     ui.data_mut(|d| d.insert_temp(id, open));
+    changed
+}
+
+/// The "once" row of a `~` panel: a one-shot change at the start of each
+/// timeline clip (of each loop outside a timeline).
+fn ramp_row(ui: &mut Ui, id: egui::Id, p: &mut Param, span: f32) -> bool {
+    let mut changed = false;
+    let r = &mut p.ramp;
+    ui.horizontal(|ui| {
+        changed |= ui
+            .add(
+                egui::DragValue::new(&mut r.by)
+                    .speed(span * 0.005)
+                    .prefix("⤴ once by "),
+            )
+            .on_hover_text(
+                "Change the value once, then hold: at the start of each clip of the \
+                 timeline (outside a timeline, every loop). 0 = off",
+            )
+            .changed();
+        if r.by == 0.0 {
+            return;
+        }
+        changed |= ui
+            .add(
+                egui::DragValue::new(&mut r.start)
+                    .range(0.0..=256.0)
+                    .speed(0.05)
+                    .prefix("from beat "),
+            )
+            .on_hover_text("Beat of the clip where the change begins")
+            .changed();
+        changed |= ui
+            .add(
+                egui::DragValue::new(&mut r.length)
+                    .range(0.0..=256.0)
+                    .speed(0.05)
+                    .prefix("over ")
+                    .suffix(" beats"),
+            )
+            .on_hover_text("How long the change takes (0 = at once)")
+            .changed();
+        egui::ComboBox::from_id_salt(id.with("ease"))
+            .selected_text(r.ease.label())
+            .width(96.0)
+            .show_ui(ui, |ui| {
+                for e in ez_core::Ease::ALL {
+                    changed |= ui.selectable_value(&mut r.ease, e, e.label()).changed();
+                }
+            });
+    });
     changed
 }
 

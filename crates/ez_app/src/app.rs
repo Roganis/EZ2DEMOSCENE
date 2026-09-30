@@ -13,6 +13,8 @@ use crate::widgets::{self, ACCENT};
 
 #[path = "shape_picker.rs"]
 mod shape_picker;
+#[path = "tex_picker.rs"]
+mod tex_picker;
 use egui::{Color32, RichText, Ui};
 use ez_core::graph::Graph;
 use ez_core::randomize::{randomize, RandomizeOptions};
@@ -62,8 +64,7 @@ struct Thumb {
     name: &'static str,
     category: &'static str,
     description: &'static str,
-    texture: egui::TextureId,
-    _target: ez_render::RenderTarget,
+    texture: Option<egui::TextureHandle>,
 }
 
 pub struct EzApp {
@@ -108,6 +109,9 @@ pub struct EzApp {
     /// Open the preset gallery when the app starts.
     presets_on_startup: bool,
     thumbs: Vec<Thumb>,
+    /// The name of a scene just loaded, while it is covered by the loading
+    /// bar (see [`Self::loading_overlay`]).
+    loading: Option<String>,
     randomize_open: bool,
     rand_opts: RandomizeOptions,
     rand_seed: u64,
@@ -143,6 +147,7 @@ pub struct EzApp {
     /// Screen height last frame (the on-screen keyboard shrinks it).
     last_screen_h: f32,
     shape_picker: shape_picker::ShapePicker,
+    tex_picker: tex_picker::TexPicker,
     /// The clock was moved by hand (scrub, rewind, load): the music jumps
     /// there. Otherwise, while it plays, the music leads the clock.
     music_seek: bool,
@@ -266,6 +271,7 @@ impl EzApp {
             presets_open: false,
             presets_on_startup: platform::load_setting(PRESETS_ON_STARTUP).as_deref() != Some("no"),
             thumbs: Vec::new(),
+            loading: None,
             randomize_open: false,
             rand_opts: RandomizeOptions::default(),
             rand_seed: 1,
@@ -291,6 +297,7 @@ impl EzApp {
             scroll_to_field: None,
             last_screen_h: 0.0,
             shape_picker: Default::default(),
+            tex_picker: Default::default(),
             music_seek: true,
             layer_clipboard: None,
             frames_drawn: 0,
@@ -386,6 +393,7 @@ impl EzApp {
         self.music_seek = true;
         self.viewport.renderer.reload_assets();
         self.reload_audio();
+        self.loading = Some(self.project.name.clone());
     }
 
     /// Open a project or pack by asset path (a file on desktop, a `mem://`
@@ -762,6 +770,29 @@ impl EzApp {
         }
     }
 
+    /// Put the texture `name` in a texture slot of a layer.
+    fn set_layer_texture(&mut self, lref: LayerRef, slot: platform::TexSlot, name: String) {
+        let Some(layer) = self.layer_for(lref) else {
+            return;
+        };
+        let name = Some(name);
+        match (&mut layer.kind, slot) {
+            (LayerKind::Mesh(m), platform::TexSlot::Relief) => m.material.relief.texture = name,
+            (LayerKind::Mesh(m), platform::TexSlot::Orm) => m.material.pbr.orm_map = name,
+            (LayerKind::Mesh(m), platform::TexSlot::Emissive) => m.material.pbr.emissive_map = name,
+            (LayerKind::Mesh(m), _) => m.material.texture = name,
+            (LayerKind::Backdrop(b), _) => b.texture = name,
+            (LayerKind::Mirror(f), _) => f.texture = name,
+            (LayerKind::Terrain(t), _) => t.texture = name,
+            (LayerKind::Mode7(f), _) => f.texture = name,
+            (LayerKind::Sprite(sp), _) => sp.image = name,
+            (LayerKind::Logo(g), platform::TexSlot::Matcap) => g.matcap = name,
+            (LayerKind::Logo(g), platform::TexSlot::MorphImage) => g.morph_image = name,
+            (LayerKind::Logo(g), _) => g.image = name,
+            _ => {}
+        }
+    }
+
     /// Give a model layer the physical material of its glTF file: factors,
     /// and its pictures added as images. Returns a note for the status
     /// line ("" when the file has no material).
@@ -825,6 +856,11 @@ impl EzApp {
         let mut png = Vec::new();
         img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
             .ok()?;
+        self.store_png(png, file)
+    }
+
+    /// Keep PNG bytes as an asset (see [`Self::store_picture`]).
+    fn store_png(&self, png: Vec<u8>, file: &str) -> Option<String> {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let dir = self.library.imported_dir();
@@ -845,7 +881,7 @@ impl EzApp {
     }
 
     /// Apply files picked in a dialog or dropped on the window.
-    fn handle_picked(&mut self) {
+    fn handle_picked(&mut self, ctx: &egui::Context) {
         for p in platform::take_picked() {
             let ext = ez_core::store::extension(&p.path);
             let purpose = match p.purpose {
@@ -854,7 +890,9 @@ impl EzApp {
                         Purpose::OpenProject
                     } else if MODEL_EXTENSIONS.contains(&ext.as_str()) {
                         Purpose::AddModelLayer
-                    } else if IMAGE_EXTENSIONS.contains(&ext.as_str()) {
+                    } else if IMAGE_EXTENSIONS.contains(&ext.as_str())
+                        || crate::clip_import::is_animation(&ext)
+                    {
                         match self.selection {
                             Selection::Layer(i) if self.mode == Mode::Simple => {
                                 Purpose::SetTexture(LayerRef::Layer(i), platform::TexSlot::Material)
@@ -874,6 +912,21 @@ impl EzApp {
                 }
                 other => other,
             };
+            // GIFs and videos become frame sheets in the background (see
+            // handle_clips).
+            if matches!(purpose, Purpose::AddImages | Purpose::SetTexture(..))
+                && crate::clip_import::is_animation(&ext)
+            {
+                self.set_status(format!("Reading the frames of {}…", p.name), false);
+                crate::clip_import::start(
+                    platform::Picked {
+                        purpose,
+                        ..p.clone()
+                    },
+                    ctx,
+                );
+                continue;
+            }
             match purpose {
                 Purpose::OpenProject => self.open_asset(&p.path, &p.name),
                 Purpose::AddModelLayer => {
@@ -909,32 +962,7 @@ impl EzApp {
                 Purpose::SetTexture(lref, slot) => {
                     let name =
                         inspector::add_user_texture(&mut self.project.textures, &p.path, &p.name);
-                    if let Some(layer) = self.layer_for(lref) {
-                        match (&mut layer.kind, slot) {
-                            (LayerKind::Mesh(m), platform::TexSlot::Relief) => {
-                                m.material.relief.texture = Some(name.clone())
-                            }
-                            (LayerKind::Mesh(m), platform::TexSlot::Orm) => {
-                                m.material.pbr.orm_map = Some(name.clone())
-                            }
-                            (LayerKind::Mesh(m), platform::TexSlot::Emissive) => {
-                                m.material.pbr.emissive_map = Some(name.clone())
-                            }
-                            (LayerKind::Mesh(m), _) => m.material.texture = Some(name.clone()),
-                            (LayerKind::Backdrop(b), _) => b.texture = Some(name.clone()),
-                            (LayerKind::Mirror(f), _) => f.texture = Some(name.clone()),
-                            (LayerKind::Terrain(t), _) => t.texture = Some(name.clone()),
-                            (LayerKind::Sprite(sp), _) => sp.image = Some(name.clone()),
-                            (LayerKind::Logo(g), platform::TexSlot::Matcap) => {
-                                g.matcap = Some(name.clone())
-                            }
-                            (LayerKind::Logo(g), platform::TexSlot::MorphImage) => {
-                                g.morph_image = Some(name.clone())
-                            }
-                            (LayerKind::Logo(g), _) => g.image = Some(name.clone()),
-                            _ => {}
-                        }
-                    }
+                    self.set_layer_texture(lref, slot, name.clone());
                     self.set_status(format!("Added image '{name}'"), false);
                 }
                 Purpose::LoadMusic => self.set_audio(Some(p.path.clone())),
@@ -965,6 +993,57 @@ impl EzApp {
                 }
                 Purpose::Dropped => {}
             }
+        }
+    }
+
+    /// Apply GIFs and videos whose frames are ready: their frame sheet
+    /// becomes an image of the project (and goes where it was picked for).
+    fn handle_clips(&mut self) {
+        for done in crate::clip_import::take_done() {
+            let p = done.picked;
+            let (name, clip) = match done.result {
+                Err(e) => {
+                    self.set_status(format!("Could not read {}: {e}", p.name), true);
+                    continue;
+                }
+                // A GIF that doesn't move: the file itself.
+                Ok(None) => (
+                    inspector::add_user_texture(&mut self.project.textures, &p.path, &p.name),
+                    None,
+                ),
+                Ok(Some((png, clip))) => {
+                    let stem = p.name.rsplit_once('.').map_or(&p.name[..], |(s, _)| s);
+                    let Some(path) = self.store_png(png, &format!("{stem}.png")) else {
+                        self.set_status(format!("Could not keep the frames of {}", p.name), true);
+                        continue;
+                    };
+                    crate::library::persist_asset(&path);
+                    let name = inspector::add_user_clip(
+                        &mut self.project.textures,
+                        &path,
+                        &p.name,
+                        Some(clip.clone()),
+                    );
+                    (name, Some(clip))
+                }
+            };
+            if let Purpose::SetTexture(lref, slot) = p.purpose {
+                self.set_layer_texture(lref, slot, name.clone());
+                let loop_s = self.project.timing.loop_seconds();
+                if let (Some(c), Some(LayerKind::Sprite(sp))) =
+                    (&clip, self.layer_for(lref).map(|l| &mut l.kind))
+                {
+                    inspector::fit_sprite_to_clip(sp, c, loop_s);
+                }
+            }
+            let what = match &clip {
+                Some(c) => format!(
+                    "Added animation '{name}' ({} frames, {:.1} s)",
+                    c.frames, c.seconds
+                ),
+                None => format!("Added image '{name}'"),
+            };
+            self.set_status(what, false);
         }
     }
 
@@ -1268,13 +1347,13 @@ impl EzApp {
     }
 
     fn surprise(&mut self) {
-        let all = presets::all();
         self.rand_seed = self
             .rand_seed
             .wrapping_mul(6364136223846793005)
             .wrapping_add(1442695040888963407);
-        let pick = (self.rand_seed >> 33) as usize % (all.len() - 1);
-        let mut p = all[pick].project.clone();
+        // Any preset but the last (Empty).
+        let pick = (self.rand_seed >> 33) as usize % (presets::INDEX.len() - 1);
+        let mut p = presets::INDEX[pick].project();
         randomize(
             &mut p,
             self.rand_seed,
@@ -1534,8 +1613,27 @@ impl EzApp {
             .map(|l| l.name.clone())
             .collect();
         ui.data_mut(|d| d.insert_temp(egui::Id::new(inspector::LOGO_NAMES), logos));
+        // 3D layers a logo can be attached to (follow on the screen).
+        let shapes: Vec<String> = self
+            .project
+            .layers
+            .iter()
+            .filter(|l| {
+                !matches!(
+                    l.kind,
+                    LayerKind::Logo(_)
+                        | LayerKind::Backdrop(_)
+                        | LayerKind::Mirror(_)
+                        | LayerKind::Mode7(_)
+                )
+            })
+            .map(|l| l.name.clone())
+            .collect();
+        ui.data_mut(|d| d.insert_temp(egui::Id::new(inspector::SHAPE_NAMES), shapes));
         let scheme_on = self.project.color_scheme.enabled;
         ui.data_mut(|d| d.insert_temp(egui::Id::new(inspector::SCHEME_ON), scheme_on));
+        let loop_s = self.project.timing.loop_seconds();
+        ui.data_mut(|d| d.insert_temp(egui::Id::new(inspector::LOOP_SECONDS), loop_s));
         let ctx = self.project.ctx_at(self.time, self.audio_env.as_deref());
         let view = self.project.camera.view_point(&ctx);
         ui.data_mut(|d| d.insert_temp(egui::Id::new(inspector::CAMERA_VIEW), view));
@@ -1574,7 +1672,7 @@ impl EzApp {
                 Selection::Post => inspector::post_ui(ui, &mut self.project.post),
                 Selection::Retro => {
                     let out = self.export.still_size();
-                    inspector::retro_ui(ui, &mut self.project.retro, out)
+                    inspector::retro_ui(ui, &mut self.project.retro, &mut self.project.post.palette, out)
                 }
                 Selection::Textures => inspector::textures_ui(ui, &mut self.project.textures),
                 Selection::Sequence => {
@@ -2335,6 +2433,64 @@ impl EzApp {
                 cam.distance.base = (cam.distance.base * (1.0 - scroll * 0.002)).clamp(0.3, 200.0);
             }
         }
+        self.loading_overlay(ui, image_rect);
+    }
+
+    /// Right after a scene is loaded, cover the picture with a progress bar
+    /// until its simulations are baked and its music analysed, so it
+    /// appears whole instead of with parts missing. Call after rendering:
+    /// the render asks for the bakes.
+    fn loading_overlay(&mut self, ui: &mut Ui, rect: egui::Rect) {
+        let Some(name) = &self.loading else {
+            return;
+        };
+        if self.export.is_running() {
+            return;
+        }
+        let bake = self.viewport.renderer.scene_bake_progress();
+        let music = self.music_task.as_ref().map(|t| t.progress());
+        let (progress, what) = match (bake, music) {
+            (None, None) => {
+                self.loading = None;
+                return;
+            }
+            (Some(b), None) => (b, "Simulating ahead of time, so the loop is seamless"),
+            (None, Some(m)) => (m, "Analysing the music"),
+            (Some(b), Some(m)) => ((b + m) * 0.5, "Simulating and analysing the music"),
+        };
+        let title = if name.is_empty() {
+            "Preparing the scene…".to_string()
+        } else {
+            format!("Preparing {name}…")
+        };
+        ui.painter_at(rect)
+            .rect_filled(rect, 4.0, Color32::from_black_alpha(235));
+        let w = (rect.width() * 0.6).clamp(120.0, 360.0);
+        let inner = egui::Rect::from_center_size(rect.center(), egui::vec2(w, 100.0));
+        let mut skip = false;
+        ui.scope_builder(
+            egui::UiBuilder::new()
+                .max_rect(inner)
+                .layout(egui::Layout::top_down(egui::Align::Center)),
+            |ui| {
+                ui.label(RichText::new(title).strong());
+                ui.add(
+                    egui::ProgressBar::new(progress)
+                        .show_percentage()
+                        .desired_width(w),
+                );
+                ui.label(RichText::new(what).small().weak());
+                skip = ui
+                    .small_button("Show now")
+                    .on_hover_text("Show the scene now: its simulated parts appear when ready.")
+                    .clicked();
+            },
+        );
+        if skip {
+            self.loading = None;
+        }
+        // Bakes finishing on their thread don't wake the app up.
+        ui.ctx().request_repaint();
     }
 
     fn presets_window(&mut self, ctx: &egui::Context) {
@@ -2342,16 +2498,21 @@ impl EzApp {
             return;
         }
         if self.thumbs.is_empty() {
-            for p in presets::all() {
-                let (texture, target) = self.viewport.thumbnail(&p.project, 0.2, [320, 180]);
-                self.thumbs.push(Thumb {
-                    name: p.name,
-                    category: p.category,
-                    description: p.description,
-                    texture,
-                    _target: target,
-                });
-            }
+            let mut images = crate::preset_thumbs::bundled();
+            self.thumbs = presets::INDEX
+                .iter()
+                .map(|p| {
+                    let file = crate::preset_thumbs::file_name(p.name);
+                    Thumb {
+                        name: p.name,
+                        category: p.category,
+                        description: p.description,
+                        texture: images
+                            .remove(&file)
+                            .map(|img| ctx.load_texture(file, img, egui::TextureOptions::LINEAR)),
+                    }
+                })
+                .collect();
         }
         let mut open = true;
         let mut chosen_builtin = None;
@@ -2435,17 +2596,10 @@ impl EzApp {
                             // and Quake looks under "Retro console").
                             for cat in presets::CATEGORIES {
                                 ui.heading(cat);
-                                if cat == presets::CATEGORY_RETRO {
-                                    ui.label(
-                                        RichText::new("5th-generation consoles and Quake: see 🕹 Retro 3D for one-click looks.")
-                                            .weak()
-                                            .small(),
-                                    );
-                                }
                                 egui::Grid::new(("presets", cat)).spacing([10.0, 10.0]).show(ui, |ui| {
                                     let group = self.thumbs.iter().enumerate().filter(|(_, t)| t.category == cat);
                                     for (k, (i, t)) in group.enumerate() {
-                                        if card(ui, Some(t.texture), t.name, t.description) {
+                                        if card(ui, t.texture.as_ref().map(|t| t.id()), t.name, t.description) {
                                             chosen_builtin = Some(i);
                                         }
                                         if k % cols == cols - 1 {
@@ -2505,8 +2659,7 @@ impl EzApp {
             });
         // A chosen preset starts playing, to show how it moves.
         if let Some(i) = chosen_builtin {
-            let p = presets::all().into_iter().nth(i).unwrap();
-            self.load_project(p.project, None);
+            self.load_project(presets::INDEX[i].project(), None);
             self.presets_open = false;
             self.playing = true;
         }
@@ -2861,12 +3014,25 @@ impl eframe::App for EzApp {
                     );
                 }
             }
+            if self.frames_drawn < 10 {
+                // Get there even when idle: the start isn't confirmed
+                // (see below) until then.
+                ctx.request_repaint();
+            }
             if self.frames_drawn == 10 {
                 log::info!(
                     "graphics started: {:?}",
                     self.viewport.adapter_info().backend
                 );
-                crate::gpu_choice::started_ok();
+                // Build the pipelines not used yet in the background. Only
+                // then is the backend known to work: some drivers crash or
+                // hang compiling shaders, which Automatic steps past.
+                self.viewport
+                    .renderer
+                    .warm_up_in_background(crate::gpu_choice::started_ok);
+            }
+            if self.viewport.renderer.warm_up_step() {
+                ctx.request_repaint();
             }
         }
         self.project.sync_sequence_length();
@@ -2917,7 +3083,8 @@ impl eframe::App for EzApp {
         for f in dropped {
             platform::handle_drop(f);
         }
-        self.handle_picked();
+        self.handle_picked(&ctx);
+        self.handle_clips();
         let was_loaded = self.library.is_loaded();
         self.library.poll(&ctx);
         if !was_loaded && self.library.is_loaded() && self.library.recovery.is_some() {
@@ -3003,8 +3170,11 @@ impl eframe::App for EzApp {
             }
         }
 
+        platform::fetch_libraries(&ctx);
         self.poll_shape_picker_request(&ctx);
         self.shape_picker_window(&ctx);
+        self.poll_tex_picker_request(&ctx);
+        self.tex_picker_window(&ctx);
         self.presets_window(&ctx);
         self.recovery_window(&ctx);
         self.preset_name_window(&ctx);

@@ -5,6 +5,7 @@ use super::math;
 use super::{Body, Sim, SimLoop};
 use crate::{EvalCtx, Param};
 use glam::Vec3;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Most particles along a side (a bake keeps every one at every key).
@@ -12,40 +13,24 @@ pub const CLOTH_MAX_DETAIL: u32 = 48;
 /// Simulation substeps per step (small steps, one constraint pass each).
 const SUBSTEPS: usize = 6;
 
-/// What the cloth is and where it hangs from.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ClothKind {
-    /// Upright, held along one side by a pole.
-    #[default]
-    Flag,
-    /// Upright, held along the top.
-    Curtain,
-    /// Upright, held by its two top corners.
-    Banner,
-    /// Flat, dropped over a ball: a tablecloth or a sheet over a ghost.
-    Drape,
-}
-
-impl ClothKind {
-    pub const ALL: [ClothKind; 4] = [
-        ClothKind::Flag,
-        ClothKind::Curtain,
-        ClothKind::Banner,
-        ClothKind::Drape,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            ClothKind::Flag => "Flag",
-            ClothKind::Curtain => "Curtain",
-            ClothKind::Banner => "Banner",
-            ClothKind::Drape => "Drape over a ball",
-        }
+labeled_enum! {
+    /// What the cloth is and where it hangs from.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    pub enum ClothKind {
+        /// Upright, held along one side by a pole.
+        #[default]
+        Flag => "Flag",
+        /// Upright, held along the top.
+        Curtain => "Curtain",
+        /// Upright, held by its two top corners.
+        Banner => "Banner",
+        /// Flat, dropped over a ball: a tablecloth or a sheet over a ghost.
+        Drape => "Drape over a ball",
     }
 }
 
 /// A cloth's settings (the shape source "Cloth").
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Cloth {
     pub kind: ClothKind,
@@ -566,7 +551,7 @@ mod saving {
 
     #[test]
     fn cloth_saves_and_loads() {
-        let p = presets::banners();
+        let p = presets::named("Banners");
         let json = p.to_json();
         assert!(json.contains("\"Cloth\"") && !json.contains("\"mesh\""));
         assert_eq!(Project::from_json(&json).unwrap(), p);

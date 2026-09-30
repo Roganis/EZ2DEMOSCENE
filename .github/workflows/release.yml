@@ -61,8 +61,9 @@ jobs:
           mkdir -p "$D"
           cp target/release/${{ matrix.exe }} "$D/"
           cp -r assets "$D/"
-          # The model library is built into the executable (its licence stays).
-          rm -f "$D/assets/models/library.zip"
+          # The model and texture libraries are built into the executable
+          # (their licences stay).
+          rm -f "$D/assets/models/library.zip" "$D/assets/textures/texture_library.zip"
           cp README.md LICENSE "$D/"
           cp docs/manual/EZ2DEMOSCENE_User_Manual.pdf "$D/"
       - name: Bundle ffmpeg (Linux)

@@ -5,6 +5,7 @@ use super::{Body, Sim, SimLoop};
 use crate::rng::Rng;
 use crate::{EvalCtx, Param, RibbonCurve};
 use glam::Vec3;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Most boids in a flock (a bake keeps every one at every key).
@@ -16,7 +17,7 @@ const GUIDE_CAP: f32 = 6.0;
 const APART_CAP: f32 = 8.0;
 
 /// A closed curve the flock's target travels along.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct FlockPath {
     pub curve: RibbonCurve,
@@ -39,7 +40,7 @@ impl Default for FlockPath {
 }
 
 /// A flock's settings (the copy layout "Flock").
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Flock {
     /// Number of boids (up to [`FLOCK_MAX`]).
@@ -673,7 +674,7 @@ mod saving {
 
     #[test]
     fn flocks_save_and_load() {
-        let p = presets::starling_dusk();
+        let p = presets::named("Starling Dusk");
         let json = p.to_json();
         assert!(!json.contains("placed"));
         let back = Project::from_json(&json).unwrap();

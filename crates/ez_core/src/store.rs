@@ -51,8 +51,19 @@ pub fn mem_paths() -> Vec<String> {
     mem().lock().unwrap().keys().cloned().collect()
 }
 
-/// Bytes of an asset: in-memory first, then (on desktop) the filesystem.
+/// Bytes of an asset: in-memory first, then the texture library (`lib:`
+/// names), then (on desktop) the filesystem.
 pub fn read(path: &str) -> std::io::Result<Arc<[u8]>> {
+    if crate::texlib::is_lib(path) {
+        return match crate::texlib::read(path) {
+            Some(Ok(b)) => Ok(b.into()),
+            Some(Err(e)) => Err(std::io::Error::new(std::io::ErrorKind::NotFound, e)),
+            None => Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "the texture library is still loading",
+            )),
+        };
+    }
     if let Some(b) = mem().lock().unwrap().get(path) {
         return Ok(b.clone());
     }
@@ -71,6 +82,9 @@ pub fn read(path: &str) -> std::io::Result<Arc<[u8]>> {
 
 /// True if [`read`] would succeed.
 pub fn exists(path: &str) -> bool {
+    if crate::texlib::is_lib(path) {
+        return crate::texlib::read(path).is_some_and(|r| r.is_ok());
+    }
     if mem().lock().unwrap().contains_key(path) {
         return true;
     }

@@ -1,0 +1,483 @@
+{
+  "version": 2,
+  "name": "Harrier Plains",
+  "timing": {
+    "bpm": 150.0,
+    "loop_beats": 16
+  },
+  "camera": {
+    "mode": "Static",
+    "target": [
+      0.0,
+      1.8,
+      -10.0
+    ],
+    "distance": 10.0,
+    "height": 0.6,
+    "angle": 0.0,
+    "orbit_turns": 1,
+    "swing": 30.0,
+    "fov": 62.0,
+    "roll": 0.0,
+    "beat_shake": 0.0
+  },
+  "environment": {
+    "fog_color": [
+      1.0,
+      0.5271152,
+      0.74540436
+    ],
+    "fog_density": 0.0,
+    "sky_color": [
+      0.3515327,
+      0.5271152,
+      1.0
+    ],
+    "ground_color": [
+      0.051269468,
+      0.11697067,
+      0.029556833
+    ],
+    "light_dir": [
+      0.4,
+      0.9,
+      0.5
+    ],
+    "light_color": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "light_intensity": 1.4,
+    "ambient": 0.8
+  },
+  "layers": [
+    {
+      "name": "Sky",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Backdrop",
+        "kind": "Gradient",
+        "color_a": [
+          0.014443844,
+          0.11697067,
+          1.0
+        ],
+        "color_b": [
+          1.0,
+          0.4341537,
+          0.6307572
+        ],
+        "color_c": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "speed": 1,
+        "intensity": 1.0,
+        "detail": 1.0,
+        "texture": null
+      }
+    },
+    {
+      "name": "Chequered floor",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mode7",
+        "texture": "checker",
+        "tile_size": 10.0,
+        "turns": 0,
+        "scroll": [
+          0,
+          -8
+        ],
+        "tint": [
+          0.051269468,
+          0.74540436,
+          0.051269468
+        ],
+        "brightness": 1.0,
+        "pixelated": true,
+        "fog": false
+      }
+    },
+    {
+      "name": "Ground",
+      "enabled": false,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          -34.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Terrain",
+        "size": 80.0,
+        "cells": 8,
+        "height": 0.0,
+        "hills": 4,
+        "roughness": 0.5,
+        "scroll": 1,
+        "valley": 0.3,
+        "style": "Solid",
+        "line_color": [
+          1.0,
+          0.02415763,
+          0.6724432
+        ],
+        "glow": 1.0,
+        "fill_color": [
+          0.00303527,
+          0.001214108,
+          0.009134057
+        ],
+        "seed": 1,
+        "texture": null,
+        "tiles": 8,
+        "texture_lines": false,
+        "pixelated": false
+      }
+    },
+    {
+      "name": "Columns",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          0.8,
+          4.0,
+          0.8
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Cylinder",
+          "segments": 8
+        },
+        "material": {
+          "base_color": [
+            1.0,
+            0.6307572,
+            0.3515327
+          ],
+          "metallic": 0.0,
+          "roughness": 0.85,
+          "emissive_color": [
+            1.0,
+            0.029556833,
+            0.014443844
+          ],
+          "emissive": 0.0,
+          "emissive_mode": "Full",
+          "texture": "brick",
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": false,
+          "rim": 0.0,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "OnTerrain",
+          "terrain": "Ground",
+          "count": 14,
+          "seed": 7,
+          "align": false,
+          "lift": 0.0
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    },
+    {
+      "name": "Bushes",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 0.7,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Mesh",
+        "source": {
+          "type": "Primitive",
+          "shape": "Icosahedron"
+        },
+        "material": {
+          "base_color": [
+            0.014443844,
+            0.21586053,
+            0.014443844
+          ],
+          "metallic": 0.0,
+          "roughness": 0.85,
+          "emissive_color": [
+            1.0,
+            0.029556833,
+            0.014443844
+          ],
+          "emissive": 0.0,
+          "emissive_mode": "Full",
+          "texture": null,
+          "texture_scale": 1.0,
+          "scroll": [
+            0,
+            0
+          ],
+          "pixelated": false,
+          "flat_shading": true,
+          "rim": 0.0,
+          "hue_shift": 0.0
+        },
+        "instancer": {
+          "type": "OnTerrain",
+          "terrain": "Ground",
+          "count": 24,
+          "seed": 3,
+          "align": false,
+          "lift": 0.4
+        },
+        "variation": {
+          "seed": 1,
+          "rotation": 0.0,
+          "scale": 0.0,
+          "hue": 0.0,
+          "spin": 0,
+          "ripple": 0.0,
+          "ripple_cycles": 1,
+          "ripple_spread": 1.0,
+          "chase": 0.0
+        }
+      }
+    }
+  ],
+  "post": {
+    "bloom": {
+      "enabled": true,
+      "intensity": 0.8,
+      "threshold": 0.8,
+      "radius": 0.7
+    },
+    "kaleido": {
+      "enabled": false,
+      "segments": 6,
+      "angle": 0.0,
+      "turns": 0,
+      "zoom": 1.0,
+      "center": [
+        0.5,
+        0.5
+      ]
+    },
+    "mirror": {
+      "enabled": false,
+      "mode": "LeftToRight"
+    },
+    "chroma": {
+      "enabled": false,
+      "amount": 0.004
+    },
+    "pixelate": {
+      "enabled": false,
+      "size": 4.0
+    },
+    "palette": {
+      "enabled": false,
+      "palette": "Ega",
+      "dither": 0.6
+    },
+    "crt": {
+      "enabled": false,
+      "scanlines": 0.5,
+      "curvature": 0.15,
+      "noise": 0.1
+    },
+    "grade": {
+      "exposure": 1.0,
+      "contrast": 1.05,
+      "saturation": 1.1,
+      "vignette": 0.0,
+      "grain": 0.0,
+      "beat_flash": 0.0
+    }
+  },
+  "textures": [],
+  "audio": null,
+  "graph": null,
+  "use_graph": false,
+  "retro": {
+    "enabled": true,
+    "resolution": "Custom",
+    "custom": [
+      320,
+      224
+    ],
+    "sharp_overlays": true,
+    "snap": false,
+    "snap_res": [
+      320,
+      240
+    ],
+    "snap_amount": 1.0,
+    "affine": 0.0,
+    "filter": null,
+    "fog": {
+      "enabled": false,
+      "near": 1.0,
+      "far": 24.0
+    },
+    "color_15bit": false,
+    "dither": 1.0,
+    "vi_blur": 0.0,
+    "near_cull": 0.0,
+    "colormap": {
+      "enabled": false,
+      "palette": "Software256",
+      "levels": 32,
+      "fullbrights": true
+    },
+    "screen": {
+      "enabled": false,
+      "size": [
+        320,
+        200
+      ],
+      "frame": "Tv",
+      "border": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  }
+}

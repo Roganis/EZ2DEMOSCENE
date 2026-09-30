@@ -387,6 +387,54 @@ fn bayer4(p: vec2<u32>) -> f32 {
     return (f32(v) + 0.5) / 16.0 - 0.5;
 }
 
+// Palette colour `i` (0..64): four per slot from P.v[8], each 0xRRGGBB
+// stored exactly in a float.
+fn palette_color(i: i32) -> vec3<f32> {
+    let u = u32(P.v[8 + i / 4][i % 4]);
+    return vec3<f32>(f32((u >> 16u) & 255u), f32((u >> 8u) & 255u), f32(u & 255u)) / 255.0;
+}
+
+// Where a machine line is in a tape load (`reveal` as in
+// ez_core::retro::StripeState): 0 shown, 1 black, 2 black and white. The
+// bitmap arrives in the ZX Spectrum's memory order (for 192 lines: the
+// first pixel line of every character row of a third, then the second…),
+// the colours by character rows from the top.
+fn load_state(y: u32, lines: u32, reveal: f32) -> i32 {
+    if (reveal <= 0.0) {
+        return 0;
+    }
+    if (reveal < 1.0) {
+        return 1;
+    }
+    if (reveal < 2.0) {
+        var order = y;
+        if (lines == 192u) {
+            order = (y / 64u) * 64u + (y % 8u) * 8u + (y % 64u) / 8u;
+        }
+        return select(1, 2, f32(order) < (reveal - 1.0) * f32(lines));
+    }
+    let rows = max(lines / 8u, 1u);
+    return select(2, 0, f32(y / 8u) < (reveal - 2.0) * f32(rows));
+}
+
+// The border at `y` (0..1 down the output): its colour, or a loading
+// tape's stripes (P.v[29]: mode 1 pilot / 2 data, bands, pilot roll,
+// data pattern; P.v[30], P.v[31]: the two colours), in display space.
+fn border_color(y: f32) -> vec3<f32> {
+    let st = P.v[29];
+    let mode = i32(st.x + 0.5);
+    if (mode == 1) {
+        let band = u32(floor(y * st.y + st.z));
+        return to_srgb(select(P.v[31].rgb, P.v[30].rgb, (band & 1u) == 0u));
+    }
+    if (mode == 2) {
+        let band = u32(floor(y * st.y * 6.0));
+        let r = hash1(hash_u(band * 2654435761u) ^ (u32(st.w) * 747796405u));
+        return to_srgb(select(P.v[31].rgb, P.v[30].rgb, r < 0.5));
+    }
+    return to_srgb(P.v[28].rgb);
+}
+
 fn sample_scene(uv: vec2<f32>, bloom_k: f32) -> vec3<f32> {
     return vi_filter(uv) + textureSampleLevel(t_b, s_lin, uv, 0.0).rgb * bloom_k;
 }
@@ -474,7 +522,25 @@ fn fs_final(in: VOut) -> FinalOut {
     var cell_sub = vec2<f32>(0.0);
     let pix = P.v[3].x;
     var pcoord = vec2<u32>(in.pos.xy);
-    if (cell_h > 0.0) {
+    // Retro 3D whole screen (P.v[26]: pixels across, down, on, loading
+    // reveal; P.v[27]: the picture's rectangle; P.v[28]: border colour):
+    // one sample per console pixel, pixels as wide as the machine made
+    // them.
+    let screen = P.v[26];
+    let screen_on = screen.z > 0.5;
+    var border = false;
+    // Loading: 0 shown, 1 black, 2 black and white.
+    var loading = 0;
+    let screen_uv = uv;
+    if (screen_on) {
+        let rect = P.v[27];
+        let local = (uv - rect.xy) / rect.zw;
+        border = any(local < vec2<f32>(0.0)) || any(local >= vec2<f32>(1.0));
+        let cell = floor(clamp(local, vec2<f32>(0.0), vec2<f32>(0.99999)) * screen.xy);
+        uv = rect.xy + (cell + 0.5) / screen.xy * rect.zw;
+        pcoord = vec2<u32>(cell);
+        loading = load_state(u32(cell.y), u32(screen.y), screen.w);
+    } else if (cell_h > 0.0) {
         let cell = vec2<f32>(cell_h * 0.7, cell_h);
         let p = uv * res;
         let block = floor(p / cell);
@@ -519,18 +585,29 @@ fn fs_final(in: VOut) -> FinalOut {
     col = col * (1.0 - P.v[1].w * dot(d, d) * 2.0);
     col = clamp(col, vec3<f32>(0.0), vec3<f32>(1.0));
 
+    if (border) {
+        col = border_color(in.pos.y / res.y);
+    } else if (loading == 1) {
+        col = vec3<f32>(0.0);
+    } else if (loading == 2) {
+        // The bitmap without its colours: ink on paper.
+        let l = dot(col, vec3<f32>(0.299, 0.587, 0.114));
+        col = select(vec3<f32>(0.0), vec3<f32>(1.0), l + P.v[3].z * bayer4(pcoord) * 0.5 > 0.35);
+    }
     // palette reduction with ordered dither
     let count = i32(P.v[3].y);
     let dither = P.v[3].z * bayer4(pcoord);
-    if (count == -1) {
-        col = clamp(round((col + dither / 5.0) * 5.0) / 5.0, vec3<f32>(0.0), vec3<f32>(1.0));
+    if (count < 0) {
+        // A colour cube: every mix of -count levels per channel.
+        let k = f32(-count - 1);
+        col = clamp(round((col + dither / k) * k) / k, vec3<f32>(0.0), vec3<f32>(1.0));
     } else if (count > 0) {
         let spread = 1.0 / sqrt(f32(count));
         let p = clamp(col + vec3<f32>(dither * spread), vec3<f32>(0.0), vec3<f32>(1.0));
-        var best = P.v[8].rgb;
+        var best = palette_color(0);
         var best_d = 1e9;
         for (var i = 0; i < count; i = i + 1) {
-            let pc = P.v[8 + i].rgb;
+            let pc = palette_color(i);
             let e = p - pc;
             let dist = dot(e * e, vec3<f32>(0.3, 0.59, 0.11));
             if (dist < best_d) {
@@ -552,7 +629,11 @@ fn fs_final(in: VOut) -> FinalOut {
         col = mix(col, vec3<f32>(l), vhs * 0.15);
     }
     if (crt) {
-        let s = 0.5 + 0.5 * cos(uv.y * res.y * PI / 1.5);
+        var s = 0.5 + 0.5 * cos(uv.y * res.y * PI / 1.5);
+        if (screen_on) {
+            // One scanline per console line.
+            s = 0.5 + 0.5 * cos(TAU * (screen_uv.y - P.v[27].y) / P.v[27].w * screen.y);
+        }
         col = col * (1.0 - P.v[4].y * 0.6 * s);
         // subtle RGB mask (a select, not `mask[m] = ...`: FXC can't store
         // through a runtime vector index)

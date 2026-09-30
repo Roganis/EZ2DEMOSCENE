@@ -45,6 +45,7 @@ pub const BUILTIN: &[(&str, &str)] = &[
     ("clouds", "Soft clouds on a blue sky"),
     ("matrix", "Falling green glyph rain"),
     ("sky_far", "Far sky layer: deep purple clouds (two-layer sky)"),
+    ("boing", "Red and white checks, 16 around by 8 down (the Amiga ball)"),
     (
         "track",
         "Race track loop on grass with red and white kerbs (Mode 7)",
@@ -573,6 +574,14 @@ fn pixel(name: &str, x: u32, y: u32, u: f32, v: f32) -> [f32; 3] {
             let t = smooth(0.45, 0.8, fbm(u, v, 4, 5, 55));
             mix(rgb(0x3a7bd5), [1.0, 1.0, 1.0], t)
         }
+        "boing" => {
+            let c = ((x * 16 / TEX_SIZE) + (y * 8 / TEX_SIZE)) % 2;
+            if c == 0 {
+                [0.95, 0.95, 0.95]
+            } else {
+                [0.85, 0.05, 0.05]
+            }
+        }
         "track" => {
             // A rounded-square loop of road around the tile's middle, with
             // chequered kerbs, on striped grass. Tiles seamlessly (the
@@ -742,7 +751,7 @@ pub fn retroize(img: &RgbaImage, p: &RetroProcess) -> RgbaImage {
 
 /// Convenience used by the texture pack generator.
 pub fn palette_swatch(p: PaletteId) -> RgbaImage {
-    let cols = p.colors();
+    let cols = p.colors().to_vec();
     let n = cols.len().max(1) as u32;
     RgbaImage::from_fn(n * 16, 16, |x, _| {
         let c = cols.get((x / 16) as usize).copied().unwrap_or(0);

@@ -66,7 +66,7 @@
           0.0,
           0.0
         ],
-        "scale": 16.0,
+        "scale": 1.0,
         "stretch": [
           1.0,
           1.0,
@@ -83,52 +83,22 @@
         "type": "None"
       },
       "kind": {
-        "type": "Mesh",
-        "source": {
-          "type": "Primitive",
-          "shape": "Plane"
-        },
-        "material": {
-          "base_color": [
-            0.4341537,
-            0.4341537,
-            0.6307572
-          ],
-          "metallic": 0.0,
-          "roughness": 0.9,
-          "emissive_color": [
-            1.0,
-            0.029556833,
-            0.014443844
-          ],
-          "emissive": 0.0,
-          "emissive_mode": "Full",
-          "texture": "metal_plate",
-          "texture_scale": 5.0,
-          "scroll": [
-            0,
-            0
-          ],
-          "pixelated": false,
-          "flat_shading": false,
-          "rim": 0.0,
-          "hue_shift": 0.0
-        },
-        "instancer": {
-          "type": "Single"
-        },
-        "variation": {
-          "seed": 1,
-          "rotation": 0.0,
-          "scale": 0.0,
-          "hue": 0.0,
-          "spin": 0,
-          "ripple": 0.0,
-          "ripple_cycles": 1,
-          "ripple_spread": 1.0,
-          "chase": 0.0
-        },
-        "subdivide": 4
+        "type": "Mode7",
+        "texture": "metal_plate",
+        "tile_size": 3.0,
+        "turns": 0,
+        "scroll": [
+          0,
+          0
+        ],
+        "tint": [
+          0.27889434,
+          0.27889434,
+          0.5271152
+        ],
+        "brightness": 1.0,
+        "pixelated": true,
+        "fog": true
       }
     },
     {
@@ -451,6 +421,19 @@
       "palette": "Software256",
       "levels": 32,
       "fullbrights": true
+    },
+    "screen": {
+      "enabled": false,
+      "size": [
+        320,
+        200
+      ],
+      "frame": "Tv",
+      "border": [
+        0.0,
+        0.0,
+        0.0
+      ]
     }
   }
 }

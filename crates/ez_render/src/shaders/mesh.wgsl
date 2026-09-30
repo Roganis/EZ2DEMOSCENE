@@ -21,6 +21,7 @@
 // D2.v[3]: texture filter (0 smooth, 1 nearest, 2 bilinear, 3 three-point),
 //          Saturn mesh see-through (0..1), _, _
 // D2.v[4]: turbulent warp: amount (tiles), waves per tile, time angle, _
+// D2.v[5]: translucency colour × amount (rgb), transparency (0 = solid)
 
 @group(1) @binding(1) var<uniform> D2: Draw;
 
@@ -402,8 +403,8 @@ fn pbr_layers() -> PbrLayers {
     return layers;
 }
 
-@fragment
-fn fs_main(in: VOut) -> @location(0) vec4<f32> {
+// The lit colour of a fragment (after fog and the retro look).
+fn shade(in: VOut) -> vec3<f32> {
     let sf = surface(in);
     if (!clip_visible(in.world) || retro_dropped(in)) {
         discard;
@@ -419,6 +420,7 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
         col = lit_surface(sf.base, sf.metallic, sf.rough, sf.n, in.world, sf.v, rim_k, 1.0);
     }
 
+    col = col + translucent_light(sf.base, sf.n, sf.v, in.world, D2.v[5].rgb);
     col = colormap_shade(sf.base, col);
     var mask = 1.0;
     switch mode {
@@ -446,7 +448,18 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let emissive = hue_rotate(sf.emissive * sf.emit, sf.hue) * mask * in.inst.y;
     col = col + emissive;
 
-    return vec4<f32>(retro_color(apply_fog_at(col, in.world), in.pos.xy), 1.0);
+    return retro_color(apply_fog_at(col, in.world), in.pos.xy);
+}
+
+@fragment
+fn fs_main(in: VOut) -> @location(0) vec4<f32> {
+    return vec4<f32>(shade(in), 1.0);
+}
+
+// See-through: blended over what is behind.
+@fragment
+fn fs_clear(in: VOut) -> @location(0) vec4<f32> {
+    return vec4<f32>(shade(in), 1.0 - D2.v[5].w);
 }
 
 // Distance to the camera and what the surface reflects (depth of field

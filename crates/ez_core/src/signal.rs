@@ -9,48 +9,28 @@ use crate::audio::HitKind;
 use crate::clock::EvalCtx;
 use crate::param::{Param, Wave};
 use crate::scene::Layer;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum MathOp {
-    Add,
-    Subtract,
-    Multiply,
-    Divide,
-    Min,
-    Max,
-    /// 1 when A > B, else 0.
-    Greater,
-    /// 1 when A < B, else 0.
-    Less,
+labeled_enum! {
+    /// How a math node combines its two inputs.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    pub enum MathOp {
+        Add => "A + B",
+        Subtract => "A − B",
+        Multiply => "A × B",
+        Divide => "A ÷ B",
+        Min => "smaller",
+        Max => "larger",
+        /// 1 when A > B, else 0.
+        Greater => "A > B",
+        /// 1 when A < B, else 0.
+        Less => "A < B",
+    }
 }
 
 impl MathOp {
-    pub const ALL: [MathOp; 8] = [
-        MathOp::Add,
-        MathOp::Subtract,
-        MathOp::Multiply,
-        MathOp::Divide,
-        MathOp::Min,
-        MathOp::Max,
-        MathOp::Greater,
-        MathOp::Less,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            MathOp::Add => "A + B",
-            MathOp::Subtract => "A − B",
-            MathOp::Multiply => "A × B",
-            MathOp::Divide => "A ÷ B",
-            MathOp::Min => "smaller",
-            MathOp::Max => "larger",
-            MathOp::Greater => "A > B",
-            MathOp::Less => "A < B",
-        }
-    }
-
     pub fn apply(self, a: f32, b: f32) -> f32 {
         match self {
             MathOp::Add => a + b,
@@ -72,7 +52,7 @@ impl MathOp {
 }
 
 /// A node that makes or shapes a signal.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "signal")]
 pub enum SignalNode {
     /// Any animation: a wave (whole cycles per loop), a fade on every
@@ -267,27 +247,17 @@ pub fn shifted(ctx: &EvalCtx, beats: f32) -> EvalCtx {
     wrapped(&c)
 }
 
-/// How a Drive node writes its signal into a setting.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum DriveMode {
-    /// The setting becomes the signal.
-    #[default]
-    Replace,
-    /// The signal is added to the setting (its own animation stays).
-    Add,
-    /// The setting is scaled by the signal.
-    Multiply,
-}
-
-impl DriveMode {
-    pub const ALL: [DriveMode; 3] = [DriveMode::Replace, DriveMode::Add, DriveMode::Multiply];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            DriveMode::Replace => "set to",
-            DriveMode::Add => "add",
-            DriveMode::Multiply => "multiply by",
-        }
+labeled_enum! {
+    /// How a Drive node writes its signal into a setting.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+    pub enum DriveMode {
+        /// The setting becomes the signal.
+        #[default]
+        Replace => "set to",
+        /// The signal is added to the setting (its own animation stays).
+        Add => "add",
+        /// The setting is scaled by the signal.
+        Multiply => "multiply by",
     }
 }
 
@@ -601,11 +571,11 @@ mod tests {
 
     #[test]
     fn signal_flow_preset_drives_its_centrepiece() {
-        let p = crate::presets::signal_flow();
+        let p = crate::presets::named("Signal Flow");
         let g = p.graph.as_ref().unwrap();
         assert_eq!(
             g.compile().len(),
-            crate::presets::orbiting_solid().layers.len()
+            crate::presets::named("Orbiting Solid").layers.len()
         );
         let at = |phase: f32| {
             let ls = p.scene_layers(&EvalCtx::at(phase)).into_owned();

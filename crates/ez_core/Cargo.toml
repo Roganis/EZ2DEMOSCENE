@@ -9,8 +9,13 @@ rust-version.workspace = true
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
+schemars.workspace = true
 glam.workspace = true
 zip.workspace = true
+
+[dev-dependencies]
+# Checks the generated project schema against the presets.
+jsonschema = { version = "0.58", default-features = false }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.3", features = ["wasm_js"] }

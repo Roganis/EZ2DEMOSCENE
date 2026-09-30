@@ -34,6 +34,7 @@ pub use fluid::*;
 pub use physics::*;
 
 use glam::Vec3;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// One simulated thing: a boid, a cloth vertex, a rigid body, a droplet.
@@ -110,41 +111,27 @@ pub fn pull(bodies: &mut [Body], targets: &[Body], gain: f32, dt: f32, drift: &m
     }
 }
 
-/// How a simulation's end joins its start.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum LoopClose {
-    /// The volumetric clouds' trick: the loop is drawn twice, half a loop
-    /// apart, each fading out before it jumps back. Exact, for anything
-    /// drawn with opacity or added light (glowing particles, smoke, fluid).
-    CrossFade,
-    /// Over the end of the loop every body blends into where it was one
-    /// loop earlier, so it arrives exactly at the start. For solid things
-    /// that must not show a second, ghost copy (flocks, cloth, bodies).
-    #[default]
-    BlendTail,
-    /// Forward for half the loop, backward for the other half. Exact:
-    /// collapse and rebuild.
-    PingPong,
-}
-
-impl LoopClose {
-    pub const ALL: [LoopClose; 3] = [
-        LoopClose::CrossFade,
-        LoopClose::BlendTail,
-        LoopClose::PingPong,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            LoopClose::CrossFade => "Cross-fade halves",
-            LoopClose::BlendTail => "Blend the tail",
-            LoopClose::PingPong => "Ping-pong",
-        }
+labeled_enum! {
+    /// How a simulation's end joins its start.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    pub enum LoopClose {
+        /// The volumetric clouds' trick: the loop is drawn twice, half a loop
+        /// apart, each fading out before it jumps back. Exact, for anything
+        /// drawn with opacity or added light (glowing particles, smoke, fluid).
+        CrossFade => "Cross-fade halves",
+        /// Over the end of the loop every body blends into where it was one
+        /// loop earlier, so it arrives exactly at the start. For solid things
+        /// that must not show a second, ghost copy (flocks, cloth, bodies).
+        #[default]
+        BlendTail => "Blend the tail",
+        /// Forward for half the loop, backward for the other half. Exact:
+        /// collapse and rebuild.
+        PingPong => "Ping-pong",
     }
 }
 
 /// How a simulation is baked into a loop (saved with its layer).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct SimLoop {
     pub close: LoopClose,

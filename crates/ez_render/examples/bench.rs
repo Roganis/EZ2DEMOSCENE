@@ -13,7 +13,7 @@ use ez_render::Renderer;
 use std::time::Instant;
 
 fn stress_scene() -> Project {
-    let mut p = presets::gold_room();
+    let mut p = presets::named("Gold Kaleido Room");
     // A big static wall: 6000 copies that never change over the loop.
     p.layers.push(
         Layer::new(

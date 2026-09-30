@@ -9,11 +9,27 @@ use ez_render::texgen;
 
 pub const MODEL_EXTENSIONS: &[&str] = &["gltf", "glb", "obj"];
 pub const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "bmp", "gif", "tga"];
+/// Images and the videos that import as animations
+/// (see [`crate::clip_import::VIDEO_EXTENSIONS`]).
+pub const PICTURE_EXTENSIONS: &[&str] = &[
+    "png", "jpg", "jpeg", "bmp", "gif", "tga", "mp4", "webm", "mov", "mkv", "m4v", "avi", "ogv",
+];
 pub const FONT_EXTENSIONS: &[&str] = &["ttf", "otf"];
 
 /// Adds an image as a user texture and returns its name.
 /// `path` is an asset path (file or `mem://`), `file_name` its display name.
 pub fn add_user_texture(textures: &mut Vec<UserTexture>, path: &str, file_name: &str) -> String {
+    add_user_clip(textures, path, file_name, None)
+}
+
+/// Adds an image, or the frame sheet of an animation (`clip`), as a user
+/// texture and returns its name.
+pub fn add_user_clip(
+    textures: &mut Vec<UserTexture>,
+    path: &str,
+    file_name: &str,
+    clip: Option<FrameSheet>,
+) -> String {
     let path_s = path.to_string();
     if let Some(t) = textures.iter().find(|t| t.path == path_s) {
         return t.name.clone();
@@ -39,11 +55,36 @@ pub fn add_user_texture(textures: &mut Vec<UserTexture>, path: &str, file_name: 
         path: path_s,
         retro: None,
         mirror: false,
+        clip,
     });
     name
 }
 
-/// Texture chooser: none, built-ins, user images, or import a new one.
+/// Temp-data key: a texture chooser asks the app to open the texture
+/// library for a layer's slot (an `Option<TexRequest>`).
+pub const TEX_PICKER: &str = "ez2_tex_picker";
+
+/// The layer and slot to fill, and the tab to open on (`None`: as left).
+pub type TexRequest = (LayerRef, TexSlot, Option<ez_core::texlib::Kind>);
+
+/// Ask the app to open the texture library for a layer's slot.
+fn open_tex_library(ui: &Ui, lref: LayerRef, slot: TexSlot, kind: Option<ez_core::texlib::Kind>) {
+    ui.data_mut(|d| {
+        d.insert_temp::<Option<TexRequest>>(egui::Id::new(TEX_PICKER), Some((lref, slot, kind)))
+    });
+}
+
+/// How a texture name reads in the choosers.
+fn texture_label(name: &str) -> String {
+    if ez_core::texlib::is_lib(name) {
+        format!("📚 {}", ez_core::texlib::display_name(name))
+    } else {
+        name.to_string()
+    }
+}
+
+/// Texture chooser: none, built-ins, user images, the texture library, or
+/// import a new one.
 fn texture_picker(
     ui: &mut Ui,
     label: &str,
@@ -52,13 +93,28 @@ fn texture_picker(
     target: Option<(LayerRef, TexSlot)>,
 ) {
     row(ui, label, "Image mapped onto the surface", |ui| {
-        let text = tex.clone().unwrap_or_else(|| "None".into());
+        let text = tex
+            .as_deref()
+            .map(texture_label)
+            .unwrap_or_else(|| "None".into());
         egui::ComboBox::from_id_salt(ui.id().with(label))
             .selected_text(text)
             .width(150.0)
             .height(400.0)
             .show_ui(ui, |ui| {
                 ui.selectable_value(tex, None, "None");
+                if let Some((lref, slot)) = target {
+                    if ui
+                        .button("📚 Texture library…")
+                        .on_hover_text("Seamless PBR materials and low-res retro textures")
+                        .clicked()
+                    {
+                        open_tex_library(ui, lref, slot, None);
+                    }
+                }
+                if let Some(name) = tex.clone().filter(|n| ez_core::texlib::is_lib(n)) {
+                    ui.selectable_value(tex, Some(name.clone()), texture_label(&name));
+                }
                 ui.separator();
                 ui.label(RichText::new("Built-in retro pack").weak());
                 for (name, desc) in texgen::BUILTIN {
@@ -1270,14 +1326,14 @@ fn step_ui(ui: &mut Ui, fps: &mut f32) {
 /// Two numbers (a size in pixels).
 fn size_row(ui: &mut Ui, label: &str, tip: &str, v: &mut [u32; 2]) {
     row(ui, label, tip, |ui| {
-        ui.add(egui::DragValue::new(&mut v[0]).range(16..=4096).speed(1.0));
+        ui.add(egui::DragValue::new(&mut v[0]).range(8..=4096).speed(1.0));
         ui.label("×");
         ui.add(egui::DragValue::new(&mut v[1]).range(16..=4096).speed(1.0));
     });
 }
 
 /// The quirks of 5th-generation 3D for the whole scene.
-pub fn retro_ui(ui: &mut Ui, r: &mut Retro3d, out: (u32, u32)) {
+pub fn retro_ui(ui: &mut Ui, r: &mut Retro3d, palette: &mut PaletteFx, out: (u32, u32)) {
     ui.heading("Retro 3D");
     ui.label(
         RichText::new(
@@ -1298,6 +1354,67 @@ pub fn retro_ui(ui: &mut Ui, r: &mut Retro3d, out: (u32, u32)) {
     });
     check(ui, "On", "Use the settings below", &mut r.enabled);
     ui.add_enabled_ui(r.enabled, |ui| {
+        section(ui, "Whole screen (8- and 16-bit machines)", r.screen.enabled, |ui| {
+            ui.label(
+                RichText::new(
+                    "The whole picture (text, logos and effects too) at an old machine's resolution, \
+                     one colour per machine pixel, pixels as wide as they were. A machine button \
+                     also turns on its palette (Post effects → Retro palette).",
+                )
+                .weak()
+                .small(),
+            );
+            row(ui, "Machine", "Screen size, shape, border and palette of a machine", |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    for p in ScreenPreset::ALL {
+                        if ui.small_button(p.label()).clicked() {
+                            p.apply(r, palette);
+                        }
+                    }
+                });
+            });
+            let sc = &mut r.screen;
+            check(ui, "Whole screen", "Draw the whole picture at the size below", &mut sc.enabled);
+            ui.add_enabled_ui(sc.enabled, |ui| {
+                size_row(ui, "Pixels", "Pixels across and down", &mut sc.size);
+                combo(
+                    ui,
+                    "Shape",
+                    "Fill the output, sit on a 4:3 television (wide pixels where the machine had \
+                     them), or keep pixels square (handhelds)",
+                    &mut sc.frame,
+                    &ScreenFrame::ALL,
+                    |f| f.label(),
+                );
+                color(ui, "Border", "Colour around the picture", &mut sc.border);
+                row(
+                    ui,
+                    "Border size",
+                    "Border inside the frame on each side (share of its width, height): the Spectrum \
+                     and C64 had wide borders all round; top and bottom only makes a letterbox, like \
+                     the window Star Fox drew in",
+                    |ui| {
+                        ui.add(egui::Slider::new(&mut sc.inset[0], 0.0..=0.4).text("sides"));
+                        ui.add(egui::Slider::new(&mut sc.inset[1], 0.0..=0.4).text("top & bottom"));
+                    },
+                );
+                let st = &mut sc.stripes;
+                combo(
+                    ui,
+                    "Loading stripes",
+                    "A tape loading, as on the ZX Spectrum: red and cyan pilot bands, thin blue and \
+                     yellow data bands, or the whole load over the loop with the picture arriving \
+                     line by line in black and white, then its colours",
+                    &mut st.mode,
+                    &StripeMode::ALL,
+                    |m| m.label(),
+                );
+                if st.mode != StripeMode::Off {
+                    slider(ui, "Bands", "Pilot bands down the frame", &mut st.bands, 2.0..=40.0);
+                    drag_u(ui, "Roll / loop", "Pairs of pilot bands rolling past per loop", &mut st.speed, 0..=128);
+                }
+            });
+        });
         section(ui, "Resolution", true, |ui| {
             combo(
                 ui,
@@ -1419,7 +1536,13 @@ pub fn retro_ui(ui: &mut Ui, r: &mut Retro3d, out: (u32, u32)) {
             );
             ui.add_enabled_ui(c.enabled, |ui| {
                 let mut opts = vec![ColormapPalette::Software256];
-                opts.extend(ez_core::palette::PaletteId::ALL.map(ColormapPalette::Retro));
+                // Up to 256 colours.
+                opts.extend(
+                    ez_core::palette::PaletteId::ALL
+                        .into_iter()
+                        .filter(|p| p.count() <= 256)
+                        .map(ColormapPalette::Retro),
+                );
                 row(ui, "Palette", "The colours shading steps through", |ui| {
                     egui::ComboBox::from_id_salt("colormap palette")
                         .selected_text(c.palette.label())
@@ -1468,8 +1591,8 @@ pub fn retro_ui(ui: &mut Ui, r: &mut Retro3d, out: (u32, u32)) {
 
 fn palette_swatch(ui: &mut Ui, p: PaletteId) {
     let cols = p.colors();
-    if cols.is_empty() {
-        ui.label(RichText::new("216 colours (6 levels per channel)").weak());
+    if let Some(n) = p.levels() {
+        ui.label(RichText::new(format!("{} colours ({n} levels per channel)", n * n * n)).weak());
         return;
     }
     ui.horizontal_wrapped(|ui| {
@@ -1487,7 +1610,7 @@ fn palette_swatch(ui: &mut Ui, p: PaletteId) {
 
 pub fn textures_ui(ui: &mut Ui, textures: &mut Vec<UserTexture>) {
     ui.heading("Your images");
-    ui.label(RichText::new("Images you imported. 'Retro-ize' shrinks them and remaps them to an old-school palette.").weak());
+    ui.label(RichText::new("Images you imported. 'Retro-ize' shrinks them and remaps them to an old-school palette. GIFs and videos become animations: image layers play them, and as textures they play by themselves.").weak());
     if ui.button("Import image…").clicked() {
         platform::pick(Purpose::AddImages);
     }
@@ -1501,6 +1624,12 @@ pub fn textures_ui(ui: &mut Ui, textures: &mut Vec<UserTexture>) {
             }
         });
         ui.label(RichText::new(&t.path).weak().small());
+        if let Some(c) = &t.clip {
+            let loop_s: f32 = ui
+                .data(|d| d.get_temp(egui::Id::new(LOOP_SECONDS)))
+                .unwrap_or(4.0);
+            clip_note(ui, c, loop_s);
+        }
         ui.checkbox(&mut t.mirror, "Mirror tiling").on_hover_text(
             "Repeat it flipped: every other copy is a mirror image, so the edges always meet and there are no seams",
         );
@@ -1539,6 +1668,8 @@ pub const SIM_STATUS: &str = "ez2-sim-status";
 pub const COPY_LAYER_NAMES: &str = "ez2-copy-layer-names";
 /// Names of the logo layers (what a logo can be attached to).
 pub const LOGO_NAMES: &str = "ez2-logo-names";
+/// Names of the 3D layers a logo can follow.
+pub const SHAPE_NAMES: &str = "ez2-shape-names";
 /// Whether the project's colour scheme is on (layers offer to keep their
 /// own colours).
 pub const SCHEME_ON: &str = "ez2-scheme-on";
@@ -2177,6 +2308,21 @@ fn material_ui(ui: &mut Ui, mat: &mut Material, textures: &[UserTexture], lref: 
                         p.apply(mat);
                     }
                 }
+                if ui
+                    .small_button("📚 Library…")
+                    .on_hover_text(
+                        "Photo-real PBR materials (brick, wood, metal, rock…): colour, \
+                         normal map and roughness in one go",
+                    )
+                    .clicked()
+                {
+                    open_tex_library(
+                        ui,
+                        lref,
+                        TexSlot::Material,
+                        Some(ez_core::texlib::Kind::Pbr),
+                    );
+                }
             });
         },
     );
@@ -2253,6 +2399,7 @@ fn material_ui(ui: &mut Ui, mat: &mut Material, textures: &[UserTexture], lref: 
         &mut mat.mesh,
         0.0..=1.0,
     );
+    translucency_ui(ui, &mut mat.translucency);
     ui.separator();
     texture_picker(
         ui,
@@ -2322,6 +2469,34 @@ fn material_ui(ui: &mut Ui, mat: &mut Material, textures: &[UserTexture], lref: 
             .small(),
         );
     }
+}
+
+/// Light shining through, and seeing through.
+fn translucency_ui(ui: &mut Ui, t: &mut Translucency) {
+    param(
+        ui,
+        "Translucency",
+        "Light shines through from behind, like leaves, paper, wax, skin or a lampshade: \
+         put the sun behind the shape. The shape stays solid.",
+        &mut t.amount,
+        0.0..=1.0,
+    );
+    if t.amount.base > 0.0 || t.amount.is_animated() {
+        color(
+            ui,
+            "Light inside",
+            "The colour the light takes on passing through",
+            &mut t.color,
+        );
+    }
+    param(
+        ui,
+        "Transparency",
+        "See what is behind, smoothly blended (0 = solid, 1 = invisible). \
+         Animate it to fade the shape in or out.",
+        &mut t.transparency,
+        0.0..=1.0,
+    );
 }
 
 /// Clearcoat, sheen and glass (physical shading only).
@@ -4714,6 +4889,33 @@ pub fn ramp_ui(ui: &mut Ui, r: &mut ColorRamp) {
     );
 }
 
+/// Temp-data key: the project's loop length in seconds.
+pub const LOOP_SECONDS: &str = "ez2-loop-seconds";
+
+/// Play an animation's frames in a sprite layer, at its own speed as near
+/// as whole plays per loop allow.
+pub fn fit_sprite_to_clip(sp: &mut SpriteLayer, clip: &FrameSheet, loop_seconds: f32) {
+    sp.columns = clip.columns;
+    sp.rows = clip.rows;
+    sp.frames = clip.frames;
+    sp.cycles = clip.cycles_per_loop(loop_seconds);
+}
+
+/// What an animation is and how it fits the loop.
+fn clip_note(ui: &mut Ui, clip: &FrameSheet, loop_seconds: f32) {
+    let plays = clip.cycles_per_loop(loop_seconds);
+    let speed = plays as f32 * clip.seconds / loop_seconds.max(1e-3);
+    let mut text = format!(
+        "Animation: {} frames, {:.1} s. Plays {plays}× per loop",
+        clip.frames, clip.seconds
+    );
+    if (speed - 1.0).abs() > 0.05 {
+        text += &format!(" ({:.0}% of its speed)", speed * 100.0);
+    }
+    text.push('.');
+    ui.label(RichText::new(text).weak().small());
+}
+
 fn sprite_ui(ui: &mut Ui, sp: &mut SpriteLayer, textures: &[UserTexture], lref: LayerRef) {
     section(ui, "Image", true, |ui| {
         let before = sp.image.clone();
@@ -4724,15 +4926,38 @@ fn sprite_ui(ui: &mut Ui, sp: &mut SpriteLayer, textures: &[UserTexture], lref: 
             textures,
             Some((lref, platform::TexSlot::Sprite)),
         );
-        // Built-in sheets set their own grid.
+        let clip = sp
+            .image
+            .as_deref()
+            .and_then(|n| textures.iter().find(|t| t.name == n))
+            .and_then(|t| t.clip.clone());
+        let loop_s: f32 = ui
+            .data(|d| d.get_temp(egui::Id::new(LOOP_SECONDS)))
+            .unwrap_or(4.0);
+        // Built-in sheets and animations set their own grid.
         if sp.image != before {
-            if let Some((c, r)) = sp.image.as_deref().and_then(texgen::sheet_grid) {
+            if let Some(c) = &clip {
+                fit_sprite_to_clip(sp, c, loop_s);
+            } else if let Some((c, r)) = sp.image.as_deref().and_then(texgen::sheet_grid) {
                 sp.columns = c;
                 sp.rows = r;
                 sp.frames = 0;
-            } else if before.as_deref().and_then(texgen::sheet_grid).is_some() {
+            } else if before.as_deref().and_then(texgen::sheet_grid).is_some()
+                || sp.columns * sp.rows > 1
+            {
                 sp.columns = 1;
                 sp.rows = 1;
+                sp.frames = 0;
+            }
+        }
+        if let Some(c) = &clip {
+            clip_note(ui, c, loop_s);
+            if ui
+                .small_button("Play at its own speed")
+                .on_hover_text("Plays per loop that keep it nearest the speed it was made at")
+                .clicked()
+            {
+                fit_sprite_to_clip(sp, c, loop_s);
             }
         }
         if sp.image.is_none() {
@@ -4948,6 +5173,7 @@ fn logo_ui(
                         .hint_text("Your logo text"),
                 );
                 font_picker(ui, &mut g.font, &mut g.font_file, lref);
+                text_values_ui(ui, &mut g.values);
             }
             LogoSource::Image => {
                 texture_picker(
@@ -4975,10 +5201,14 @@ fn logo_ui(
             .into_iter()
             .filter(|n| n != own_name)
             .collect();
+        let shapes: Vec<String> = ui
+            .data(|d| d.get_temp::<Vec<String>>(egui::Id::new(SHAPE_NAMES)))
+            .unwrap_or_default();
         row(
             ui,
             "Attach to",
-            "Place the logo on the screen, or against another logo (it follows it)",
+            "Place the logo on the screen, against another logo, or where a 3D layer \
+             shows (it follows it as the camera moves)",
             |ui| {
                 let label = if g.attach_to.is_empty() {
                     "The screen".to_string()
@@ -4990,13 +5220,22 @@ fn logo_ui(
                     .selected_text(label)
                     .show_ui(ui, |ui| {
                         ui.selectable_value(&mut g.attach_to, String::new(), "The screen");
+                        if !names.is_empty() {
+                            ui.label(RichText::new("Logos").small().weak());
+                        }
                         for n in &names {
                             ui.selectable_value(&mut g.attach_to, n.clone(), n);
+                        }
+                        if !shapes.is_empty() {
+                            ui.label(RichText::new("3D layers").small().weak());
+                        }
+                        for n in &shapes {
+                            ui.selectable_value(&mut g.attach_to, n.clone(), format!("🧊 {n}"));
                         }
                     });
                 if g.attach_to != before {
                     // Start from a sensible spot: the middle of the screen,
-                    // or just under the other logo.
+                    // or just under the other logo or the 3D layer.
                     let place = if g.attach_to.is_empty() {
                         LogoAnchor::Centre
                     } else {
@@ -5006,9 +5245,12 @@ fn logo_ui(
                 }
             },
         );
-        if !g.attach_to.is_empty() && !names.contains(&g.attach_to) {
+        if !g.attach_to.is_empty()
+            && !names.contains(&g.attach_to)
+            && !shapes.contains(&g.attach_to)
+        {
             ui.label(
-                RichText::new("No logo layer with that name: placed on the screen.")
+                RichText::new("No layer with that name: placed on the screen.")
                     .weak()
                     .small(),
             );
@@ -5016,7 +5258,8 @@ fn logo_ui(
         let tip = if g.attach_to.is_empty() {
             "Snap into a part of the screen (a corner, an edge or the middle)"
         } else {
-            "Snap against the other logo: below, above, beside, at a corner or on top of it"
+            "Snap against what it is attached to (the other logo, or the area the 3D layer \
+             covers on the screen): below, above, beside, at a corner or on top of it"
         };
         row(ui, "Place", tip, |ui| {
             if let Some(a) = anchor_grid(ui, "logo_place", g.attach_point) {
@@ -5329,7 +5572,10 @@ fn logo_retro_ui(ui: &mut Ui, g: &mut LogoLayer) {
                 .selected_text(text)
                 .show_ui(ui, |ui| {
                     ui.selectable_value(&mut g.palette, None, "Any colours");
-                    for p in PaletteId::ALL {
+                    // Logos take up to 16 colours (and the VGA cube).
+                    let fits =
+                        |p: &PaletteId| p.levels().is_none_or(|n| n == 6) && p.colors().len() <= 16;
+                    for p in PaletteId::ALL.into_iter().filter(fits) {
                         ui.selectable_value(&mut g.palette, Some(p), p.label());
                     }
                 });
@@ -5881,6 +6127,58 @@ fn font_picker(ui: &mut Ui, font: &mut TextFont, file: &mut Option<String>, lref
     });
 }
 
+/// The numbers shown by `{0}`, `{1}`… in a text: each an animatable
+/// value with its digits, decimals and thousands separators.
+fn text_values_ui(ui: &mut Ui, values: &mut Vec<TextValue>) {
+    let mut remove = None;
+    for (i, v) in values.iter_mut().enumerate() {
+        ui.push_id(("text value", i), |ui| {
+            param(
+                ui,
+                &format!("{{{i}}}"),
+                "Shown where the text says {n}. Animate it: count down with a ramp \
+                 (~ then once), count up to a score, follow the music",
+                &mut v.value,
+                0.0..=1000.0,
+            );
+            ui.horizontal(|ui| {
+                ui.add_space(114.0);
+                ui.add(
+                    egui::DragValue::new(&mut v.digits)
+                        .range(0..=12)
+                        .prefix("digits "),
+                )
+                .on_hover_text("Fewest digits, padded with zeros (0 = as needed)");
+                ui.add(
+                    egui::DragValue::new(&mut v.decimals)
+                        .range(0..=6)
+                        .prefix("decimals "),
+                );
+                ui.checkbox(&mut v.group, "1,000")
+                    .on_hover_text("Separate thousands with commas");
+                if ui
+                    .small_button("✕")
+                    .on_hover_text("Remove this number")
+                    .clicked()
+                {
+                    remove = Some(i);
+                }
+            });
+        });
+    }
+    if let Some(i) = remove {
+        values.remove(i);
+    }
+    let next = values.len();
+    if ui
+        .button(format!("+ Number {{{next}}}"))
+        .on_hover_text("A number shown in the text where it says {n}: a timer, a score, a combo…")
+        .clicked()
+    {
+        values.push(TextValue::default());
+    }
+}
+
 fn text_ui(ui: &mut Ui, t: &mut TextLayer, lref: LayerRef) {
     section(ui, "Text", true, |ui| {
         ui.add(
@@ -5889,6 +6187,7 @@ fn text_ui(ui: &mut Ui, t: &mut TextLayer, lref: LayerRef) {
                 .desired_width(f32::INFINITY)
                 .hint_text("Type here. Greetings: one line each."),
         );
+        text_values_ui(ui, &mut t.values);
         combo(ui, "Style", "", &mut t.style, &TextStyle::ALL, |s| {
             s.label()
         });
