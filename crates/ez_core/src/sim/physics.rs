@@ -29,62 +29,38 @@ const MAX_SEPARATION: f32 = 4.0;
 /// before it moves to its next start, so the move can't be seen.
 const PARK: f32 = 0.02;
 
-/// The shape each copy collides as.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Collider {
-    #[default]
-    Box,
-    Ball,
-}
-
-impl Collider {
-    pub const ALL: [Collider; 2] = [Collider::Box, Collider::Ball];
-    pub fn label(self) -> &'static str {
-        match self {
-            Collider::Box => "Box",
-            Collider::Ball => "Ball",
-        }
+labeled_enum! {
+    /// The shape each copy collides as.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+    pub enum Collider {
+        #[default]
+        Box => "Box",
+        Ball => "Ball",
     }
 }
 
-/// How a body in the rain leaves at the end of its life.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Vanish {
-    #[default]
-    Shrink,
-    /// Sink through the floor.
-    Sink,
-}
-
-impl Vanish {
-    pub const ALL: [Vanish; 2] = [Vanish::Shrink, Vanish::Sink];
-    pub fn label(self) -> &'static str {
-        match self {
-            Vanish::Shrink => "Shrink away",
-            Vanish::Sink => "Sink into the floor",
-        }
+labeled_enum! {
+    /// How a body in the rain leaves at the end of its life.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+    pub enum Vanish {
+        #[default]
+        Shrink => "Shrink away",
+        /// Sink through the floor.
+        Sink => "Sink into the floor",
     }
 }
 
-/// What happens.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Scenario {
-    /// Bodies drop from above one after another, a whole number per loop,
-    /// pile up and vanish after their life.
-    #[default]
-    Rain,
-    /// Bodies start stacked in a grid on the floor (a wall, a tower) and a
-    /// blast knocks them down.
-    Stack,
-}
-
-impl Scenario {
-    pub const ALL: [Scenario; 2] = [Scenario::Rain, Scenario::Stack];
-    pub fn label(self) -> &'static str {
-        match self {
-            Scenario::Rain => "Rain",
-            Scenario::Stack => "Stack and blast",
-        }
+labeled_enum! {
+    /// What happens.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+    pub enum Scenario {
+        /// Bodies drop from above one after another, a whole number per loop,
+        /// pile up and vanish after their life.
+        #[default]
+        Rain => "Rain",
+        /// Bodies start stacked in a grid on the floor (a wall, a tower) and a
+        /// blast knocks them down.
+        Stack => "Stack and blast",
     }
 }
 

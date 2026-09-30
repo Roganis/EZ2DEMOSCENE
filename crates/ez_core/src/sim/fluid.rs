@@ -26,50 +26,33 @@ const VANISH: f32 = 0.15;
 /// droplet corrected at once would shoot off.
 const MAX_SPEED: f32 = 30.0;
 
-/// What holds the liquid.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Container {
-    /// A closed box around the layer's origin, `size` from the middle to
-    /// each side (the built-in cube at size × 2).
-    Box,
-    /// A round bowl of radius `size` around the layer's origin (the
-    /// built-in bowl at size; the whole sphere holds the liquid, so it
-    /// can't slosh out).
-    #[default]
-    Bowl,
-    /// A round pool of radius `size` on the floor: liquid spreads out.
-    Floor,
-}
-
-impl Container {
-    pub const ALL: [Container; 3] = [Container::Box, Container::Bowl, Container::Floor];
-    pub fn label(self) -> &'static str {
-        match self {
-            Container::Box => "Box",
-            Container::Bowl => "Bowl",
-            Container::Floor => "Pool on the floor",
-        }
+labeled_enum! {
+    /// What holds the liquid.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+    pub enum Container {
+        /// A closed box around the layer's origin, `size` from the middle to
+        /// each side (the built-in cube at size × 2).
+        Box => "Box",
+        /// A round bowl of radius `size` around the layer's origin (the
+        /// built-in bowl at size; the whole sphere holds the liquid, so it
+        /// can't slosh out).
+        #[default]
+        Bowl => "Bowl",
+        /// A round pool of radius `size` on the floor: liquid spreads out.
+        Floor => "Pool on the floor",
     }
 }
 
-/// Where the liquid comes from.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Source {
-    /// All of it is in the container from the start and sloshes about.
-    #[default]
-    Fill,
-    /// A stream pours in from above, each droplet once per loop, living
-    /// `life` beats and then shrinking away.
-    Pour,
-}
-
-impl Source {
-    pub const ALL: [Source; 2] = [Source::Fill, Source::Pour];
-    pub fn label(self) -> &'static str {
-        match self {
-            Source::Fill => "Filled",
-            Source::Pour => "Poured in",
-        }
+labeled_enum! {
+    /// Where the liquid comes from.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+    pub enum Source {
+        /// All of it is in the container from the start and sloshes about.
+        #[default]
+        Fill => "Filled",
+        /// A stream pours in from above, each droplet once per loop, living
+        /// `life` beats and then shrinking away.
+        Pour => "Poured in",
     }
 }
 

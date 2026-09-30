@@ -44,45 +44,27 @@ impl Default for Scene {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum TransitionKind {
-    /// Straight cut.
-    #[default]
-    Cut,
-    Crossfade,
-    /// A soft edge sweeping across at an angle.
-    Wipe,
-    /// A circle opening from the middle.
-    Iris,
-    /// Flash to white and back.
-    Flash,
-    /// Blocks of the next scene glitch in.
-    Glitch,
-    /// Cut on the first kick of the transition (with music).
-    CutOnKick,
+labeled_enum! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum TransitionKind {
+        /// Straight cut.
+        #[default]
+        Cut => "Cut",
+        Crossfade => "Crossfade",
+        /// A soft edge sweeping across at an angle.
+        Wipe => "Wipe",
+        /// A circle opening from the middle.
+        Iris => "Iris",
+        /// Flash to white and back.
+        Flash => "Flash",
+        /// Blocks of the next scene glitch in.
+        Glitch => "Glitch",
+        /// Cut on the first kick of the transition (with music).
+        CutOnKick => "Cut on kick",
+    }
 }
 
 impl TransitionKind {
-    pub const ALL: [TransitionKind; 7] = [
-        TransitionKind::Cut,
-        TransitionKind::Crossfade,
-        TransitionKind::Wipe,
-        TransitionKind::Iris,
-        TransitionKind::Flash,
-        TransitionKind::Glitch,
-        TransitionKind::CutOnKick,
-    ];
-    pub fn label(self) -> &'static str {
-        match self {
-            TransitionKind::Cut => "Cut",
-            TransitionKind::Crossfade => "Crossfade",
-            TransitionKind::Wipe => "Wipe",
-            TransitionKind::Iris => "Iris",
-            TransitionKind::Flash => "Flash",
-            TransitionKind::Glitch => "Glitch",
-            TransitionKind::CutOnKick => "Cut on kick",
-        }
-    }
     /// Index used by the compositing shader.
     pub fn index(self) -> u32 {
         Self::ALL.iter().position(|k| *k == self).unwrap_or(0) as u32

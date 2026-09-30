@@ -3,84 +3,46 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
-pub enum PaletteId {
-    /// IBM EGA 16 colours.
-    #[default]
-    Ega,
-    /// CGA mode 4, palette 1 high intensity.
-    Cga,
-    /// Commodore 64 (Pepto).
-    C64,
-    /// Original Game Boy greens.
-    GameBoy,
-    /// PICO-8 fantasy console.
-    Pico8,
-    /// Amiga-style copper gradient (16 warm-to-cool steps).
-    AmigaCopper,
-    /// ZX Spectrum bright colours.
-    Spectrum,
-    /// VGA-like 6x6x6 colour cube (216 colours), handled as a quantiser.
-    Vga,
-    /// Monochrome green phosphor terminal.
-    Phosphor,
-    /// Nintendo Entertainment System (the 2C02 palette, 55 distinct colours).
-    Nes,
-    /// Black and white only (Macintosh, ZX81, e-ink).
-    OneBit,
-    /// Virtual Boy: four shades of red on black.
-    VirtualBoy,
-    /// Amstrad CPC: 3 levels per channel (27 colours), as a quantiser.
-    AmstradCpc,
-    /// Sega Master System: 4 levels per channel (64 colours).
-    MasterSystem,
-    /// Sega Mega Drive / Genesis: 8 levels per channel (512 colours).
-    MegaDrive,
-    /// Amiga OCS/ECS: 16 levels per channel (4096 colours).
-    Amiga,
+labeled_enum! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+    pub enum PaletteId {
+        /// IBM EGA 16 colours.
+        #[default]
+        Ega => "EGA (16)",
+        /// CGA mode 4, palette 1 high intensity.
+        Cga => "CGA (4)",
+        /// Commodore 64 (Pepto).
+        C64 => "Commodore 64 (16)",
+        /// Original Game Boy greens.
+        GameBoy => "Game Boy (4)",
+        /// PICO-8 fantasy console.
+        Pico8 => "PICO-8 (16)",
+        /// Amiga-style copper gradient (16 warm-to-cool steps).
+        AmigaCopper => "Amiga copper (16)",
+        /// ZX Spectrum bright colours.
+        Spectrum => "ZX Spectrum (8)",
+        /// VGA-like 6x6x6 colour cube (216 colours), handled as a quantiser.
+        Vga => "VGA cube (216)",
+        /// Monochrome green phosphor terminal.
+        Phosphor => "Green phosphor (4)",
+        /// Nintendo Entertainment System (the 2C02 palette, 55 distinct colours).
+        Nes => "NES (55)",
+        /// Black and white only (Macintosh, ZX81, e-ink).
+        OneBit => "1-bit black & white (2)",
+        /// Virtual Boy: four shades of red on black.
+        VirtualBoy => "Virtual Boy red (4)",
+        /// Amstrad CPC: 3 levels per channel (27 colours), as a quantiser.
+        AmstradCpc => "Amstrad CPC (27)",
+        /// Sega Master System: 4 levels per channel (64 colours).
+        MasterSystem => "Master System (64)",
+        /// Sega Mega Drive / Genesis: 8 levels per channel (512 colours).
+        MegaDrive => "Mega Drive (512)",
+        /// Amiga OCS/ECS: 16 levels per channel (4096 colours).
+        Amiga => "Amiga 12-bit (4096)",
+    }
 }
 
 impl PaletteId {
-    pub const ALL: [PaletteId; 16] = [
-        PaletteId::Ega,
-        PaletteId::Cga,
-        PaletteId::C64,
-        PaletteId::GameBoy,
-        PaletteId::Pico8,
-        PaletteId::AmigaCopper,
-        PaletteId::Spectrum,
-        PaletteId::Vga,
-        PaletteId::Phosphor,
-        PaletteId::Nes,
-        PaletteId::OneBit,
-        PaletteId::VirtualBoy,
-        PaletteId::AmstradCpc,
-        PaletteId::MasterSystem,
-        PaletteId::MegaDrive,
-        PaletteId::Amiga,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            PaletteId::Ega => "EGA (16)",
-            PaletteId::Cga => "CGA (4)",
-            PaletteId::C64 => "Commodore 64 (16)",
-            PaletteId::GameBoy => "Game Boy (4)",
-            PaletteId::Pico8 => "PICO-8 (16)",
-            PaletteId::AmigaCopper => "Amiga copper (16)",
-            PaletteId::Spectrum => "ZX Spectrum (8)",
-            PaletteId::Vga => "VGA cube (216)",
-            PaletteId::Phosphor => "Green phosphor (4)",
-            PaletteId::Nes => "NES (55)",
-            PaletteId::OneBit => "1-bit black & white (2)",
-            PaletteId::VirtualBoy => "Virtual Boy red (4)",
-            PaletteId::AmstradCpc => "Amstrad CPC (27)",
-            PaletteId::MasterSystem => "Master System (64)",
-            PaletteId::MegaDrive => "Mega Drive (512)",
-            PaletteId::Amiga => "Amiga 12-bit (4096)",
-        }
-    }
-
     /// Levels per channel of the palettes that are colour cubes (every mix
     /// of that many levels of red, green and blue), handled as quantisers.
     pub fn levels(self) -> Option<u32> {

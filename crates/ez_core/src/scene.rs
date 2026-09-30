@@ -176,33 +176,18 @@ impl Project {
 // ---------------------------------------------------------------------------
 // Camera & environment
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum CameraMode {
-    /// Circles the target `orbit_turns` times per loop.
-    #[default]
-    Orbit,
-    /// Swings back and forth by `swing` degrees.
-    Pendulum,
-    /// Fixed position; distance/height params can still breathe.
-    Static,
-    /// Flies through the points of `path`.
-    Path,
-}
-
-impl CameraMode {
-    pub const ALL: [CameraMode; 4] = [
-        CameraMode::Orbit,
-        CameraMode::Pendulum,
-        CameraMode::Static,
-        CameraMode::Path,
-    ];
-    pub fn label(self) -> &'static str {
-        match self {
-            CameraMode::Orbit => "Orbit",
-            CameraMode::Pendulum => "Pendulum",
-            CameraMode::Static => "Static",
-            CameraMode::Path => "Path",
-        }
+labeled_enum! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum CameraMode {
+        /// Circles the target `orbit_turns` times per loop.
+        #[default]
+        Orbit => "Orbit",
+        /// Swings back and forth by `swing` degrees.
+        Pendulum => "Pendulum",
+        /// Fixed position; distance/height params can still breathe.
+        Static => "Static",
+        /// Flies through the points of `path`.
+        Path => "Path",
     }
 }
 
@@ -423,35 +408,19 @@ impl Default for Reflections {
     }
 }
 
-/// Built-in environment maps (generated, no files).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum Studio {
-    /// A dark studio with big soft lights: crisp highlights on shiny things.
-    #[default]
-    Softbox,
-    /// A bright, even grey sky.
-    Overcast,
-    /// A low sun over warm clouds and a blue sky.
-    Sunset,
-    /// A dark room with magenta and cyan neon tubes.
-    NeonRoom,
-}
-
-impl Studio {
-    pub const ALL: [Studio; 4] = [
-        Studio::Softbox,
-        Studio::Overcast,
-        Studio::Sunset,
-        Studio::NeonRoom,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Studio::Softbox => "Softbox studio",
-            Studio::Overcast => "Overcast",
-            Studio::Sunset => "Sunset",
-            Studio::NeonRoom => "Neon room",
-        }
+labeled_enum! {
+    /// Built-in environment maps (generated, no files).
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+    pub enum Studio {
+        /// A dark studio with big soft lights: crisp highlights on shiny things.
+        #[default]
+        Softbox => "Softbox studio",
+        /// A bright, even grey sky.
+        Overcast => "Overcast",
+        /// A low sun over warm clouds and a blue sky.
+        Sunset => "Sunset",
+        /// A dark room with magenta and cyan neon tubes.
+        NeonRoom => "Neon room",
     }
 }
 
@@ -505,45 +474,27 @@ impl EnvLight {
     }
 }
 
-/// How a colour scheme's hues sit around its key colour.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum Harmony {
-    /// The key hue only.
-    Mono,
-    /// The key and its neighbours (30° either side).
-    Analogous,
-    /// The key and the opposite hue.
-    #[default]
-    Complementary,
-    /// The key and the two hues beside its opposite.
-    Split,
-    /// Three hues evenly around the wheel.
-    Triadic,
-    /// Four hues: two opposite pairs.
-    Tetradic,
+labeled_enum! {
+    /// How a colour scheme's hues sit around its key colour.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum Harmony {
+        /// The key hue only.
+        Mono => "One hue",
+        /// The key and its neighbours (30° either side).
+        Analogous => "Neighbours",
+        /// The key and the opposite hue.
+        #[default]
+        Complementary => "Opposites",
+        /// The key and the two hues beside its opposite.
+        Split => "Split opposites",
+        /// Three hues evenly around the wheel.
+        Triadic => "Triad",
+        /// Four hues: two opposite pairs.
+        Tetradic => "Square",
+    }
 }
 
 impl Harmony {
-    pub const ALL: [Harmony; 6] = [
-        Harmony::Mono,
-        Harmony::Analogous,
-        Harmony::Complementary,
-        Harmony::Split,
-        Harmony::Triadic,
-        Harmony::Tetradic,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Harmony::Mono => "One hue",
-            Harmony::Analogous => "Neighbours",
-            Harmony::Complementary => "Opposites",
-            Harmony::Split => "Split opposites",
-            Harmony::Triadic => "Triad",
-            Harmony::Tetradic => "Square",
-        }
-    }
-
     /// Hues of the scheme relative to the key, in degrees.
     pub fn offsets(self) -> &'static [f32] {
         match self {
@@ -912,33 +863,18 @@ impl Default for Layer {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum BlinkMode {
-    /// Always visible.
-    #[default]
-    Off,
-    /// On/off in a regular rhythm.
-    Blink,
-    /// On/off at random moments.
-    Random,
-    /// Glow flashes and fades (the layer stays visible).
-    Flash,
-}
-
-impl BlinkMode {
-    pub const ALL: [BlinkMode; 4] = [
-        BlinkMode::Off,
-        BlinkMode::Blink,
-        BlinkMode::Random,
-        BlinkMode::Flash,
-    ];
-    pub fn label(self) -> &'static str {
-        match self {
-            BlinkMode::Off => "Off",
-            BlinkMode::Blink => "Blink",
-            BlinkMode::Random => "Random blink",
-            BlinkMode::Flash => "Flash",
-        }
+labeled_enum! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum BlinkMode {
+        /// Always visible.
+        #[default]
+        Off => "Off",
+        /// On/off in a regular rhythm.
+        Blink => "Blink",
+        /// On/off at random moments.
+        Random => "Random blink",
+        /// Glow flashes and fades (the layer stays visible).
+        Flash => "Flash",
     }
 }
 
@@ -2107,33 +2043,18 @@ impl Default for Variation {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum EmissiveMode {
-    /// Whole surface glows.
-    #[default]
-    Full,
-    /// Glowing outlines along UV borders (Tron look).
-    Edges,
-    /// Glowing stripes across the surface.
-    Stripes,
-    /// Glow where the texture is bright.
-    Texture,
-}
-
-impl EmissiveMode {
-    pub const ALL: [EmissiveMode; 4] = [
-        EmissiveMode::Full,
-        EmissiveMode::Edges,
-        EmissiveMode::Stripes,
-        EmissiveMode::Texture,
-    ];
-    pub fn label(self) -> &'static str {
-        match self {
-            EmissiveMode::Full => "Full",
-            EmissiveMode::Edges => "Edges",
-            EmissiveMode::Stripes => "Stripes",
-            EmissiveMode::Texture => "Texture",
-        }
+labeled_enum! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum EmissiveMode {
+        /// Whole surface glows.
+        #[default]
+        Full => "Full",
+        /// Glowing outlines along UV borders (Tron look).
+        Edges => "Edges",
+        /// Glowing stripes across the surface.
+        Stripes => "Stripes",
+        /// Glow where the texture is bright.
+        Texture => "Texture",
     }
 }
 
@@ -2221,24 +2142,16 @@ impl Translucency {
     }
 }
 
-/// How a surface reacts to light.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum Shading {
-    /// The original look: a Blinn highlight and a simple reflection.
-    #[default]
-    Classic,
-    /// Physically based (GGX highlights, energy-conserving reflections,
-    /// clearcoat, sheen and transmission).
-    Physical,
-}
-
-impl Shading {
-    pub const ALL: [Shading; 2] = [Shading::Classic, Shading::Physical];
-    pub fn label(self) -> &'static str {
-        match self {
-            Shading::Classic => "Classic",
-            Shading::Physical => "Physical",
-        }
+labeled_enum! {
+    /// How a surface reacts to light.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum Shading {
+        /// The original look: a Blinn highlight and a simple reflection.
+        #[default]
+        Classic => "Classic",
+        /// Physically based (GGX highlights, energy-conserving reflections,
+        /// clearcoat, sheen and transmission).
+        Physical => "Physical",
     }
 }
 
@@ -2281,46 +2194,23 @@ impl Default for Pbr {
     }
 }
 
-/// Ready-made physical materials.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MaterialPreset {
-    Gold,
-    Copper,
-    Chrome,
-    BrushedSteel,
-    Rubber,
-    CarPaint,
-    Glass,
-    Velvet,
-    Ceramic,
+labeled_enum! {
+    /// Ready-made physical materials.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum MaterialPreset {
+        Gold => "Gold",
+        Copper => "Copper",
+        Chrome => "Chrome",
+        BrushedSteel => "Brushed steel",
+        Rubber => "Rubber",
+        CarPaint => "Car paint",
+        Glass => "Glass",
+        Velvet => "Velvet",
+        Ceramic => "Ceramic",
+    }
 }
 
 impl MaterialPreset {
-    pub const ALL: [MaterialPreset; 9] = [
-        MaterialPreset::Gold,
-        MaterialPreset::Copper,
-        MaterialPreset::Chrome,
-        MaterialPreset::BrushedSteel,
-        MaterialPreset::Rubber,
-        MaterialPreset::CarPaint,
-        MaterialPreset::Glass,
-        MaterialPreset::Velvet,
-        MaterialPreset::Ceramic,
-    ];
-    pub fn label(self) -> &'static str {
-        match self {
-            MaterialPreset::Gold => "Gold",
-            MaterialPreset::Copper => "Copper",
-            MaterialPreset::Chrome => "Chrome",
-            MaterialPreset::BrushedSteel => "Brushed steel",
-            MaterialPreset::Rubber => "Rubber",
-            MaterialPreset::CarPaint => "Car paint",
-            MaterialPreset::Glass => "Glass",
-            MaterialPreset::Velvet => "Velvet",
-            MaterialPreset::Ceramic => "Ceramic",
-        }
-    }
-
     /// Set the look of `m` (colour, metal, roughness and the physical
     /// layers), leaving textures, glow and geometry settings alone.
     pub fn apply(self, m: &mut Material) {
@@ -2369,22 +2259,14 @@ impl MaterialPreset {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum ReliefMode {
-    /// Brightness of the texture is height.
-    #[default]
-    Bump,
-    /// The texture is a (tangent-space) normal map.
-    NormalMap,
-}
-
-impl ReliefMode {
-    pub const ALL: [ReliefMode; 2] = [ReliefMode::Bump, ReliefMode::NormalMap];
-    pub fn label(self) -> &'static str {
-        match self {
-            ReliefMode::Bump => "Bump (brightness = height)",
-            ReliefMode::NormalMap => "Normal map",
-        }
+labeled_enum! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum ReliefMode {
+        /// Brightness of the texture is height.
+        #[default]
+        Bump => "Bump (brightness = height)",
+        /// The texture is a (tangent-space) normal map.
+        NormalMap => "Normal map",
     }
 }
 
@@ -2414,31 +2296,21 @@ impl Default for Relief {
     }
 }
 
-/// How a glitched mesh is corrupted.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum GlitchStyle {
-    /// Vertices shake to random positions.
-    #[default]
-    Jitter,
-    /// Horizontal bands shift sideways (VHS tearing).
-    Slices,
-    /// Faces fly apart along their normals.
-    Shatter,
+labeled_enum! {
+    /// How a glitched mesh is corrupted.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum GlitchStyle {
+        /// Vertices shake to random positions.
+        #[default]
+        Jitter => "Jitter",
+        /// Horizontal bands shift sideways (VHS tearing).
+        Slices => "Slices (VHS)",
+        /// Faces fly apart along their normals.
+        Shatter => "Shatter",
+    }
 }
 
 impl GlitchStyle {
-    pub const ALL: [GlitchStyle; 3] = [
-        GlitchStyle::Jitter,
-        GlitchStyle::Slices,
-        GlitchStyle::Shatter,
-    ];
-    pub fn label(self) -> &'static str {
-        match self {
-            GlitchStyle::Jitter => "Jitter",
-            GlitchStyle::Slices => "Slices (VHS)",
-            GlitchStyle::Shatter => "Shatter",
-        }
-    }
     pub fn index(self) -> u32 {
         GlitchStyle::ALL
             .iter()
@@ -2517,83 +2389,49 @@ impl Material {
 // ---------------------------------------------------------------------------
 // Particles
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum Emitter {
-    /// Explodes outward from the centre.
-    #[default]
-    Burst,
-    /// Drifts inside a sphere.
-    Sphere,
-    /// Circles in a flat ring.
-    Ring,
-    /// Shoots up and falls down.
-    Fountain,
-    /// Streams towards the camera (hyperspace).
-    Warp,
-    /// Spirals upward in a vortex.
-    Vortex,
-    /// Falls slowly like snow / glitter.
-    Snow,
-    /// A twisting funnel (tornado / water spout) with debris at its foot.
-    Tornado,
+labeled_enum! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum Emitter {
+        /// Explodes outward from the centre.
+        #[default]
+        Burst => "Burst",
+        /// Drifts inside a sphere.
+        Sphere => "Sphere drift",
+        /// Circles in a flat ring.
+        Ring => "Ring orbit",
+        /// Shoots up and falls down.
+        Fountain => "Fountain",
+        /// Streams towards the camera (hyperspace).
+        Warp => "Warp stars",
+        /// Spirals upward in a vortex.
+        Vortex => "Vortex",
+        /// Falls slowly like snow / glitter.
+        Snow => "Snow / glitter",
+        /// A twisting funnel (tornado / water spout) with debris at its foot.
+        Tornado => "Tornado",
+    }
 }
 
 impl Emitter {
-    pub const ALL: [Emitter; 8] = [
-        Emitter::Burst,
-        Emitter::Sphere,
-        Emitter::Ring,
-        Emitter::Fountain,
-        Emitter::Warp,
-        Emitter::Vortex,
-        Emitter::Snow,
-        Emitter::Tornado,
-    ];
-    pub fn label(self) -> &'static str {
-        match self {
-            Emitter::Burst => "Burst",
-            Emitter::Sphere => "Sphere drift",
-            Emitter::Ring => "Ring orbit",
-            Emitter::Fountain => "Fountain",
-            Emitter::Warp => "Warp stars",
-            Emitter::Vortex => "Vortex",
-            Emitter::Snow => "Snow / glitter",
-            Emitter::Tornado => "Tornado",
-        }
-    }
     pub fn index(self) -> u32 {
         Emitter::ALL.iter().position(|e| *e == self).unwrap_or(0) as u32
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum Sprite {
-    #[default]
-    Glow,
-    Square,
-    Star,
-    Ring,
-    /// Solid, unsmoothed single-colour squares (Quake).
-    SolidSquare,
+labeled_enum! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum Sprite {
+        #[default]
+        Glow => "Soft glow",
+        Square => "Pixel square",
+        Star => "Star",
+        Ring => "Ring",
+        /// Solid, unsmoothed single-colour squares (Quake).
+        SolidSquare => "Solid square (Quake)",
+    }
 }
 
 impl Sprite {
-    pub const ALL: [Sprite; 5] = [
-        Sprite::Glow,
-        Sprite::Square,
-        Sprite::Star,
-        Sprite::Ring,
-        Sprite::SolidSquare,
-    ];
-    pub fn label(self) -> &'static str {
-        match self {
-            Sprite::Glow => "Soft glow",
-            Sprite::Square => "Pixel square",
-            Sprite::Star => "Star",
-            Sprite::Ring => "Ring",
-            Sprite::SolidSquare => "Solid square (Quake)",
-        }
-    }
     pub fn index(self) -> u32 {
         Sprite::ALL.iter().position(|e| *e == self).unwrap_or(0) as u32
     }
@@ -2652,71 +2490,38 @@ impl Default for ParticleLayer {
 // ---------------------------------------------------------------------------
 // Backdrop (fullscreen raymarched / procedural background)
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum BackdropKind {
-    #[default]
-    Gradient,
-    Nebula,
-    Starfield,
-    Tunnel,
-    Fractal,
-    Plasma,
-    SynthGrid,
-    /// Flight through an infinite raymarched Menger sponge.
-    Sponge,
-    /// Flight through a corridor of glowing rings.
-    Rings,
-    /// Sky with raymarched volumetric clouds and a sun.
-    Clouds,
-    /// Night sky with rippling aurora curtains.
-    Aurora,
-    /// EarthBound-style battle background: flat patterns whose lines
-    /// wobble, with cycling colours (see [`Battle`]).
-    Battle,
-    /// The environment map (Light & fog → Environment light) all around,
-    /// turned with it; *Detail* blurs it.
-    Environment,
-    /// Quake's sky: a far and a near cloud layer (with see-through holes)
-    /// scrolling at their own speeds (see [`LayeredSky`]).
-    LayeredSky,
+labeled_enum! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum BackdropKind {
+        #[default]
+        Gradient => "Gradient sky",
+        Nebula => "Nebula clouds",
+        Starfield => "Starfield",
+        Tunnel => "Raymarched tunnel",
+        Fractal => "Raymarched fractal",
+        Plasma => "Oldschool plasma",
+        SynthGrid => "Synthwave sun & grid",
+        /// Flight through an infinite raymarched Menger sponge.
+        Sponge => "Raymarched sponge flight",
+        /// Flight through a corridor of glowing rings.
+        Rings => "Raymarched ring corridor",
+        /// Sky with raymarched volumetric clouds and a sun.
+        Clouds => "Volumetric clouds",
+        /// Night sky with rippling aurora curtains.
+        Aurora => "Aurora night sky",
+        /// EarthBound-style battle background: flat patterns whose lines
+        /// wobble, with cycling colours (see [`Battle`]).
+        Battle => "Battle background (retro RPG)",
+        /// The environment map (Light & fog → Environment light) all around,
+        /// turned with it; *Detail* blurs it.
+        Environment => "Environment map",
+        /// Quake's sky: a far and a near cloud layer (with see-through holes)
+        /// scrolling at their own speeds (see [`LayeredSky`]).
+        LayeredSky => "Two-layer sky (Quake)",
+    }
 }
 
 impl BackdropKind {
-    pub const ALL: [BackdropKind; 14] = [
-        BackdropKind::Gradient,
-        BackdropKind::Nebula,
-        BackdropKind::Starfield,
-        BackdropKind::Tunnel,
-        BackdropKind::Fractal,
-        BackdropKind::Plasma,
-        BackdropKind::SynthGrid,
-        BackdropKind::Sponge,
-        BackdropKind::Rings,
-        BackdropKind::Clouds,
-        BackdropKind::Aurora,
-        BackdropKind::Battle,
-        BackdropKind::Environment,
-        BackdropKind::LayeredSky,
-    ];
-    pub fn label(self) -> &'static str {
-        match self {
-            BackdropKind::Gradient => "Gradient sky",
-            BackdropKind::Nebula => "Nebula clouds",
-            BackdropKind::Starfield => "Starfield",
-            BackdropKind::Tunnel => "Raymarched tunnel",
-            BackdropKind::Fractal => "Raymarched fractal",
-            BackdropKind::Plasma => "Oldschool plasma",
-            BackdropKind::SynthGrid => "Synthwave sun & grid",
-            BackdropKind::Sponge => "Raymarched sponge flight",
-            BackdropKind::Rings => "Raymarched ring corridor",
-            BackdropKind::Clouds => "Volumetric clouds",
-            BackdropKind::Aurora => "Aurora night sky",
-            BackdropKind::Battle => "Battle background (retro RPG)",
-            BackdropKind::Environment => "Environment map",
-            BackdropKind::LayeredSky => "Two-layer sky (Quake)",
-        }
-    }
-
     /// Kinds that fly through raymarched space (the view can roll).
     pub fn is_flight(self) -> bool {
         matches!(
@@ -2800,27 +2605,17 @@ impl Default for LayeredSky {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum BgResolution {
-    #[default]
-    Full,
-    Half,
-    Quarter,
+labeled_enum! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum BgResolution {
+        #[default]
+        Full => "Full",
+        Half => "Half (4× faster)",
+        Quarter => "Quarter (16× faster)",
+    }
 }
 
 impl BgResolution {
-    pub const ALL: [BgResolution; 3] = [
-        BgResolution::Full,
-        BgResolution::Half,
-        BgResolution::Quarter,
-    ];
-    pub fn label(self) -> &'static str {
-        match self {
-            BgResolution::Full => "Full",
-            BgResolution::Half => "Half (4× faster)",
-            BgResolution::Quarter => "Quarter (16× faster)",
-        }
-    }
     /// Pixel size divisor.
     pub fn divisor(self) -> u32 {
         match self {
@@ -2997,51 +2792,27 @@ impl LineWarp {
     }
 }
 
-/// The pattern of a battle background layer. Each is a ramp of values
-/// that the colours cycle through.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum BattlePattern {
-    #[default]
-    Rings,
-    Diamonds,
-    Checker,
-    Stripes,
-    Zigzag,
-    Dots,
-    Swirl,
-    Bricks,
-    Plasma,
-    /// The backdrop's picture (its brightness picks the colour).
-    Picture,
+labeled_enum! {
+    /// The pattern of a battle background layer. Each is a ramp of values
+    /// that the colours cycle through.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum BattlePattern {
+        #[default]
+        Rings => "Rings",
+        Diamonds => "Diamonds",
+        Checker => "Checker",
+        Stripes => "Diagonal stripes",
+        Zigzag => "Zigzag",
+        Dots => "Dots",
+        Swirl => "Swirl",
+        Bricks => "Bricks",
+        Plasma => "Plasma",
+        /// The backdrop's picture (its brightness picks the colour).
+        Picture => "Picture (the texture)",
+    }
 }
 
 impl BattlePattern {
-    pub const ALL: [BattlePattern; 10] = [
-        BattlePattern::Rings,
-        BattlePattern::Diamonds,
-        BattlePattern::Checker,
-        BattlePattern::Stripes,
-        BattlePattern::Zigzag,
-        BattlePattern::Dots,
-        BattlePattern::Swirl,
-        BattlePattern::Bricks,
-        BattlePattern::Plasma,
-        BattlePattern::Picture,
-    ];
-    pub fn label(self) -> &'static str {
-        match self {
-            BattlePattern::Rings => "Rings",
-            BattlePattern::Diamonds => "Diamonds",
-            BattlePattern::Checker => "Checker",
-            BattlePattern::Stripes => "Diagonal stripes",
-            BattlePattern::Zigzag => "Zigzag",
-            BattlePattern::Dots => "Dots",
-            BattlePattern::Swirl => "Swirl",
-            BattlePattern::Bricks => "Bricks",
-            BattlePattern::Plasma => "Plasma",
-            BattlePattern::Picture => "Picture (the texture)",
-        }
-    }
     pub fn index(self) -> u32 {
         BattlePattern::ALL
             .iter()
@@ -3050,35 +2821,23 @@ impl BattlePattern {
     }
 }
 
-/// How the front battle layer goes over the back one.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum BattleBlend {
-    /// See-through, by its opacity.
-    #[default]
-    Mix,
-    /// Adds light.
-    Add,
-    /// Lightens, softer than add.
-    Screen,
-    /// Colours flip where both are bright.
-    Difference,
+labeled_enum! {
+    /// How the front battle layer goes over the back one.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum BattleBlend {
+        /// See-through, by its opacity.
+        #[default]
+        Mix => "Mix",
+        /// Adds light.
+        Add => "Add",
+        /// Lightens, softer than add.
+        Screen => "Screen",
+        /// Colours flip where both are bright.
+        Difference => "Difference",
+    }
 }
 
 impl BattleBlend {
-    pub const ALL: [BattleBlend; 4] = [
-        BattleBlend::Mix,
-        BattleBlend::Add,
-        BattleBlend::Screen,
-        BattleBlend::Difference,
-    ];
-    pub fn label(self) -> &'static str {
-        match self {
-            BattleBlend::Mix => "Mix",
-            BattleBlend::Add => "Add",
-            BattleBlend::Screen => "Screen",
-            BattleBlend::Difference => "Difference",
-        }
-    }
     pub fn index(self) -> u32 {
         BattleBlend::ALL
             .iter()
@@ -3330,35 +3089,23 @@ impl Default for Vhs {
     }
 }
 
-/// Colours of the ASCII characters.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum AsciiColor {
-    /// The picture's colours.
-    #[default]
-    Picture,
-    /// Green terminal.
-    Green,
-    /// Amber terminal.
-    Amber,
-    /// White on black.
-    White,
+labeled_enum! {
+    /// Colours of the ASCII characters.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum AsciiColor {
+        /// The picture's colours.
+        #[default]
+        Picture => "Picture colours",
+        /// Green terminal.
+        Green => "Green terminal",
+        /// Amber terminal.
+        Amber => "Amber terminal",
+        /// White on black.
+        White => "White",
+    }
 }
 
 impl AsciiColor {
-    pub const ALL: [AsciiColor; 4] = [
-        AsciiColor::Picture,
-        AsciiColor::Green,
-        AsciiColor::Amber,
-        AsciiColor::White,
-    ];
-    pub fn label(self) -> &'static str {
-        match self {
-            AsciiColor::Picture => "Picture colours",
-            AsciiColor::Green => "Green terminal",
-            AsciiColor::Amber => "Amber terminal",
-            AsciiColor::White => "White",
-        }
-    }
     pub fn rgb(self) -> Option<[f32; 3]> {
         match self {
             AsciiColor::Picture => None,
@@ -3443,29 +3190,16 @@ impl Default for DepthOfField {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum HazeRegion {
-    /// Above bright, hot things (lava, fire, the sun).
-    #[default]
-    HotSpots,
-    /// Strongest at the bottom of the picture (hot ground).
-    Ground,
-    /// Everywhere.
-    Everywhere,
-}
-
-impl HazeRegion {
-    pub const ALL: [HazeRegion; 3] = [
-        HazeRegion::HotSpots,
-        HazeRegion::Ground,
-        HazeRegion::Everywhere,
-    ];
-    pub fn label(self) -> &'static str {
-        match self {
-            HazeRegion::HotSpots => "Above hot spots",
-            HazeRegion::Ground => "Near the ground",
-            HazeRegion::Everywhere => "Everywhere",
-        }
+labeled_enum! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum HazeRegion {
+        /// Above bright, hot things (lava, fire, the sun).
+        #[default]
+        HotSpots => "Above hot spots",
+        /// Strongest at the bottom of the picture (hot ground).
+        Ground => "Near the ground",
+        /// Everywhere.
+        Everywhere => "Everywhere",
     }
 }
 
@@ -3515,22 +3249,14 @@ impl Default for Bloom {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum RaySource {
-    /// From the sun (the light direction).
-    #[default]
-    Sun,
-    /// From the middle of the picture (light at the end of a tunnel).
-    Centre,
-}
-
-impl RaySource {
-    pub const ALL: [RaySource; 2] = [RaySource::Sun, RaySource::Centre];
-    pub fn label(self) -> &'static str {
-        match self {
-            RaySource::Sun => "Sun",
-            RaySource::Centre => "Picture centre",
-        }
+labeled_enum! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum RaySource {
+        /// From the sun (the light direction).
+        #[default]
+        Sun => "Sun",
+        /// From the middle of the picture (light at the end of a tunnel).
+        Centre => "Picture centre",
     }
 }
 
@@ -3592,26 +3318,13 @@ impl Default for Kaleido {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum MirrorSplitMode {
-    #[default]
-    LeftToRight,
-    TopToBottom,
-    Quad,
-}
-
-impl MirrorSplitMode {
-    pub const ALL: [MirrorSplitMode; 3] = [
-        MirrorSplitMode::LeftToRight,
-        MirrorSplitMode::TopToBottom,
-        MirrorSplitMode::Quad,
-    ];
-    pub fn label(self) -> &'static str {
-        match self {
-            MirrorSplitMode::LeftToRight => "Left → right",
-            MirrorSplitMode::TopToBottom => "Top → bottom",
-            MirrorSplitMode::Quad => "Quad",
-        }
+labeled_enum! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum MirrorSplitMode {
+        #[default]
+        LeftToRight => "Left → right",
+        TopToBottom => "Top → bottom",
+        Quad => "Quad",
     }
 }
 
@@ -3852,30 +3565,20 @@ mod tests {
 // ---------------------------------------------------------------------------
 // Terrain (scrolling landscape)
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum TerrainStyle {
-    /// Glowing grid lines only.
-    #[default]
-    Wireframe,
-    /// Lit solid ground.
-    Solid,
-    /// Solid ground with glowing grid lines.
-    Both,
+labeled_enum! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum TerrainStyle {
+        /// Glowing grid lines only.
+        #[default]
+        Wireframe => "Wireframe",
+        /// Lit solid ground.
+        Solid => "Solid",
+        /// Solid ground with glowing grid lines.
+        Both => "Solid + lines",
+    }
 }
 
 impl TerrainStyle {
-    pub const ALL: [TerrainStyle; 3] = [
-        TerrainStyle::Wireframe,
-        TerrainStyle::Solid,
-        TerrainStyle::Both,
-    ];
-    pub fn label(self) -> &'static str {
-        match self {
-            TerrainStyle::Wireframe => "Wireframe",
-            TerrainStyle::Solid => "Solid",
-            TerrainStyle::Both => "Solid + lines",
-        }
-    }
     pub fn index(self) -> u32 {
         TerrainStyle::ALL
             .iter()
@@ -4016,42 +3719,26 @@ impl Default for Terrain {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum TerrainShape {
-    /// Rolling hills.
-    #[default]
-    Hills,
-    /// Sharp ridged mountains.
-    Mountains,
-    /// Flat-topped mesas in steps.
-    Mesas,
-    /// Wind-blown sand dunes.
-    Dunes,
-    /// Deep winding canyons in a plateau.
-    Canyons,
-    /// Round craters, like the moon.
-    Craters,
+labeled_enum! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum TerrainShape {
+        /// Rolling hills.
+        #[default]
+        Hills => "Hills",
+        /// Sharp ridged mountains.
+        Mountains => "Ridged mountains",
+        /// Flat-topped mesas in steps.
+        Mesas => "Mesas (terraces)",
+        /// Wind-blown sand dunes.
+        Dunes => "Sand dunes",
+        /// Deep winding canyons in a plateau.
+        Canyons => "Canyons",
+        /// Round craters, like the moon.
+        Craters => "Craters",
+    }
 }
 
 impl TerrainShape {
-    pub const ALL: [TerrainShape; 6] = [
-        TerrainShape::Hills,
-        TerrainShape::Mountains,
-        TerrainShape::Mesas,
-        TerrainShape::Dunes,
-        TerrainShape::Canyons,
-        TerrainShape::Craters,
-    ];
-    pub fn label(self) -> &'static str {
-        match self {
-            TerrainShape::Hills => "Hills",
-            TerrainShape::Mountains => "Ridged mountains",
-            TerrainShape::Mesas => "Mesas (terraces)",
-            TerrainShape::Dunes => "Sand dunes",
-            TerrainShape::Canyons => "Canyons",
-            TerrainShape::Craters => "Craters",
-        }
-    }
     pub fn index(self) -> u32 {
         TerrainShape::ALL
             .iter()
@@ -4060,79 +3747,49 @@ impl TerrainShape {
     }
 }
 
-/// Height and slope based colouring of solid terrain.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum Biome {
-    /// One ground colour.
-    #[default]
-    Plain,
-    /// Grass, rock and snowy peaks.
-    Alpine,
-    /// Sand and red rock.
-    Desert,
-    /// Black basalt with glowing cracks.
-    Volcanic,
-    /// Snow and blue ice.
-    Arctic,
-    /// Purple moss and teal crystal.
-    Alien,
+labeled_enum! {
+    /// Height and slope based colouring of solid terrain.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum Biome {
+        /// One ground colour.
+        #[default]
+        Plain => "Plain (ground colour)",
+        /// Grass, rock and snowy peaks.
+        Alpine => "Alpine",
+        /// Sand and red rock.
+        Desert => "Desert",
+        /// Black basalt with glowing cracks.
+        Volcanic => "Volcanic",
+        /// Snow and blue ice.
+        Arctic => "Arctic",
+        /// Purple moss and teal crystal.
+        Alien => "Alien",
+    }
 }
 
 impl Biome {
-    pub const ALL: [Biome; 6] = [
-        Biome::Plain,
-        Biome::Alpine,
-        Biome::Desert,
-        Biome::Volcanic,
-        Biome::Arctic,
-        Biome::Alien,
-    ];
-    pub fn label(self) -> &'static str {
-        match self {
-            Biome::Plain => "Plain (ground colour)",
-            Biome::Alpine => "Alpine",
-            Biome::Desert => "Desert",
-            Biome::Volcanic => "Volcanic",
-            Biome::Arctic => "Arctic",
-            Biome::Alien => "Alien",
-        }
-    }
     pub fn index(self) -> u32 {
         Biome::ALL.iter().position(|t| *t == self).unwrap_or(0) as u32
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum LiquidKind {
-    #[default]
-    None,
-    /// Reflective water with ripples, foam and a sun glint.
-    Water,
-    /// Glowing, slowly churning lava with a dark crust.
-    Lava,
-    /// Radioactive green goo with bubbles.
-    Toxic,
-    /// Frozen, cracked ice.
-    Ice,
+labeled_enum! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum LiquidKind {
+        #[default]
+        None => "None",
+        /// Reflective water with ripples, foam and a sun glint.
+        Water => "Water",
+        /// Glowing, slowly churning lava with a dark crust.
+        Lava => "Lava",
+        /// Radioactive green goo with bubbles.
+        Toxic => "Toxic goo",
+        /// Frozen, cracked ice.
+        Ice => "Ice",
+    }
 }
 
 impl LiquidKind {
-    pub const ALL: [LiquidKind; 5] = [
-        LiquidKind::None,
-        LiquidKind::Water,
-        LiquidKind::Lava,
-        LiquidKind::Toxic,
-        LiquidKind::Ice,
-    ];
-    pub fn label(self) -> &'static str {
-        match self {
-            LiquidKind::None => "None",
-            LiquidKind::Water => "Water",
-            LiquidKind::Lava => "Lava",
-            LiquidKind::Toxic => "Toxic goo",
-            LiquidKind::Ice => "Ice",
-        }
-    }
     pub fn index(self) -> u32 {
         LiquidKind::ALL.iter().position(|t| *t == self).unwrap_or(0) as u32
     }
@@ -4250,20 +3907,12 @@ pub struct Lasers {
     pub pools: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum BeamStyle {
-    #[default]
-    Laser,
-    Spotlight,
-}
-
-impl BeamStyle {
-    pub const ALL: [BeamStyle; 2] = [BeamStyle::Laser, BeamStyle::Spotlight];
-    pub fn label(self) -> &'static str {
-        match self {
-            BeamStyle::Laser => "Laser beams",
-            BeamStyle::Spotlight => "Spotlight cones",
-        }
+labeled_enum! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum BeamStyle {
+        #[default]
+        Laser => "Laser beams",
+        Spotlight => "Spotlight cones",
     }
 }
 
@@ -4303,39 +3952,24 @@ impl Default for Lasers {
 // ---------------------------------------------------------------------------
 // Neon ribbon
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum RibbonCurve {
-    /// 3D Lissajous figure (uses the three frequencies).
-    #[default]
-    Lissajous,
-    /// Torus knot (uses the first two frequencies).
-    Knot,
-    /// Figure eight.
-    Infinity,
-    /// Circle that waves up and down (first frequency = waves).
-    Wave,
-    /// Flower / rose curve (first frequency = petals).
-    Rose,
+labeled_enum! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum RibbonCurve {
+        /// 3D Lissajous figure (uses the three frequencies).
+        #[default]
+        Lissajous => "Lissajous",
+        /// Torus knot (uses the first two frequencies).
+        Knot => "Knot",
+        /// Figure eight.
+        Infinity => "Figure eight",
+        /// Circle that waves up and down (first frequency = waves).
+        Wave => "Wavy ring",
+        /// Flower / rose curve (first frequency = petals).
+        Rose => "Rose",
+    }
 }
 
 impl RibbonCurve {
-    pub const ALL: [RibbonCurve; 5] = [
-        RibbonCurve::Lissajous,
-        RibbonCurve::Knot,
-        RibbonCurve::Infinity,
-        RibbonCurve::Wave,
-        RibbonCurve::Rose,
-    ];
-    pub fn label(self) -> &'static str {
-        match self {
-            RibbonCurve::Lissajous => "Lissajous",
-            RibbonCurve::Knot => "Knot",
-            RibbonCurve::Infinity => "Figure eight",
-            RibbonCurve::Wave => "Wavy ring",
-            RibbonCurve::Rose => "Rose",
-        }
-    }
-
     /// Point at `t` (0..1 around the closed curve), fitting a unit sphere.
     pub fn point(self, freq: [u32; 3], t: f32) -> [f32; 3] {
         self.point_by(freq, t, |x| x.sin(), |x| x.cos())
@@ -4378,59 +4012,33 @@ impl RibbonCurve {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
-pub enum TextFont {
-    /// Chunky pixel letters, demoscene style.
-    #[default]
-    Pixel,
-    /// Clean monospaced letters (Hack).
-    Mono,
-    /// Light rounded letters (Ubuntu Light).
-    Sans,
-}
-
-impl TextFont {
-    pub const ALL: [TextFont; 3] = [TextFont::Pixel, TextFont::Mono, TextFont::Sans];
-    pub fn label(self) -> &'static str {
-        match self {
-            TextFont::Pixel => "Pixel",
-            TextFont::Mono => "Mono",
-            TextFont::Sans => "Sans",
-        }
+labeled_enum! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+    pub enum TextFont {
+        /// Chunky pixel letters, demoscene style.
+        #[default]
+        Pixel => "Pixel",
+        /// Clean monospaced letters (Hack).
+        Mono => "Mono",
+        /// Light rounded letters (Ubuntu Light).
+        Sans => "Sans",
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum TextStyle {
-    /// Still text, centred.
-    #[default]
-    Static,
-    /// Runs across a window a whole number of times per loop.
-    Scroller,
-    /// A scroller whose letters ride a sine wave.
-    SineScroller,
-    /// Letters appear one by one on the beat.
-    Typewriter,
-    /// One line at a time, a new line every few beats.
-    Greetings,
-}
-
-impl TextStyle {
-    pub const ALL: [TextStyle; 5] = [
-        TextStyle::Static,
-        TextStyle::Scroller,
-        TextStyle::SineScroller,
-        TextStyle::Typewriter,
-        TextStyle::Greetings,
-    ];
-    pub fn label(self) -> &'static str {
-        match self {
-            TextStyle::Static => "Still",
-            TextStyle::Scroller => "Scroller",
-            TextStyle::SineScroller => "Sine scroller",
-            TextStyle::Typewriter => "Typewriter",
-            TextStyle::Greetings => "Greetings list",
-        }
+labeled_enum! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum TextStyle {
+        /// Still text, centred.
+        #[default]
+        Static => "Still",
+        /// Runs across a window a whole number of times per loop.
+        Scroller => "Scroller",
+        /// A scroller whose letters ride a sine wave.
+        SineScroller => "Sine scroller",
+        /// Letters appear one by one on the beat.
+        Typewriter => "Typewriter",
+        /// One line at a time, a new line every few beats.
+        Greetings => "Greetings list",
     }
 }
 
@@ -4509,37 +4117,23 @@ impl Default for ArcLayer {
 /// Most copies in a swarm.
 pub const SWARM_MAX: u32 = 250_000;
 
-/// Layouts of a big swarm.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum SwarmForm {
-    /// Each copy on its own tilted circle (like Orbit).
-    #[default]
-    Orbit,
-    /// Filling a ball that turns, each copy bobbing.
-    Cloud,
-    /// On the surface of a ball that turns.
-    Shell,
-    /// A spiral galaxy: three arms, the middle turning faster.
-    Galaxy,
+labeled_enum! {
+    /// Layouts of a big swarm.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum SwarmForm {
+        /// Each copy on its own tilted circle (like Orbit).
+        #[default]
+        Orbit => "Orbits",
+        /// Filling a ball that turns, each copy bobbing.
+        Cloud => "Cloud",
+        /// On the surface of a ball that turns.
+        Shell => "Shell",
+        /// A spiral galaxy: three arms, the middle turning faster.
+        Galaxy => "Galaxy",
+    }
 }
 
 impl SwarmForm {
-    pub const ALL: [SwarmForm; 4] = [
-        SwarmForm::Orbit,
-        SwarmForm::Cloud,
-        SwarmForm::Shell,
-        SwarmForm::Galaxy,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            SwarmForm::Orbit => "Orbits",
-            SwarmForm::Cloud => "Cloud",
-            SwarmForm::Shell => "Shell",
-            SwarmForm::Galaxy => "Galaxy",
-        }
-    }
-
     pub fn index(self) -> u32 {
         match self {
             SwarmForm::Orbit => 0,
@@ -4550,252 +4144,140 @@ impl SwarmForm {
     }
 }
 
-/// How sprites turn.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum SpriteFacing {
-    /// Always square on to the camera.
-    #[default]
-    Camera,
-    /// Stand upright and turn around the vertical axis only (trees, people).
-    Upright,
-    /// A plane in the scene facing +z, turned with the layer and the copies.
-    Fixed,
-}
-
-impl SpriteFacing {
-    pub const ALL: [SpriteFacing; 3] = [
-        SpriteFacing::Camera,
-        SpriteFacing::Upright,
-        SpriteFacing::Fixed,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            SpriteFacing::Camera => "Face the camera",
-            SpriteFacing::Upright => "Upright",
-            SpriteFacing::Fixed => "Fixed plane",
-        }
+labeled_enum! {
+    /// How sprites turn.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum SpriteFacing {
+        /// Always square on to the camera.
+        #[default]
+        Camera => "Face the camera",
+        /// Stand upright and turn around the vertical axis only (trees, people).
+        Upright => "Upright",
+        /// A plane in the scene facing +z, turned with the layer and the copies.
+        Fixed => "Fixed plane",
     }
 }
 
-/// How sprites mix with what is behind them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum SpriteBlend {
-    /// Soft edges from the image's alpha (copies drawn back to front).
-    #[default]
-    Alpha,
-    /// Light adds up: glows, flares, fire.
-    Additive,
-    /// Hard edges at half alpha; solid, so no sorting is needed.
-    Cutout,
-    /// Cutout with every other pixel left out in a checkerboard: the
-    /// Saturn's see-through "mesh".
-    Mesh,
-}
-
-impl SpriteBlend {
-    pub const ALL: [SpriteBlend; 4] = [
-        SpriteBlend::Alpha,
-        SpriteBlend::Additive,
-        SpriteBlend::Cutout,
-        SpriteBlend::Mesh,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            SpriteBlend::Alpha => "Alpha",
-            SpriteBlend::Additive => "Additive (glow)",
-            SpriteBlend::Cutout => "Cutout",
-            SpriteBlend::Mesh => "Mesh (Saturn)",
-        }
+labeled_enum! {
+    /// How sprites mix with what is behind them.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum SpriteBlend {
+        /// Soft edges from the image's alpha (copies drawn back to front).
+        #[default]
+        Alpha => "Alpha",
+        /// Light adds up: glows, flares, fire.
+        Additive => "Additive (glow)",
+        /// Hard edges at half alpha; solid, so no sorting is needed.
+        Cutout => "Cutout",
+        /// Cutout with every other pixel left out in a checkerboard: the
+        /// Saturn's see-through "mesh".
+        Mesh => "Mesh (Saturn)",
     }
 }
 
-/// What a logo is made of.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum LogoSource {
-    /// A line (or a few lines) of text in a font.
-    #[default]
-    Text,
-    /// An image; its shape comes from `LogoLayer::mask`.
-    Image,
-}
-
-impl LogoSource {
-    pub const ALL: [LogoSource; 2] = [LogoSource::Text, LogoSource::Image];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            LogoSource::Text => "Text",
-            LogoSource::Image => "Image",
-        }
+labeled_enum! {
+    /// What a logo is made of.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum LogoSource {
+        /// A line (or a few lines) of text in a font.
+        #[default]
+        Text => "Text",
+        /// An image; its shape comes from `LogoLayer::mask`.
+        Image => "Image",
     }
 }
 
-/// Which parts of a logo image are the logo.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum LogoMask {
-    /// The image's transparency.
-    #[default]
-    Alpha,
-    /// Bright parts (a logo on black).
-    Bright,
-    /// Dark parts (a logo on white).
-    Dark,
-}
-
-impl LogoMask {
-    pub const ALL: [LogoMask; 3] = [LogoMask::Alpha, LogoMask::Bright, LogoMask::Dark];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            LogoMask::Alpha => "Transparency",
-            LogoMask::Bright => "Bright parts",
-            LogoMask::Dark => "Dark parts",
-        }
+labeled_enum! {
+    /// Which parts of a logo image are the logo.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum LogoMask {
+        /// The image's transparency.
+        #[default]
+        Alpha => "Transparency",
+        /// Bright parts (a logo on black).
+        Bright => "Bright parts",
+        /// Dark parts (a logo on white).
+        Dark => "Dark parts",
     }
 }
 
-/// Where a logo's colour comes from.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum LogoColors {
-    /// The image's own colours times the tint (text: the tint).
-    Image,
-    /// Top to bottom gradient.
-    #[default]
-    Gradient,
-}
-
-impl LogoColors {
-    pub const ALL: [LogoColors; 2] = [LogoColors::Image, LogoColors::Gradient];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            LogoColors::Image => "Image colours",
-            LogoColors::Gradient => "Gradient",
-        }
+labeled_enum! {
+    /// Where a logo's colour comes from.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum LogoColors {
+        /// The image's own colours times the tint (text: the tint).
+        Image => "Image colours",
+        /// Top to bottom gradient.
+        #[default]
+        Gradient => "Gradient",
     }
 }
 
-/// The shape of a logo's bevel, from the edge inward.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum LogoBevel {
-    /// Flat: no lighting.
-    #[default]
-    Off,
-    /// A rounded edge (a quarter circle).
-    Round,
-    /// A straight slope, like cut metal.
-    Chiselled,
-    /// Terraces.
-    Stepped,
-    /// The whole logo bulges like a cushion.
-    Pillow,
+labeled_enum! {
+    /// The shape of a logo's bevel, from the edge inward.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum LogoBevel {
+        /// Flat: no lighting.
+        #[default]
+        Off => "Flat",
+        /// A rounded edge (a quarter circle).
+        Round => "Round",
+        /// A straight slope, like cut metal.
+        Chiselled => "Chiselled",
+        /// Terraces.
+        Stepped => "Stepped",
+        /// The whole logo bulges like a cushion.
+        Pillow => "Pillow",
+    }
 }
 
 impl LogoBevel {
-    pub const ALL: [LogoBevel; 5] = [
-        LogoBevel::Off,
-        LogoBevel::Round,
-        LogoBevel::Chiselled,
-        LogoBevel::Stepped,
-        LogoBevel::Pillow,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            LogoBevel::Off => "Flat",
-            LogoBevel::Round => "Round",
-            LogoBevel::Chiselled => "Chiselled",
-            LogoBevel::Stepped => "Stepped",
-            LogoBevel::Pillow => "Pillow",
-        }
-    }
-
     pub fn index(self) -> u32 {
         LogoBevel::ALL.iter().position(|b| *b == self).unwrap_or(0) as u32
     }
 }
 
-/// How a logo appears as its reveal goes from 0 to 1.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum LogoReveal {
-    /// The letters grow outward from their middle lines.
-    #[default]
-    Grow,
-    /// Outlines first, then they fill inward.
-    Edges,
-    /// A straight wipe across, in a direction.
-    Wipe,
-    /// A circle opening from the middle.
-    Radial,
+labeled_enum! {
+    /// How a logo appears as its reveal goes from 0 to 1.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum LogoReveal {
+        /// The letters grow outward from their middle lines.
+        #[default]
+        Grow => "Grow from the middle",
+        /// Outlines first, then they fill inward.
+        Edges => "Edges first",
+        /// A straight wipe across, in a direction.
+        Wipe => "Wipe",
+        /// A circle opening from the middle.
+        Radial => "Circle",
+    }
 }
 
 impl LogoReveal {
-    pub const ALL: [LogoReveal; 4] = [
-        LogoReveal::Grow,
-        LogoReveal::Edges,
-        LogoReveal::Wipe,
-        LogoReveal::Radial,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            LogoReveal::Grow => "Grow from the middle",
-            LogoReveal::Edges => "Edges first",
-            LogoReveal::Wipe => "Wipe",
-            LogoReveal::Radial => "Circle",
-        }
-    }
-
     pub fn index(self) -> u32 {
         LogoReveal::ALL.iter().position(|r| *r == self).unwrap_or(0) as u32
     }
 }
 
-/// The point of the logo that sits at its position (and that it turns
-/// around).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum LogoAnchor {
-    TopLeft,
-    Top,
-    TopRight,
-    Left,
-    #[default]
-    Centre,
-    Right,
-    BottomLeft,
-    Bottom,
-    BottomRight,
+labeled_enum! {
+    /// The point of the logo that sits at its position (and that it turns
+    /// around).
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum LogoAnchor {
+        TopLeft => "Top left",
+        Top => "Top",
+        TopRight => "Top right",
+        Left => "Left",
+        #[default]
+        Centre => "Centre",
+        Right => "Right",
+        BottomLeft => "Bottom left",
+        Bottom => "Bottom",
+        BottomRight => "Bottom right",
+    }
 }
 
 impl LogoAnchor {
-    pub const ALL: [LogoAnchor; 9] = [
-        LogoAnchor::TopLeft,
-        LogoAnchor::Top,
-        LogoAnchor::TopRight,
-        LogoAnchor::Left,
-        LogoAnchor::Centre,
-        LogoAnchor::Right,
-        LogoAnchor::BottomLeft,
-        LogoAnchor::Bottom,
-        LogoAnchor::BottomRight,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            LogoAnchor::TopLeft => "Top left",
-            LogoAnchor::Top => "Top",
-            LogoAnchor::TopRight => "Top right",
-            LogoAnchor::Left => "Left",
-            LogoAnchor::Centre => "Centre",
-            LogoAnchor::Right => "Right",
-            LogoAnchor::BottomLeft => "Bottom left",
-            LogoAnchor::Bottom => "Bottom",
-            LogoAnchor::BottomRight => "Bottom right",
-        }
-    }
-
     /// The point in the same place on the opposite side (Top ↔ Bottom,
     /// Left ↔ Right).
     pub fn opposite(self) -> LogoAnchor {
@@ -5341,42 +4823,26 @@ impl Default for Ribbon {
 // ---------------------------------------------------------------------------
 // Weather
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum Precipitation {
-    /// Streaks of rain with splashes on the ground.
-    #[default]
-    Rain,
-    /// Slowly swaying snowflakes.
-    Snow,
-    /// Glowing embers rising from the ground.
-    Embers,
-    /// A sandstorm: dust blown sideways.
-    Dust,
-    /// Fireflies wandering and blinking.
-    Fireflies,
-    /// No particles (lightning only).
-    None,
+labeled_enum! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum Precipitation {
+        /// Streaks of rain with splashes on the ground.
+        #[default]
+        Rain => "Rain",
+        /// Slowly swaying snowflakes.
+        Snow => "Snow",
+        /// Glowing embers rising from the ground.
+        Embers => "Rising embers",
+        /// A sandstorm: dust blown sideways.
+        Dust => "Sandstorm",
+        /// Fireflies wandering and blinking.
+        Fireflies => "Fireflies",
+        /// No particles (lightning only).
+        None => "None (lightning only)",
+    }
 }
 
 impl Precipitation {
-    pub const ALL: [Precipitation; 6] = [
-        Precipitation::Rain,
-        Precipitation::Snow,
-        Precipitation::Embers,
-        Precipitation::Dust,
-        Precipitation::Fireflies,
-        Precipitation::None,
-    ];
-    pub fn label(self) -> &'static str {
-        match self {
-            Precipitation::Rain => "Rain",
-            Precipitation::Snow => "Snow",
-            Precipitation::Embers => "Rising embers",
-            Precipitation::Dust => "Sandstorm",
-            Precipitation::Fireflies => "Fireflies",
-            Precipitation::None => "None (lightning only)",
-        }
-    }
     pub fn index(self) -> u32 {
         Precipitation::ALL
             .iter()
@@ -5569,23 +5035,17 @@ mod weather_tests {
 // ---------------------------------------------------------------------------
 // Waterfall
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum FallKind {
-    #[default]
-    Water,
-    Lava,
-    Toxic,
+labeled_enum! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum FallKind {
+        #[default]
+        Water => "Water",
+        Lava => "Lava",
+        Toxic => "Toxic goo",
+    }
 }
 
 impl FallKind {
-    pub const ALL: [FallKind; 3] = [FallKind::Water, FallKind::Lava, FallKind::Toxic];
-    pub fn label(self) -> &'static str {
-        match self {
-            FallKind::Water => "Water",
-            FallKind::Lava => "Lava",
-            FallKind::Toxic => "Toxic goo",
-        }
-    }
     pub fn index(self) -> u32 {
         FallKind::ALL.iter().position(|t| *t == self).unwrap_or(0) as u32
     }

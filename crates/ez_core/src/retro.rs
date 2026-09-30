@@ -8,42 +8,26 @@
 use crate::param::Param;
 use serde::{Deserialize, Serialize};
 
-/// The resolution the 3D scene is drawn at before being blown up with
-/// chunky, unsmoothed pixels.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum RetroRes {
-    /// The output's own resolution (no chunky pixels).
-    #[default]
-    Full,
-    /// 256 × 224: SNES, Saturn and many PS1 games.
-    R256x224,
-    /// 320 × 240: most PS1 and N64 games.
-    R320x240,
-    /// 640 × 480: PS1 and N64 high-resolution modes.
-    R640x480,
-    /// Your own size (see [`Retro3d::custom`]).
-    Custom,
+labeled_enum! {
+    /// The resolution the 3D scene is drawn at before being blown up with
+    /// chunky, unsmoothed pixels.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum RetroRes {
+        /// The output's own resolution (no chunky pixels).
+        #[default]
+        Full => "Full (output size)",
+        /// 256 × 224: SNES, Saturn and many PS1 games.
+        R256x224 => "256 × 224",
+        /// 320 × 240: most PS1 and N64 games.
+        R320x240 => "320 × 240",
+        /// 640 × 480: PS1 and N64 high-resolution modes.
+        R640x480 => "640 × 480",
+        /// Your own size (see [`Retro3d::custom`]).
+        Custom => "Custom",
+    }
 }
 
 impl RetroRes {
-    pub const ALL: [RetroRes; 5] = [
-        RetroRes::Full,
-        RetroRes::R256x224,
-        RetroRes::R320x240,
-        RetroRes::R640x480,
-        RetroRes::Custom,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            RetroRes::Full => "Full (output size)",
-            RetroRes::R256x224 => "256 × 224",
-            RetroRes::R320x240 => "320 × 240",
-            RetroRes::R640x480 => "640 × 480",
-            RetroRes::Custom => "Custom",
-        }
-    }
-
     /// The size on a 4:3 screen, or `None` for full resolution.
     pub fn size(self, custom: [u32; 2]) -> Option<[u32; 2]> {
         match self {
@@ -71,41 +55,23 @@ pub fn fit_to_output(size: [u32; 2], out: (u32, u32)) -> (u32, u32) {
     (w.min(out.0.max(1)), h)
 }
 
-/// One-click looks: each turns on the matching bundle of settings.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RetroStyle {
-    /// Everything off.
-    Modern,
-    /// Wobbly vertices, warped textures, square texture pixels, 15-bit
-    /// dithered colour, chunky pixels at 320 × 240.
-    Ps1,
-    /// Like the PlayStation but steadier warp, 320 × 224 and no dither.
-    Saturn,
-    /// Soft 3-point filtered textures, thick fog close to the camera,
-    /// dithered 15-bit colour smoothed by the video blur.
-    N64,
-    /// Software-rendered Quake: 320 × 200, square texture pixels, light
-    /// stepping through a 256-colour palette with glowing fullbrights.
-    Quake,
-}
-
-impl RetroStyle {
-    pub const ALL: [RetroStyle; 5] = [
-        RetroStyle::Modern,
-        RetroStyle::Ps1,
-        RetroStyle::Saturn,
-        RetroStyle::N64,
-        RetroStyle::Quake,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            RetroStyle::Modern => "Modern (off)",
-            RetroStyle::Ps1 => "PlayStation",
-            RetroStyle::Saturn => "Saturn",
-            RetroStyle::N64 => "Nintendo 64",
-            RetroStyle::Quake => "Quake (software)",
-        }
+labeled_enum! {
+    /// One-click looks: each turns on the matching bundle of settings.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum RetroStyle {
+        /// Everything off.
+        Modern => "Modern (off)",
+        /// Wobbly vertices, warped textures, square texture pixels, 15-bit
+        /// dithered colour, chunky pixels at 320 × 240.
+        Ps1 => "PlayStation",
+        /// Like the PlayStation but steadier warp, 320 × 224 and no dither.
+        Saturn => "Saturn",
+        /// Soft 3-point filtered textures, thick fog close to the camera,
+        /// dithered 15-bit colour smoothed by the video blur.
+        N64 => "Nintendo 64",
+        /// Software-rendered Quake: 320 × 200, square texture pixels, light
+        /// stepping through a 256-colour palette with glowing fullbrights.
+        Quake => "Quake (software)",
     }
 }
 
@@ -306,39 +272,25 @@ impl Retro3d {
     }
 }
 
-/// How a texture is smoothed between its pixels.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum TexFilter {
-    /// Smooth, with smaller copies further away (modern).
-    #[default]
-    Smooth,
-    /// Square pixels (PlayStation, Saturn, Quake).
-    Nearest,
-    /// Blended between the four nearest pixels, without smaller copies
-    /// (so it shimmers in the distance).
-    Bilinear,
-    /// The Nintendo 64's cheaper blend of three pixels: soft, with a
-    /// faint diagonal grain.
-    ThreePoint,
+labeled_enum! {
+    /// How a texture is smoothed between its pixels.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum TexFilter {
+        /// Smooth, with smaller copies further away (modern).
+        #[default]
+        Smooth => "Smooth",
+        /// Square pixels (PlayStation, Saturn, Quake).
+        Nearest => "Nearest (PS1)",
+        /// Blended between the four nearest pixels, without smaller copies
+        /// (so it shimmers in the distance).
+        Bilinear => "Bilinear, no mipmaps",
+        /// The Nintendo 64's cheaper blend of three pixels: soft, with a
+        /// faint diagonal grain.
+        ThreePoint => "3-point (N64)",
+    }
 }
 
 impl TexFilter {
-    pub const ALL: [TexFilter; 4] = [
-        TexFilter::Smooth,
-        TexFilter::Nearest,
-        TexFilter::Bilinear,
-        TexFilter::ThreePoint,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            TexFilter::Smooth => "Smooth",
-            TexFilter::Nearest => "Nearest (PS1)",
-            TexFilter::Bilinear => "Bilinear, no mipmaps",
-            TexFilter::ThreePoint => "3-point (N64)",
-        }
-    }
-
     pub fn index(self) -> u32 {
         TexFilter::ALL.iter().position(|f| *f == self).unwrap_or(0) as u32
     }
@@ -347,33 +299,19 @@ impl TexFilter {
 // ---------------------------------------------------------------------------
 // The whole screen at an old machine's resolution
 
-/// How the console's picture sits on the output.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum ScreenFrame {
-    /// Stretched over the whole output (pixels as wide as that makes them).
-    Fill,
-    /// On a 4:3 television, with the border colour at the sides: pixels
-    /// as wide as they were (a C64's 160 × 200 pixels are twice as wide
-    /// as tall).
-    #[default]
-    Tv,
-    /// Square pixels (handhelds: the Game Boy's 160 × 144 screen).
-    SquarePixels,
-}
-
-impl ScreenFrame {
-    pub const ALL: [ScreenFrame; 3] = [
-        ScreenFrame::Fill,
-        ScreenFrame::Tv,
-        ScreenFrame::SquarePixels,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            ScreenFrame::Fill => "Fill the output",
-            ScreenFrame::Tv => "4:3 television",
-            ScreenFrame::SquarePixels => "Square pixels",
-        }
+labeled_enum! {
+    /// How the console's picture sits on the output.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum ScreenFrame {
+        /// Stretched over the whole output (pixels as wide as that makes them).
+        Fill => "Fill the output",
+        /// On a 4:3 television, with the border colour at the sides: pixels
+        /// as wide as they were (a C64's 160 × 200 pixels are twice as wide
+        /// as tall).
+        #[default]
+        Tv => "4:3 television",
+        /// Square pixels (handhelds: the Game Boy's 160 × 144 screen).
+        SquarePixels => "Square pixels",
     }
 }
 
@@ -420,36 +358,20 @@ impl Default for ConsoleScreen {
     }
 }
 
-/// What the border shows while a tape loads.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum StripeMode {
-    #[default]
-    Off,
-    /// The pilot tone: broad red and cyan bands rolling.
-    Pilot,
-    /// Data: thin, jittering blue and yellow bands.
-    Data,
-    /// The whole load over the loop: pilot, then the picture's lines
-    /// arriving in the Spectrum's memory order in black and white, then its
-    /// colours by character rows, then a moment finished.
-    Loading,
-}
-
-impl StripeMode {
-    pub const ALL: [StripeMode; 4] = [
-        StripeMode::Off,
-        StripeMode::Pilot,
-        StripeMode::Data,
-        StripeMode::Loading,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            StripeMode::Off => "Off",
-            StripeMode::Pilot => "Pilot tone (red / cyan)",
-            StripeMode::Data => "Data (blue / yellow)",
-            StripeMode::Loading => "Loading screen (whole load)",
-        }
+labeled_enum! {
+    /// What the border shows while a tape loads.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum StripeMode {
+        #[default]
+        Off => "Off",
+        /// The pilot tone: broad red and cyan bands rolling.
+        Pilot => "Pilot tone (red / cyan)",
+        /// Data: thin, jittering blue and yellow bands.
+        Data => "Data (blue / yellow)",
+        /// The whole load over the loop: pilot, then the picture's lines
+        /// arriving in the Spectrum's memory order in black and white, then its
+        /// colours by character rows, then a moment finished.
+        Loading => "Loading screen (whole load)",
     }
 }
 
@@ -566,59 +488,27 @@ impl ConsoleScreen {
     }
 }
 
-/// Old machines' screens, with their palettes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ScreenPreset {
-    C64Multicolour,
-    C64Hires,
-    ZxSpectrum,
-    AmstradMode0,
-    Cga,
-    MsDosVga,
-    AmigaLores,
-    Nes,
-    MasterSystem,
-    MegaDrive,
-    GameBoy,
-    VirtualBoy,
-    Macintosh,
+labeled_enum! {
+    /// Old machines' screens, with their palettes.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum ScreenPreset {
+        C64Multicolour => "C64 multicolour 160×200",
+        C64Hires => "C64 hi-res 320×200",
+        ZxSpectrum => "ZX Spectrum 256×192",
+        AmstradMode0 => "Amstrad CPC mode 0 160×200",
+        Cga => "PC CGA 320×200",
+        MsDosVga => "MS-DOS VGA 320×200",
+        AmigaLores => "Amiga lo-res 320×256",
+        Nes => "NES 256×240",
+        MasterSystem => "Master System 256×192",
+        MegaDrive => "Mega Drive 320×224",
+        GameBoy => "Game Boy 160×144",
+        VirtualBoy => "Virtual Boy 384×224",
+        Macintosh => "Macintosh 512×342",
+    }
 }
 
 impl ScreenPreset {
-    pub const ALL: [ScreenPreset; 13] = [
-        ScreenPreset::C64Multicolour,
-        ScreenPreset::C64Hires,
-        ScreenPreset::ZxSpectrum,
-        ScreenPreset::AmstradMode0,
-        ScreenPreset::Cga,
-        ScreenPreset::MsDosVga,
-        ScreenPreset::AmigaLores,
-        ScreenPreset::Nes,
-        ScreenPreset::MasterSystem,
-        ScreenPreset::MegaDrive,
-        ScreenPreset::GameBoy,
-        ScreenPreset::VirtualBoy,
-        ScreenPreset::Macintosh,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            ScreenPreset::C64Multicolour => "C64 multicolour 160×200",
-            ScreenPreset::C64Hires => "C64 hi-res 320×200",
-            ScreenPreset::ZxSpectrum => "ZX Spectrum 256×192",
-            ScreenPreset::AmstradMode0 => "Amstrad CPC mode 0 160×200",
-            ScreenPreset::Cga => "PC CGA 320×200",
-            ScreenPreset::MsDosVga => "MS-DOS VGA 320×200",
-            ScreenPreset::AmigaLores => "Amiga lo-res 320×256",
-            ScreenPreset::Nes => "NES 256×240",
-            ScreenPreset::MasterSystem => "Master System 256×192",
-            ScreenPreset::MegaDrive => "Mega Drive 320×224",
-            ScreenPreset::GameBoy => "Game Boy 160×144",
-            ScreenPreset::VirtualBoy => "Virtual Boy 384×224",
-            ScreenPreset::Macintosh => "Macintosh 512×342",
-        }
-    }
-
     /// Border inside the frame (share of width, height per side): the
     /// machines whose picture sat inside a wide border.
     pub fn inset(self) -> [f32; 2] {
@@ -737,47 +627,23 @@ impl LightStyle {
     }
 }
 
-/// Ready-made light styles.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LightStylePreset {
-    Steady,
-    Flicker,
-    Candle,
-    Pulse,
-    SlowPulse,
-    Strobe,
-    SlowStrobe,
-    Fluorescent,
-    Torch,
+labeled_enum! {
+    /// Ready-made light styles.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum LightStylePreset {
+        Steady => "Steady",
+        Flicker => "Flicker",
+        Candle => "Candle",
+        Pulse => "Pulse",
+        SlowPulse => "Slow pulse",
+        Strobe => "Strobe",
+        SlowStrobe => "Slow strobe",
+        Fluorescent => "Broken fluorescent",
+        Torch => "Torch",
+    }
 }
 
 impl LightStylePreset {
-    pub const ALL: [LightStylePreset; 9] = [
-        LightStylePreset::Steady,
-        LightStylePreset::Flicker,
-        LightStylePreset::Candle,
-        LightStylePreset::Pulse,
-        LightStylePreset::SlowPulse,
-        LightStylePreset::Strobe,
-        LightStylePreset::SlowStrobe,
-        LightStylePreset::Fluorescent,
-        LightStylePreset::Torch,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            LightStylePreset::Steady => "Steady",
-            LightStylePreset::Flicker => "Flicker",
-            LightStylePreset::Candle => "Candle",
-            LightStylePreset::Pulse => "Pulse",
-            LightStylePreset::SlowPulse => "Slow pulse",
-            LightStylePreset::Strobe => "Strobe",
-            LightStylePreset::SlowStrobe => "Slow strobe",
-            LightStylePreset::Fluorescent => "Broken fluorescent",
-            LightStylePreset::Torch => "Torch",
-        }
-    }
-
     pub fn pattern(self) -> &'static str {
         match self {
             LightStylePreset::Steady => "",

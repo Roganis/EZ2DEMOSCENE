@@ -12,35 +12,19 @@ pub const CLOTH_MAX_DETAIL: u32 = 48;
 /// Simulation substeps per step (small steps, one constraint pass each).
 const SUBSTEPS: usize = 6;
 
-/// What the cloth is and where it hangs from.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ClothKind {
-    /// Upright, held along one side by a pole.
-    #[default]
-    Flag,
-    /// Upright, held along the top.
-    Curtain,
-    /// Upright, held by its two top corners.
-    Banner,
-    /// Flat, dropped over a ball: a tablecloth or a sheet over a ghost.
-    Drape,
-}
-
-impl ClothKind {
-    pub const ALL: [ClothKind; 4] = [
-        ClothKind::Flag,
-        ClothKind::Curtain,
-        ClothKind::Banner,
-        ClothKind::Drape,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            ClothKind::Flag => "Flag",
-            ClothKind::Curtain => "Curtain",
-            ClothKind::Banner => "Banner",
-            ClothKind::Drape => "Drape over a ball",
-        }
+labeled_enum! {
+    /// What the cloth is and where it hangs from.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+    pub enum ClothKind {
+        /// Upright, held along one side by a pole.
+        #[default]
+        Flag => "Flag",
+        /// Upright, held along the top.
+        Curtain => "Curtain",
+        /// Upright, held by its two top corners.
+        Banner => "Banner",
+        /// Flat, dropped over a ball: a tablecloth or a sheet over a ghost.
+        Drape => "Drape over a ball",
     }
 }
 

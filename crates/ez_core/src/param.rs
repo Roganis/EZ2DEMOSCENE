@@ -208,41 +208,25 @@ impl Wave {
     }
 }
 
-/// How an envelope goes from one point to the next.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum Curve {
-    /// Straight line.
-    #[default]
-    Linear,
-    /// Eases out of one point and into the next.
-    Smooth,
-    /// Starts slowly, arrives fast.
-    EaseIn,
-    /// Starts fast, arrives slowly.
-    EaseOut,
-    /// Stays, then jumps at the next point.
-    Hold,
+labeled_enum! {
+    /// How an envelope goes from one point to the next.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum Curve {
+        /// Straight line.
+        #[default]
+        Linear => "Straight",
+        /// Eases out of one point and into the next.
+        Smooth => "Smooth",
+        /// Starts slowly, arrives fast.
+        EaseIn => "Ease in (slow start)",
+        /// Starts fast, arrives slowly.
+        EaseOut => "Ease out (slow end)",
+        /// Stays, then jumps at the next point.
+        Hold => "Hold, then jump",
+    }
 }
 
 impl Curve {
-    pub const ALL: [Curve; 5] = [
-        Curve::Linear,
-        Curve::Smooth,
-        Curve::EaseIn,
-        Curve::EaseOut,
-        Curve::Hold,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Curve::Linear => "Straight",
-            Curve::Smooth => "Smooth",
-            Curve::EaseIn => "Ease in (slow start)",
-            Curve::EaseOut => "Ease out (slow end)",
-            Curve::Hold => "Hold, then jump",
-        }
-    }
-
     /// Progress 0..1 along a segment shaped by the curve.
     fn shape(self, u: f32) -> f32 {
         let u = u.clamp(0.0, 1.0);
@@ -356,41 +340,25 @@ impl Envelope {
     }
 }
 
-/// A shape drawn into one cell of the envelope's grid (the editor's shape
-/// tools), from the bottom up to a height.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Stamp {
-    /// Flat across the cell.
-    Step,
-    /// High for the first half, low for the second.
-    Square,
-    /// Rises across the cell, then drops.
-    RampUp,
-    /// Jumps up, then falls across the cell.
-    RampDown,
-    /// Up and back down.
-    Triangle,
+labeled_enum! {
+    /// A shape drawn into one cell of the envelope's grid (the editor's shape
+    /// tools), from the bottom up to a height.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Stamp {
+        /// Flat across the cell.
+        Step => "Step: flat at the height you click",
+        /// High for the first half, low for the second.
+        Square => "Square: high, then low",
+        /// Rises across the cell, then drops.
+        RampUp => "Ramp up: rises, then drops",
+        /// Jumps up, then falls across the cell.
+        RampDown => "Ramp down: jumps up, then falls",
+        /// Up and back down.
+        Triangle => "Triangle: up and down",
+    }
 }
 
 impl Stamp {
-    pub const ALL: [Stamp; 5] = [
-        Stamp::Step,
-        Stamp::Square,
-        Stamp::RampUp,
-        Stamp::RampDown,
-        Stamp::Triangle,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Stamp::Step => "Step: flat at the height you click",
-            Stamp::Square => "Square: high, then low",
-            Stamp::RampUp => "Ramp up: rises, then drops",
-            Stamp::RampDown => "Ramp down: jumps up, then falls",
-            Stamp::Triangle => "Triangle: up and down",
-        }
-    }
-
     /// The shape in a unit cell at height 1: its points (t, v, curve on to
     /// the next), and the value it arrives at by the end of the cell.
     pub fn outline(self) -> (&'static [(f32, f32, Curve)], f32) {

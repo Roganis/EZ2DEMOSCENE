@@ -18,22 +18,14 @@ use crate::clock::Timing;
 use crate::param::Wave;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum MusicMode {
-    /// A loop-length window of the song, played as a seamless loop.
-    #[default]
-    LoopWindow,
-    /// The whole song; exports last as long as the song.
-    FullTrack,
-}
-
-impl MusicMode {
-    pub const ALL: [MusicMode; 2] = [MusicMode::LoopWindow, MusicMode::FullTrack];
-    pub fn label(self) -> &'static str {
-        match self {
-            MusicMode::LoopWindow => "Loop a part of the song",
-            MusicMode::FullTrack => "Whole song",
-        }
+labeled_enum! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub enum MusicMode {
+        /// A loop-length window of the song, played as a seamless loop.
+        #[default]
+        LoopWindow => "Loop a part of the song",
+        /// The whole song; exports last as long as the song.
+        FullTrack => "Whole song",
     }
 }
 

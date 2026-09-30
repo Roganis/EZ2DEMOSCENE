@@ -6,6 +6,9 @@
 //! of the loop *phase* (0..1) with integer cycle counts, which makes every
 //! scene seamlessly loopable by construction.
 
+#[macro_use]
+mod macros;
+
 pub mod analysis;
 pub mod assets;
 pub mod audio;
