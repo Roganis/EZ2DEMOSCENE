@@ -340,8 +340,8 @@ fn shade(uv: vec2<f32>, box: vec2<f32>, lod: f32, px: vec2<f32>) -> vec4<f32> {
     col = mix(col, mat, clamp(D.v[11].y, 0.0, 1.0));
     // Glass: the picture behind, bent by the slope of the letters (a
     // rounded edge when there is no bevel).
-    let gl = clamp(E.v[26].x, 0.0, 1.0);
-    if (gl > 0.0) {
+    let glass = clamp(E.v[26].x, 0.0, 1.0);
+    if (glass > 0.0) {
         // The surface's tilt (at most 1 each way).
         var gn = n.xy;
         if (kind == 0) {
@@ -363,7 +363,7 @@ fn shade(uv: vec2<f32>, box: vec2<f32>, lod: f32, px: vec2<f32>) -> vec4<f32> {
         let bb = textureSampleLevel(t_behind, s_clamp, base + bend * (1.0 - dsp), 0.0).b;
         // Edges catch the light, as glass edges do.
         let rim = pow(clamp(length(gn), 0.0, 1.0), 3.0) * 0.6;
-        col = mix(col, vec3<f32>(br, bg, bb) * E.v[27].rgb + E.v[27].rgb * rim, gl);
+        col = mix(col, vec3<f32>(br, bg, bb) * E.v[27].rgb + E.v[27].rgb * rim, glass);
     }
     if (kind > 0) {
         let h = normalize(D.v[9].xyz + vec3<f32>(0.0, 0.0, 1.0));

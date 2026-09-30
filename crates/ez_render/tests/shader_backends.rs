@@ -1,7 +1,13 @@
-//! Translates every WGSL module through naga's HLSL, MSL and GLSL ES
-//! backends, so shader problems specific to Windows, macOS or WebGL show up
-//! on any machine. The HLSL of each module is written to
-//! `target/shader_dump/<name>.hlsl` for inspection.
+//! Translates every WGSL module through naga's HLSL, MSL, GLSL ES and
+//! desktop GLSL backends, so shader problems specific to Windows, macOS,
+//! WebGL or a desktop OpenGL context show up on any machine. The HLSL of
+//! each module is written to `target/shader_dump/<name>.hlsl` for
+//! inspection.
+//!
+//! naga translating is not the driver accepting: naga has written GLSL no
+//! compiler takes (a depth texture sampled without a compare became
+//! `textureLod(sampler2DShadow, vec2, ..)`). So when `glslangValidator` is
+//! on the PATH the GLSL is also compiled, and a rejection fails the test.
 
 use naga::back::{glsl, hlsl, msl};
 use naga::valid::{Capabilities, ValidationFlags, Validator};
@@ -235,36 +241,83 @@ fn shaders_translate_for_every_backend() {
         )
         .unwrap_or_else(|e| panic!("{name} → MSL: {e}"));
 
-        // WebGL2 (GLSL ES 3.00), one entry point at a time. It has no
-        // compute shaders (the renderer falls back to the CPU there).
+        // WebGL2 (GLSL ES 3.00) and a desktop GL 3.3 core context (what
+        // wgpu's GL backend writes for one, e.g. a host's context lent to
+        // ez_embed), one entry point at a time. Compute shaders are left
+        // out: WebGL2 has none (the renderer falls back to the CPU there).
+        let targets = [
+            (
+                "GLSL ES",
+                "es300",
+                glsl::Version::Embedded {
+                    version: 300,
+                    is_webgl: true,
+                },
+            ),
+            ("GLSL 330", "gl330", glsl::Version::Desktop(330)),
+        ];
         for ep in &module.entry_points {
             if ep.stage == naga::ShaderStage::Compute {
                 continue;
             }
-            let options = glsl::Options {
-                version: glsl::Version::Embedded {
-                    version: 300,
-                    is_webgl: true,
-                },
-                ..Default::default()
-            };
-            let pipeline = glsl::PipelineOptions {
-                shader_stage: ep.stage,
-                entry_point: ep.name.clone(),
-                multiview: None,
-            };
-            let mut s = String::new();
-            glsl::Writer::new(
-                &mut s,
-                &module,
-                &info,
-                &options,
-                &pipeline,
-                naga::proc::BoundsCheckPolicies::default(),
-            )
-            .and_then(|mut w| w.write())
-            .unwrap_or_else(|e| panic!("{name}::{} → GLSL ES: {e}", ep.name));
+            for (what, tag, version) in targets {
+                let options = glsl::Options {
+                    version,
+                    ..Default::default()
+                };
+                let pipeline = glsl::PipelineOptions {
+                    shader_stage: ep.stage,
+                    entry_point: ep.name.clone(),
+                    multiview: None,
+                };
+                let mut s = String::new();
+                glsl::Writer::new(
+                    &mut s,
+                    &module,
+                    &info,
+                    &options,
+                    &pipeline,
+                    naga::proc::BoundsCheckPolicies::default(),
+                )
+                .and_then(|mut w| w.write())
+                .unwrap_or_else(|e| panic!("{name}::{} → {what}: {e}", ep.name));
+                if let Some(err) = glslang_rejects(&dump, name, &ep.name, tag, ep.stage, &s) {
+                    problems.push(format!("{name}::{} → {what}: {err}", ep.name));
+                }
+            }
         }
     }
     assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
+
+/// Compiles GLSL with glslangValidator when it is installed; `Some(why)`
+/// when it rejects the shader. Without the tool this checks nothing.
+fn glslang_rejects(
+    dump: &std::path::Path,
+    module: &str,
+    entry: &str,
+    tag: &str,
+    stage: naga::ShaderStage,
+    glsl: &str,
+) -> Option<String> {
+    let ext = match stage {
+        naga::ShaderStage::Vertex => "vert",
+        naga::ShaderStage::Fragment => "frag",
+        _ => return None,
+    };
+    let path = dump.join(format!("{module}.{entry}.{tag}.{ext}"));
+    std::fs::write(&path, glsl).ok()?;
+    let out = std::process::Command::new("glslangValidator")
+        .arg(&path)
+        .output()
+        .ok()?; // not installed
+    if out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let first = text
+        .lines()
+        .find(|l| l.contains("ERROR"))
+        .unwrap_or("rejected");
+    Some(format!("glslangValidator: {first} ({})", path.display()))
 }
