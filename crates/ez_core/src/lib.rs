@@ -26,6 +26,7 @@ pub mod randomize;
 pub mod retro;
 pub mod rng;
 pub mod scene;
+pub mod screen;
 pub mod sequence;
 pub mod signal;
 pub mod sim;

@@ -1668,6 +1668,8 @@ pub const SIM_STATUS: &str = "ez2-sim-status";
 pub const COPY_LAYER_NAMES: &str = "ez2-copy-layer-names";
 /// Names of the logo layers (what a logo can be attached to).
 pub const LOGO_NAMES: &str = "ez2-logo-names";
+/// Names of the 3D layers a logo can follow.
+pub const SHAPE_NAMES: &str = "ez2-shape-names";
 /// Whether the project's colour scheme is on (layers offer to keep their
 /// own colours).
 pub const SCHEME_ON: &str = "ez2-scheme-on";
@@ -5199,10 +5201,14 @@ fn logo_ui(
             .into_iter()
             .filter(|n| n != own_name)
             .collect();
+        let shapes: Vec<String> = ui
+            .data(|d| d.get_temp::<Vec<String>>(egui::Id::new(SHAPE_NAMES)))
+            .unwrap_or_default();
         row(
             ui,
             "Attach to",
-            "Place the logo on the screen, or against another logo (it follows it)",
+            "Place the logo on the screen, against another logo, or where a 3D layer \
+             shows (it follows it as the camera moves)",
             |ui| {
                 let label = if g.attach_to.is_empty() {
                     "The screen".to_string()
@@ -5214,13 +5220,22 @@ fn logo_ui(
                     .selected_text(label)
                     .show_ui(ui, |ui| {
                         ui.selectable_value(&mut g.attach_to, String::new(), "The screen");
+                        if !names.is_empty() {
+                            ui.label(RichText::new("Logos").small().weak());
+                        }
                         for n in &names {
                             ui.selectable_value(&mut g.attach_to, n.clone(), n);
+                        }
+                        if !shapes.is_empty() {
+                            ui.label(RichText::new("3D layers").small().weak());
+                        }
+                        for n in &shapes {
+                            ui.selectable_value(&mut g.attach_to, n.clone(), format!("🧊 {n}"));
                         }
                     });
                 if g.attach_to != before {
                     // Start from a sensible spot: the middle of the screen,
-                    // or just under the other logo.
+                    // or just under the other logo or the 3D layer.
                     let place = if g.attach_to.is_empty() {
                         LogoAnchor::Centre
                     } else {
@@ -5230,9 +5245,12 @@ fn logo_ui(
                 }
             },
         );
-        if !g.attach_to.is_empty() && !names.contains(&g.attach_to) {
+        if !g.attach_to.is_empty()
+            && !names.contains(&g.attach_to)
+            && !shapes.contains(&g.attach_to)
+        {
             ui.label(
-                RichText::new("No logo layer with that name: placed on the screen.")
+                RichText::new("No layer with that name: placed on the screen.")
                     .weak()
                     .small(),
             );
@@ -5240,7 +5258,8 @@ fn logo_ui(
         let tip = if g.attach_to.is_empty() {
             "Snap into a part of the screen (a corner, an edge or the middle)"
         } else {
-            "Snap against the other logo: below, above, beside, at a corner or on top of it"
+            "Snap against what it is attached to (the other logo, or the area the 3D layer \
+             covers on the screen): below, above, beside, at a corner or on top of it"
         };
         row(ui, "Place", tip, |ui| {
             if let Some(a) = anchor_grid(ui, "logo_place", g.attach_point) {

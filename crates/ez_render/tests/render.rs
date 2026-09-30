@@ -4801,3 +4801,59 @@ fn text_numbers_count_and_hold() {
         assert!(lum(&img) > 0.0);
     }
 }
+
+/// A logo attached to a 3D layer sits against where that layer shows and
+/// follows it as the camera orbits; behind the camera it disappears.
+#[test]
+fn logos_follow_3d_layers() {
+    use ez_core::*;
+    let gpu = gpu_or_skip!();
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let (w, h) = (320.0, 180.0);
+    let mut p = presets::empty();
+    p.post.grade.grain = Param::new(0.0);
+    let cube = p.layers.iter().position(|l| l.name == "Cube").unwrap();
+    p.layers[cube].transform.position = [2.0, 1.0, 0.0];
+    p.layers.push(Layer::new(
+        "Label",
+        LayerKind::Logo(LogoLayer {
+            text: "CUBE".into(),
+            size: Param::new(0.08),
+            attach_to: "Cube".into(),
+            attach_point: LogoAnchor::Top,
+            anchor: LogoAnchor::Bottom,
+            x: Param::new(0.0),
+            y: Param::new(0.01),
+            ..Default::default()
+        }),
+    ));
+    let label = p.layers.len() - 1;
+    let mut xs = Vec::new();
+    for phase in [0.1f32, 0.35] {
+        let ctx = EvalCtx::new(&p.timing, phase, None);
+        let b = p.locate_layer("Cube", &ctx, w / h).unwrap();
+        let rect = r.logo_rects(&p, &ctx, [w, h])[label].unwrap();
+        let top_mid = b.point([0.5, 1.0]);
+        let bottom_mid = [(rect[0] + rect[2]) / 2.0, rect[1]];
+        eprintln!("phase {phase}: cube top {top_mid:?}, label bottom {bottom_mid:?}");
+        assert!((bottom_mid[0] - top_mid[0]).abs() < 1e-3);
+        assert!((bottom_mid[1] - (top_mid[1] + 0.01)).abs() < 1e-3);
+        xs.push(bottom_mid[0]);
+    }
+    assert!(
+        (xs[0] - xs[1]).abs() > 0.02,
+        "the label doesn't follow: {xs:?}"
+    );
+    // Move the cube behind the camera: the label goes with it.
+    let ctx = EvalCtx::new(&p.timing, 0.0, None);
+    let cam = p.camera.eval(&ctx);
+    let behind = cam.eye + (cam.eye - cam.target).normalize() * 6.0;
+    p.layers[cube].transform.position = behind.into();
+    p.layers[cube].transform.scale = Param::new(0.5);
+    assert!(p.locate_layer("Cube", &ctx, w / h).is_none());
+    assert!(r.logo_rects(&p, &ctx, [w, h])[label].is_none());
+    // It renders.
+    let target = r.create_target(320, 180);
+    let img = r.render_image(&p, &EvalCtx::new(&p.timing, 0.1, None), &target);
+    assert!(lum(&img) > 0.0);
+}

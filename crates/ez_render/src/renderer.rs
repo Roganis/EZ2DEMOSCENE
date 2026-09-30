@@ -425,14 +425,17 @@ enum Cmd {
     },
 }
 
-/// Place logo `i` (see `Renderer::place_logos`): measured from the screen
-/// or from a point of the logo it is attached to, placed first. A missing
-/// target or a loop of attachments falls back to the screen.
+/// Place logo `i` (see `Renderer::place_logos`): measured from the screen,
+/// from a point of the logo it is attached to (placed first), or from a
+/// point of where the 3D layer it is attached to shows (`boxes`; hidden
+/// while that is behind the camera). A missing target or a loop of
+/// attachments falls back to the screen.
 #[allow(clippy::too_many_arguments)]
 fn place_logo(
     i: usize,
     layers: &[Layer],
     fits: &[Option<LogoFit>],
+    boxes: &[Option<ez_core::screen::ScreenBox>],
     ctx: &EvalCtx,
     w: f32,
     h: f32,
@@ -456,10 +459,29 @@ fn place_logo(
             })
         })
         .flatten();
+    // A 3D layer of that name: measured from where it shows.
+    let shape = (target.is_none() && !g.attach_to.is_empty())
+        .then(|| {
+            layers.iter().position(|l| {
+                l.enabled && l.name == g.attach_to && !matches!(l.kind, LayerKind::Logo(_))
+            })
+        })
+        .flatten();
+    if let Some(j) = shape {
+        let Some(b) = boxes[j] else {
+            // Behind the camera: nothing to label.
+            state[i] = 2;
+            return;
+        };
+        let [bx, by] = b.point([px, py]);
+        out[i] = Some(Vec2::new(bx * w, by * h) + Vec2::new(g.x.eval(ctx) * w, g.y.eval(ctx) * h));
+        state[i] = 2;
+        return;
+    }
     let origin = match target {
         // Not while it is being placed itself (a loop).
         Some(j) if state[j] != 1 => {
-            place_logo(j, layers, fits, ctx, w, h, out, state);
+            place_logo(j, layers, fits, boxes, ctx, w, h, out, state);
             match (&layers[j].kind, out[j], &fits[j]) {
                 (LayerKind::Logo(t), Some(at), Some(fit)) => {
                     let th = t.size.eval(ctx).max(0.0) * h;
@@ -3713,10 +3735,24 @@ impl Renderer {
                 _ => None,
             })
             .collect();
+        // Where the 3D layers that logos are attached to show.
+        let cam = project.camera.eval(ctx);
+        let boxes: Vec<Option<ez_core::screen::ScreenBox>> = layers
+            .iter()
+            .map(|l| {
+                let wanted = !matches!(l.kind, LayerKind::Logo(_))
+                    && layers.iter().any(|o| {
+                        matches!(&o.kind, LayerKind::Logo(g) if o.enabled && g.attach_to == l.name)
+                    });
+                wanted
+                    .then(|| ez_core::screen::layer_box(l, ctx, &cam, w / h.max(1.0)))
+                    .flatten()
+            })
+            .collect();
         let mut out = vec![None; layers.len()];
         let mut state = vec![0u8; layers.len()];
         for i in 0..layers.len() {
-            place_logo(i, layers, &fits, ctx, w, h, &mut out, &mut state);
+            place_logo(i, layers, &fits, &boxes, ctx, w, h, &mut out, &mut state);
         }
         out
     }
@@ -3733,6 +3769,36 @@ impl Renderer {
         self.place_logos(project, &layers, ctx, size[0], size[1])
             .into_iter()
             .map(|p| p.map(|p| [p.x / size[0].max(1.0), p.y / size[1].max(1.0)]))
+            .collect()
+    }
+
+    /// The rectangles the logo layers take on a picture of `size`, as
+    /// fractions from the bottom left: [left, bottom, right, top]
+    /// (unrotated, without glows or effects reaching past the letters).
+    /// `None` for other layers and logos with nothing to draw.
+    pub fn logo_rects(
+        &mut self,
+        project: &Project,
+        ctx: &EvalCtx,
+        size: [f32; 2],
+    ) -> Vec<Option<[f32; 4]>> {
+        let layers = project.scene_layers(ctx);
+        let places = self.place_logos(project, &layers, ctx, size[0], size[1]);
+        let (w, h) = (size[0].max(1.0), size[1].max(1.0));
+        layers
+            .iter()
+            .zip(places)
+            .map(|(l, at)| {
+                let (LayerKind::Logo(g), Some(at)) = (&l.kind, at) else {
+                    return None;
+                };
+                let (_, fit) = self.logo_texture(project, g, ctx)?;
+                let lh = g.size.eval(ctx).max(0.0) * h;
+                let lw = lh * fit.aspect;
+                let [ax, ay] = g.anchor.point();
+                let (x0, y0) = (at.x - ax * lw, at.y - ay * lh);
+                Some([x0 / w, y0 / h, (x0 + lw) / w, (y0 + lh) / h])
+            })
             .collect()
     }
 

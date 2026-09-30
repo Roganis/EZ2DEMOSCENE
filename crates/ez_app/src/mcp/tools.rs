@@ -1,7 +1,7 @@
 //! The MCP tools: presets, scene checking, rendering, saving and export.
 
 use anyhow::{bail, Context, Result};
-use ez_core::{presets, EvalCtx, Project};
+use ez_core::{presets, EvalCtx, LayerKind, Project};
 use ez_export::{ExportFormat, ExportSettings};
 use ez_render::gpu::Gpu;
 use ez_render::{RenderTarget, Renderer};
@@ -79,13 +79,14 @@ pub struct Tools {
     schema: Option<Value>,
 }
 
-const TOOL_NAMES: [&str; 8] = [
+const TOOL_NAMES: [&str; 9] = [
     "list_presets",
     "scene_schema",
     "get_scene",
     "check_scene",
     "render_frame",
     "preview_loop",
+    "locate",
     "save_scene",
     "export_loop",
 ];
@@ -210,6 +211,32 @@ impl Tools {
                 "annotations": read_only,
             },
             {
+                "name": "locate",
+                "title": "Locate layers on screen",
+                "description": "Where layers show on the picture, in the units logos use \
+                    (x across and y up, fractions from the bottom-left corner): for each 3D \
+                    layer the box its shapes cover and the point its position shows at, for \
+                    each logo its rectangle, and which of them overlap. With sweep, over the \
+                    whole loop (the camera and layers move): the area each one ever covers and \
+                    the overlaps at any moment. Also projects world points. To pin a logo to a \
+                    3D layer instead, set the logo's attach_to to that layer's name.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "scene": scene_schema(),
+                        "phase": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.25 },
+                        "sweep": { "type": "integer", "minimum": 2, "maximum": 64, "description": "Check this many moments spread over the loop instead of one phase." },
+                        "width": { "type": "integer", "minimum": 16, "maximum": 7680, "default": 640, "description": "Picture size: only its shape (width / height) matters; use the export's." },
+                        "height": { "type": "integer", "minimum": 16, "maximum": 4320, "default": 480 },
+                        "layers": { "type": "array", "items": { "type": "string" }, "description": "Only these layers (default: every layer except backgrounds, floors, landscapes and weather)." },
+                        "points": { "type": "array", "items": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 }, "description": "World points [x, y, z] to project." }
+                    },
+                    "required": ["scene"],
+                    "additionalProperties": false
+                },
+                "annotations": read_only,
+            },
+            {
                 "name": "save_scene",
                 "title": "Save a scene",
                 "description": "Saves a scene as an .ez2.json project file that the \
@@ -262,6 +289,7 @@ impl Tools {
             "preview_loop" => self.preview_loop(args),
             "save_scene" => save_scene(args),
             "export_loop" => export_loop(args),
+            "locate" => self.locate(args),
             _ => Err(anyhow::anyhow!("unknown tool {name}")),
         };
         result.unwrap_or_else(ToolOutput::error)
@@ -308,7 +336,8 @@ impl Tools {
         Ok(ToolOutput::text(text))
     }
 
-    fn render(&mut self, project: &Project, phase: f32, w: u32, h: u32) -> Result<RgbaImage> {
+    /// The GPU and renderer, started on first use.
+    fn gpu(&mut self) -> Result<&mut Gpu3d> {
         if self.gpu.is_none() {
             let gpu = Gpu::headless().context("no GPU available for rendering")?;
             let mut renderer = Renderer::new(&gpu.device, &gpu.queue, 4);
@@ -320,13 +349,322 @@ impl Tools {
                 targets: HashMap::new(),
             });
         }
-        let g = self.gpu.as_mut().expect("just created");
+        Ok(self.gpu.as_mut().expect("just created"))
+    }
+
+    fn render(&mut self, project: &Project, phase: f32, w: u32, h: u32) -> Result<RgbaImage> {
+        let g = self.gpu()?;
         let target = g
             .targets
             .entry((w, h))
             .or_insert_with(|| g.renderer.create_target(w, h));
         let ctx = EvalCtx::new(&project.timing, phase, None);
         Ok(g.renderer.render_image(project, &ctx, target))
+    }
+
+    fn locate(&mut self, args: &Value) -> Result<ToolOutput> {
+        use ez_core::screen::{layer_box, project_point};
+        let project = scene_arg(args)?;
+        let w = int(args, "width", 640, 16, 7680)?;
+        let h = int(args, "height", 480, 16, 4320)?;
+        let aspect = w as f32 / h as f32;
+        let phases: Vec<f32> = match args.get("sweep").filter(|v| !v.is_null()) {
+            Some(_) => {
+                let n = int(args, "sweep", 16, 2, 64)?;
+                (0..n).map(|i| i as f32 / n as f32).collect()
+            }
+            None => {
+                let phase = num(args, "phase", 0.25)?;
+                if !(0.0..=1.0).contains(&phase) {
+                    bail!("phase must be between 0 and 1");
+                }
+                vec![phase as f32]
+            }
+        };
+        let wanted: Option<Vec<String>> = match args.get("layers") {
+            Some(Value::Array(a)) => Some(
+                a.iter()
+                    .map(|v| v.as_str().map(String::from).context("layers are names"))
+                    .collect::<Result<_>>()?,
+            ),
+            _ => None,
+        };
+        let points: Vec<glam::Vec3> = match args.get("points") {
+            Some(Value::Array(a)) => a
+                .iter()
+                .map(|p| {
+                    let v: Vec<f32> = p
+                        .as_array()
+                        .filter(|c| c.len() == 3)
+                        .context("each point is [x, y, z]")?
+                        .iter()
+                        .map(|c| c.as_f64().map(|f| f as f32).context("numbers"))
+                        .collect::<Result<_>>()?;
+                    Ok(glam::Vec3::new(v[0], v[1], v[2]))
+                })
+                .collect::<Result<_>>()?,
+            _ => Vec::new(),
+        };
+        // Per layer: kind, the area it ever covers, how many moments it
+        // shows, where its middle is at the first of those.
+        struct Seen {
+            kind: String,
+            area: Option<[f32; 4]>,
+            shown: usize,
+            centre: Option<[f32; 2]>,
+            depth: f32,
+        }
+        let mut seen: Vec<(String, Seen)> = Vec::new();
+        let mut overlaps: Vec<(String, String, f32, Vec<f32>)> = Vec::new();
+        let mut spots: Vec<Vec<Option<[f32; 3]>>> = vec![Vec::new(); points.len()];
+        let renderer = &mut self.gpu()?.renderer;
+        for &phase in &phases {
+            let ctx = EvalCtx::new(&project.timing, phase, None);
+            let (scene, ctx) = project.shown_at(&ctx);
+            let layers = scene.scene_layers(&ctx);
+            let cam = scene.camera.eval(&ctx);
+            let logos = renderer.logo_rects(&scene, &ctx, [w as f32, h as f32]);
+            let mut now: Vec<(String, [f32; 4])> = Vec::new();
+            for (i, l) in layers.iter().enumerate() {
+                // Backgrounds, floors, landscapes and weather fill the view
+                // rather than sit somewhere in it.
+                let background = matches!(
+                    l.kind,
+                    LayerKind::Backdrop(_)
+                        | LayerKind::Mirror(_)
+                        | LayerKind::Mode7(_)
+                        | LayerKind::Terrain(_)
+                        | LayerKind::Weather(_)
+                );
+                let listed = match &wanted {
+                    Some(names) => names.contains(&l.name),
+                    None => l.enabled && !background,
+                };
+                if !listed {
+                    continue;
+                }
+                let kind = serde_json::to_value(&l.kind).ok();
+                let kind = kind
+                    .as_ref()
+                    .and_then(|k| k["type"].as_str())
+                    .unwrap_or("?")
+                    .to_string();
+                let (rect, centre, depth) = if !l.enabled {
+                    (None, None, 0.0)
+                } else if let LayerKind::Logo(g) = &l.kind {
+                    // A see-through logo (fading in later) takes no room.
+                    let visible = g.opacity.eval(&ctx) > 0.02;
+                    let r = logos.get(i).copied().flatten().filter(|_| visible);
+                    (
+                        r,
+                        r.map(|r| [(r[0] + r[2]) / 2.0, (r[1] + r[3]) / 2.0]),
+                        0.0,
+                    )
+                } else {
+                    match layer_box(l, &ctx, &cam, aspect) {
+                        Some(b) => (
+                            Some([b.min[0], b.min[1], b.max[0], b.max[1]]),
+                            Some(b.centre),
+                            b.depth,
+                        ),
+                        None => (None, None, 0.0),
+                    }
+                };
+                let entry = match seen.iter().position(|(n, _)| *n == l.name) {
+                    Some(k) => &mut seen[k].1,
+                    None => {
+                        seen.push((
+                            l.name.clone(),
+                            Seen {
+                                kind,
+                                area: None,
+                                shown: 0,
+                                centre: None,
+                                depth: 0.0,
+                            },
+                        ));
+                        &mut seen.last_mut().expect("just pushed").1
+                    }
+                };
+                if let Some(r) =
+                    rect.filter(|r| r[2] > 0.0 && r[0] < 1.0 && r[3] > 0.0 && r[1] < 1.0)
+                {
+                    entry.shown += 1;
+                    entry.area = Some(match entry.area {
+                        None => r,
+                        Some(a) => [
+                            a[0].min(r[0]),
+                            a[1].min(r[1]),
+                            a[2].max(r[2]),
+                            a[3].max(r[3]),
+                        ],
+                    });
+                    if entry.centre.is_none() {
+                        entry.centre = centre;
+                        entry.depth = depth;
+                    }
+                    now.push((l.name.clone(), r));
+                }
+            }
+            // Overlaps on the picture (clipped to it), a logo involved.
+            for a in 0..now.len() {
+                for b in a + 1..now.len() {
+                    let (ra, rb) = (now[a].1, now[b].1);
+                    let x = (ra[2].min(rb[2]).min(1.0) - ra[0].max(rb[0]).max(0.0)).max(0.0);
+                    let y = (ra[3].min(rb[3]).min(1.0) - ra[1].max(rb[1]).max(0.0)).max(0.0);
+                    let is_logo = |n: &str| {
+                        layers
+                            .iter()
+                            .any(|l| l.name == n && matches!(l.kind, LayerKind::Logo(_)))
+                    };
+                    // Less than a thousandth of the picture: touching.
+                    if x * y < 1e-3 || !(is_logo(&now[a].0) || is_logo(&now[b].0)) {
+                        continue;
+                    }
+                    let key = (now[a].0.clone(), now[b].0.clone());
+                    match overlaps
+                        .iter_mut()
+                        .find(|o| (o.0.clone(), o.1.clone()) == key)
+                    {
+                        Some(o) => {
+                            o.2 = o.2.max(x * y);
+                            o.3.push(phase);
+                        }
+                        None => overlaps.push((key.0, key.1, x * y, vec![phase])),
+                    }
+                }
+            }
+            for (k, p) in points.iter().enumerate() {
+                spots[k].push(project_point(&cam, aspect, *p).map(|s| [s.x, s.y, s.depth]));
+            }
+        }
+        let sweep = phases.len() > 1;
+        let f = |v: f32| format!("{v:.3}");
+        let mut text = if sweep {
+            format!(
+                "'{}' over {} moments of the loop, on a {w}×{h} picture (x across, y up, \
+                 fractions from the bottom left):\n",
+                project.name,
+                phases.len()
+            )
+        } else {
+            format!(
+                "'{}' at phase {}, on a {w}×{h} picture (x across, y up, fractions from the \
+                 bottom left):\n",
+                project.name, phases[0]
+            )
+        };
+        let mut layers_json = Vec::new();
+        for (name, s) in &seen {
+            match s.area {
+                Some(a) => {
+                    let c = s.centre.unwrap_or([0.0; 2]);
+                    text.push_str(&format!(
+                        "- {name} ({}): {} x {}..{}, y {}..{}; middle ({}, {}){}{}\n",
+                        s.kind,
+                        if sweep { "covers" } else { "box" },
+                        f(a[0]),
+                        f(a[2]),
+                        f(a[1]),
+                        f(a[3]),
+                        f(c[0]),
+                        f(c[1]),
+                        if s.depth > 0.0 {
+                            format!(", {:.1} away", s.depth)
+                        } else {
+                            String::new()
+                        },
+                        if sweep && s.shown < phases.len() {
+                            format!(", on screen at {} of {} moments", s.shown, phases.len())
+                        } else {
+                            String::new()
+                        }
+                    ));
+                }
+                None => text.push_str(&format!("- {name} ({}): not on screen\n", s.kind)),
+            }
+            layers_json.push(json!({
+                "name": name,
+                "kind": s.kind,
+                "box": s.area.map(|a| json!({ "min": [a[0], a[1]], "max": [a[2], a[3]] })),
+                "middle": s.centre,
+                "depth": s.depth,
+                "shown": s.shown,
+            }));
+        }
+        if let Some(missing) = wanted.as_ref().map(|names| {
+            names
+                .iter()
+                .filter(|n| !seen.iter().any(|(s, _)| s == *n))
+                .cloned()
+                .collect::<Vec<_>>()
+        }) {
+            for n in &missing {
+                text.push_str(&format!("- {n}: no layer with this name\n"));
+            }
+        }
+        if overlaps.is_empty() {
+            text.push_str("No logo overlaps another layer.\n");
+        } else {
+            text.push_str("Overlaps (logo rectangles against the others' boxes):\n");
+            for (a, b, area, when) in &overlaps {
+                text.push_str(&format!(
+                    "- {a} and {b}: up to {:.1}% of the picture{}\n",
+                    area * 100.0,
+                    if sweep {
+                        format!(", at {} of {} moments", when.len(), phases.len())
+                    } else {
+                        String::new()
+                    }
+                ));
+            }
+        }
+        for (k, p) in points.iter().enumerate() {
+            let shown: Vec<[f32; 3]> = spots[k].iter().flatten().copied().collect();
+            match shown.first() {
+                Some(s) if !sweep => text.push_str(&format!(
+                    "- point [{}, {}, {}]: ({}, {}), {:.1} away\n",
+                    p.x,
+                    p.y,
+                    p.z,
+                    f(s[0]),
+                    f(s[1]),
+                    s[2]
+                )),
+                Some(_) => {
+                    let lo = shown
+                        .iter()
+                        .fold([f32::MAX; 2], |m, s| [m[0].min(s[0]), m[1].min(s[1])]);
+                    let hi = shown
+                        .iter()
+                        .fold([f32::MIN; 2], |m, s| [m[0].max(s[0]), m[1].max(s[1])]);
+                    text.push_str(&format!(
+                        "- point [{}, {}, {}]: x {}..{}, y {}..{}\n",
+                        p.x,
+                        p.y,
+                        p.z,
+                        f(lo[0]),
+                        f(hi[0]),
+                        f(lo[1]),
+                        f(hi[1])
+                    ));
+                }
+                None => text.push_str(&format!(
+                    "- point [{}, {}, {}]: behind the camera\n",
+                    p.x, p.y, p.z
+                )),
+            }
+        }
+        let overlaps_json: Vec<Value> = overlaps
+            .iter()
+            .map(|(a, b, area, when)| json!({ "a": a, "b": b, "area": area, "phases": when }))
+            .collect();
+        let points_json: Vec<Value> = spots.iter().map(|s| json!(s)).collect();
+        Ok(ToolOutput::text(text).with_structured(json!({
+            "layers": layers_json,
+            "overlaps": overlaps_json,
+            "points": points_json,
+        })))
     }
 
     fn render_frame(&mut self, args: &Value) -> Result<ToolOutput> {
@@ -831,6 +1169,59 @@ mod tests {
         again["overwrite"] = json!(true);
         assert!(save_scene(&again).is_ok());
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn locate_reports_boxes_logos_overlaps_and_points() {
+        if Gpu::headless().is_err() {
+            eprintln!("skipping GPU test");
+            return;
+        }
+        let mut p = presets::named("Empty");
+        p.camera.mode = ez_core::CameraMode::Static;
+        p.layers.push(ez_core::Layer::new(
+            "Title",
+            LayerKind::Logo(ez_core::LogoLayer {
+                text: "OVER THE CUBE".into(),
+                ..Default::default()
+            }),
+        ));
+        let scene = serde_json::to_value(&p).unwrap();
+        let mut tools = Tools::new();
+        let out = tools
+            .call(
+                "locate",
+                &json!({ "scene": scene, "points": [[0.0, 1.0, 0.0]], "layers": ["Cube", "Title", "Nope"] }),
+            )
+            .into_json();
+        assert_ne!(out["isError"], true, "{out}");
+        let st = &out["structuredContent"];
+        let names: Vec<&str> = st["layers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|l| l["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, ["Cube", "Title"]);
+        // The centred title covers the cube in the middle of the picture.
+        assert_eq!(st["overlaps"][0]["a"], "Cube", "{out}");
+        assert_eq!(st["overlaps"][0]["b"], "Title");
+        let spot = &st["points"][0][0];
+        assert!(
+            spot[0].as_f64().unwrap() > 0.3 && spot[0].as_f64().unwrap() < 0.7,
+            "{spot}"
+        );
+        let text = out["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("Nope: no layer with this name"), "{text}");
+
+        let out = tools
+            .call("locate", &json!({ "scene": "Neon Arena", "sweep": 4 }))
+            .into_json();
+        assert_ne!(out["isError"], true, "{out}");
+        assert!(out["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("over 4 moments"));
     }
 
     #[test]

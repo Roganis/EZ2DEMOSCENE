@@ -62,7 +62,9 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   - Text: still text, scrollers, sine scrollers, typewriters and greetings
     lists, in a crisp pixel font, Mono, Sans or your own TTF/OTF, with
     gradients, glow, outline, drop shadow and chrome (signed-distance
-    atlas). **Numbers in text**: `{0}`, `{1}`… show animatable numbers
+    atlas). **Logos can follow 3D layers**: attached to a shape, a logo
+    stays against the area it covers on screen as the camera moves (a
+    label under a gem, a title above the moon). **Numbers in text**: `{0}`, `{1}`… show animatable numbers
     (padded, with decimals or thousands commas), for timers counting down,
     scores counting up or a combo following the music; logos too. Shapes
     can also be **3D text**: extruded logos (voxel letters
@@ -398,6 +400,7 @@ like the editor; video and GIF export need ffmpeg.
 | `check_scene` | Validates a scene: errors name the field at fault, and it lists fields that were ignored. |
 | `render_frame` | One frame as a PNG image, at any point of the loop. |
 | `preview_loop` | A contact sheet of frames across the loop, plus a check that the loop point is seamless. |
+| `locate` | Where layers show on screen (in the units logos use), logo rectangles and which overlap, at one moment or over the whole loop; projects world points too. |
 | `save_scene` | Saves an `.ez2.json` project the editor opens (never overwrites unless asked). |
 | `export_loop` | Renders the loop to MP4, WebM, GIF or PNGs. |
 

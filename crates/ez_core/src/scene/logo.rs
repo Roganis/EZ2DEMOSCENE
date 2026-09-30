@@ -146,11 +146,16 @@ pub struct LogoLayer {
     /// A texture (built-in or added to the project).
     pub image: Option<String>,
     pub mask: LogoMask,
-    /// Another logo layer (by name) this one is placed against; empty:
-    /// the screen.
+    /// Another layer (by name) this one is placed against; empty: the
+    /// screen. A logo layer: against that logo. A 3D layer (shapes,
+    /// sprites, text…): against the area it covers on the screen, followed
+    /// as the camera and the layer move (hidden while it is behind the
+    /// camera); e.g. attach_point "Bottom", anchor "Top", y -0.02 for a
+    /// label under it.
     pub attach_to: String,
-    /// The point of the screen (or of that logo) the position is measured
-    /// from. Bottom left (the default) makes the position absolute.
+    /// The point of the screen (or of what it is attached to) the position
+    /// is measured from. Bottom left (the default) makes the position
+    /// absolute.
     pub attach_point: LogoAnchor,
     /// Position of the anchor from the attach point, as fractions of the
     /// screen's width and height (to the right, up).

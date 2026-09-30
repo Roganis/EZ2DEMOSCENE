@@ -1604,6 +1604,23 @@ impl EzApp {
             .map(|l| l.name.clone())
             .collect();
         ui.data_mut(|d| d.insert_temp(egui::Id::new(inspector::LOGO_NAMES), logos));
+        // 3D layers a logo can be attached to (follow on the screen).
+        let shapes: Vec<String> = self
+            .project
+            .layers
+            .iter()
+            .filter(|l| {
+                !matches!(
+                    l.kind,
+                    LayerKind::Logo(_)
+                        | LayerKind::Backdrop(_)
+                        | LayerKind::Mirror(_)
+                        | LayerKind::Mode7(_)
+                )
+            })
+            .map(|l| l.name.clone())
+            .collect();
+        ui.data_mut(|d| d.insert_temp(egui::Id::new(inspector::SHAPE_NAMES), shapes));
         let scheme_on = self.project.color_scheme.enabled;
         ui.data_mut(|d| d.insert_temp(egui::Id::new(inspector::SCHEME_ON), scheme_on));
         let loop_s = self.project.timing.loop_seconds();

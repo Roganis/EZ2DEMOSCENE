@@ -51,6 +51,12 @@ be a whole number so the loop closes). For something that happens once, add \
 changes by `by` from beat `start` of its timeline clip (of the loop outside a \
 timeline) and then holds.
 
+Logos are placed on the screen in fractions of it; 3D layers in world units. \
+To line them up, pin a logo to a 3D layer (its attach_to = the layer's name, \
+attach_point = which side of the layer's screen box, x and y = offsets), or \
+check with locate (sweep for a moving camera) that menus and objects don't \
+overlap before rendering.
+
 Text and Logo layers show numbers: write {0}, {1}... in the text and list \
 them in \"values\" ({\"value\": Param, \"digits\", \"decimals\", \"group\"}), \
 e.g. a timer counting down or a score counting up with a ramp.";
