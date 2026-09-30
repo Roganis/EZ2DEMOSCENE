@@ -550,7 +550,7 @@ mod saving {
 
     #[test]
     fn cloth_saves_and_loads() {
-        let p = presets::banners();
+        let p = presets::named("Banners");
         let json = p.to_json();
         assert!(json.contains("\"Cloth\"") && !json.contains("\"mesh\""));
         assert_eq!(Project::from_json(&json).unwrap(), p);

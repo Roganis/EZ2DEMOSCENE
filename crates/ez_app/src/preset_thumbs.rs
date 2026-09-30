@@ -85,7 +85,7 @@ mod tests {
     #[test]
     fn every_preset_has_a_bundled_thumbnail() {
         let thumbs = super::bundled();
-        let missing: Vec<&str> = ez_core::presets::all()
+        let missing: Vec<&str> = ez_core::presets::INDEX
             .iter()
             .filter(|p| !thumbs.contains_key(&super::file_name(p.name)))
             .map(|p| p.name)

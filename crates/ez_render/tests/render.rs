@@ -174,7 +174,7 @@ fn weather_liquids_and_skies_are_continuous() {
     let mut scenes: Vec<(String, Project)> = Vec::new();
     for liquid in LiquidKind::ALL {
         for (i, shape) in TerrainShape::ALL.iter().enumerate() {
-            let mut p = presets::stormy_lake();
+            let mut p = presets::named("Stormy Lake");
             p.layers
                 .retain(|l| !matches!(l.kind, LayerKind::Weather(_)));
             for l in &mut p.layers {
@@ -192,7 +192,7 @@ fn weather_liquids_and_skies_are_continuous() {
     }
     for kind in [BackdropKind::Clouds, BackdropKind::Aurora] {
         for variant in 0..RaySettings::variants(kind).len() as u32 {
-            let mut p = presets::sunbeam_peaks();
+            let mut p = presets::named("Sunbeam Peaks");
             p.layers
                 .retain(|l| matches!(l.kind, LayerKind::Backdrop(_)));
             for l in &mut p.layers {
@@ -206,7 +206,7 @@ fn weather_liquids_and_skies_are_continuous() {
         }
     }
     for kind in Precipitation::ALL {
-        let mut p = presets::stormy_lake();
+        let mut p = presets::named("Stormy Lake");
         for l in &mut p.layers {
             if let LayerKind::Weather(w) = &mut l.kind {
                 w.kind = kind;
@@ -219,7 +219,7 @@ fn weather_liquids_and_skies_are_continuous() {
     // Day cycle, rainbow, mist, caustics, heat haze, spotlights,
     // waterfalls, tornado smoke, wet ground and snow cover.
     // (The club's beat strobes jump on every beat by design.)
-    let mut club = presets::club_spotlights();
+    let mut club = presets::named("Club Spotlights");
     for l in &mut club.layers {
         match &mut l.kind {
             LayerKind::Lasers(z) => z.strobe = Param::new(0.0),
@@ -229,15 +229,15 @@ fn weather_liquids_and_skies_are_continuous() {
     }
     for p in [
         club,
-        presets::rainbow_falls(),
-        presets::sunken_temple(),
-        presets::twister(),
-        presets::lava_world(),
-        presets::aurora_tundra(),
+        presets::named("Rainbow Falls"),
+        presets::named("Sunken Temple"),
+        presets::named("Twister"),
+        presets::named("Lava World"),
+        presets::named("Aurora Tundra"),
     ] {
         scenes.push((p.name.clone(), p));
     }
-    let mut falls = presets::rainbow_falls();
+    let mut falls = presets::named("Rainbow Falls");
     for l in &mut falls.layers {
         if let LayerKind::Falls(f) = &mut l.kind {
             f.kind = FallKind::Lava;
@@ -284,7 +284,7 @@ fn music_reactive_scene_loops_and_reacts() {
     let env = analysis::analyze(&samples, rate);
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(160, 90);
-    let mut p = presets::music_reactor();
+    let mut p = presets::named("Music Reactor");
     p.music.offset = 1.37;
     let mut at = |p: &Project, phase: f32, audio: Option<&AudioEnvelope>| {
         r_render(&mut r, p, &p.ctx(phase, audio), &target)
@@ -318,7 +318,7 @@ fn display_image_matches_export() {
     let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(96, 54);
-    let p = presets::synth_sunset();
+    let p = presets::named("Synth Sunset");
     let out = r.render_image(&p, &EvalCtx::new(&p.timing, 0.2, None), &target);
     let shown = r.read_display_pixels(&target);
     let worst = out
@@ -422,7 +422,7 @@ fn deformed_shapes_loop() {
     let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
     let target = r.create_target(320, 180);
-    let plain = presets::orbiting_solid();
+    let plain = presets::named("Orbiting Solid");
     let mut p = plain.clone();
     for l in &mut p.layers {
         if let LayerKind::Mesh(m) = &mut l.kind {
@@ -461,7 +461,7 @@ fn color_ramp_across_copies_loops() {
     let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
     let target = r.create_target(320, 180);
-    let plain = presets::orbiting_solid();
+    let plain = presets::named("Orbiting Solid");
     let mut p = plain.clone();
     for l in &mut p.layers {
         if let LayerKind::Mesh(m) = &mut l.kind {
@@ -495,7 +495,7 @@ fn copies_cover_a_surface() {
     let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
     let target = r.create_target(320, 180);
-    let mut p = presets::orbiting_solid();
+    let mut p = presets::named("Orbiting Solid");
     p.layers
         .retain(|l| l.name == "Deep space" || l.name == "Dodecahedron");
     let without = p.clone();
@@ -539,7 +539,7 @@ fn terrain_copies_match_the_gpu_ground() {
     let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(320, 180);
-    let mut p = presets::vector_valley();
+    let mut p = presets::named("Vector Valley");
     p.post = Default::default();
     p.environment.fog_density = Param::new(0.0);
     p.camera.height = Param::new(14.0);
@@ -644,13 +644,13 @@ fn sequences_play_scenes_with_transitions() {
     let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(160, 90);
-    let mut p = presets::orbiting_solid();
+    let mut p = presets::named("Orbiting Solid");
     p.post.grade.grain = Param::new(0.0);
     let alone = p.clone();
     p.start_sequence();
     // Scene B: another preset's look.
     let b = p.add_scene(false);
-    let other = presets::synth_sunset();
+    let other = presets::named("Synth Sunset");
     if let Some(s) = p.sequence.scenes.iter_mut().find(|s| s.id == b) {
         s.layers = other.layers.clone();
         s.camera = other.camera.clone();
@@ -727,7 +727,7 @@ fn depth_of_field_blurs() {
     let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
     let target = r.create_target(320, 180);
-    let mut p = presets::gold_room();
+    let mut p = presets::named("Gold Kaleido Room");
     p.post.grade.grain = Param::new(0.0);
     let sharp_project = p.clone();
     p.post.dof = DepthOfField {
@@ -766,7 +766,7 @@ fn feedback_trails_repeat_every_loop() {
     let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(160, 90);
-    let mut p = presets::orbiting_solid();
+    let mut p = presets::named("Orbiting Solid");
     p.post.grade.grain = Param::new(0.0);
     p.timing.loop_beats = 4; // 2 s
     p.post.feedback = Feedback {
@@ -2129,7 +2129,7 @@ fn color_scheme_recolours_and_loops() {
     let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(320, 180);
-    let mut p = presets::neon_arena();
+    let mut p = presets::named("Neon Arena");
     p.post.grade.grain = Param::new(0.0);
     let at = |p: &Project, phase: f32| EvalCtx::new(&p.timing, phase, None);
     let mut render = |p: &Project, phase: f32| r.render_image(p, &at(p, phase), &target);
@@ -2182,7 +2182,7 @@ fn battle_backgrounds_and_retro_effects_loop() {
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(160, 90);
     let dir = snapshot_dir();
-    let base = presets::battle_screen();
+    let base = presets::named("Battle Screen");
     let mut failures: Vec<String> = Vec::new();
     let check = |r: &mut Renderer, p: &Project, name: &str, failures: &mut Vec<String>| {
         let at = |phase: f32| EvalCtx::new(&p.timing, phase, None);
@@ -2249,7 +2249,7 @@ fn lens_and_mirrored_tiling() {
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(160, 90);
     let dir = snapshot_dir();
-    let base = presets::battle_screen();
+    let base = presets::named("Battle Screen");
     let at = |p: &Project, phase: f32| EvalCtx::new(&p.timing, phase, None);
     let plain = r.render_image(&base, &at(&base, 0.2), &target);
     for amount in [0.8, -0.8] {
@@ -2346,7 +2346,7 @@ fn flocks_bake_fly_and_loop() {
     use ez_core::sim::Flock;
     use ez_core::*;
     let gpu = gpu_or_skip!();
-    let mut p = presets::starling_dusk();
+    let mut p = presets::named("Starling Dusk");
     for l in &mut p.layers {
         if let Some(Instancer::Flock { flock, .. }) = l.kind.instancer_mut() {
             **flock = Flock {
@@ -2412,7 +2412,7 @@ fn flocks_bake_fly_and_loop() {
 fn cloth_waves_and_loops() {
     use ez_core::*;
     let gpu = gpu_or_skip!();
-    let mut p = presets::banners();
+    let mut p = presets::named("Banners");
     for l in &mut p.layers {
         if let LayerKind::Mesh(MeshLayer {
             source: MeshSource::Cloth { cloth, .. },
@@ -2483,7 +2483,7 @@ fn cloth_waves_and_loops() {
 fn rigid_bodies_fall_and_loop() {
     use ez_core::*;
     let gpu = gpu_or_skip!();
-    let p = presets::beat_demolition();
+    let p = presets::named("Beat Demolition");
     let mut bare = p.clone();
     bare.layers.retain(|l| l.kind.instancer().is_none());
     let at = |phase: f32| EvalCtx::new(&p.timing, phase, None);
@@ -4705,9 +4705,9 @@ fn opengl_backend_starts_and_loops() {
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(160, 90);
     for mut p in [
-        presets::lava_world(),
-        presets::psx_crypt(),
-        presets::rainbow_falls(),
+        presets::named("Lava World"),
+        presets::named("PSX Crypt"),
+        presets::named("Rainbow Falls"),
     ] {
         // Film grain changes every frame on purpose.
         p.post.grade.grain = Param::new(0.0);

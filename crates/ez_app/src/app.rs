@@ -1338,13 +1338,13 @@ impl EzApp {
     }
 
     fn surprise(&mut self) {
-        let all = presets::all();
         self.rand_seed = self
             .rand_seed
             .wrapping_mul(6364136223846793005)
             .wrapping_add(1442695040888963407);
-        let pick = (self.rand_seed >> 33) as usize % (all.len() - 1);
-        let mut p = all[pick].project.clone();
+        // Any preset but the last (Empty).
+        let pick = (self.rand_seed >> 33) as usize % (presets::INDEX.len() - 1);
+        let mut p = presets::INDEX[pick].project();
         randomize(
             &mut p,
             self.rand_seed,
@@ -2389,8 +2389,8 @@ impl EzApp {
         }
         if self.thumbs.is_empty() {
             let mut images = crate::preset_thumbs::bundled();
-            self.thumbs = presets::all()
-                .into_iter()
+            self.thumbs = presets::INDEX
+                .iter()
                 .map(|p| {
                     let file = crate::preset_thumbs::file_name(p.name);
                     Thumb {
@@ -2549,8 +2549,7 @@ impl EzApp {
             });
         // A chosen preset starts playing, to show how it moves.
         if let Some(i) = chosen_builtin {
-            let p = presets::all().into_iter().nth(i).unwrap();
-            self.load_project(p.project, None);
+            self.load_project(presets::INDEX[i].project(), None);
             self.presets_open = false;
             self.playing = true;
         }

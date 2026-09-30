@@ -569,11 +569,11 @@ mod tests {
 
     #[test]
     fn signal_flow_preset_drives_its_centrepiece() {
-        let p = crate::presets::signal_flow();
+        let p = crate::presets::named("Signal Flow");
         let g = p.graph.as_ref().unwrap();
         assert_eq!(
             g.compile().len(),
-            crate::presets::orbiting_solid().layers.len()
+            crate::presets::named("Orbiting Solid").layers.len()
         );
         let at = |phase: f32| {
             let ls = p.scene_layers(&EvalCtx::at(phase)).into_owned();

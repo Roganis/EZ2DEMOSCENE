@@ -1110,7 +1110,7 @@ mod saving {
 
     #[test]
     fn physics_saves_and_loads() {
-        let p = presets::beat_demolition();
+        let p = presets::named("Beat Demolition");
         let json = p.to_json();
         assert!(json.contains("\"Physics\"") && !json.contains("placed"));
         assert_eq!(Project::from_json(&json).unwrap(), p);

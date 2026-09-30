@@ -288,12 +288,12 @@ mod tests {
 
     #[test]
     fn deterministic() {
-        let mut a = presets::neon_arena();
-        let mut b = presets::neon_arena();
+        let mut a = presets::named("Neon Arena");
+        let mut b = presets::named("Neon Arena");
         randomize(&mut a, 42, RandomizeOptions::default());
         randomize(&mut b, 42, RandomizeOptions::default());
         assert_eq!(a, b);
-        let mut c = presets::neon_arena();
+        let mut c = presets::named("Neon Arena");
         randomize(&mut c, 43, RandomizeOptions::default());
         assert_ne!(a, c);
     }

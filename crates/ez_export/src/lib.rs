@@ -853,7 +853,7 @@ mod tests {
             eprintln!("no GPU, skipping");
             return;
         }
-        let mut p = presets::orbiting_solid();
+        let mut p = presets::named("Orbiting Solid");
         p.timing.bpm = 240.0;
         p.timing.loop_beats = 2; // 0.5 s
         let cancel = AtomicBool::new(false);
@@ -924,7 +924,7 @@ mod tests {
             .collect();
         let wav = tmp("beat.wav");
         write_wav(&wav, &samples, rate);
-        let mut p = presets::orbiting_solid();
+        let mut p = presets::named("Orbiting Solid");
         p.timing.bpm = 240.0;
         p.timing.loop_beats = 2; // 0.5 s
         p.audio = Some(wav.to_string_lossy().to_string());
@@ -986,7 +986,7 @@ mod tests {
             .collect();
         let path = tmp("job.wav");
         write_wav(&path, &samples, rate);
-        let mut project = presets::orbiting_solid();
+        let mut project = presets::named("Orbiting Solid");
         project.audio = Some(path.to_string_lossy().to_string());
         let whole = load_music(&project).unwrap().unwrap();
 

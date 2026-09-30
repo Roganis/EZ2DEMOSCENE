@@ -673,7 +673,7 @@ mod saving {
 
     #[test]
     fn flocks_save_and_load() {
-        let p = presets::starling_dusk();
+        let p = presets::named("Starling Dusk");
         let json = p.to_json();
         assert!(!json.contains("placed"));
         let back = Project::from_json(&json).unwrap();

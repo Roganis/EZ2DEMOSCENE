@@ -363,10 +363,18 @@ ez2demoscene --render "Neon Arena" still.png --phase 0.25 --size 1920x1080
 ez2demoscene --export "Gold Kaleido Room" loop.mp4 --size 1920x1080 --fps 60 --repeats 4
 ez2demoscene --export "Tesla Swarm" smooth.mp4 --fps 30 --motion-blur 8   # film-like motion blur
 ez2demoscene --export my.ez2.json frames/        # PNG sequence
-ez2demoscene --write-presets assets/presets
+ez2demoscene --write-presets my_presets/        # the built-in presets as project files
 ez2demoscene --write-textures assets/textures
 ez2demoscene --write-preset-thumbs assets/presets/thumbnails.zip   # after changing a preset
 ```
+
+### Changing a built-in preset
+
+The presets are ordinary project files in `assets/presets/`. Open one in
+the editor, change it and save it back over the file, then refresh its
+gallery picture with `--write-preset-thumbs` (above). A new preset also
+needs a line in the table in `crates/ez_core/src/presets.rs`; the tests
+check that every file is listed and loads.
 
 ## Project layout
 
@@ -380,7 +388,7 @@ ez2demoscene --write-preset-thumbs assets/presets/thumbnails.zip   # after chang
 | `crates/ez_app` | The egui editor (`ez2demoscene` binary) and the CLI. On wasm it swaps in `library_web.rs` (IndexedDB), `audio_web.rs` (HTML audio) and `export_web.rs` (WebCodecs/GIF/PNG zip). |
 | `web/` | Trunk entry point for the web build: `index.html`, PWA manifest, service worker, the WebCodecs bridge (`ez2_video.js`), the video frame reader for importing videos (`ez2_clip.js`) and vendored MIT muxers. |
 | `android-app/` | Capacitor wrapper that packages the web build as an Android app. |
-| `assets/presets` | Built-in presets as project files (generated). |
+| `assets/presets` | The built-in presets: project files bundled into the program, listed with their gallery group and description in `crates/ez_core/src/presets.rs`. `extra/` holds scenes the tests use that are not in the gallery. |
 | `assets/textures` | The built-in retro texture pack as PNGs (generated, CC0) and the texture library (`texture_library.zip`, CC0; see `TEXTURE_LIBRARY_LICENSE.txt`). |
 
 ### How the loop guarantee works

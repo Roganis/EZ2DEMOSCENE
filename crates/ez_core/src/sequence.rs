@@ -408,7 +408,7 @@ mod tests {
     use super::*;
 
     fn two_scene_project() -> Project {
-        let mut p = crate::presets::orbiting_solid();
+        let mut p = crate::presets::named("Orbiting Solid");
         p.start_sequence();
         let b = p.add_scene(false);
         p.sequence.clips.push(Clip {

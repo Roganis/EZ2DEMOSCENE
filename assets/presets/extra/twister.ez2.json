@@ -1,0 +1,357 @@
+{
+  "version": 2,
+  "name": "Twister",
+  "timing": {
+    "bpm": 100.0,
+    "loop_beats": 16
+  },
+  "camera": {
+    "mode": "Pendulum",
+    "target": [
+      0.0,
+      5.0,
+      -20.0
+    ],
+    "distance": 22.0,
+    "height": -1.0,
+    "angle": 0.0,
+    "orbit_turns": 1,
+    "swing": 10.0,
+    "fov": 62.0,
+    "roll": 0.0,
+    "beat_shake": 0.0
+  },
+  "environment": {
+    "fog_color": [
+      0.04231141,
+      0.051269468,
+      0.039546236
+    ],
+    "fog_density": 0.015,
+    "sky_color": [
+      0.14412849,
+      0.17464739,
+      0.13843162
+    ],
+    "ground_color": [
+      0.014443844,
+      0.017641952,
+      0.009134057
+    ],
+    "light_dir": [
+      0.3,
+      0.6,
+      -1.0
+    ],
+    "light_color": [
+      0.6307572,
+      0.68668544,
+      0.5271152
+    ],
+    "light_intensity": 0.8,
+    "ambient": 0.6
+  },
+  "layers": [
+    {
+      "name": "Sky",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Backdrop",
+        "kind": "Clouds",
+        "color_a": [
+          0.051269468,
+          0.06480328,
+          0.048171822
+        ],
+        "color_b": [
+          0.1620294,
+          0.19461781,
+          0.13843162
+        ],
+        "color_c": [
+          0.039546236,
+          0.048171822,
+          0.036889445
+        ],
+        "speed": 1,
+        "intensity": 1.0,
+        "detail": 1.0,
+        "texture": null,
+        "ray": {
+          "variant": 2,
+          "pattern": 0,
+          "size": 1.0,
+          "twist": 0.0,
+          "warp": 1.0,
+          "bend": 1.2,
+          "glow": 0.4,
+          "fog": 1.0,
+          "steps": 0,
+          "spin": 0
+        },
+        "resolution": "Half"
+      }
+    },
+    {
+      "name": "Plains",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          -1.0,
+          -40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Terrain",
+        "size": 120.0,
+        "cells": 96,
+        "lod": true,
+        "height": 3.0,
+        "hills": 3,
+        "roughness": 0.4,
+        "scroll": 1,
+        "valley": 0.0,
+        "style": "Solid",
+        "line_color": [
+          1.0,
+          0.02415763,
+          0.6724432
+        ],
+        "glow": 1.0,
+        "fill_color": [
+          0.04231141,
+          0.06847818,
+          0.014443844
+        ],
+        "seed": 4,
+        "texture": null,
+        "tiles": 8,
+        "texture_lines": false,
+        "pixelated": false
+      }
+    },
+    {
+      "name": "Tornado",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          -0.5,
+          -28.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Particles",
+        "emitter": "Tornado",
+        "count": 6000,
+        "lifetimes": 2,
+        "size": 0.9,
+        "speed": 1.0,
+        "radius": 4.5,
+        "color_a": [
+          0.023153365,
+          0.023153365,
+          0.019382361
+        ],
+        "color_b": [
+          0.06847818,
+          0.06847818,
+          0.057805434
+        ],
+        "intensity": 0.35,
+        "trail": 0,
+        "trail_spacing": 0.01,
+        "sprite": "Glow",
+        "seed": 1,
+        "smoke": true
+      }
+    },
+    {
+      "name": "Rain",
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0,
+        "stretch": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "spin": [
+          0,
+          0,
+          0
+        ],
+        "bob": 0.0
+      },
+      "symmetry": {
+        "type": "None"
+      },
+      "kind": {
+        "type": "Weather",
+        "kind": "Rain",
+        "count": 5000,
+        "area": 18.0,
+        "height": 14.0,
+        "falls": 12,
+        "wind": 25.0,
+        "wind_dir": 0.0,
+        "size": 0.05,
+        "streak": 1.0,
+        "color": [
+          0.27467737,
+          0.39157256,
+          0.5775805
+        ],
+        "intensity": 0.35,
+        "splashes": 0.6,
+        "seed": 1,
+        "lightning": {
+          "enabled": true,
+          "per_loop": 4,
+          "chance": 0.6,
+          "flash": 1.5,
+          "color": [
+            0.5775805,
+            0.68668544,
+            1.0
+          ],
+          "distance": 50.0,
+          "seed": 9
+        },
+        "ground": 0.9
+      }
+    }
+  ],
+  "post": {
+    "bloom": {
+      "enabled": true,
+      "intensity": 0.8,
+      "threshold": 0.8,
+      "radius": 0.7
+    },
+    "kaleido": {
+      "enabled": false,
+      "segments": 6,
+      "angle": 0.0,
+      "turns": 0,
+      "zoom": 1.0,
+      "center": [
+        0.5,
+        0.5
+      ]
+    },
+    "mirror": {
+      "enabled": false,
+      "mode": "LeftToRight"
+    },
+    "chroma": {
+      "enabled": false,
+      "amount": 0.004
+    },
+    "pixelate": {
+      "enabled": false,
+      "size": 4.0
+    },
+    "palette": {
+      "enabled": false,
+      "palette": "Ega",
+      "dither": 0.6
+    },
+    "crt": {
+      "enabled": false,
+      "scanlines": 0.5,
+      "curvature": 0.15,
+      "noise": 0.1
+    },
+    "grade": {
+      "exposure": 1.0,
+      "contrast": 1.05,
+      "saturation": 0.7,
+      "vignette": 0.6,
+      "grain": 0.03,
+      "beat_flash": 0.0
+    }
+  },
+  "textures": [],
+  "audio": null,
+  "graph": null,
+  "use_graph": false
+}
