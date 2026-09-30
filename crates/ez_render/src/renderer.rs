@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
-use crate::lazy::{lazy, Lazy, Module, Pipe};
+use crate::lazy::{lazy, Collect, Lazy, Module, Pipe, WarmList};
 
 pub const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
@@ -730,7 +730,7 @@ struct ScenePipes {
 /// Copies of shapes placed by a compute shader (`copies.wgsl`) straight
 /// into a vertex buffer; absent where there are no compute shaders (WebGL2).
 struct SwarmGpu {
-    pipe: Lazy<wgpu::ComputePipeline>,
+    pipe: Arc<Lazy<wgpu::ComputePipeline>>,
     bgl: wgpu::BindGroupLayout,
     params: wgpu::Buffer,
     params_cap: u64,
@@ -1280,6 +1280,8 @@ pub struct Renderer {
     inexact: bool,
     /// Per simulated layer (by name), how its bake is doing.
     sim_status: HashMap<String, SimStatus>,
+    /// Pipelines and shaders not built yet, for the warm-up.
+    warm: WarmList,
 }
 
 /// How a simulated layer's bake is doing (for the inspector).
@@ -1548,17 +1550,18 @@ fn shader(device: &wgpu::Device, label: &'static str, src: &str, with_common: bo
     } else {
         src.to_string()
     };
-    Arc::new(
-        lazy!(device, code => device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some(label),
-            source: wgpu::ShaderSource::Wgsl(Cow::Owned(code.clone())),
-        })),
-    )
+    lazy!(device, code => device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some(label),
+        source: wgpu::ShaderSource::Wgsl(Cow::Owned(code.clone())),
+    }))
 }
 
 impl Renderer {
     /// `msaa` must be 1 or 4.
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, msaa: u32) -> Renderer {
+        // Pipelines and shaders are built when first used; this lists them
+        // for the optional warm-up (see `warm_up_in_background`).
+        let collect = Collect::start();
         let msaa = if msaa >= 4 { 4 } else { 1 };
         let globals_size = std::mem::size_of::<GlobalsRaw>() as u64;
         let bgl_globals = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -2972,10 +2975,34 @@ impl Renderer {
             wait_for_bakes: false,
             inexact: false,
             sim_status: HashMap::new(),
+            warm: collect.finish(),
         };
         let white = RgbaImage::from_pixel(1, 1, image::Rgba([255, 255, 255, 255]));
         r.upload_texture("__white".into(), &white);
         r
+    }
+
+    /// Build the pipelines and shaders not used yet ahead of use, so the
+    /// first use of an effect doesn't stall a frame, then call `done`
+    /// (from any thread). Only the first call builds anything; in the
+    /// browser nothing is built ahead and `done` is called at once.
+    ///
+    /// They are built on a thread, except with OpenGL: its one context
+    /// would hold up the frames meanwhile, so there they are built one per
+    /// [`Renderer::warm_up_step`] instead.
+    pub fn warm_up_in_background(&mut self, done: impl FnOnce() + Send + 'static) {
+        if self.device.adapter_info().backend == wgpu::Backend::Gl {
+            self.warm.start_steps(done);
+        } else {
+            self.warm.spawn(done);
+        }
+    }
+
+    /// Call once per frame: builds the next pipeline when the warm-up goes
+    /// a step at a time (OpenGL). Returns whether there is more to build
+    /// (keep the frames coming).
+    pub fn warm_up_step(&mut self) -> bool {
+        self.warm.step()
     }
 
     pub fn msaa(&self) -> u32 {

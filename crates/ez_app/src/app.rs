@@ -2905,12 +2905,25 @@ impl eframe::App for EzApp {
                     );
                 }
             }
+            if self.frames_drawn < 10 {
+                // Get there even when idle: the start isn't confirmed
+                // (see below) until then.
+                ctx.request_repaint();
+            }
             if self.frames_drawn == 10 {
                 log::info!(
                     "graphics started: {:?}",
                     self.viewport.adapter_info().backend
                 );
-                crate::gpu_choice::started_ok();
+                // Build the pipelines not used yet in the background. Only
+                // then is the backend known to work: some drivers crash or
+                // hang compiling shaders, which Automatic steps past.
+                self.viewport
+                    .renderer
+                    .warm_up_in_background(crate::gpu_choice::started_ok);
+            }
+            if self.viewport.renderer.warm_up_step() {
+                ctx.request_repaint();
             }
         }
         self.project.sync_sequence_length();
