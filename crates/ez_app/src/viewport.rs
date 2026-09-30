@@ -187,28 +187,6 @@ impl Viewport {
     pub fn clear_shape_thumb_queue(&mut self) {
         self.shape_thumbs.queue.clear();
     }
-
-    /// A new egui texture for preset thumbnails, drawn later with
-    /// [`Self::draw_thumbnail`].
-    pub fn thumbnail_target(&mut self, size: [u32; 2]) -> (egui::TextureId, RenderTarget) {
-        let target = self.renderer.create_target(size[0], size[1]);
-        let id = self.render_state.renderer.write().register_native_texture(
-            &self.render_state.device,
-            &target.display_view,
-            wgpu::FilterMode::Linear,
-        );
-        (id, target)
-    }
-
-    /// Render a project once into a thumbnail's target. Simulations still
-    /// baking are left out rather than waited for (a flock can take
-    /// seconds); returns whether the picture is complete.
-    pub fn draw_thumbnail(&mut self, project: &Project, phase: f32, target: &RenderTarget) -> bool {
-        let ctx = EvalCtx::new(&project.timing, phase, None);
-        self.renderer.take_inexact();
-        self.renderer.render(project, &ctx, target);
-        !self.renderer.take_inexact()
-    }
 }
 
 /// A shape alone, lit and seen from slightly above, for its thumbnail.

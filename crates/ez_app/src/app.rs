@@ -64,11 +64,7 @@ struct Thumb {
     name: &'static str,
     category: &'static str,
     description: &'static str,
-    project: Project,
-    /// The texture and its target, once drawn.
-    drawn: Option<(egui::TextureId, ez_render::RenderTarget)>,
-    /// Drawn with every simulation in it baked.
-    exact: bool,
+    texture: Option<egui::TextureHandle>,
 }
 
 pub struct EzApp {
@@ -110,8 +106,9 @@ pub struct EzApp {
     /// Open the preset gallery when the app starts.
     presets_on_startup: bool,
     thumbs: Vec<Thumb>,
-    /// When to draw again the thumbnails whose simulations were baking.
-    thumbs_redraw_at: f64,
+    /// The name of a scene just loaded, while it is covered by the loading
+    /// bar (see [`Self::loading_overlay`]).
+    loading: Option<String>,
     randomize_open: bool,
     rand_opts: RandomizeOptions,
     rand_seed: u64,
@@ -270,7 +267,7 @@ impl EzApp {
             presets_open: false,
             presets_on_startup: platform::load_setting(PRESETS_ON_STARTUP).as_deref() != Some("no"),
             thumbs: Vec::new(),
-            thumbs_redraw_at: 0.0,
+            loading: None,
             randomize_open: false,
             rand_opts: RandomizeOptions::default(),
             rand_seed: 1,
@@ -387,6 +384,7 @@ impl EzApp {
         self.music_seek = true;
         self.viewport.renderer.reload_assets();
         self.reload_audio();
+        self.loading = Some(self.project.name.clone());
     }
 
     /// Open a project or pack by asset path (a file on desktop, a `mem://`
@@ -2325,45 +2323,64 @@ impl EzApp {
                 cam.distance.base = (cam.distance.base * (1.0 - scroll * 0.002)).clamp(0.3, 200.0);
             }
         }
+        self.loading_overlay(ui, image_rect);
     }
 
-    /// Draw the preset thumbnails a few per frame, so the gallery opens at
-    /// once and fills in (drawing all 60 in one frame took seconds). Those
-    /// with a simulation are drawn again once it has baked.
-    fn draw_thumbs(&mut self, ctx: &egui::Context) {
-        let mut more = time_budget(30.0);
-        let mut drew = false;
-        for t in self.thumbs.iter_mut().filter(|t| t.drawn.is_none()) {
-            if drew && !more() {
-                break;
-            }
-            let (texture, target) = self.viewport.thumbnail_target([320, 180]);
-            t.exact = self.viewport.draw_thumbnail(&t.project, 0.2, &target);
-            t.drawn = Some((texture, target));
-            drew = true;
-        }
-        if self.thumbs.iter().any(|t| t.drawn.is_none()) {
-            ctx.request_repaint();
+    /// Right after a scene is loaded, cover the picture with a progress bar
+    /// until its simulations are baked and its music analysed, so it
+    /// appears whole instead of with parts missing. Call after rendering:
+    /// the render asks for the bakes.
+    fn loading_overlay(&mut self, ui: &mut Ui, rect: egui::Rect) {
+        let Some(name) = &self.loading else {
+            return;
+        };
+        if self.export.is_running() {
             return;
         }
-        // Bakes have a thread on desktop; in the browser they would take
-        // time from every frame, so the picture stays without them there.
-        if platform::IS_WEB || self.thumbs.iter().all(|t| t.exact) {
-            return;
-        }
-        // Drawing again also keeps asking for the bakes, which are dropped
-        // when nobody asks for them for a while.
-        if self.now >= self.thumbs_redraw_at {
-            self.thumbs_redraw_at = self.now + 1.0;
-            for t in self.thumbs.iter_mut().filter(|t| !t.exact) {
-                if let Some((_, target)) = &t.drawn {
-                    t.exact = self.viewport.draw_thumbnail(&t.project, 0.2, target);
-                }
+        let bake = self.viewport.renderer.scene_bake_progress();
+        let music = self.music_task.as_ref().map(|t| t.progress());
+        let (progress, what) = match (bake, music) {
+            (None, None) => {
+                self.loading = None;
+                return;
             }
+            (Some(b), None) => (b, "Simulating ahead of time, so the loop is seamless"),
+            (None, Some(m)) => (m, "Analysing the music"),
+            (Some(b), Some(m)) => ((b + m) * 0.5, "Simulating and analysing the music"),
+        };
+        let title = if name.is_empty() {
+            "Preparing the scene…".to_string()
+        } else {
+            format!("Preparing {name}…")
+        };
+        ui.painter_at(rect)
+            .rect_filled(rect, 4.0, Color32::from_black_alpha(235));
+        let w = (rect.width() * 0.6).clamp(120.0, 360.0);
+        let inner = egui::Rect::from_center_size(rect.center(), egui::vec2(w, 100.0));
+        let mut skip = false;
+        ui.scope_builder(
+            egui::UiBuilder::new()
+                .max_rect(inner)
+                .layout(egui::Layout::top_down(egui::Align::Center)),
+            |ui| {
+                ui.label(RichText::new(title).strong());
+                ui.add(
+                    egui::ProgressBar::new(progress)
+                        .show_percentage()
+                        .desired_width(w),
+                );
+                ui.label(RichText::new(what).small().weak());
+                skip = ui
+                    .small_button("Show now")
+                    .on_hover_text("Show the scene now: its simulated parts appear when ready.")
+                    .clicked();
+            },
+        );
+        if skip {
+            self.loading = None;
         }
-        ctx.request_repaint_after(std::time::Duration::from_secs_f64(
-            (self.thumbs_redraw_at - self.now).max(0.0),
-        ));
+        // Bakes finishing on their thread don't wake the app up.
+        ui.ctx().request_repaint();
     }
 
     fn presets_window(&mut self, ctx: &egui::Context) {
@@ -2371,20 +2388,22 @@ impl EzApp {
             return;
         }
         if self.thumbs.is_empty() {
+            let mut images = crate::preset_thumbs::bundled();
             self.thumbs = presets::all()
                 .into_iter()
-                .map(|p| Thumb {
-                    name: p.name,
-                    category: p.category,
-                    description: p.description,
-                    project: p.project,
-                    drawn: None,
-                    exact: false,
+                .map(|p| {
+                    let file = crate::preset_thumbs::file_name(p.name);
+                    Thumb {
+                        name: p.name,
+                        category: p.category,
+                        description: p.description,
+                        texture: images
+                            .remove(&file)
+                            .map(|img| ctx.load_texture(file, img, egui::TextureOptions::LINEAR)),
+                    }
                 })
                 .collect();
-            self.thumbs_redraw_at = 0.0;
         }
-        self.draw_thumbs(ctx);
         let mut open = true;
         let mut chosen_builtin = None;
         let mut chosen_user = None;
@@ -2470,7 +2489,7 @@ impl EzApp {
                                 egui::Grid::new(("presets", cat)).spacing([10.0, 10.0]).show(ui, |ui| {
                                     let group = self.thumbs.iter().enumerate().filter(|(_, t)| t.category == cat);
                                     for (k, (i, t)) in group.enumerate() {
-                                        if card(ui, t.drawn.as_ref().map(|d| d.0), t.name, t.description) {
+                                        if card(ui, t.texture.as_ref().map(|t| t.id()), t.name, t.description) {
                                             chosen_builtin = Some(i);
                                         }
                                         if k % cols == cols - 1 {
@@ -3139,25 +3158,12 @@ fn music_meters(ui: &mut Ui, m: &ez_core::MusicFrame) {
 fn bake_budget() -> impl FnMut() -> bool {
     #[cfg(target_arch = "wasm32")]
     {
-        time_budget(8.0)
+        let start = js_sys::Date::now();
+        move || js_sys::Date::now() - start < 8.0
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
         || false
-    }
-}
-
-/// Whether less than `ms` milliseconds have passed since this was called.
-fn time_budget(ms: f64) -> impl FnMut() -> bool {
-    #[cfg(target_arch = "wasm32")]
-    {
-        let start = js_sys::Date::now();
-        move || js_sys::Date::now() - start < ms
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let start = std::time::Instant::now();
-        move || start.elapsed().as_secs_f64() * 1000.0 < ms
     }
 }
 

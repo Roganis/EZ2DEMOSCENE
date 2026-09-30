@@ -18,6 +18,7 @@ USAGE:
     ez2demoscene --list-presets
     ez2demoscene --write-presets DIR              save built-in presets as projects
     ez2demoscene --write-textures DIR             save the built-in texture pack as PNGs
+    ez2demoscene --write-preset-thumbs OUT.zip    render the gallery pictures of the built-in presets
 
 SCENE is a project file, an .ez2pack, or the name of a built-in preset (e.g. \"Neon Arena\").
 ";
@@ -92,6 +93,10 @@ pub fn run(args: &[String]) -> Result<Option<i32>> {
                 ez_render::texgen::generate(name).save(&file)?;
                 println!("wrote {}", file.display());
             }
+        }
+        "--write-preset-thumbs" => {
+            let out = PathBuf::from(args.get(1).context("missing OUT.zip")?);
+            crate::preset_thumbs::write(&out)?;
         }
         "--render" => {
             let scene = load_scene(args.get(1).context("missing SCENE")?)?;

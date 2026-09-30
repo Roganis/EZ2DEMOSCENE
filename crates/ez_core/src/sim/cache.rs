@@ -127,16 +127,25 @@ impl BakeCache {
 
     /// Progress of the running bakes (0..1, the slowest), `None` if none.
     pub fn progress(&self) -> Option<f32> {
-        self.work
-            .values()
-            .map(|w| match &w.run {
-                Run::Inline(job) => job.progress(),
-                #[cfg(not(target_arch = "wasm32"))]
-                Run::Thread { progress, .. } => {
-                    f32::from_bits(progress.load(std::sync::atomic::Ordering::Relaxed))
-                }
-            })
-            .reduce(f32::min)
+        Self::slowest(self.work.values())
+    }
+
+    /// Like [`BakeCache::progress`], for the bakes asked for since the last
+    /// [`BakeCache::end_frame`] only (what is being drawn now, not bakes
+    /// left over from a previous scene).
+    pub fn asked_progress(&self) -> Option<f32> {
+        Self::slowest(self.work.values().filter(|w| w.used == self.frame))
+    }
+
+    fn slowest<'a>(work: impl Iterator<Item = &'a Work>) -> Option<f32> {
+        work.map(|w| match &w.run {
+            Run::Inline(job) => job.progress(),
+            #[cfg(not(target_arch = "wasm32"))]
+            Run::Thread { progress, .. } => {
+                f32::from_bits(progress.load(std::sync::atomic::Ordering::Relaxed))
+            }
+        })
+        .reduce(f32::min)
     }
 
     /// Call every frame: collects finished bakes, and runs inline bakes
@@ -392,5 +401,20 @@ mod tests {
             job(1.0)
         });
         assert!(restarted);
+    }
+
+    #[test]
+    fn asked_progress_ignores_bakes_nobody_asked_for_this_frame() {
+        let mut cache = BakeCache::inline();
+        // The previous scene's bake, still running.
+        cache.get(1, 1, || job(1.0));
+        cache.end_frame();
+        assert!(cache.progress().is_some());
+        assert!(cache.asked_progress().is_none());
+        // The new scene asks for its own.
+        cache.get(2, 2, || job(2.0));
+        assert_eq!(cache.asked_progress(), Some(0.0));
+        cache.finish_all();
+        assert!(cache.asked_progress().is_none());
     }
 }

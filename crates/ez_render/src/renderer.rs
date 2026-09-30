@@ -4960,6 +4960,12 @@ impl Renderer {
         self.bakes.progress()
     }
 
+    /// Progress of the bakes the last render asked for (0..1), `None` when
+    /// what it drew has all its simulations baked.
+    pub fn scene_bake_progress(&self) -> Option<f32> {
+        self.bakes.asked_progress()
+    }
+
     /// Whether a simulation was drawn from an old bake (or not at all)
     /// since the last call; clears the flag.
     pub fn take_inexact(&mut self) -> bool {

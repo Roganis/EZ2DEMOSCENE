@@ -18,6 +18,7 @@ mod live;
 mod music_task;
 mod nodes;
 mod platform;
+mod preset_thumbs;
 mod viewport;
 mod widgets;
 

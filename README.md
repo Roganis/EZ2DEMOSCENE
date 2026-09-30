@@ -365,6 +365,7 @@ ez2demoscene --export "Tesla Swarm" smooth.mp4 --fps 30 --motion-blur 8   # film
 ez2demoscene --export my.ez2.json frames/        # PNG sequence
 ez2demoscene --write-presets assets/presets
 ez2demoscene --write-textures assets/textures
+ez2demoscene --write-preset-thumbs assets/presets/thumbnails.zip   # after changing a preset
 ```
 
 ## Project layout
