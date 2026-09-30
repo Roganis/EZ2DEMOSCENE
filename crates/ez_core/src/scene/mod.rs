@@ -5,6 +5,7 @@ use crate::color::{hex, Rgb};
 use crate::graph::Graph;
 use crate::palette::PaletteId;
 use crate::param::Param;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 
@@ -55,7 +56,7 @@ fn is_off(p: &Param) -> bool {
 pub const PROJECT_VERSION: u32 = 2;
 
 /// A complete loopable scene.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Project {
     pub version: u32,
@@ -149,6 +150,12 @@ impl Project {
 
     pub fn to_json(&self) -> String {
         serde_json::to_string_pretty(self).expect("project serialises")
+    }
+
+    /// The JSON Schema (2020-12) of a project file, with the doc comments
+    /// as descriptions and each field's default.
+    pub fn json_schema() -> serde_json::Value {
+        serde_json::to_value(schemars::schema_for!(Project)).expect("schema serialises")
     }
 
     pub fn from_json(s: &str) -> Result<Self, serde_json::Error> {

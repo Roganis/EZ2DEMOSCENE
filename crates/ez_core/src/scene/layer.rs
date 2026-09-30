@@ -2,7 +2,8 @@
 
 use super::*;
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// One layer of the scene: a name, what it draws (`kind`) and where (`transform`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Layer {
     pub name: String,
@@ -38,7 +39,8 @@ impl Default for Layer {
 }
 
 labeled_enum! {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    /// How a layer blinks.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum BlinkMode {
         /// Always visible.
         #[default]
@@ -53,7 +55,7 @@ labeled_enum! {
 }
 
 /// Loop-safe strobe: the rhythm repeats `per_loop` times per loop.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Blink {
     pub mode: BlinkMode,
@@ -176,22 +178,30 @@ impl Layer {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// What a layer draws. The `type` field picks the kind; the other fields are that kind's settings.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type")]
 #[allow(clippy::large_enum_variant)] // a scene has a handful of layers
 pub enum LayerKind {
+    /// Shapes: built-in solids, models, 3D text, cloth, raymarched objects, with copies.
     Mesh(MeshLayer),
     Particles(ParticleLayer),
+    /// A full-screen background.
     Backdrop(Backdrop),
     Mirror(MirrorFloor),
+    /// An endless landscape scrolling past, with optional liquid.
     Terrain(Terrain),
     Lasers(Lasers),
+    /// A glowing tube along a closed curve.
     Ribbon(Ribbon),
     Weather(Weather),
+    /// A waterfall.
     Falls(Falls),
     Text(TextLayer),
+    /// Images in the scene: billboards or planes.
     Sprite(SpriteLayer),
     Arcs(ArcLayer),
+    /// A logo made of an image or text, with retro effects.
     Logo(LogoLayer),
     Mode7(Mode7Floor),
 }
@@ -199,7 +209,7 @@ pub enum LayerKind {
 /// A SNES "Mode 7" / Saturn VDP2 floor: an endless flat picture at the
 /// layer's height, drawn per pixel up to a hard horizon. It turns around
 /// the layer's position and scrolls, whole turns and tiles per loop.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Mode7Floor {
     /// Built-in or your picture (`None`: checker).
@@ -324,7 +334,8 @@ impl LayerKind {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Where a layer is and how it moves: position, rotation, scale and loop-safe motion.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Transform {
     pub position: [f32; 3],
@@ -351,7 +362,7 @@ pub struct Transform {
 /// Loop-safe random jolts: a new random direction `per_loop` times per
 /// loop, scaled by `amount` / `turn`. Give those a fade (e.g. Exp fade out,
 /// every beat) for a hit that settles.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Shake {
     /// Distance of the jolt (animatable).
@@ -403,7 +414,7 @@ impl Default for Transform {
 }
 
 /// World-space duplication of a whole layer around the origin.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type")]
 pub enum Symmetry {
     #[default]

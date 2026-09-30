@@ -10,10 +10,11 @@
 use crate::clock::EvalCtx;
 use crate::graph::Graph;
 use crate::scene::*;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// A scene waiting in the sequence (the current one lives in the project).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Scene {
     pub id: u32,
@@ -45,7 +46,8 @@ impl Default for Scene {
 }
 
 labeled_enum! {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    /// How one clip of the timeline changes into the next.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum TransitionKind {
         /// Straight cut.
         #[default]
@@ -72,7 +74,7 @@ impl TransitionKind {
 }
 
 /// How a clip comes in (over the start of the clip).
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Transition {
     pub kind: TransitionKind,
@@ -93,7 +95,7 @@ impl Default for Transition {
 }
 
 /// One stretch of the timeline showing one scene.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Clip {
     /// Scene id.
@@ -112,7 +114,8 @@ impl Default for Clip {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Several scenes played by a timeline of clips; the whole timeline is the loop.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Sequence {
     /// Id and name of the scene held by the project itself.

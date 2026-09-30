@@ -2,7 +2,8 @@
 
 use super::*;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+/// How a group of beams is arranged.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 pub enum LaserPattern {
     /// Flat fan of beams.
     #[default]
@@ -32,7 +33,7 @@ impl LaserPattern {
 }
 
 /// Beams shooting from the layer's origin along its +Y axis.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Lasers {
     pub count: u32,
@@ -64,7 +65,8 @@ pub struct Lasers {
 }
 
 labeled_enum! {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    /// How beams look: thin laser lines, or soft spotlight cones.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum BeamStyle {
         #[default]
         Laser => "Laser beams",
@@ -73,7 +75,7 @@ labeled_enum! {
 }
 
 /// Opening angle of spotlight cones (degrees, animatable).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(transparent)]
 pub struct ConeAngle(pub Param);
 
@@ -106,7 +108,7 @@ impl Default for Lasers {
 }
 
 /// Where electric arcs run.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "mode")]
 pub enum ArcPath {
     /// One arc between two points (layer space).
@@ -137,7 +139,7 @@ impl ArcPath {
 
 /// Tesla-coil lightning: jagged arcs that crawl and re-strike a whole
 /// number of times per loop.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct ArcLayer {
     pub path: ArcPath,

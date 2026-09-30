@@ -3,7 +3,8 @@
 use super::*;
 
 labeled_enum! {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    /// Where a material glows.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum EmissiveMode {
         /// Whole surface glows.
         #[default]
@@ -17,7 +18,8 @@ labeled_enum! {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// The surface of a shape: colour, shininess, glow, texture and effects.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Material {
     pub base_color: Rgb,
@@ -70,7 +72,7 @@ pub struct Material {
 }
 
 /// How much light and view pass through a material (both shadings).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Translucency {
     /// Light shining through thin or soft stuff from behind (leaves,
@@ -103,7 +105,7 @@ impl Translucency {
 
 labeled_enum! {
     /// How a surface reacts to light.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum Shading {
         /// The original look: a Blinn highlight and a simple reflection.
         #[default]
@@ -116,7 +118,7 @@ labeled_enum! {
 
 /// Physically based settings of a material (used with
 /// [`Shading::Physical`]; the maps work in both).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Pbr {
     pub shading: Shading,
@@ -219,7 +221,8 @@ impl MaterialPreset {
 }
 
 labeled_enum! {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    /// How a relief texture shapes the surface.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum ReliefMode {
         /// Brightness of the texture is height.
         #[default]
@@ -231,7 +234,7 @@ labeled_enum! {
 
 /// Makes a surface look (bump / normal map) or be (displacement) uneven.
 /// Uses the material's tiling and scrolling.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Relief {
     /// Relief texture (built-in or user image); `None` uses the colour texture.
@@ -257,7 +260,7 @@ impl Default for Relief {
 
 labeled_enum! {
     /// How a glitched mesh is corrupted.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum GlitchStyle {
         /// Vertices shake to random positions.
         #[default]
@@ -280,7 +283,7 @@ impl GlitchStyle {
 
 /// Loop-safe geometry corruption: the pattern changes `rate` times per
 /// loop, and only `chance` of those steps are glitched.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Glitch {
     /// Strength (animatable). 0 = off.

@@ -3,7 +3,8 @@
 use super::*;
 
 labeled_enum! {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+    /// Built-in fonts.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize, JsonSchema)]
     pub enum TextFont {
         /// Chunky pixel letters, demoscene style.
         #[default]
@@ -16,7 +17,8 @@ labeled_enum! {
 }
 
 labeled_enum! {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    /// How text is shown and moves.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum TextStyle {
         /// Still text, centred.
         #[default]
@@ -34,7 +36,7 @@ labeled_enum! {
 
 /// Glowing letters in the scene (a flat sign facing +z; place and turn it
 /// like any layer).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct TextLayer {
     /// One line per line for Greetings; Scrollers run it as one line.

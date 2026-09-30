@@ -7,6 +7,7 @@ use super::{Body, Sim, SimLoop};
 use crate::rng::hash2;
 use crate::EvalCtx;
 use glam::Vec3;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Most bodies (a bake keeps every one at every key).
@@ -31,7 +32,7 @@ const PARK: f32 = 0.02;
 
 labeled_enum! {
     /// The shape each copy collides as.
-    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     pub enum Collider {
         #[default]
         Box => "Box",
@@ -41,7 +42,7 @@ labeled_enum! {
 
 labeled_enum! {
     /// How a body in the rain leaves at the end of its life.
-    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     pub enum Vanish {
         #[default]
         Shrink => "Shrink away",
@@ -52,7 +53,7 @@ labeled_enum! {
 
 labeled_enum! {
     /// What happens.
-    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     pub enum Scenario {
         /// Bodies drop from above one after another, a whole number per loop,
         /// pile up and vanish after their life.
@@ -65,7 +66,7 @@ labeled_enum! {
 }
 
 /// A rigid body simulation's settings (the copy layout "Physics").
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Physics {
     pub scenario: Scenario,

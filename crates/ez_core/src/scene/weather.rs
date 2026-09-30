@@ -3,7 +3,8 @@
 use super::*;
 
 labeled_enum! {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    /// What falls from the sky.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum Precipitation {
         /// Streaks of rain with splashes on the ground.
         #[default]
@@ -44,7 +45,7 @@ impl Precipitation {
 /// Rain, snow, embers or dust filling a box that follows the camera, with
 /// optional lightning. Every drop falls a whole number of times per loop.
 /// The layer's height (position Y) is the ground where drops splash.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Weather {
     pub kind: Precipitation,
@@ -97,7 +98,7 @@ impl Default for Weather {
 }
 
 /// Lightning strikes: a jagged bolt and a flash that lights up the scene.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Lightning {
     pub enabled: bool,
@@ -212,7 +213,8 @@ mod weather_tests {
 }
 
 labeled_enum! {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    /// What a waterfall pours.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum FallKind {
         #[default]
         Water => "Water",
@@ -237,7 +239,7 @@ impl FallKind {
 /// A curtain of water (or lava) pouring over an edge, from the layer's
 /// position downwards and away along its +Z axis, with foam or smoke at
 /// the foot. Streaks scroll a whole number of times per loop.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Falls {
     pub kind: FallKind,

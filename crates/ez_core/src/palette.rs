@@ -1,10 +1,12 @@
 //! Retro palettes used by the palette-reduction post effect and the texture
 //! "retro-ize" import option. Colours are sRGB `0xRRGGBB`.
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 labeled_enum! {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+    /// Retro colour palettes of old machines and styles.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize, JsonSchema)]
     pub enum PaletteId {
         /// IBM EGA 16 colours.
         #[default]

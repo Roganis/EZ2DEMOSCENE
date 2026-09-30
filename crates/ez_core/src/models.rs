@@ -7,13 +7,14 @@
 //! page the first time a model is wanted: [`wanted`] tells the app to fetch
 //! it, and [`install`] hands it over.
 
+use schemars::JsonSchema;
 use serde::Deserialize;
 use std::io::Read;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, RwLock};
 
 /// One model of the library.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, JsonSchema)]
 pub struct Entry {
     /// Stable id saved in projects, e.g. `kenney/space-kit/craft_speederA`.
     pub id: String,

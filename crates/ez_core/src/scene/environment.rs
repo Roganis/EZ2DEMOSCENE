@@ -3,7 +3,8 @@
 use super::*;
 
 labeled_enum! {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    /// How the camera moves over the loop.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum CameraMode {
         /// Circles the target `orbit_turns` times per loop.
         #[default]
@@ -18,7 +19,7 @@ labeled_enum! {
 }
 
 /// One stop of a camera path.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct PathPoint {
     pub eye: [f32; 3],
@@ -43,7 +44,7 @@ impl Default for PathPoint {
 
 /// A closed flight through points, travelled a whole number of times per
 /// loop at an even speed.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct CameraPath {
     pub points: Vec<PathPoint>,
@@ -88,7 +89,8 @@ impl Default for CameraPath {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// The camera: how it moves around its target (`mode`), how far and how high, and its lens.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Camera {
     pub mode: CameraMode,
@@ -136,7 +138,8 @@ impl Default for Camera {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Lighting and atmosphere: the sun, ambient and sky colours, fog, shadows, reflections and light shafts.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Environment {
     pub fog_color: Rgb,
@@ -182,7 +185,7 @@ pub struct Environment {
 
 /// Light shafts: the fog lit by the sun where the sun reaches it, so
 /// shadows cut dark bands through it. Uses the sun shadow map.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct LightShafts {
     pub enabled: bool,
@@ -211,7 +214,7 @@ impl Default for LightShafts {
 /// Screen-space reflections: shiny shapes, water and wet ground reflect
 /// what is on the screen (the environment elsewhere). The mirror floor
 /// keeps its own exact reflection.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Reflections {
     pub enabled: bool,
@@ -236,7 +239,7 @@ impl Default for Reflections {
 
 labeled_enum! {
     /// Built-in environment maps (generated, no files).
-    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
     pub enum Studio {
         /// A dark studio with big soft lights: crisp highlights on shiny things.
         #[default]
@@ -251,7 +254,7 @@ labeled_enum! {
 }
 
 /// Where the environment light comes from.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub enum EnvSource {
     /// The sky and ground colours (and fake studio bands), as always.
     #[default]
@@ -265,7 +268,7 @@ pub enum EnvSource {
 }
 
 /// Lighting from an environment map (image-based lighting).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct EnvLight {
     pub source: EnvSource,
@@ -302,7 +305,7 @@ impl EnvLight {
 
 labeled_enum! {
     /// How a colour scheme's hues sit around its key colour.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum Harmony {
         /// The key hue only.
         Mono => "One hue",
@@ -338,7 +341,7 @@ impl Harmony {
 /// hue is pulled toward the scheme's hues, worked out when drawing (the
 /// stored colours never change). Pictures (textures, sprites) keep their
 /// own colours.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct ColorScheme {
     pub enabled: bool,
@@ -413,7 +416,7 @@ impl Environment {
 
 /// Sun shadows (a shadow map around the camera's target) and contact
 /// shadows under shapes standing on a mirror floor.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Shadows {
     pub enabled: bool,
@@ -441,7 +444,7 @@ impl Default for Shadows {
 
 /// Fog that pools in valleys: `density` at `height`, halving every
 /// `falloff` × 0.7 units above it.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct HeightFog {
     pub density: Param,
@@ -459,7 +462,8 @@ impl Default for HeightFog {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Rippling light patterns (as under water) cast on the scene.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Caustics {
     pub amount: Param,
@@ -485,7 +489,7 @@ impl Default for Caustics {
 }
 
 /// Day and night: the sun turns around the sky `cycles` times per loop.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct DayCycle {
     pub enabled: bool,

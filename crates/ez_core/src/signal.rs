@@ -9,11 +9,13 @@ use crate::audio::HitKind;
 use crate::clock::EvalCtx;
 use crate::param::{Param, Wave};
 use crate::scene::Layer;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 labeled_enum! {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    /// How a math node combines its two inputs.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     pub enum MathOp {
         Add => "A + B",
         Subtract => "A − B",
@@ -50,7 +52,7 @@ impl MathOp {
 }
 
 /// A node that makes or shapes a signal.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "signal")]
 pub enum SignalNode {
     /// Any animation: a wave (whole cycles per loop), a fade on every
@@ -247,7 +249,7 @@ pub fn shifted(ctx: &EvalCtx, beats: f32) -> EvalCtx {
 
 labeled_enum! {
     /// How a Drive node writes its signal into a setting.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum DriveMode {
         /// The setting becomes the signal.
         #[default]

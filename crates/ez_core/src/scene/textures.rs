@@ -2,7 +2,8 @@
 
 use super::*;
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// An image (or animation) of the user's, referred to by `name` from materials.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct UserTexture {
     pub name: String,
@@ -34,7 +35,7 @@ impl Default for UserTexture {
 
 /// The frames of an animated picture, laid out in a grid read left to
 /// right, top to bottom.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct FrameSheet {
     pub columns: u32,
     pub rows: u32,
@@ -59,7 +60,8 @@ impl FrameSheet {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Retro treatment of a user texture: size limit, palette and dithering.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct RetroProcess {
     /// Downscale to this many pixels on the longest side (0 = keep).

@@ -3,10 +3,11 @@
 
 use crate::audio::{AudioEnvelope, Curve};
 use crate::music::{MusicFrame, MusicMode, MusicSettings};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Tempo and loop length. The loop always spans a whole number of beats.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Timing {
     pub bpm: f32,

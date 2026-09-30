@@ -5,6 +5,7 @@ use super::math;
 use super::{Body, Sim, SimLoop};
 use crate::{EvalCtx, Param};
 use glam::Vec3;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Most particles along a side (a bake keeps every one at every key).
@@ -14,7 +15,7 @@ const SUBSTEPS: usize = 6;
 
 labeled_enum! {
     /// What the cloth is and where it hangs from.
-    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     pub enum ClothKind {
         /// Upright, held along one side by a pole.
         #[default]
@@ -29,7 +30,7 @@ labeled_enum! {
 }
 
 /// A cloth's settings (the shape source "Cloth").
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Cloth {
     pub kind: ClothKind,

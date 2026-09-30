@@ -3,7 +3,8 @@
 use super::*;
 
 labeled_enum! {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    /// How a terrain is drawn.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum TerrainStyle {
         /// Glowing grid lines only.
         #[default]
@@ -26,7 +27,7 @@ impl TerrainStyle {
 
 /// An endless landscape that scrolls towards the camera and repeats
 /// exactly once per `scroll` unit, so the loop is seamless.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Terrain {
     /// Width and depth in world units.
@@ -157,7 +158,8 @@ impl Default for Terrain {
 }
 
 labeled_enum! {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    /// The landform of a terrain.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum TerrainShape {
         /// Rolling hills.
         #[default]
@@ -186,7 +188,7 @@ impl TerrainShape {
 
 labeled_enum! {
     /// Height and slope based colouring of solid terrain.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum Biome {
         /// One ground colour.
         #[default]
@@ -211,7 +213,8 @@ impl Biome {
 }
 
 labeled_enum! {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    /// What fills the low ground of a terrain.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum LiquidKind {
         #[default]
         None => "None",
@@ -242,7 +245,7 @@ impl LiquidKind {
 }
 
 /// A liquid filling the terrain up to `level`.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Liquid {
     pub kind: LiquidKind,

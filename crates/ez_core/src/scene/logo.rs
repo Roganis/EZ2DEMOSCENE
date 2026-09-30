@@ -4,7 +4,7 @@ use super::*;
 
 labeled_enum! {
     /// What a logo is made of.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum LogoSource {
         /// A line (or a few lines) of text in a font.
         #[default]
@@ -16,7 +16,7 @@ labeled_enum! {
 
 labeled_enum! {
     /// Which parts of a logo image are the logo.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum LogoMask {
         /// The image's transparency.
         #[default]
@@ -30,7 +30,7 @@ labeled_enum! {
 
 labeled_enum! {
     /// Where a logo's colour comes from.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum LogoColors {
         /// The image's own colours times the tint (text: the tint).
         Image => "Image colours",
@@ -42,7 +42,7 @@ labeled_enum! {
 
 labeled_enum! {
     /// The shape of a logo's bevel, from the edge inward.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum LogoBevel {
         /// Flat: no lighting.
         #[default]
@@ -66,7 +66,7 @@ impl LogoBevel {
 
 labeled_enum! {
     /// How a logo appears as its reveal goes from 0 to 1.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum LogoReveal {
         /// The letters grow outward from their middle lines.
         #[default]
@@ -89,7 +89,7 @@ impl LogoReveal {
 labeled_enum! {
     /// The point of the logo that sits at its position (and that it turns
     /// around).
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum LogoAnchor {
         TopLeft => "Top left",
         Top => "Top",
@@ -130,7 +130,7 @@ impl LogoAnchor {
 /// post effects, so bloom, rays and trails apply). Its shape is a signed
 /// distance field baked from the text or image, which gives outlines,
 /// glows, shadows and bevels at any size.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct LogoLayer {
     pub source: LogoSource,

@@ -6,12 +6,13 @@
 //! geometry is, and the low resolution only changes how finely it is drawn.
 
 use crate::param::Param;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 labeled_enum! {
     /// The resolution the 3D scene is drawn at before being blown up with
     /// chunky, unsmoothed pixels.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum RetroRes {
         /// The output's own resolution (no chunky pixels).
         #[default]
@@ -79,7 +80,7 @@ labeled_enum! {
 /// straight line to solid fog at `far` (distances from the camera, in
 /// world units). Replaces the scene's distance fog while on; the fog
 /// colour stays the scene's.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct N64Fog {
     pub enabled: bool,
@@ -100,7 +101,7 @@ impl Default for N64Fog {
 }
 
 /// The quirks of 5th-generation 3D, for the whole scene.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Retro3d {
     pub enabled: bool,
@@ -274,7 +275,7 @@ impl Retro3d {
 
 labeled_enum! {
     /// How a texture is smoothed between its pixels.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum TexFilter {
         /// Smooth, with smaller copies further away (modern).
         #[default]
@@ -301,7 +302,7 @@ impl TexFilter {
 
 labeled_enum! {
     /// How the console's picture sits on the output.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum ScreenFrame {
         /// Stretched over the whole output (pixels as wide as that makes them).
         Fill => "Fill the output",
@@ -318,7 +319,7 @@ labeled_enum! {
 /// The whole picture at an old machine's resolution: sampled once per
 /// console pixel (after everything else is drawn), so pixels can be wider
 /// than tall, inside an optional border.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct ConsoleScreen {
     pub enabled: bool,
@@ -360,7 +361,7 @@ impl Default for ConsoleScreen {
 
 labeled_enum! {
     /// What the border shows while a tape loads.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum StripeMode {
         #[default]
         Off => "Off",
@@ -376,7 +377,7 @@ labeled_enum! {
 }
 
 /// Border stripes of a loading tape (ZX Spectrum style).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct BorderStripes {
     pub mode: StripeMode,
@@ -568,7 +569,7 @@ impl ScreenPreset {
 /// styles work: 'a' is dark, 'm' normal and 'z' about twice as bright;
 /// one letter after the other, the whole string `plays` times per loop
 /// (a whole number, so the loop stays seamless).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct LightStyle {
     /// Letters a..z; empty = steady.
@@ -672,7 +673,7 @@ impl LightStylePreset {
 
 /// Quake's turbulent warp for liquids: each texture coordinate wobbles by
 /// a sine of the other, `cycles` whole times per loop.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Turbulence {
     /// How far the texture wobbles, in tiles (0 = off; animatable).
@@ -700,7 +701,7 @@ impl Turbulence {
 }
 
 /// Which palette the colormap lighting shades through.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 pub enum ColormapPalette {
     /// Our own 256 colours in 16 ramps of 16 shades, the last 32 glowing
     /// (fullbright), in the style of 90s software 3D.
@@ -793,7 +794,7 @@ pub fn software_palette() -> Vec<[u8; 3]> {
 
 /// Palette-space lighting ("colormap"): lit colours step through the
 /// palette's own colours, like Quake's software renderer.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Colormap {
     pub enabled: bool,

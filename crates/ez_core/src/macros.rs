@@ -5,7 +5,7 @@
 ///
 /// ```ignore
 /// labeled_enum! {
-///     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+///     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 ///     pub enum CameraMode {
 ///         /// Circles the target.
 ///         #[default]

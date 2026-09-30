@@ -2,7 +2,8 @@
 
 use super::*;
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Shapes: one shape (`source`) with its material, optional deformation and copies (`instancer`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct MeshLayer {
     pub source: MeshSource,
@@ -28,7 +29,7 @@ pub struct MeshLayer {
 /// shapes are turned into distance fields and the layer is raymarched as a
 /// blend of the two (smooth, with holes opening and closing); off, the
 /// shape is drawn as the usual sharp mesh.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct ShapeMorph {
     pub enabled: bool,
@@ -63,7 +64,8 @@ impl Default for MeshLayer {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+/// How a colour ramp spreads over the copies: smoothly or in steps.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 pub enum RampMode {
     /// Smooth blend from colour to colour (back to the first at the end).
     #[default]
@@ -75,7 +77,7 @@ pub enum RampMode {
 /// Colours across the copies of a shape: copy 0 at the start of the ramp,
 /// the last copy near its end. It can cycle along the copies a whole
 /// number of times per loop.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct ColorRamp {
     pub enabled: bool,
@@ -102,7 +104,7 @@ impl Default for ColorRamp {
 
 /// Shape deformations, applied on the GPU to every copy (in the shape's
 /// own space, where it fits in a unit sphere; y is "up the shape").
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Deform {
     /// Turns of twist from the bottom to the top.
@@ -157,18 +159,16 @@ impl Deform {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Where a shape comes from. The `type` field picks the source.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type")]
 pub enum MeshSource {
+    /// A built-in shape.
     Primitive(Primitive),
     /// A glTF/GLB or OBJ file.
-    File {
-        path: String,
-    },
+    File { path: String },
     /// A model of the bundled library (see [`crate::models`]).
-    Library {
-        id: String,
-    },
+    Library { id: String },
     /// A raymarched distance-field object: drawn inside its box (it fits
     /// the unit sphere like the built-in shapes), so it intersects other
     /// shapes, casts and takes shadows and gets the usual material.
@@ -198,7 +198,7 @@ pub enum MeshSource {
 }
 
 /// Raymarched distance-field shapes (see `sdf.wgsl`).
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind")]
 pub enum SdfShape {
     /// Balls that melt into each other as they orbit.
@@ -260,7 +260,7 @@ impl SdfShape {
 }
 
 /// Built-in procedural meshes.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "shape")]
 pub enum Primitive {
     Cube,
@@ -469,7 +469,7 @@ impl Primitive {
 }
 
 /// How copies of the mesh are laid out inside the layer.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type")]
 pub enum Instancer {
     Single,
@@ -698,7 +698,7 @@ impl Instancer {
 }
 
 /// Per-instance randomness and travelling waves.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Variation {
     pub seed: u32,
@@ -746,7 +746,7 @@ pub const SWARM_MAX: u32 = 250_000;
 
 labeled_enum! {
     /// Layouts of a big swarm.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum SwarmForm {
         /// Each copy on its own tilted circle (like Orbit).
         #[default]

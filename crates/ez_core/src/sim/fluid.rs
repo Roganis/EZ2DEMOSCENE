@@ -11,6 +11,7 @@ use super::{Body, LoopClose, Sim, SimLoop};
 use crate::rng::hash2;
 use crate::{EvalCtx, Param};
 use glam::Vec3;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 
@@ -28,7 +29,7 @@ const MAX_SPEED: f32 = 30.0;
 
 labeled_enum! {
     /// What holds the liquid.
-    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     pub enum Container {
         /// A closed box around the layer's origin, `size` from the middle to
         /// each side (the built-in cube at size × 2).
@@ -45,7 +46,7 @@ labeled_enum! {
 
 labeled_enum! {
     /// Where the liquid comes from.
-    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     pub enum Source {
         /// All of it is in the container from the start and sloshes about.
         #[default]
@@ -57,7 +58,7 @@ labeled_enum! {
 }
 
 /// A liquid simulation's settings (the copy layout "Liquid").
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Fluid {
     /// Droplets.

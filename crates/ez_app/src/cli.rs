@@ -18,6 +18,7 @@ USAGE:
     ez2demoscene --list-presets
     ez2demoscene --mcp                           serve the Model Context Protocol on stdin/stdout
     ez2demoscene --write-presets DIR              save built-in presets as projects
+    ez2demoscene --write-schema OUT.json          save the JSON Schema of project files
     ez2demoscene --write-textures DIR             save the built-in texture pack as PNGs
     ez2demoscene --write-preset-thumbs OUT.zip    render the gallery pictures of the built-in presets
 
@@ -88,6 +89,11 @@ pub fn run(args: &[String]) -> Result<Option<i32>> {
                 std::fs::write(&file, p.project.to_json())?;
                 println!("wrote {}", file.display());
             }
+        }
+        "--write-schema" => {
+            let out = PathBuf::from(args.get(1).context("missing OUT.json")?);
+            std::fs::write(&out, serde_json::to_string_pretty(&Project::json_schema())?)?;
+            println!("wrote {}", out.display());
         }
         "--write-textures" => {
             let dir = PathBuf::from(args.get(1).context("missing DIR")?);

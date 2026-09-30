@@ -2,7 +2,8 @@
 
 use super::*;
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Effects applied to the finished picture, in a fixed order.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 #[derive(Default)]
 pub struct PostStack {
@@ -42,7 +43,7 @@ pub struct PostStack {
 }
 
 /// Lens distortion of the whole picture.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Lens {
     pub enabled: bool,
@@ -61,7 +62,7 @@ impl Default for Lens {
 }
 
 /// Line wobble of the whole picture.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct LineWobble {
     pub enabled: bool,
@@ -90,7 +91,7 @@ impl Default for LineWobble {
 }
 
 /// Worn video tape.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Vhs {
     pub enabled: bool,
@@ -115,7 +116,7 @@ impl Default for Vhs {
 
 labeled_enum! {
     /// Colours of the ASCII characters.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum AsciiColor {
         /// The picture's colours.
         #[default]
@@ -141,7 +142,7 @@ impl AsciiColor {
 }
 
 /// The picture as text characters.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Ascii {
     pub enabled: bool,
@@ -164,7 +165,7 @@ impl Default for Ascii {
 }
 
 /// Video feedback trails.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Feedback {
     pub enabled: bool,
@@ -191,7 +192,7 @@ impl Default for Feedback {
 }
 
 /// Camera-lens blur away from a focus distance.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct DepthOfField {
     pub enabled: bool,
@@ -215,7 +216,8 @@ impl Default for DepthOfField {
 }
 
 labeled_enum! {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    /// Where heat haze shimmers.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum HazeRegion {
         /// Above bright, hot things (lava, fire, the sun).
         #[default]
@@ -228,7 +230,7 @@ labeled_enum! {
 }
 
 /// Heat shimmer: the picture wobbles as if seen through rising hot air.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct HeatHaze {
     pub enabled: bool,
@@ -252,7 +254,8 @@ impl Default for HeatHaze {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Glow around bright parts of the picture.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Bloom {
     pub enabled: bool,
@@ -274,7 +277,8 @@ impl Default for Bloom {
 }
 
 labeled_enum! {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    /// Where light rays come from.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum RaySource {
         /// From the sun (the light direction).
         #[default]
@@ -287,7 +291,7 @@ labeled_enum! {
 /// Screen-space light shafts ("god rays"): bright parts of the picture near
 /// the light are smeared towards it, so anything dark in front casts
 /// streaks of shadow through the haze.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct GodRays {
     pub enabled: bool,
@@ -316,7 +320,8 @@ impl Default for GodRays {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// A kaleidoscope: the picture mirrored into segments around a centre.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Kaleido {
     pub enabled: bool,
@@ -343,7 +348,8 @@ impl Default for Kaleido {
 }
 
 labeled_enum! {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    /// How the picture is mirrored.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum MirrorSplitMode {
         #[default]
         LeftToRight => "Left → right",
@@ -352,14 +358,16 @@ labeled_enum! {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
+/// The picture mirrored onto itself (left to right, top to bottom, or into four).
+#[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct MirrorSplit {
     pub enabled: bool,
     pub mode: MirrorSplitMode,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Chromatic aberration: colour fringes toward the edges.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Chroma {
     pub enabled: bool,
@@ -375,7 +383,8 @@ impl Default for Chroma {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Big pixels over the whole picture.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Pixelate {
     pub enabled: bool,
@@ -392,7 +401,8 @@ impl Default for Pixelate {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// The picture reduced to a retro palette, optionally dithered.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct PaletteFx {
     pub enabled: bool,
@@ -411,7 +421,8 @@ impl Default for PaletteFx {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// A CRT screen look: scanlines, curvature and noise.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Crt {
     pub enabled: bool,
@@ -432,7 +443,8 @@ impl Default for Crt {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Colour grading of the final picture: exposure, contrast, saturation, vignette and film grain.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Grade {
     pub exposure: Param,

@@ -34,6 +34,7 @@ pub use fluid::*;
 pub use physics::*;
 
 use glam::Vec3;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// One simulated thing: a boid, a cloth vertex, a rigid body, a droplet.
@@ -112,7 +113,7 @@ pub fn pull(bodies: &mut [Body], targets: &[Body], gain: f32, dt: f32, drift: &m
 
 labeled_enum! {
     /// How a simulation's end joins its start.
-    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     pub enum LoopClose {
         /// The volumetric clouds' trick: the loop is drawn twice, half a loop
         /// apart, each fading out before it jumps back. Exact, for anything
@@ -130,7 +131,7 @@ labeled_enum! {
 }
 
 /// How a simulation is baked into a loop (saved with its layer).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct SimLoop {
     pub close: LoopClose,

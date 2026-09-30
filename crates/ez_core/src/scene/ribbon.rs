@@ -3,7 +3,8 @@
 use super::*;
 
 labeled_enum! {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    /// The closed curve a ribbon follows.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum RibbonCurve {
         /// 3D Lissajous figure (uses the three frequencies).
         #[default]
@@ -63,7 +64,7 @@ impl RibbonCurve {
 }
 
 /// A glowing tube along a closed curve with light pulses running along it.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Ribbon {
     pub curve: RibbonCurve,

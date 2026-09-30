@@ -4,7 +4,7 @@ use super::*;
 
 labeled_enum! {
     /// How sprites turn.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum SpriteFacing {
         /// Always square on to the camera.
         #[default]
@@ -18,7 +18,7 @@ labeled_enum! {
 
 labeled_enum! {
     /// How sprites mix with what is behind them.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum SpriteBlend {
         /// Soft edges from the image's alpha (copies drawn back to front).
         #[default]
@@ -35,7 +35,7 @@ labeled_enum! {
 
 /// Images in the scene: billboards or planes, one per copy, optionally
 /// playing a sprite sheet in step with the loop.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct SpriteLayer {
     /// A texture (built-in or added to the project); none draws a soft

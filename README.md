@@ -364,6 +364,7 @@ ez2demoscene --export "Gold Kaleido Room" loop.mp4 --size 1920x1080 --fps 60 --r
 ez2demoscene --export "Tesla Swarm" smooth.mp4 --fps 30 --motion-blur 8   # film-like motion blur
 ez2demoscene --export my.ez2.json frames/        # PNG sequence
 ez2demoscene --write-presets my_presets/        # the built-in presets as project files
+ez2demoscene --write-schema ez2.schema.json     # JSON Schema of project files (for editors)
 ez2demoscene --write-textures assets/textures
 ez2demoscene --write-preset-thumbs assets/presets/thumbnails.zip   # after changing a preset
 ```
@@ -386,6 +387,7 @@ like the editor; video and GIF export need ffmpeg.
 | Tool | What it does |
 |---|---|
 | `list_presets` | The built-in presets with their group and description. |
+| `scene_schema` | The scene format from its JSON Schema: an index of every type, or one type's fields, allowed values and defaults. |
 | `get_scene` | A preset, project file or pack as project JSON. |
 | `check_scene` | Validates a scene: errors name the field at fault, and it lists fields that were ignored. |
 | `render_frame` | One frame as a PNG image, at any point of the loop. |

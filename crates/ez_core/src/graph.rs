@@ -9,6 +9,7 @@ use crate::rng::Rng;
 use crate::scene::*;
 use crate::signal::{DriveMode, SignalNode};
 use crate::EvalCtx;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// What flows along a wire.
@@ -20,7 +21,8 @@ pub enum PinKind {
     Signal,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// What a graph node does.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "node")]
 #[allow(clippy::large_enum_variant)]
 pub enum NodeKind {
@@ -679,7 +681,8 @@ pub fn tint_layer(l: &mut Layer, hue: f32, glow: f32) {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// One node of the graph.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct GraphNode {
     pub id: u32,
     pub pos: [f32; 2],
@@ -687,7 +690,7 @@ pub struct GraphNode {
 }
 
 /// Connection from `from` node's output pin to `to` node's input pin.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Wire {
     pub from: u32,
     pub from_pin: usize,
@@ -695,7 +698,8 @@ pub struct Wire {
     pub to_pin: usize,
 }
 
-#[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
+/// A node graph that builds the layers (used when the project's `use_graph` is set).
+#[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Graph {
     pub nodes: Vec<GraphNode>,

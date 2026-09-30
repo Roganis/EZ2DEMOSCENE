@@ -39,7 +39,8 @@ timing.loop_beats beats at timing.bpm.
 
 Good workflow: list_presets, then get_scene on a preset close to what you \
 want and edit that JSON (the presets are the best examples of the format; \
-unlisted fields keep their defaults). Run check_scene on your edit, look at \
+unlisted fields keep their defaults). scene_schema documents every type and \
+field, with allowed values and defaults. Run check_scene on your edit, look at \
 it with render_frame or preview_loop, and iterate. save_scene writes a \
 project file the editor opens; export_loop renders the video.
 

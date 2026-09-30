@@ -3,7 +3,8 @@
 use super::*;
 
 labeled_enum! {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    /// Where particles come from and how they move.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum Emitter {
         /// Explodes outward from the centre.
         #[default]
@@ -32,7 +33,8 @@ impl Emitter {
 }
 
 labeled_enum! {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    /// The shape drawn for each particle.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum Sprite {
         #[default]
         Glow => "Soft glow",
@@ -50,7 +52,8 @@ impl Sprite {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Particles: many small glowing points or sprites, fully determined by the loop phase.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct ParticleLayer {
     pub emitter: Emitter,

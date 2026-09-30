@@ -3,7 +3,8 @@
 use super::*;
 
 labeled_enum! {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    /// Which background a backdrop layer draws.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum BackdropKind {
         #[default]
         Gradient => "Gradient sky",
@@ -52,7 +53,8 @@ impl BackdropKind {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// A full-screen background behind everything: a gradient sky, space, raymarched tunnels and fractals, plasma, clouds, a battle background…
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Backdrop {
     pub kind: BackdropKind,
@@ -84,7 +86,7 @@ pub struct Backdrop {
 /// Quake's sky: two pictures projected on a flattened dome, the near one
 /// drawn over the far one except where it has the see-through colour.
 /// Each scrolls a whole number of tiles per loop.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct LayeredSky {
     /// The near layer (built-in or your image); `None`: built-in clouds.
@@ -118,7 +120,8 @@ impl Default for LayeredSky {
 }
 
 labeled_enum! {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    /// Resolution a background is drawn at (lower is faster for expensive ones, then scaled up).
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum BgResolution {
         #[default]
         Full => "Full",
@@ -141,7 +144,7 @@ impl BgResolution {
 /// Settings shared by the raymarched backgrounds. What each one does
 /// depends on the kind (see [`RaySettings::labels`]); the defaults keep the
 /// original look.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct RaySettings {
     /// Style: tunnel shape, fractal formula, sponge type, ring shape.
@@ -269,7 +272,7 @@ impl Default for Backdrop {
 
 /// How the lines of a picture are pushed about, as in the battle
 /// backgrounds of 16-bit RPGs.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 pub enum LineWarp {
     /// Still.
     None,
@@ -307,7 +310,7 @@ impl LineWarp {
 labeled_enum! {
     /// The pattern of a battle background layer. Each is a ramp of values
     /// that the colours cycle through.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum BattlePattern {
         #[default]
         Rings => "Rings",
@@ -335,7 +338,7 @@ impl BattlePattern {
 
 labeled_enum! {
     /// How the front battle layer goes over the back one.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum BattleBlend {
         /// See-through, by its opacity.
         #[default]
@@ -360,7 +363,7 @@ impl BattleBlend {
 
 /// One layer of a battle background: a tiled pattern that scrolls, whose
 /// lines wobble, coloured by the backdrop's colours cycling through it.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct BattleLayer {
     pub enabled: bool,
@@ -404,7 +407,7 @@ impl Default for BattleLayer {
 
 /// An EarthBound-style battle background: a back layer and an optional
 /// front one over it.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Battle {
     pub back: BattleLayer,
@@ -440,7 +443,8 @@ impl Default for Battle {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// A reflective floor, with an optional glowing grid or texture.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct MirrorFloor {
     /// Half size of the floor square.

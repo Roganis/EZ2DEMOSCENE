@@ -264,6 +264,28 @@ mod tests {
         }
     }
 
+    /// The generated schema accepts every bundled scene (so it matches what
+    /// serde reads) and rejects wrong types.
+    #[test]
+    fn project_schema_matches_the_presets() {
+        let schema = Project::json_schema();
+        let v = jsonschema::draft202012::new(&schema).expect("a valid schema");
+        for info in INDEX.iter().chain(EXTRA) {
+            let json: serde_json::Value = serde_json::from_str(info.json).unwrap();
+            let errors: Vec<String> = v.iter_errors(&json).map(|e| e.to_string()).collect();
+            assert!(errors.is_empty(), "{}: {errors:?}", info.file);
+        }
+        let mut bad: serde_json::Value = serde_json::from_str(EXTRA[0].json).unwrap();
+        bad["timing"]["bpm"] = serde_json::json!("fast");
+        assert!(!v.is_valid(&bad));
+        let mut bad: serde_json::Value = serde_json::from_str(EXTRA[0].json).unwrap();
+        bad["camera"]["mode"] = serde_json::json!("Sideways");
+        assert!(!v.is_valid(&bad));
+        let mut bad: serde_json::Value = serde_json::from_str(EXTRA[0].json).unwrap();
+        bad["camera"]["distance"] = serde_json::json!({ "base": 5.0, "cycles": 1.5 });
+        assert!(!v.is_valid(&bad), "cycles must be whole");
+    }
+
     #[test]
     fn every_preset_file_is_listed_once() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/presets");

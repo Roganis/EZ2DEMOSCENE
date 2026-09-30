@@ -8,13 +8,14 @@ use crate::clock::EvalCtx;
 use crate::music::{AudioSource, MusicMod};
 use crate::rng::hash2;
 use crate::sim::math as sim_math;
+use schemars::JsonSchema;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Oscillator shape.
 ///
 /// LFO and random shapes swing both ways (-1..1). The fades run 0..1 once
 /// per cycle, so with "×/loop" = beats per loop they fire on every beat.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 pub enum Wave {
     #[default]
     Sine,
@@ -210,7 +211,7 @@ impl Wave {
 
 labeled_enum! {
     /// How an envelope goes from one point to the next.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
     pub enum Curve {
         /// Straight line.
         #[default]
@@ -242,7 +243,7 @@ impl Curve {
 
 /// One point of an envelope: where in the cycle (0..1), how high (0..1),
 /// and how it goes on to the next point.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct EnvPoint {
     pub t: f32,
     pub v: f32,
@@ -702,19 +703,59 @@ impl From<f32> for Param {
 }
 
 // Serialize static params as plain numbers to keep project files readable.
-#[derive(Serialize, Deserialize)]
+/// An animated value: `base` plus an oscillator (and optionally music).
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
+#[schemars(rename = "AnimatedParam")]
 struct ParamFull {
+    /// Value when not animated.
     base: f32,
+    /// Oscillator amplitude (0 = static).
     amp: f32,
     wave: Wave,
+    /// Whole cycles per loop (negative runs backwards). Must be a whole
+    /// number so the loop closes.
     cycles: i32,
+    /// Phase offset of the oscillator in cycles (0..1).
     offset: f32,
+    /// Amount of audio level added (0 = none). Older projects; new ones
+    /// use `music`.
     audio: f32,
+    /// Link to the music (kick, bass, hits, pitch…).
     #[serde(skip_serializing_if = "music_off")]
     music: MusicMod,
+    /// The points of the `Envelope` wave.
     #[serde(skip_serializing_if = "EnvRef::is_default")]
     env: EnvRef,
+}
+
+impl JsonSchema for Param {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "Param".into()
+    }
+
+    fn json_schema(g: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        let animated = g.subschema_for::<ParamFull>();
+        schemars::json_schema!({
+            "description": "An animatable number: a plain number when it holds still, \
+                or an object that animates it over the loop.",
+            "anyOf": [{ "type": "number" }, animated]
+        })
+    }
+}
+
+impl JsonSchema for EnvRef {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "Envelope".into()
+    }
+
+    fn json_schema(g: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        let points = g.subschema_for::<Vec<EnvPoint>>();
+        schemars::json_schema!({
+            "description": "The points of a drawn envelope, in order through the cycle.",
+            "allOf": [points]
+        })
+    }
 }
 
 fn music_off(m: &MusicMod) -> bool {
@@ -737,7 +778,7 @@ impl Default for ParamFull {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, JsonSchema)]
 #[serde(untagged)]
 enum ParamRepr {
     Const(f32),

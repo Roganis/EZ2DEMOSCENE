@@ -76,10 +76,12 @@ struct Gpu3d {
 
 pub struct Tools {
     gpu: Option<Gpu3d>,
+    schema: Option<Value>,
 }
 
-const TOOL_NAMES: [&str; 7] = [
+const TOOL_NAMES: [&str; 8] = [
     "list_presets",
+    "scene_schema",
     "get_scene",
     "check_scene",
     "render_frame",
@@ -99,7 +101,10 @@ fn scene_schema() -> Value {
 
 impl Tools {
     pub fn new() -> Tools {
-        Tools { gpu: None }
+        Tools {
+            gpu: None,
+            schema: None,
+        }
     }
 
     pub fn exists(name: &str) -> bool {
@@ -116,6 +121,24 @@ impl Tools {
                     a one-line description. Presets are the best starting points and \
                     examples of the scene format: fetch one with get_scene.",
                 "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+                "annotations": read_only,
+            },
+            {
+                "name": "scene_schema",
+                "title": "Scene format",
+                "description": "Documents the scene (project JSON) format from its JSON \
+                    Schema. Without arguments: the top-level fields and an index of every \
+                    type with a one-line summary. With type: that type's schema (fields, \
+                    allowed values, defaults and descriptions) and the types it refers to. \
+                    full: true returns the whole schema (large).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "type": { "type": "string", "description": "A type name from the index, e.g. \"MeshLayer\" or \"Material\"." },
+                        "full": { "type": "boolean", "default": false }
+                    },
+                    "additionalProperties": false
+                },
                 "annotations": read_only,
             },
             {
@@ -232,6 +255,7 @@ impl Tools {
     pub fn call(&mut self, name: &str, args: &Value) -> ToolOutput {
         let result = match name {
             "list_presets" => Ok(list_presets()),
+            "scene_schema" => self.scene_schema(args),
             "get_scene" => get_scene(args),
             "check_scene" => Ok(check_scene(args)),
             "render_frame" => self.render_frame(args),
@@ -241,6 +265,47 @@ impl Tools {
             _ => Err(anyhow::anyhow!("unknown tool {name}")),
         };
         result.unwrap_or_else(ToolOutput::error)
+    }
+
+    fn scene_schema(&mut self, args: &Value) -> Result<ToolOutput> {
+        let schema = self.schema.get_or_insert_with(Project::json_schema);
+        if args["full"].as_bool().unwrap_or(false) {
+            return Ok(ToolOutput::text(serde_json::to_string_pretty(schema)?));
+        }
+        let defs = schema["$defs"]
+            .as_object()
+            .context("schema without $defs")?;
+        let Some(name) = args.get("type").and_then(Value::as_str) else {
+            return Ok(ToolOutput::text(schema_overview(schema, defs)));
+        };
+        if name.eq_ignore_ascii_case("Project") {
+            return Ok(ToolOutput::text(schema_overview(schema, defs)));
+        }
+        let Some((name, def)) = defs.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)) else {
+            let lower = name.to_lowercase();
+            let close: Vec<&str> = defs
+                .keys()
+                .filter(|k| {
+                    let k = k.to_lowercase();
+                    k.contains(&lower) || lower.contains(&k)
+                })
+                .map(String::as_str)
+                .take(8)
+                .collect();
+            if close.is_empty() {
+                bail!("no type named {name}: scene_schema without arguments lists them");
+            }
+            bail!("no type named {name}. Close: {}.", close.join(", "));
+        };
+        let mut refs = Vec::new();
+        collect_refs(def, &mut refs);
+        refs.retain(|r| r != name);
+        refs.dedup();
+        let mut text = format!("{name}:\n{}", serde_json::to_string_pretty(def)?);
+        if !refs.is_empty() {
+            text.push_str(&format!("\n\nRefers to: {}.", refs.join(", ")));
+        }
+        Ok(ToolOutput::text(text))
     }
 
     fn render(&mut self, project: &Project, phase: f32, w: u32, h: u32) -> Result<RgbaImage> {
@@ -346,6 +411,86 @@ fn list_presets() -> ToolOutput {
         }
     }
     ToolOutput::text(text).with_structured(json!({ "presets": list }))
+}
+
+/// The top-level fields and a one-line index of every type.
+fn schema_overview(schema: &Value, defs: &serde_json::Map<String, Value>) -> String {
+    let mut text = String::from(
+        "The scene (project) format, from its JSON Schema. Fields that are left out \
+         take their default. Ask for any type below with scene_schema {\"type\": \"Name\"}.\n\n\
+         Top-level fields of a project:\n",
+    );
+    for (k, v) in schema["properties"].as_object().into_iter().flatten() {
+        text.push_str(&format!("- {k} ({})", type_of(v)));
+        if let Some(d) = v["description"].as_str() {
+            text.push_str(&format!(": {}", first_sentence(d)));
+        }
+        text.push('\n');
+    }
+    text.push_str("\nTypes:\n");
+    for (k, v) in defs {
+        text.push_str(&format!("- {k}"));
+        if let Some(d) = v["description"].as_str() {
+            text.push_str(&format!(": {}", first_sentence(d)));
+        }
+        text.push('\n');
+    }
+    text
+}
+
+/// A short name for the type of a property schema.
+fn type_of(v: &Value) -> String {
+    if let Some(r) = v["$ref"].as_str() {
+        return r.rsplit('/').next().unwrap_or(r).to_string();
+    }
+    if let Some(alts) = v["anyOf"].as_array().or(v["oneOf"].as_array()) {
+        let names: Vec<String> = alts.iter().map(type_of).collect();
+        return names.join(" or ");
+    }
+    match &v["type"] {
+        Value::String(t) if t == "array" => format!("array of {}", type_of(&v["items"])),
+        Value::String(t) => t.clone(),
+        Value::Array(ts) => ts
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>()
+            .join(" or "),
+        _ => "value".into(),
+    }
+}
+
+fn first_sentence(d: &str) -> String {
+    let d = d.split("\n\n").next().unwrap_or(d).replace('\n', " ");
+    let end = d.find(". ").map(|i| i + 1).unwrap_or(d.len());
+    let s = &d[..end];
+    if s.chars().count() > 140 {
+        let cut: String = s.chars().take(137).collect();
+        format!("{cut}…")
+    } else {
+        s.to_string()
+    }
+}
+
+/// Names of the types a schema refers to, in order of first mention.
+fn collect_refs(v: &Value, out: &mut Vec<String>) {
+    match v {
+        Value::Object(o) => {
+            if let Some(r) = o.get("$ref").and_then(Value::as_str) {
+                let name = r.rsplit('/').next().unwrap_or(r).to_string();
+                if !out.contains(&name) {
+                    out.push(name);
+                }
+            }
+            for (k, x) in o {
+                // Defaults are example values, not types.
+                if k != "default" {
+                    collect_refs(x, out);
+                }
+            }
+        }
+        Value::Array(a) => a.iter().for_each(|x| collect_refs(x, out)),
+        _ => {}
+    }
 }
 
 fn get_scene(args: &Value) -> Result<ToolOutput> {
@@ -635,6 +780,39 @@ mod tests {
             out["structuredContent"]["not_kept"],
             json!(["camera.zooom"])
         );
+    }
+
+    #[test]
+    fn scene_schema_overview_types_and_errors() {
+        let mut tools = Tools::new();
+        let out = tools.call("scene_schema", &json!({})).into_json();
+        let text = out["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("- layers (array of Layer)"), "{text}");
+        assert!(text.contains("- MeshLayer: "), "{text}");
+
+        let out = tools
+            .call("scene_schema", &json!({ "type": "camera" }))
+            .into_json();
+        assert_ne!(out["isError"], true);
+        let text = out["content"][0]["text"].as_str().unwrap();
+        assert!(text.starts_with("Camera:"), "{text}");
+        assert!(text.contains("Refers to: Param, CameraMode"), "{text}");
+
+        let out = tools
+            .call("scene_schema", &json!({ "type": "Mesh" }))
+            .into_json();
+        assert_eq!(out["isError"], true);
+        assert!(out["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("MeshLayer"));
+
+        let out = tools
+            .call("scene_schema", &json!({ "full": true }))
+            .into_json();
+        let full: Value =
+            serde_json::from_str(out["content"][0]["text"].as_str().unwrap()).unwrap();
+        assert_eq!(full, Project::json_schema());
     }
 
     #[test]

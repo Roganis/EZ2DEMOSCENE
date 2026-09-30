@@ -14,6 +14,7 @@
 //! page the first time a library texture is wanted ([`wanted`] /
 //! [`install`]).
 
+use schemars::JsonSchema;
 use serde::Deserialize;
 use std::io::Read;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -22,7 +23,7 @@ use std::sync::{Arc, RwLock};
 /// Prefix of library texture names.
 pub const PREFIX: &str = "lib:";
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Kind {
     /// A physically based material: colour, normal map and ORM map.
@@ -32,7 +33,7 @@ pub enum Kind {
 }
 
 /// One texture of the library.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, JsonSchema)]
 pub struct Entry {
     /// Stable id saved in projects, e.g. `polyhaven/brick_wall_001`.
     pub id: String,
