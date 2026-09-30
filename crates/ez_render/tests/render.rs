@@ -6,6 +6,19 @@ use ez_render::gpu::Gpu;
 use ez_render::Renderer;
 use std::path::PathBuf;
 
+/// A headless GPU, or return from the test (with a message) when there is none.
+macro_rules! gpu_or_skip {
+    () => {
+        match Gpu::headless() {
+            Ok(g) => g,
+            Err(e) => {
+                eprintln!("skipping GPU test: {e:#}");
+                return;
+            }
+        }
+    };
+}
+
 fn snapshot_dir() -> PathBuf {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/ez2-snapshots");
     std::fs::create_dir_all(&dir).unwrap();
@@ -20,15 +33,14 @@ fn mean_abs_diff(a: &[u8], b: &[u8]) -> f32 {
         / a.len() as f32
 }
 
+/// Mean channel value of an image, 0..255.
+fn lum(img: &image::RgbaImage) -> f32 {
+    img.as_raw().iter().map(|v| *v as f32).sum::<f32>() / img.as_raw().len() as f32
+}
+
 #[test]
 fn presets_render_and_loop_seamlessly() {
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     eprintln!("adapter: {}", gpu.adapter_name());
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
     r.set_wait_for_bakes(true);
@@ -51,8 +63,7 @@ fn presets_render_and_loop_seamlessly() {
         );
         assert!(seam < 0.6, "{} does not loop: diff {seam}", preset.name);
         // The image must not be black.
-        let lum: f32 = a.as_raw().iter().map(|v| *v as f32).sum::<f32>() / a.as_raw().len() as f32;
-        assert!(lum > 3.0, "{} renders black", preset.name);
+        assert!(lum(&a) > 3.0, "{} renders black", preset.name);
     }
 }
 
@@ -61,13 +72,7 @@ fn presets_render_and_loop_seamlessly() {
 #[test]
 fn raymarched_backdrops_loop_with_any_settings() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(160, 90);
     let kinds = [
@@ -163,13 +168,7 @@ fn raymarched_backdrops_loop_with_any_settings() {
 #[test]
 fn weather_liquids_and_skies_are_continuous() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(160, 90);
     let mut scenes: Vec<(String, Project)> = Vec::new();
@@ -271,13 +270,7 @@ fn weather_liquids_and_skies_are_continuous() {
 #[test]
 fn music_reactive_scene_loops_and_reacts() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let rate = 22050.0f32;
     let samples: Vec<f32> = (0..(rate * 12.0) as usize)
         .map(|i| {
@@ -322,13 +315,7 @@ fn music_reactive_scene_loops_and_reacts() {
 /// The editor shows exactly the colours that get exported.
 #[test]
 fn display_image_matches_export() {
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(96, 54);
     let p = presets::synth_sunset();
@@ -349,13 +336,7 @@ fn display_image_matches_export() {
 #[test]
 fn sun_shadows_darken_the_floor() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(160, 90);
     let mut p = presets::empty();
@@ -369,9 +350,6 @@ fn sun_shadows_darken_the_floor() {
         }
     }
     let ctx = EvalCtx::new(&p.timing, 0.1, None);
-    let lum = |img: &image::RgbaImage| -> f32 {
-        img.as_raw().iter().map(|v| *v as f32).sum::<f32>() / img.as_raw().len() as f32
-    };
     let off = r.render_image(&p, &ctx, &target);
     p.environment.shadows.enabled = true;
     let on = r.render_image(&p, &ctx, &target);
@@ -389,13 +367,7 @@ fn sun_shadows_darken_the_floor() {
 #[test]
 fn terrain_lod_loops_and_matches_the_full_grid() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
     let target = r.create_target(320, 180);
     let mut tested = 0;
@@ -447,13 +419,7 @@ fn terrain_lod_loops_and_matches_the_full_grid() {
 #[test]
 fn deformed_shapes_loop() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
     let target = r.create_target(320, 180);
     let plain = presets::orbiting_solid();
@@ -492,13 +458,7 @@ fn deformed_shapes_loop() {
 #[test]
 fn color_ramp_across_copies_loops() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
     let target = r.create_target(320, 180);
     let plain = presets::orbiting_solid();
@@ -532,13 +492,7 @@ fn color_ramp_across_copies_loops() {
 #[test]
 fn copies_cover_a_surface() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
     let target = r.create_target(320, 180);
     let mut p = presets::orbiting_solid();
@@ -582,13 +536,7 @@ fn copies_cover_a_surface() {
 #[test]
 fn terrain_copies_match_the_gpu_ground() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(320, 180);
     let mut p = presets::vector_valley();
@@ -649,13 +597,7 @@ fn terrain_copies_match_the_gpu_ground() {
 #[test]
 fn text_layers_loop() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
     let target = r.create_target(320, 180);
     let mut p = presets::empty();
@@ -699,13 +641,7 @@ fn text_layers_loop() {
 fn sequences_play_scenes_with_transitions() {
     use ez_core::sequence::*;
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(160, 90);
     let mut p = presets::orbiting_solid();
@@ -788,13 +724,7 @@ fn sequences_play_scenes_with_transitions() {
 #[test]
 fn depth_of_field_blurs() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
     let target = r.create_target(320, 180);
     let mut p = presets::gold_room();
@@ -833,13 +763,7 @@ fn depth_of_field_blurs() {
 #[test]
 fn feedback_trails_repeat_every_loop() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(160, 90);
     let mut p = presets::orbiting_solid();
@@ -904,13 +828,7 @@ fn feedback_trails_repeat_every_loop() {
 #[test]
 fn raymarched_objects_loop_and_cast_shadows() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(240, 136);
     let mut p = presets::empty();
@@ -984,13 +902,7 @@ fn raymarched_objects_loop_and_cast_shadows() {
 #[test]
 fn morph_blends_two_shapes() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(160, 160);
     let mut p = presets::empty();
@@ -1072,13 +984,7 @@ fn morph_blends_two_shapes() {
 #[test]
 fn sprites_play_sheets_and_loop() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(240, 136);
     let mut plain = presets::empty();
@@ -1160,13 +1066,7 @@ fn sprites_play_sheets_and_loop() {
 #[test]
 fn electric_arcs_strike_and_loop() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(240, 136);
     let mut plain = presets::empty();
@@ -1244,13 +1144,7 @@ fn electric_arcs_strike_and_loop() {
 #[test]
 fn gpu_copies_match_the_cpu_and_loop() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     if !r.gpu_swarms() {
         eprintln!("no compute shaders here: CPU swarms only");
@@ -1426,13 +1320,7 @@ fn gpu_copies_match_the_cpu_and_loop() {
 #[test]
 fn logos_show_where_placed_and_loop() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
     let (w, h) = (320u32, 180u32);
     let target = r.create_target(w, h);
@@ -1556,13 +1444,7 @@ fn logos_show_where_placed_and_loop() {
 #[test]
 fn logos_stay_sharp_under_depth_of_field() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(320, 180);
     let mut p = presets::empty();
@@ -1613,13 +1495,7 @@ fn logos_stay_sharp_under_depth_of_field() {
 #[test]
 fn lit_logos_follow_the_light_and_glint_loops() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(320, 180);
     let mut plain = presets::empty();
@@ -1700,13 +1576,7 @@ fn lit_logos_follow_the_light_and_glint_loops() {
 #[test]
 fn logo_field_effects_show_and_loop() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(320, 180);
     let mut plain = presets::empty();
@@ -1841,13 +1711,7 @@ fn logo_field_effects_show_and_loop() {
 #[test]
 fn logo_morph_image_has_its_own_mask() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(240, 136);
     let mut plain = presets::empty();
@@ -1893,13 +1757,7 @@ fn logo_morph_image_has_its_own_mask() {
 #[test]
 fn logo_rasters_and_distortion_loop() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(320, 180);
     let mut plain = presets::empty();
@@ -1978,13 +1836,7 @@ fn logo_rasters_and_distortion_loop() {
 #[test]
 fn logos_attach_to_the_screen_and_each_other() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let (w, h) = (320.0f32, 180.0f32);
     let target = r.create_target(w as u32, h as u32);
@@ -2087,13 +1939,7 @@ fn logos_attach_to_the_screen_and_each_other() {
 fn logo_retro_looks_show_and_loop() {
     use ez_core::palette::PaletteId;
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(320, 180);
     let mut plain = presets::empty();
@@ -2192,13 +2038,7 @@ fn logo_retro_looks_show_and_loop() {
 #[test]
 fn logos_meet_the_scene() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(320, 180);
     let mut plain = presets::empty();
@@ -2286,13 +2126,7 @@ fn logos_meet_the_scene() {
 #[test]
 fn color_scheme_recolours_and_loops() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(320, 180);
     let mut p = presets::neon_arena();
@@ -2344,13 +2178,7 @@ fn color_scheme_recolours_and_loops() {
 #[test]
 fn battle_backgrounds_and_retro_effects_loop() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(160, 90);
     let dir = snapshot_dir();
@@ -2364,7 +2192,7 @@ fn battle_backgrounds_and_retro_effects_loop() {
         a.save(dir.join(format!("battle_{name}.png"))).unwrap();
         let seam = mean_abs_diff(a.as_raw(), b.as_raw());
         let motion = mean_abs_diff(a.as_raw(), mid.as_raw());
-        let lum = a.as_raw().iter().map(|v| *v as f32).sum::<f32>() / a.as_raw().len() as f32;
+        let lum = lum(&a);
         eprintln!("{name:<28} seam {seam:.3}  motion {motion:.2}  lum {lum:.1}");
         if seam > 0.6 || motion < 1.0 || lum < 3.0 {
             failures.push(format!("{name}: seam {seam} motion {motion} lum {lum}"));
@@ -2417,13 +2245,7 @@ fn battle_backgrounds_and_retro_effects_loop() {
 #[test]
 fn lens_and_mirrored_tiling() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(160, 90);
     let dir = snapshot_dir();
@@ -2523,13 +2345,7 @@ fn lens_and_mirrored_tiling() {
 fn flocks_bake_fly_and_loop() {
     use ez_core::sim::Flock;
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut p = presets::starling_dusk();
     for l in &mut p.layers {
         if let Some(Instancer::Flock { flock, .. }) = l.kind.instancer_mut() {
@@ -2595,13 +2411,7 @@ fn flocks_bake_fly_and_loop() {
 #[test]
 fn cloth_waves_and_loops() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut p = presets::banners();
     for l in &mut p.layers {
         if let LayerKind::Mesh(MeshLayer {
@@ -2672,13 +2482,7 @@ fn cloth_waves_and_loops() {
 #[test]
 fn rigid_bodies_fall_and_loop() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let p = presets::beat_demolition();
     let mut bare = p.clone();
     bare.layers.retain(|l| l.kind.instancer().is_none());
@@ -2732,13 +2536,7 @@ fn rigid_bodies_fall_and_loop() {
 #[test]
 fn environment_maps_light_the_scene() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let dir = snapshot_dir().join("ibl");
     std::fs::create_dir_all(&dir).unwrap();
     // Panoramas as .hdr files, read back like a user's.
@@ -2943,13 +2741,7 @@ fn environment_maps_light_the_scene() {
 #[test]
 fn physical_materials_keep_energy() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let dir = snapshot_dir().join("pbr");
     std::fs::create_dir_all(&dir).unwrap();
     let write_hdr = |name: &str, f: &dyn Fn(glam::Vec3) -> [f32; 3]| {
@@ -3217,13 +3009,7 @@ fn physical_materials_keep_energy() {
 #[test]
 fn screen_space_reflections_show_neighbours() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let dir = snapshot_dir().join("ssr");
     std::fs::create_dir_all(&dir).unwrap();
     let scene = |ssr: bool, with_box: bool| {
@@ -3344,13 +3130,7 @@ fn screen_space_reflections_show_neighbours() {
 #[test]
 fn light_shafts_follow_the_sun_shadows() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let dir = snapshot_dir().join("shafts");
     std::fs::create_dir_all(&dir).unwrap();
     let scene = |shafts: bool, fog: f32| {
@@ -3464,13 +3244,7 @@ fn light_shafts_follow_the_sun_shadows() {
 fn liquid_draws_and_loops() {
     use ez_core::sim::{Container, Fluid};
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let dir = snapshot_dir().join("liquid");
     std::fs::create_dir_all(&dir).unwrap();
     let scene = |surface: bool, wall: bool| {
@@ -3592,13 +3366,7 @@ fn liquid_draws_and_loops() {
 #[test]
 fn retro_3d_is_chunky_wobbly_and_loops() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let dir = snapshot_dir().join("retro3d");
     std::fs::create_dir_all(&dir).unwrap();
     let scene = |retro: Retro3d, subdivide: u32, filter: TexFilter| {
@@ -3801,13 +3569,7 @@ fn retro_3d_is_chunky_wobbly_and_loops() {
 #[test]
 fn retro_console_quirks_show_and_loop() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let dir = snapshot_dir().join("retro_quirks");
     std::fs::create_dir_all(&dir).unwrap();
     // A box `dist` away from a still camera, over the fog colour (no
@@ -4057,13 +3819,7 @@ fn retro_console_quirks_show_and_loop() {
 #[test]
 fn quake_features_show_and_loop() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let dir = snapshot_dir().join("quake");
     std::fs::create_dir_all(&dir).unwrap();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
@@ -4097,9 +3853,6 @@ fn quake_features_show_and_loop() {
             }),
         )
         .scaled(1.3)
-    };
-    let lum = |img: &image::RgbaImage| {
-        img.as_raw().iter().map(|v| *v as f32).sum::<f32>() / img.as_raw().len() as f32
     };
     // "az": dark for the first half of the loop, twice as bright after.
     let az = LightStyle {
@@ -4342,13 +4095,7 @@ fn quake_features_show_and_loop() {
 #[test]
 fn stepped_motion_and_mode7_floor() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let dir = snapshot_dir().join("group4");
     std::fs::create_dir_all(&dir).unwrap();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
@@ -4498,13 +4245,7 @@ fn stepped_motion_and_mode7_floor() {
 fn console_screens_and_palettes() {
     use ez_core::palette::PaletteId;
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let dir = snapshot_dir().join("screens");
     std::fs::create_dir_all(&dir).unwrap();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
@@ -4626,13 +4367,7 @@ fn console_screens_and_palettes() {
 #[test]
 fn loading_stripes_and_letterbox() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let dir = snapshot_dir().join("loading");
     std::fs::create_dir_all(&dir).unwrap();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
@@ -4752,13 +4487,7 @@ fn loading_stripes_and_letterbox() {
 #[test]
 fn translucency_transparency_and_library_textures() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let dir = snapshot_dir();
     let ball = |mat: Material, z: f32, size: f32| {
         let mut l = Layer::new(
@@ -4861,13 +4590,7 @@ fn translucency_transparency_and_library_textures() {
 #[test]
 fn animated_pictures_play() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let colours = [[255u8, 0, 0], [0, 255, 0], [0, 0, 255], [255, 255, 0]];
     let frames = ez_render::clip::Frames {
         images: colours
