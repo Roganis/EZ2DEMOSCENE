@@ -188,27 +188,26 @@ impl Viewport {
         self.shape_thumbs.queue.clear();
     }
 
-    /// Render a project once into a new egui texture (preset thumbnails).
-    pub fn thumbnail(
-        &mut self,
-        project: &Project,
-        phase: f32,
-        size: [u32; 2],
-    ) -> (egui::TextureId, RenderTarget) {
+    /// A new egui texture for preset thumbnails, drawn later with
+    /// [`Self::draw_thumbnail`].
+    pub fn thumbnail_target(&mut self, size: [u32; 2]) -> (egui::TextureId, RenderTarget) {
         let target = self.renderer.create_target(size[0], size[1]);
-        let ctx = EvalCtx::new(&project.timing, phase, None);
-        // Flocks in the picture: wait for them where bakes have a thread
-        // (a moment); the browser shows the picture without them.
-        self.renderer
-            .set_wait_for_bakes(cfg!(not(target_arch = "wasm32")));
-        self.renderer.render(project, &ctx, &target);
-        self.renderer.set_wait_for_bakes(false);
         let id = self.render_state.renderer.write().register_native_texture(
             &self.render_state.device,
             &target.display_view,
             wgpu::FilterMode::Linear,
         );
         (id, target)
+    }
+
+    /// Render a project once into a thumbnail's target. Simulations still
+    /// baking are left out rather than waited for (a flock can take
+    /// seconds); returns whether the picture is complete.
+    pub fn draw_thumbnail(&mut self, project: &Project, phase: f32, target: &RenderTarget) -> bool {
+        let ctx = EvalCtx::new(&project.timing, phase, None);
+        self.renderer.take_inexact();
+        self.renderer.render(project, &ctx, target);
+        !self.renderer.take_inexact()
     }
 }
 

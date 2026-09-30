@@ -64,8 +64,11 @@ struct Thumb {
     name: &'static str,
     category: &'static str,
     description: &'static str,
-    texture: egui::TextureId,
-    _target: ez_render::RenderTarget,
+    project: Project,
+    /// The texture and its target, once drawn.
+    drawn: Option<(egui::TextureId, ez_render::RenderTarget)>,
+    /// Drawn with every simulation in it baked.
+    exact: bool,
 }
 
 pub struct EzApp {
@@ -107,6 +110,8 @@ pub struct EzApp {
     /// Open the preset gallery when the app starts.
     presets_on_startup: bool,
     thumbs: Vec<Thumb>,
+    /// When to draw again the thumbnails whose simulations were baking.
+    thumbs_redraw_at: f64,
     randomize_open: bool,
     rand_opts: RandomizeOptions,
     rand_seed: u64,
@@ -265,6 +270,7 @@ impl EzApp {
             presets_open: false,
             presets_on_startup: platform::load_setting(PRESETS_ON_STARTUP).as_deref() != Some("no"),
             thumbs: Vec::new(),
+            thumbs_redraw_at: 0.0,
             randomize_open: false,
             rand_opts: RandomizeOptions::default(),
             rand_seed: 1,
@@ -2321,22 +2327,64 @@ impl EzApp {
         }
     }
 
+    /// Draw the preset thumbnails a few per frame, so the gallery opens at
+    /// once and fills in (drawing all 60 in one frame took seconds). Those
+    /// with a simulation are drawn again once it has baked.
+    fn draw_thumbs(&mut self, ctx: &egui::Context) {
+        let mut more = time_budget(30.0);
+        let mut drew = false;
+        for t in self.thumbs.iter_mut().filter(|t| t.drawn.is_none()) {
+            if drew && !more() {
+                break;
+            }
+            let (texture, target) = self.viewport.thumbnail_target([320, 180]);
+            t.exact = self.viewport.draw_thumbnail(&t.project, 0.2, &target);
+            t.drawn = Some((texture, target));
+            drew = true;
+        }
+        if self.thumbs.iter().any(|t| t.drawn.is_none()) {
+            ctx.request_repaint();
+            return;
+        }
+        // Bakes have a thread on desktop; in the browser they would take
+        // time from every frame, so the picture stays without them there.
+        if platform::IS_WEB || self.thumbs.iter().all(|t| t.exact) {
+            return;
+        }
+        // Drawing again also keeps asking for the bakes, which are dropped
+        // when nobody asks for them for a while.
+        if self.now >= self.thumbs_redraw_at {
+            self.thumbs_redraw_at = self.now + 1.0;
+            for t in self.thumbs.iter_mut().filter(|t| !t.exact) {
+                if let Some((_, target)) = &t.drawn {
+                    t.exact = self.viewport.draw_thumbnail(&t.project, 0.2, target);
+                }
+            }
+        }
+        ctx.request_repaint_after(std::time::Duration::from_secs_f64(
+            (self.thumbs_redraw_at - self.now).max(0.0),
+        ));
+    }
+
     fn presets_window(&mut self, ctx: &egui::Context) {
         if !self.presets_open {
             return;
         }
         if self.thumbs.is_empty() {
-            for p in presets::all() {
-                let (texture, target) = self.viewport.thumbnail(&p.project, 0.2, [320, 180]);
-                self.thumbs.push(Thumb {
+            self.thumbs = presets::all()
+                .into_iter()
+                .map(|p| Thumb {
                     name: p.name,
                     category: p.category,
                     description: p.description,
-                    texture,
-                    _target: target,
-                });
-            }
+                    project: p.project,
+                    drawn: None,
+                    exact: false,
+                })
+                .collect();
+            self.thumbs_redraw_at = 0.0;
         }
+        self.draw_thumbs(ctx);
         let mut open = true;
         let mut chosen_builtin = None;
         let mut chosen_user = None;
@@ -2422,7 +2470,7 @@ impl EzApp {
                                 egui::Grid::new(("presets", cat)).spacing([10.0, 10.0]).show(ui, |ui| {
                                     let group = self.thumbs.iter().enumerate().filter(|(_, t)| t.category == cat);
                                     for (k, (i, t)) in group.enumerate() {
-                                        if card(ui, Some(t.texture), t.name, t.description) {
+                                        if card(ui, t.drawn.as_ref().map(|d| d.0), t.name, t.description) {
                                             chosen_builtin = Some(i);
                                         }
                                         if k % cols == cols - 1 {
@@ -3091,12 +3139,25 @@ fn music_meters(ui: &mut Ui, m: &ez_core::MusicFrame) {
 fn bake_budget() -> impl FnMut() -> bool {
     #[cfg(target_arch = "wasm32")]
     {
-        let start = js_sys::Date::now();
-        move || js_sys::Date::now() - start < 8.0
+        time_budget(8.0)
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
         || false
+    }
+}
+
+/// Whether less than `ms` milliseconds have passed since this was called.
+fn time_budget(ms: f64) -> impl FnMut() -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let start = js_sys::Date::now();
+        move || js_sys::Date::now() - start < ms
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let start = std::time::Instant::now();
+        move || start.elapsed().as_secs_f64() * 1000.0 < ms
     }
 }
 
