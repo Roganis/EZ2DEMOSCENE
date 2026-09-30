@@ -46,7 +46,14 @@ project file the editor opens; export_loop renders the video.
 
 Animatable values (Param) are a plain number, or an object such as \
 {\"base\": 1.0, \"amp\": 0.5, \"wave\": \"Sine\", \"cycles\": 2} (cycles must \
-be a whole number so the loop closes).";
+be a whole number so the loop closes). For something that happens once, add \
+\"ramp\": {\"start\": 0, \"length\": 2, \"by\": 1, \"ease\": \"Out\"}: the value \
+changes by `by` from beat `start` of its timeline clip (of the loop outside a \
+timeline) and then holds.
+
+Text and Logo layers show numbers: write {0}, {1}... in the text and list \
+them in \"values\" ({\"value\": Param, \"digits\", \"decimals\", \"group\"}), \
+e.g. a timer counting down or a score counting up with a ramp.";
 
 /// Serves on stdin/stdout until stdin closes.
 pub fn serve() -> Result<()> {

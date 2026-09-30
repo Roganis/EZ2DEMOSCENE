@@ -62,7 +62,10 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   - Text: still text, scrollers, sine scrollers, typewriters and greetings
     lists, in a crisp pixel font, Mono, Sans or your own TTF/OTF, with
     gradients, glow, outline, drop shadow and chrome (signed-distance
-    atlas). Shapes can also be **3D text**: extruded logos (voxel letters
+    atlas). **Numbers in text**: `{0}`, `{1}`… show animatable numbers
+    (padded, with decimals or thousands commas), for timers counting down,
+    scores counting up or a combo following the music; logos too. Shapes
+    can also be **3D text**: extruded logos (voxel letters
     with the pixel font) with every material option.
     **Raymarched shapes** (metaballs, gyroid, fractal bulb, melting box)
     are drawn per pixel inside a box: smooth, depth-correct against
@@ -242,7 +245,10 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   beat fades (pulse, exponential and linear fades in/out, swell) or random
   (sample & hold, smooth random, drunken walk). The ♩ menu syncs it to
   every beat, bar or loop, a live graph previews the curve, and it can
-  follow the **music**. Layers can also **shake** on the beat.
+  follow the **music**. Layers can also **shake** on the beat. A
+  **once** ramp changes a value one time and holds it (seven eases, from
+  the start of each timeline clip): menus sliding in, a title dropping,
+  a grade stamping down.
 - **Scenes & timeline.** Several scenes (each with its own layers, camera,
   light and effects) played by a timeline of clips with transitions:
   crossfade, wipe, iris, flash, glitch or a cut on the next kick. The

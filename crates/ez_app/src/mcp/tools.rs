@@ -810,9 +810,12 @@ mod tests {
         let out = tools
             .call("scene_schema", &json!({ "full": true }))
             .into_json();
-        let full: Value =
-            serde_json::from_str(out["content"][0]["text"].as_str().unwrap()).unwrap();
-        assert_eq!(full, Project::json_schema());
+        // Compared as text: parsing floats back can differ in the last digit.
+        let full = out["content"][0]["text"].as_str().unwrap();
+        assert_eq!(
+            full,
+            serde_json::to_string_pretty(&Project::json_schema()).unwrap()
+        );
     }
 
     #[test]

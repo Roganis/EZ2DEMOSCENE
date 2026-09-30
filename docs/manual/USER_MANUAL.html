@@ -712,6 +712,12 @@ from any side). They stay sharp at any size. Add one from <span class="ui">+ Add
 bottom colour; <span class="ui">Glow</span> (brightness, above 1 it blooms; it has <span class="ui">~</span>); an outline; a drop shadow; and
 <span class="ui">Chrome</span>, which bevels the letters and reflects the sky like a 90s logo. The <b>Oldschool Intro</b> preset uses all three
 styles.</p>
+<p><b>Numbers in text.</b> Write <code>{0}</code> in the text and press <span class="ui">+ Number {0}</span>: the number shows there, and
+it has <span class="ui">~</span>, so it can count. Add more for <code>{1}</code>, <code>{2}</code>… Each number sets its fewest
+<b>digits</b> (padded with zeros: 007), its <b>decimals</b> and <b>1,000</b> (commas between thousands). Numbers are rounded down, so a
+count only shows its final value once it gets there. Examples: <code>TIME {0}</code> with a <b>once</b> ramp of −10 over 10 beats
+counts a timer down; <code>SCORE {0}</code> ramping by 987650 counts a score up; <code>COMBO {0}</code> can follow the music.
+Logos take numbers too.</p>
 
 <h2>5.12 Sprites</h2>
 <p>Pictures in the scene, one per copy: glows, flames, sparkles, coins, a logo on a sign. Add them from
@@ -762,7 +768,7 @@ Add one from <span class="ui">+ Add → 🏷 Logo</span> (Title, Chrome logo, Go
 bloom, god rays, feedback trails, scanlines and the colour grade apply to it, but depth of field never blurs it.</p>
 <table>
   <tr><th style="width:24%">Setting</th><th>What it does</th></tr>
-  <tr><td>Made of</td><td><b>Text</b> (one or more lines, any built-in font or your own TTF/OTF) or an <b>Image</b>. For an image,
+  <tr><td>Made of</td><td><b>Text</b> (one or more lines, any built-in font or your own TTF/OTF, with numbers as in 5.11) or an <b>Image</b>. For an image,
   <span class="ui">Shape from</span> picks which parts are the logo: its <b>Transparency</b>, its <b>Bright parts</b> (a logo on black) or its
   <b>Dark parts</b> (a logo on white). Empty margins are cut off, so the size is the logo's own.</td></tr>
   <tr><td>Attach to, Place</td><td>Like the reference points in a photo editor. <span class="ui">Attach to</span> is <b>The screen</b> or another
@@ -1105,6 +1111,20 @@ Click it to open the animation panel:</p>
   <tr><td>Custom</td><td>Envelope</td><td>Your own shape over the cycle: points joined by curves, from the slider value (bottom) to
   the slider value plus the amount (top). See below.</td></tr>
 </table>
+<h2>Once: a change that happens one time</h2>
+<p>The last row of the panel, <span class="ui">⤴ once by</span>, changes the value <b>once</b> and then holds it, instead of looping. Set how
+much it changes, <span class="ui">from beat</span> (when it starts), <span class="ui">over … beats</span> (how long it takes; 0 = at once) and
+the ease: <b>Linear</b>, <b>Ease in</b>, <b>Ease out</b>, <b>Ease in-out</b>, <b>Overshoot</b> (goes a little past, then settles),
+<b>Bounce</b> or <b>Jump at end</b>.</p>
+<ul>
+  <li>In a <b>timeline</b> (chapter 10), the beats count from the start of the clip, so things happen when the scene comes in: menu items
+  sliding in one after another (a logo's X starting off screen, <span class="ui">once by</span> the distance, each a little later), a title
+  dropping in with Overshoot, a grade stamping down (Size shrinking with Overshoot while Opacity comes up).</li>
+  <li>Outside a timeline, the beats count from the start of the loop, so the change plays again every loop and the loop point shows the jump
+  back. Use it for things that are allowed to start over (a result screen), or put the scene in a timeline.</li>
+  <li>It combines with the wave and the music: a value can slide in once and then pulse on the beat.</li>
+</ul>
+
 <h2>Envelope: your own shape</h2>
 <p>Pick <span class="ui">Envelope</span> and the graph becomes an editor for one cycle (with ♩ <b>once per loop</b>, the whole
 loop's timeline; with <b>every bar</b>, one bar that repeats):</p>
