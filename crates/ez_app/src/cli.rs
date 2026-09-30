@@ -1,9 +1,9 @@
 //! Command-line mode (no window): rendering, exporting and asset dumps.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use ez_core::{presets, Project};
 use ez_export::{ExportFormat, ExportSettings};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 
 const HELP: &str = "\
@@ -24,19 +24,7 @@ SCENE is a project file, an .ez2pack, or the name of a built-in preset (e.g. \"N
 ";
 
 fn load_scene(s: &str) -> Result<Project> {
-    let p = Path::new(s);
-    if p.exists() {
-        if ez_core::assets::is_pack(p) {
-            let dest = std::env::temp_dir().join(format!("ez2-pack-{}", std::process::id()));
-            return ez_core::assets::unpack(p, &dest).with_context(|| format!("unpacking {s}"));
-        }
-        return Project::load(p).with_context(|| format!("loading {s}"));
-    }
-    presets::all()
-        .into_iter()
-        .find(|pr| pr.name.eq_ignore_ascii_case(s))
-        .map(|pr| pr.project)
-        .with_context(|| format!("'{s}' is neither a file nor a preset (see --list-presets)"))
+    ez_export::load_scene(s).map_err(|e| anyhow!("{e:#} (see --list-presets)"))
 }
 
 fn flag<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
@@ -44,6 +32,20 @@ fn flag<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
         .position(|a| a == name)
         .and_then(|i| args.get(i + 1))
         .map(|s| s.as_str())
+}
+
+/// The value of `name` parsed, or `default` when the flag is absent.
+fn flag_or<T: std::str::FromStr>(args: &[String], name: &str, default: T) -> Result<T>
+where
+    T::Err: std::error::Error + Send + Sync + 'static,
+{
+    flag(args, name)
+        .map(|s| {
+            s.parse()
+                .with_context(|| format!("bad value for {name}: {s}"))
+        })
+        .transpose()
+        .map(|v| v.unwrap_or(default))
 }
 
 fn size(args: &[String], default: (u32, u32)) -> Result<(u32, u32)> {
@@ -101,10 +103,7 @@ pub fn run(args: &[String]) -> Result<Option<i32>> {
         "--render" => {
             let scene = load_scene(args.get(1).context("missing SCENE")?)?;
             let out = PathBuf::from(args.get(2).context("missing OUT.png")?);
-            let phase: f32 = flag(args, "--phase")
-                .map(|s| s.parse())
-                .transpose()?
-                .unwrap_or(0.0);
+            let phase: f32 = flag_or(args, "--phase", 0.0)?;
             let (w, h) = size(args, (1920, 1080))?;
             ez_export::render_still(&scene, phase.rem_euclid(1.0), w, h, &out)?;
             println!("wrote {}", out.display());
@@ -117,22 +116,10 @@ pub fn run(args: &[String]) -> Result<Option<i32>> {
                 format: ExportFormat::from_path(&out),
                 width: w,
                 height: h,
-                fps: flag(args, "--fps")
-                    .map(|s| s.parse())
-                    .transpose()?
-                    .unwrap_or(60.0),
-                repeats: flag(args, "--repeats")
-                    .map(|s| s.parse())
-                    .transpose()?
-                    .unwrap_or(1),
-                motion_blur: flag(args, "--motion-blur")
-                    .map(|s| s.parse())
-                    .transpose()?
-                    .unwrap_or(1),
-                shutter: flag(args, "--shutter")
-                    .map(|s| s.parse())
-                    .transpose()?
-                    .unwrap_or(0.5),
+                fps: flag_or(args, "--fps", 60.0)?,
+                repeats: flag_or(args, "--repeats", 1)?,
+                motion_blur: flag_or(args, "--motion-blur", 1)?,
+                shutter: flag_or(args, "--shutter", 0.5)?,
                 output: out,
                 ..Default::default()
             };

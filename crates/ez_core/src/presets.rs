@@ -29,6 +29,13 @@ pub struct Preset {
     pub project: Project,
 }
 
+/// The built-in preset with this name (ignoring case).
+pub fn find(name: &str) -> Option<Preset> {
+    all()
+        .into_iter()
+        .find(|p| p.name.eq_ignore_ascii_case(name))
+}
+
 pub fn all() -> Vec<Preset> {
     vec![
         Preset {
