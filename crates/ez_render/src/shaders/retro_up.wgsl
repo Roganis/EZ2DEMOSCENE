@@ -3,10 +3,11 @@
 // is still hidden behind the shapes.
 
 @group(0) @binding(0) var t_color: texture_2d<f32>;
-@group(0) @binding(1) var t_depth: texture_depth_2d;
-// Nearest, non-filtering: WebGL2 can't load texels of depth textures, but
-// can sample them.
-@group(0) @binding(2) var s_depth: sampler;
+// The depth texture bound as plain (unfilterable) floats, not as a depth
+// texture: GLSL has no way to read a depth texture's texels, or to sample
+// one at a level, through the shadow samplers naga makes for those (desktop
+// OpenGL and WebGL2 rejected `textureLod(sampler2DShadow, vec2, int)`).
+@group(0) @binding(1) var t_depth: texture_2d<f32>;
 
 struct UpVOut {
     @builtin(position) pos: vec4<f32>,
@@ -36,6 +37,6 @@ fn fs_main(in: UpVOut) -> UpOut {
     let p = clamp(vec2<i32>(floor(in.uv * vec2<f32>(size))), vec2<i32>(0), size - 1);
     var out: UpOut;
     out.color = vec4<f32>(textureLoad(t_color, p, 0).rgb, 1.0);
-    out.depth = textureSampleLevel(t_depth, s_depth, (vec2<f32>(p) + 0.5) / vec2<f32>(size), 0);
+    out.depth = textureLoad(t_depth, p, 0).r;
     return out;
 }

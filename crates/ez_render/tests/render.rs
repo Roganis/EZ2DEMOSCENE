@@ -4963,3 +4963,48 @@ fn animated_pictures_play() {
     assert_eq!((cube1, sprite1), (1, 1), "second frame green");
     assert_eq!((cube_end, sprite_end), (cube0, sprite0), "it loops");
 }
+
+/// The OpenGL backend (what the desktop app falls back to, and the same
+/// GLSL as WebGL2): the renderer starts (the retro upscale once failed to
+/// compile there) and patterns wrapped over negative cells loop (signed
+/// `%` is undefined in GLSL). Skipped where there is no OpenGL.
+#[test]
+fn opengl_backend_starts_and_loops() {
+    use ez_core::*;
+    let gpu = match Gpu::headless_on(wgpu::Backends::GL) {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping OpenGL test: {e:#}");
+            return;
+        }
+    };
+    eprintln!("adapter: {}", gpu.adapter_name());
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let target = r.create_target(160, 90);
+    for mut p in [
+        presets::lava_world(),
+        presets::psx_crypt(),
+        presets::rainbow_falls(),
+    ] {
+        // Film grain changes every frame on purpose.
+        p.post.grade.grain = Param::new(0.0);
+        let at = |phase: f32| EvalCtx::new(&p.timing, phase, None);
+        let mut step = |phase: f32| {
+            let before = r.render_image(&p, &at(phase - 2e-5), &target);
+            let after = r.render_image(&p, &at(phase), &target);
+            mean_abs_diff(before.as_raw(), after.as_raw())
+        };
+        let baseline = step(0.3);
+        let seam = step(1.0);
+        eprintln!(
+            "{:<20} loop point {seam:.3} (elsewhere {baseline:.3})",
+            p.name
+        );
+        assert!(
+            seam < baseline + 0.6,
+            "{} jumps at the loop point: {seam}",
+            p.name
+        );
+    }
+    assert!(r.errors.is_empty(), "{:?}", r.errors);
+}

@@ -1201,8 +1201,6 @@ pub struct Renderer {
     sampler_bilinear: wgpu::Sampler,
     sampler_mirror_bilinear: wgpu::Sampler,
     sampler_clamp: wgpu::Sampler,
-    /// Nearest, clamped, no mipmaps (reading depth textures).
-    sampler_point_clamp: wgpu::Sampler,
 
     meshes: HashMap<String, GpuMesh>,
     /// Mesh keys of models that came without texture coordinates (they got
@@ -2429,20 +2427,15 @@ impl Renderer {
                     },
                     count: None,
                 },
+                // The depth read as plain numbers (see retro_up.wgsl).
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Depth,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
                         view_dimension: wgpu::TextureViewDimension::D2,
                         multisampled: false,
                     },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
                     count: None,
                 },
             ],
@@ -2840,10 +2833,6 @@ impl Renderer {
                 ..Default::default()
             })
         };
-        let sampler_point_clamp = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("point clamp"),
-            ..Default::default()
-        });
         let sampler_bilinear = bilinear(wgpu::AddressMode::Repeat);
         let sampler_mirror_bilinear = bilinear(wgpu::AddressMode::MirrorRepeat);
 
@@ -2914,7 +2903,6 @@ impl Renderer {
             sampler_mirror_nearest,
             sampler_bilinear,
             sampler_mirror_bilinear,
-            sampler_point_clamp,
             sampler_clamp,
             meshes: HashMap::new(),
             box_uv_meshes: Default::default(),
@@ -7805,10 +7793,6 @@ impl Renderer {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::TextureView(&depth),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler_point_clamp),
                 },
             ],
         });

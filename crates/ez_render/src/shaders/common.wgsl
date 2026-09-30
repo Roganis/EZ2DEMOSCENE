@@ -68,6 +68,14 @@ struct Draw {
 const TAU: f32 = 6.28318530718;
 const PI: f32 = 3.14159265359;
 
+// `x` wrapped into 0..n-1, negative `x` too. Not `((x % n) + n) % n`:
+// signed `%` becomes GLSL's `%`, which is undefined for negative operands
+// (OpenGL and WebGL gave patterns that jumped at the loop point).
+fn wrap_i(x: i32, n: i32) -> i32 {
+    let r = x - n * i32(floor(f32(x) / f32(n)));
+    return select(select(r, r - n, r >= n), r + n, r < 0);
+}
+
 fn hash_u(x_in: u32) -> u32 {
     var x = x_in;
     x = x ^ (x >> 16u);

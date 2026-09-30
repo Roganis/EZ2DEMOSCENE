@@ -43,8 +43,8 @@ fn t_noise(p: vec2<f32>, period: i32, seed: u32) -> f32 {
     let i = vec2<i32>(floor(p));
     let f = p - floor(p);
     let s = f * f * (3.0 - 2.0 * f);
-    let x0 = ((i.x % period) + period) % period;
-    let y0 = ((i.y % period) + period) % period;
+    let x0 = wrap_i(i.x, period);
+    let y0 = wrap_i(i.y, period);
     let x1 = (x0 + 1) % period;
     let y1 = (y0 + 1) % period;
     let a = t_hash(x0, y0, seed);
@@ -98,8 +98,8 @@ fn t_craters(u: f32, w: f32, period: i32, seed: u32) -> f32 {
     for (var j = -1; j <= 1; j = j + 1) {
         for (var i = -1; i <= 1; i = i + 1) {
             let cell = c + vec2<f32>(f32(i), f32(j));
-            let cx = ((i32(cell.x) % period) + period) % period;
-            let cy = ((i32(cell.y) % period) + period) % period;
+            let cx = wrap_i(i32(cell.x), period);
+            let cy = wrap_i(i32(cell.y), period);
             let r0 = t_hash(cx, cy, seed + 7u);
             if (r0 < 0.25) {
                 continue;
@@ -335,8 +335,8 @@ fn shade_liquid(in: TOut, depth: f32, q: vec2<f32>) -> vec3<f32> {
             let bp = f32(hills * 20);
             let cell = floor(q * bp);
             let bn = hills * 20;
-            let cx = ((i32(cell.x) % bn) + bn) % bn;
-            let cy = ((i32(cell.y) % bn) + bn) % bn;
+            let cx = wrap_i(i32(cell.x), bn);
+            let cy = wrap_i(i32(cell.y), bn);
             let r0 = t_hash(cx, cy, seed + 31u);
             if (r0 < 0.35 * clamp(waves, 0.0, 2.0)) {
                 let life = fract(D.v[7].z / TAU + r0 * 7.0);
