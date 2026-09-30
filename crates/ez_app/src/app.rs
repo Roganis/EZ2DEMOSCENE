@@ -1836,17 +1836,24 @@ impl EzApp {
             );
         }
         ui.add_space(6.0);
+        // The music's curves, then the project's value channels.
+        let settings = self.project.music.clone();
+        let mut sources = ez_core::AudioSource::FOLLOW[..6].to_vec();
+        sources.extend(ez_core::AudioSource::channels(&settings).0);
         let w = &mut self.project.music.warp;
         widgets::section(ui, "Time warp", true, |ui| {
-            ui.label(RichText::new("Motion (spins, orbits, scrolling, LFOs) speeds up with the music, and the loop still ends where it started. Beat fades, strobes and blinks stay on the beat.").weak().small());
-            widgets::combo(
-                ui,
-                "Follows",
-                "",
-                &mut w.source,
-                &ez_core::AudioSource::FOLLOW[..6],
-                |s| s.label(),
-            );
+            ui.label(RichText::new("Motion (spins, orbits, scrolling, LFOs) speeds up with the music, and the loop still ends where it started. Beat fades, strobes and blinks stay on the beat. Following a live channel, the clock speeds up as it plays (exports aren't warped).").weak().small());
+            widgets::row(ui, "Follows", "", |ui| {
+                egui::ComboBox::from_id_salt(ui.id().with("warp source"))
+                    .selected_text(w.source.label_in(&settings))
+                    .width(150.0)
+                    .show_ui(ui, |ui| {
+                        for src in &sources {
+                            ui.selectable_value(&mut w.source, *src, src.label_in(&settings))
+                                .on_hover_text(src.description());
+                        }
+                    });
+            });
             widgets::slider(
                 ui,
                 "Amount",
@@ -1855,7 +1862,6 @@ impl EzApp {
                 -0.9..=6.0,
             );
         });
-        ui.add_space(6.0);
         ui.add_space(6.0);
         self.channels_ui(ui);
         ui.add_space(6.0);
@@ -1868,6 +1874,7 @@ impl EzApp {
     /// preview react (a host program feeds them for real).
     fn channels_ui(&mut self, ui: &mut Ui) {
         let mut remove = None;
+        let mut new_kind = None;
         let preview = &mut self.channels_preview;
         let channels = &mut self.project.music.channels;
         let open = !channels.is_empty();
@@ -1889,14 +1896,19 @@ impl EzApp {
                             .hint_text("name"),
                     )
                     .on_hover_text("The name the feeding program uses");
+                    // Changed below, with the links to the channel.
+                    let mut kind = d.kind;
                     egui::ComboBox::from_id_salt(("channel kind", i))
                         .selected_text(d.kind.label())
                         .width(56.0)
                         .show_ui(ui, |ui| {
                             for k in ez_core::ChannelKind::ALL {
-                                ui.selectable_value(&mut d.kind, k, k.label());
+                                ui.selectable_value(&mut kind, k, k.label());
                             }
                         });
+                    if kind != d.kind {
+                        new_kind = Some((i, kind));
+                    }
                     match d.kind {
                         ez_core::ChannelKind::Value => {
                             let mut v = preview.value(i);
@@ -1938,6 +1950,10 @@ impl EzApp {
                 });
             }
         });
+        if let Some((i, kind)) = new_kind {
+            // Links to the channel turn with it (following ↔ each hit).
+            ez_core::channels::set_kind(&mut self.project, i, kind);
+        }
         if let Some(i) = remove {
             ez_core::channels::remove_channel(&mut self.project, i);
             // The preview's values were by position too.
@@ -3048,21 +3064,21 @@ impl eframe::App for EzApp {
             }
         }
         self.channels_preview.advance(dt as f32);
-        // Live input: analyse, and let a time warp speed up the clock.
-        self.live_frame = None;
-        if let Some(live) = &mut self.live {
-            let f = live.frame(dt as f32);
-            let w = self.project.music.warp;
-            let speed = match (w.source.curve(), self.audio_env.is_none()) {
-                (Some(c), true) if w.amount != 0.0 => {
-                    (1.0 + w.amount.max(-0.9) * f.fast[c as usize]) as f64
-                }
-                _ => 1.0,
-            };
-            self.live_frame = Some(f);
-            if self.playing {
-                self.time += dt * (speed - 1.0);
-            }
+        // Live input: analyse.
+        self.live_frame = self.live.as_mut().map(|live| live.frame(dt as f32));
+        // A time warp following something live (the live input, a live
+        // channel) speeds up the clock.
+        let mut live = self.live_frame.unwrap_or_default();
+        if !self.project.music.channels.is_empty() {
+            live.channels = self.channels_preview.frame();
+        }
+        let speed = self
+            .project
+            .music
+            .warp
+            .live_speed(&live, self.audio_env.is_some()) as f64;
+        if self.playing {
+            self.time += dt * (speed - 1.0);
         }
         if self.playing {
             self.time = (self.time + dt).rem_euclid(self.play_seconds().max(0.01));

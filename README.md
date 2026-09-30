@@ -276,8 +276,10 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   - **Live channels**: named values and hits that another program feeds
     while the project plays (a controller, a game, OSC glue). Declare them
     in *Timing & music*, link any value to one in its 🎵 row like the kick,
-    and try them with the preview's sliders and hit buttons. Exports see
-    them silent, so they stay repeatable.
+    and try them with the preview's sliders and hit buttons. A time warp
+    can follow a value channel, and changing a channel between values and
+    hits turns its links with it. Exports see them silent, so they stay
+    repeatable.
 - **Randomize / Surprise me.** Seeded, harmonious mutations (one global hue
   rotation, bounded counts, loop-safe motion), and every change can be
   undone.

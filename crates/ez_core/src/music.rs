@@ -178,6 +178,11 @@ impl AudioSource {
         })
     }
 
+    /// A live channel, fed from outside rather than found in the music.
+    pub fn is_channel(self) -> bool {
+        matches!(self, AudioSource::Channel(_) | AudioSource::ChannelHit(_))
+    }
+
     pub fn is_hit(self) -> bool {
         self.hit().is_some() || matches!(self, AudioSource::ChannelHit(_))
     }
@@ -292,6 +297,31 @@ pub struct TimeWarp {
     /// 0 = off; 2 = up to three times as fast on full hits; negative slows
     /// down instead (down to −0.9).
     pub amount: f32,
+}
+
+impl TimeWarp {
+    /// How fast the clock runs right now when the warp follows something
+    /// live: a live channel, or the live input (the microphone) when no
+    /// music file drives the warp (`from_file`). 1 otherwise. Live sources
+    /// can't be looked ahead, so the loop isn't rescaled to end where it
+    /// started, as it is for a music file: the clock just runs faster or
+    /// slower. Exports see live sources silent, so they aren't warped.
+    pub fn live_speed(&self, m: &MusicFrame, from_file: bool) -> f32 {
+        if self.amount == 0.0 {
+            return 1.0;
+        }
+        let v = match self.source {
+            AudioSource::Channel(i) if m.channels.active => {
+                m.channels.fast.get(i as usize).copied().unwrap_or(0.0)
+            }
+            s if s.is_channel() => return 1.0,
+            s => match s.curve() {
+                Some(c) if m.active && !from_file => m.fast[c as usize],
+                _ => return 1.0,
+            },
+        };
+        1.0 + self.amount.max(-0.9) * v
+    }
 }
 
 impl Default for TimeWarp {
@@ -488,15 +518,17 @@ fn song_frame(env: &AudioEnvelope, ts: f32, window: Option<(f32, f32, f32)>) -> 
 pub fn warped_phase(env: &AudioEnvelope, s: &MusicSettings, timing: &Timing, t: f32) -> f32 {
     let len = timing.loop_seconds().max(0.01);
     let k = s.warp.amount.max(-0.9);
+    // A live channel isn't in the song: the clock follows it as it plays
+    // (TimeWarp::live_speed), so the song doesn't warp anything.
+    if k == 0.0 || s.warp.source.is_channel() {
+        return (t / len).rem_euclid(1.0);
+    }
     let curve = s
         .warp
         .source
         .curve()
         .filter(|c| *c != Curve::Pitch)
         .unwrap_or(Curve::Kick);
-    if k == 0.0 {
-        return (t / len).rem_euclid(1.0);
-    }
     match s.mode {
         MusicMode::LoopWindow => {
             let t = t.rem_euclid(len);
@@ -672,6 +704,52 @@ mod tests {
         assert!(!serde_json::to_string(&MusicSettings::default())
             .unwrap()
             .contains("channels"));
+    }
+
+    #[test]
+    fn a_warp_can_follow_a_live_channel() {
+        use crate::channels::ChannelInput;
+        let warp = TimeWarp {
+            source: AudioSource::Channel(2),
+            amount: 2.0,
+        };
+        let mut input = ChannelInput::default();
+        input.set(2, 0.5);
+        input.advance(1.0);
+        let fed = MusicFrame {
+            channels: input.frame(),
+            ..Default::default()
+        };
+        assert!(
+            (warp.live_speed(&fed, true) - 2.0).abs() < 1e-3,
+            "1 + 2 × 0.5"
+        );
+        // Nothing feeding it (an export): normal speed.
+        assert_eq!(warp.live_speed(&MusicFrame::default(), false), 1.0);
+        // The song doesn't warp a channel's warp.
+        let e = env();
+        let t = timing();
+        let s = MusicSettings {
+            warp,
+            ..Default::default()
+        };
+        let len = t.loop_seconds();
+        for i in 0..8 {
+            let at = len * i as f32 / 8.0;
+            assert!((warped_phase(&e, &s, &t, at) - at / len).abs() < 1e-5);
+        }
+        // The microphone warps only without a music file.
+        let kick = TimeWarp {
+            source: AudioSource::Kick,
+            amount: 1.0,
+        };
+        let mut mic = MusicFrame {
+            active: true,
+            ..Default::default()
+        };
+        mic.fast[Curve::Kick as usize] = 1.0;
+        assert_eq!(kick.live_speed(&mic, false), 2.0);
+        assert_eq!(kick.live_speed(&mic, true), 1.0);
     }
 
     #[test]

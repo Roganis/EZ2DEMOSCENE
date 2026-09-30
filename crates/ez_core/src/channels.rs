@@ -14,7 +14,7 @@
 //!
 //! [`MusicSettings::channels`]: crate::music::MusicSettings::channels
 
-use crate::music::HitState;
+use crate::music::{AudioSource, HitState};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -168,46 +168,99 @@ impl ChannelInput {
 /// Remove channel `k` from `project`: every link to a later channel moves
 /// down one, and every link to `k` itself is switched off. Links name
 /// channels by position, so this is the only safe way to delete one.
-///
-/// It walks the project's own JSON form, so it reaches every value in
-/// every layer, node and scene without a list of them to keep up to date.
 pub fn remove_channel(project: &mut crate::scene::Project, k: usize) {
     if k >= project.music.channels.len() {
         return;
     }
     project.music.channels.remove(k);
+    let k = k as u8;
+    rewrite_links(project, |s| match s {
+        AudioSource::Channel(n) | AudioSource::ChannelHit(n) if n == k => Link::Off,
+        AudioSource::Channel(n) if n > k => Link::To(AudioSource::Channel(n - 1)),
+        AudioSource::ChannelHit(n) if n > k => Link::To(AudioSource::ChannelHit(n - 1)),
+        _ => Link::Keep,
+    });
+}
+
+/// Make channel `k` a value or hits channel, and turn every link to it
+/// with it (following a value becomes playing the shape on each hit, and
+/// back), so no link is left reading something the channel no longer
+/// sends. A time warp only follows values, so a warp following a channel
+/// that becomes hits is switched off.
+pub fn set_kind(project: &mut crate::scene::Project, k: usize, kind: ChannelKind) {
+    let Some(def) = project.music.channels.get_mut(k) else {
+        return;
+    };
+    if def.kind == kind {
+        return;
+    }
+    def.kind = kind;
+    let k = k as u8;
+    let warp = &mut project.music.warp;
+    if kind == ChannelKind::Hit && warp.source == AudioSource::Channel(k) {
+        *warp = crate::music::TimeWarp::default();
+    }
+    rewrite_links(project, |s| match (s, kind) {
+        (AudioSource::Channel(n), ChannelKind::Hit) if n == k => {
+            Link::To(AudioSource::ChannelHit(k))
+        }
+        (AudioSource::ChannelHit(n), ChannelKind::Value) if n == k => {
+            Link::To(AudioSource::Channel(k))
+        }
+        _ => Link::Keep,
+    });
+}
+
+/// What becomes of one link.
+enum Link {
+    Keep,
+    /// Switched off (back to the default source, amount 0).
+    Off,
+    To(AudioSource),
+}
+
+/// Rewrite every link in `project`: every object with an audio `source`
+/// (value links, graph nodes, the time warp) passes through `f`.
+///
+/// It walks the project's own JSON form, so it reaches every value in
+/// every layer, node and scene without a list of them to keep up to date.
+fn rewrite_links(project: &mut crate::scene::Project, f: impl Fn(AudioSource) -> Link) {
+    use serde_json::Value;
     let Ok(mut v) = serde_json::to_value(&*project) else {
         return;
     };
-    fn walk(v: &mut serde_json::Value, k: u64) {
+    fn walk(v: &mut Value, f: &dyn Fn(AudioSource) -> Link) {
         match v {
-            serde_json::Value::Object(map) => {
-                let mut off = false;
-                if let Some(serde_json::Value::Object(src)) = map.get_mut("source") {
-                    for key in ["Channel", "ChannelHit"] {
-                        if let Some(n) = src.get(key).and_then(|n| n.as_u64()) {
-                            if n == k {
-                                off = true;
-                            } else if n > k {
-                                src.insert(key.into(), (n - 1).into());
-                            }
+            Value::Object(map) => {
+                // Other things have a `source` too (a mesh's, a light's):
+                // only those that read as an audio source are links.
+                let link = map
+                    .get("source")
+                    .and_then(|s| serde_json::from_value::<AudioSource>(s.clone()).ok())
+                    .map(f);
+                match link {
+                    Some(Link::To(to)) => {
+                        if let Ok(to) = serde_json::to_value(to) {
+                            map.insert("source".into(), to);
                         }
                     }
+                    Some(Link::Off) => {
+                        if let Ok(kick) = serde_json::to_value(AudioSource::default()) {
+                            map.insert("source".into(), kick);
+                        }
+                        map.insert("amount".into(), 0.0.into());
+                    }
+                    Some(Link::Keep) | None => {}
                 }
-                if off {
-                    let kick = serde_json::to_value(crate::music::AudioSource::default());
-                    map.insert("source".into(), kick.unwrap_or_default());
-                    map.insert("amount".into(), 0.0.into());
-                }
-                for (_, child) in map.iter_mut() {
-                    walk(child, k);
+                for child in map.values_mut() {
+                    walk(child, f);
                 }
             }
-            serde_json::Value::Array(items) => items.iter_mut().for_each(|c| walk(c, k)),
+            Value::Array(items) => items.iter_mut().for_each(|c| walk(c, f)),
             _ => {}
         }
     }
-    walk(&mut v, k as u64);
+    walk(&mut v, &f);
     if let Ok(p) = serde_json::from_value(v) {
         *project = p;
     }
@@ -257,7 +310,6 @@ mod tests {
 
     #[test]
     fn removing_a_channel_renumbers_the_links() {
-        use crate::music::AudioSource;
         let mut p = crate::presets::by_name("Neon Arena").unwrap();
         for name in ["A", "B", "C"] {
             p.music.channels.push(ChannelDef {
@@ -282,6 +334,42 @@ mod tests {
             AudioSource::Channel(1),
             "the later one moved down"
         );
+    }
+
+    #[test]
+    fn changing_a_kind_turns_its_links() {
+        let mut p = crate::presets::by_name("Neon Arena").unwrap();
+        for name in ["A", "B"] {
+            p.music.channels.push(ChannelDef {
+                name: name.into(),
+                kind: ChannelKind::Value,
+            });
+        }
+        let link = |p: &mut crate::scene::Project, i: usize, src| {
+            let m = &mut p.layers[i].transform.scale.music;
+            m.source = src;
+            m.amount = 1.0;
+        };
+        link(&mut p, 0, AudioSource::Channel(0));
+        link(&mut p, 1, AudioSource::Channel(1));
+        p.music.warp.source = AudioSource::Channel(0);
+        p.music.warp.amount = 1.5;
+        set_kind(&mut p, 0, ChannelKind::Hit);
+        let m = |p: &crate::scene::Project, i: usize| p.layers[i].transform.scale.music;
+        assert_eq!(p.music.channels[0].kind, ChannelKind::Hit);
+        assert_eq!(m(&p, 0).source, AudioSource::ChannelHit(0));
+        assert_eq!(m(&p, 0).amount, 1.0, "still linked");
+        assert_eq!(m(&p, 1).source, AudioSource::Channel(1), "others untouched");
+        assert_eq!(p.music.warp.amount, 0.0, "a warp can't follow hits");
+        // And back.
+        set_kind(&mut p, 0, ChannelKind::Value);
+        assert_eq!(m(&p, 0).source, AudioSource::Channel(0));
+        // A warp on another channel stays.
+        p.music.warp.source = AudioSource::Channel(1);
+        p.music.warp.amount = 1.5;
+        set_kind(&mut p, 0, ChannelKind::Hit);
+        assert_eq!(p.music.warp.source, AudioSource::Channel(1));
+        assert_eq!(p.music.warp.amount, 1.5);
     }
 
     #[test]
