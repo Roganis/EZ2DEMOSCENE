@@ -8,6 +8,7 @@ pub mod clip;
 pub mod envmap;
 pub mod gpu;
 pub mod import;
+mod lazy;
 pub mod logo;
 pub mod mesh;
 mod renderer;
