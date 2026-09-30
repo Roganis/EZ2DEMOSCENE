@@ -15,12 +15,13 @@
 //! [`MusicSettings::channels`]: crate::music::MusicSettings::channels
 
 use crate::music::HitState;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// How many channels a project can declare.
 pub const MAX_CHANNELS: usize = 32;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 pub enum ChannelKind {
     /// A level, followed like a music curve (0..1 is the useful range).
     #[default]
@@ -41,7 +42,7 @@ impl ChannelKind {
 
 /// One declared channel. The host finds it by `name`, so a project and a
 /// host agree on names, never on numbers.
-#[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct ChannelDef {
     pub name: String,
