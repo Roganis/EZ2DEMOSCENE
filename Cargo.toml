@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/ez_core", "crates/ez_render", "crates/ez_export", "crates/ez_app"]
+members = ["crates/ez_core", "crates/ez_render", "crates/ez_export", "crates/ez_app", "crates/ez_embed"]
 default-members = ["crates/ez_app"]
 
 [workspace.package]

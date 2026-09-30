@@ -1011,6 +1011,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ez_embed"
+version = "0.1.0"
+dependencies = [
+ "env_logger",
+ "ez_core",
+ "ez_render",
+ "image",
+ "log",
+ "pollster 0.4.0",
+ "wgpu",
+]
+
+[[package]]
 name = "ez_export"
 version = "0.1.0"
 dependencies = [

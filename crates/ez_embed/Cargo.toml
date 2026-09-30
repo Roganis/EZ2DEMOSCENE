@@ -1,0 +1,20 @@
+[package]
+name = "ez_embed"
+description = "EZ2DEMOSCENE as a library other programs draw scenes with (the EZ2PORT scene renderer)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "ez2embed"
+crate-type = ["cdylib"]
+
+[dependencies]
+ez_core.workspace = true
+ez_render.workspace = true
+wgpu.workspace = true
+log.workspace = true
+env_logger.workspace = true
+pollster.workspace = true
+image.workspace = true
