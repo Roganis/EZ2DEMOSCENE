@@ -69,6 +69,37 @@ impl LogoBake {
 }
 
 /// Sizes of a bake: the shape in output pixels, the padding, the work scale.
+/// How many pixels a bake may use.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Budget {
+    /// Pixels of the shape itself in the texture.
+    content: f32,
+    /// Pixels of the supersampled work picture the distances come from.
+    work: u32,
+    /// Cells of the coarse field beyond the texture.
+    far_cells: f32,
+    /// Fewest work pixels per texture pixel.
+    min_k: u32,
+}
+
+impl Budget {
+    /// Logos that stay the same: sharp at any size.
+    pub const FULL: Budget = Budget {
+        content: CONTENT_PIXELS,
+        work: WORK_PIXELS,
+        far_cells: FAR_CELLS,
+        min_k: 2,
+    };
+    /// Text whose numbers change from frame to frame: about fifteen times
+    /// quicker to bake, a little softer when shown large.
+    pub const LIVE: Budget = Budget {
+        content: 60_000.0,
+        work: 120_000,
+        far_cells: 40_000.0,
+        min_k: 1,
+    };
+}
+
 struct Frame {
     /// Shape size in output pixels.
     cw: u32,
@@ -77,14 +108,15 @@ struct Frame {
     spread: f32,
     /// Work pixels per output pixel.
     k: u32,
+    far_cells: f32,
 }
 
 impl Frame {
     /// Output pixels per shape unit for a shape `w` × `h` units, with at
     /// most `max_scale` output pixels per unit.
-    fn new(w: f32, h: f32, max_scale: f32) -> (Frame, f32) {
+    fn new(w: f32, h: f32, max_scale: f32, budget: Budget) -> (Frame, f32) {
         let (w, h) = (w.max(1e-6), h.max(1e-6));
-        let mut s = (CONTENT_PIXELS / (w * h)).sqrt().min(max_scale);
+        let mut s = (budget.content / (w * h)).sqrt().min(max_scale);
         // Room for the padding within the largest texture.
         let fit = |s: f32| {
             let short = (w.min(h) * s).max(1.0);
@@ -99,7 +131,7 @@ impl Frame {
         let spread = (cw.min(ch) as f32 * SPREAD).max(2.0);
         let pad = (spread * 1.25).ceil() as u32;
         let (ow, oh) = (cw + 2 * pad, ch + 2 * pad);
-        let k = ((WORK_PIXELS as f32 / (ow * oh) as f32).sqrt() as u32).clamp(2, 4);
+        let k = ((budget.work as f32 / (ow * oh) as f32).sqrt() as u32).clamp(budget.min_k, 4);
         (
             Frame {
                 cw,
@@ -107,6 +139,7 @@ impl Frame {
                 pad,
                 spread,
                 k,
+                far_cells: budget.far_cells,
             },
             s,
         )
@@ -125,6 +158,16 @@ impl Frame {
 /// Bake a text logo (`bytes` overrides the built-in font). `None` when
 /// there is nothing to draw.
 pub fn bake_text(text: &str, font: TextFont, bytes: Option<&[u8]>) -> Option<LogoBake> {
+    bake_text_with(text, font, bytes, Budget::FULL)
+}
+
+/// [`bake_text`] within a pixel budget.
+pub fn bake_text_with(
+    text: &str,
+    font: TextFont,
+    bytes: Option<&[u8]>,
+    budget: Budget,
+) -> Option<LogoBake> {
     let contours = crate::text::logo_contours(text, font, bytes)?;
     let (mut lo, mut hi) = (Vec2::splat(f32::MAX), Vec2::splat(f32::MIN));
     for p in contours.iter().flatten() {
@@ -135,7 +178,7 @@ pub fn bake_text(text: &str, font: TextFont, bytes: Option<&[u8]>) -> Option<Log
     if !(size.x > 0.0 && size.y > 0.0) {
         return None;
     }
-    let (frame, s) = Frame::new(size.x, size.y, f32::MAX);
+    let (frame, s) = Frame::new(size.x, size.y, f32::MAX, budget);
     let (ww, wh) = frame.work_size();
     // Ems to work pixels (y down).
     let ks = s * frame.k as f32;
@@ -196,7 +239,7 @@ pub fn bake_image(img: &RgbaImage, mask: LogoMask) -> Option<LogoBake> {
     }
     let (bw, bh) = ((x1 - x0) as f32, (y1 - y0) as f32);
     // Up to twice the image's own resolution (smoother edges when small).
-    let (frame, s) = Frame::new(bw, bh, 2.0);
+    let (frame, s) = Frame::new(bw, bh, 2.0, Budget::FULL);
     let (ww, wh) = frame.work_size();
     let ks = s * frame.k as f32;
     let off = (frame.pad * frame.k) as f32;
@@ -310,7 +353,7 @@ fn finish(frame: &Frame, inside: &[bool], color: Option<&[[f32; 3]]>) -> LogoBak
 fn far_field(pixels: &[[f32; 4]], ow: u32, oh: u32, frame: &Frame) -> FarField {
     let reach = (FAR_REACH * frame.ch as f32 - frame.pad as f32).max(0.0);
     let (tw, th) = (ow as f32 + 2.0 * reach, oh as f32 + 2.0 * reach);
-    let cell = (tw * th / FAR_CELLS).sqrt().max(2.0).ceil();
+    let cell = (tw * th / frame.far_cells).sqrt().max(2.0).ceil();
     let (fw, fh) = ((tw / cell).ceil() as u32, (th / cell).ceil() as u32);
     let origin = [
         -(fw as f32 * cell - ow as f32) * 0.5,

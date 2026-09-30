@@ -6,6 +6,19 @@ use ez_render::gpu::Gpu;
 use ez_render::Renderer;
 use std::path::PathBuf;
 
+/// A headless GPU, or return from the test (with a message) when there is none.
+macro_rules! gpu_or_skip {
+    () => {
+        match Gpu::headless() {
+            Ok(g) => g,
+            Err(e) => {
+                eprintln!("skipping GPU test: {e:#}");
+                return;
+            }
+        }
+    };
+}
+
 fn snapshot_dir() -> PathBuf {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/ez2-snapshots");
     std::fs::create_dir_all(&dir).unwrap();
@@ -20,15 +33,14 @@ fn mean_abs_diff(a: &[u8], b: &[u8]) -> f32 {
         / a.len() as f32
 }
 
+/// Mean channel value of an image, 0..255.
+fn lum(img: &image::RgbaImage) -> f32 {
+    img.as_raw().iter().map(|v| *v as f32).sum::<f32>() / img.as_raw().len() as f32
+}
+
 #[test]
 fn presets_render_and_loop_seamlessly() {
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     eprintln!("adapter: {}", gpu.adapter_name());
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
     r.set_wait_for_bakes(true);
@@ -51,8 +63,7 @@ fn presets_render_and_loop_seamlessly() {
         );
         assert!(seam < 0.6, "{} does not loop: diff {seam}", preset.name);
         // The image must not be black.
-        let lum: f32 = a.as_raw().iter().map(|v| *v as f32).sum::<f32>() / a.as_raw().len() as f32;
-        assert!(lum > 3.0, "{} renders black", preset.name);
+        assert!(lum(&a) > 3.0, "{} renders black", preset.name);
     }
 }
 
@@ -61,13 +72,7 @@ fn presets_render_and_loop_seamlessly() {
 #[test]
 fn raymarched_backdrops_loop_with_any_settings() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(160, 90);
     let kinds = [
@@ -163,19 +168,13 @@ fn raymarched_backdrops_loop_with_any_settings() {
 #[test]
 fn weather_liquids_and_skies_are_continuous() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(160, 90);
     let mut scenes: Vec<(String, Project)> = Vec::new();
     for liquid in LiquidKind::ALL {
         for (i, shape) in TerrainShape::ALL.iter().enumerate() {
-            let mut p = presets::stormy_lake();
+            let mut p = presets::named("Stormy Lake");
             p.layers
                 .retain(|l| !matches!(l.kind, LayerKind::Weather(_)));
             for l in &mut p.layers {
@@ -193,7 +192,7 @@ fn weather_liquids_and_skies_are_continuous() {
     }
     for kind in [BackdropKind::Clouds, BackdropKind::Aurora] {
         for variant in 0..RaySettings::variants(kind).len() as u32 {
-            let mut p = presets::sunbeam_peaks();
+            let mut p = presets::named("Sunbeam Peaks");
             p.layers
                 .retain(|l| matches!(l.kind, LayerKind::Backdrop(_)));
             for l in &mut p.layers {
@@ -207,7 +206,7 @@ fn weather_liquids_and_skies_are_continuous() {
         }
     }
     for kind in Precipitation::ALL {
-        let mut p = presets::stormy_lake();
+        let mut p = presets::named("Stormy Lake");
         for l in &mut p.layers {
             if let LayerKind::Weather(w) = &mut l.kind {
                 w.kind = kind;
@@ -220,7 +219,7 @@ fn weather_liquids_and_skies_are_continuous() {
     // Day cycle, rainbow, mist, caustics, heat haze, spotlights,
     // waterfalls, tornado smoke, wet ground and snow cover.
     // (The club's beat strobes jump on every beat by design.)
-    let mut club = presets::club_spotlights();
+    let mut club = presets::named("Club Spotlights");
     for l in &mut club.layers {
         match &mut l.kind {
             LayerKind::Lasers(z) => z.strobe = Param::new(0.0),
@@ -230,15 +229,15 @@ fn weather_liquids_and_skies_are_continuous() {
     }
     for p in [
         club,
-        presets::rainbow_falls(),
-        presets::sunken_temple(),
-        presets::twister(),
-        presets::lava_world(),
-        presets::aurora_tundra(),
+        presets::named("Rainbow Falls"),
+        presets::named("Sunken Temple"),
+        presets::named("Twister"),
+        presets::named("Lava World"),
+        presets::named("Aurora Tundra"),
     ] {
         scenes.push((p.name.clone(), p));
     }
-    let mut falls = presets::rainbow_falls();
+    let mut falls = presets::named("Rainbow Falls");
     for l in &mut falls.layers {
         if let LayerKind::Falls(f) = &mut l.kind {
             f.kind = FallKind::Lava;
@@ -271,13 +270,7 @@ fn weather_liquids_and_skies_are_continuous() {
 #[test]
 fn music_reactive_scene_loops_and_reacts() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let rate = 22050.0f32;
     let samples: Vec<f32> = (0..(rate * 12.0) as usize)
         .map(|i| {
@@ -291,7 +284,7 @@ fn music_reactive_scene_loops_and_reacts() {
     let env = analysis::analyze(&samples, rate);
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(160, 90);
-    let mut p = presets::music_reactor();
+    let mut p = presets::named("Music Reactor");
     p.music.offset = 1.37;
     let mut at = |p: &Project, phase: f32, audio: Option<&AudioEnvelope>| {
         r_render(&mut r, p, &p.ctx(phase, audio), &target)
@@ -322,16 +315,10 @@ fn music_reactive_scene_loops_and_reacts() {
 /// The editor shows exactly the colours that get exported.
 #[test]
 fn display_image_matches_export() {
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(96, 54);
-    let p = presets::synth_sunset();
+    let p = presets::named("Synth Sunset");
     let out = r.render_image(&p, &EvalCtx::new(&p.timing, 0.2, None), &target);
     let shown = r.read_display_pixels(&target);
     let worst = out
@@ -349,13 +336,7 @@ fn display_image_matches_export() {
 #[test]
 fn sun_shadows_darken_the_floor() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(160, 90);
     let mut p = presets::empty();
@@ -369,9 +350,6 @@ fn sun_shadows_darken_the_floor() {
         }
     }
     let ctx = EvalCtx::new(&p.timing, 0.1, None);
-    let lum = |img: &image::RgbaImage| -> f32 {
-        img.as_raw().iter().map(|v| *v as f32).sum::<f32>() / img.as_raw().len() as f32
-    };
     let off = r.render_image(&p, &ctx, &target);
     p.environment.shadows.enabled = true;
     let on = r.render_image(&p, &ctx, &target);
@@ -389,13 +367,7 @@ fn sun_shadows_darken_the_floor() {
 #[test]
 fn terrain_lod_loops_and_matches_the_full_grid() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
     let target = r.create_target(320, 180);
     let mut tested = 0;
@@ -447,16 +419,10 @@ fn terrain_lod_loops_and_matches_the_full_grid() {
 #[test]
 fn deformed_shapes_loop() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
     let target = r.create_target(320, 180);
-    let plain = presets::orbiting_solid();
+    let plain = presets::named("Orbiting Solid");
     let mut p = plain.clone();
     for l in &mut p.layers {
         if let LayerKind::Mesh(m) = &mut l.kind {
@@ -492,16 +458,10 @@ fn deformed_shapes_loop() {
 #[test]
 fn color_ramp_across_copies_loops() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
     let target = r.create_target(320, 180);
-    let plain = presets::orbiting_solid();
+    let plain = presets::named("Orbiting Solid");
     let mut p = plain.clone();
     for l in &mut p.layers {
         if let LayerKind::Mesh(m) = &mut l.kind {
@@ -532,16 +492,10 @@ fn color_ramp_across_copies_loops() {
 #[test]
 fn copies_cover_a_surface() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
     let target = r.create_target(320, 180);
-    let mut p = presets::orbiting_solid();
+    let mut p = presets::named("Orbiting Solid");
     p.layers
         .retain(|l| l.name == "Deep space" || l.name == "Dodecahedron");
     let without = p.clone();
@@ -582,16 +536,10 @@ fn copies_cover_a_surface() {
 #[test]
 fn terrain_copies_match_the_gpu_ground() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(320, 180);
-    let mut p = presets::vector_valley();
+    let mut p = presets::named("Vector Valley");
     p.post = Default::default();
     p.environment.fog_density = Param::new(0.0);
     p.camera.height = Param::new(14.0);
@@ -649,13 +597,7 @@ fn terrain_copies_match_the_gpu_ground() {
 #[test]
 fn text_layers_loop() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
     let target = r.create_target(320, 180);
     let mut p = presets::empty();
@@ -699,22 +641,16 @@ fn text_layers_loop() {
 fn sequences_play_scenes_with_transitions() {
     use ez_core::sequence::*;
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(160, 90);
-    let mut p = presets::orbiting_solid();
+    let mut p = presets::named("Orbiting Solid");
     p.post.grade.grain = Param::new(0.0);
     let alone = p.clone();
     p.start_sequence();
     // Scene B: another preset's look.
     let b = p.add_scene(false);
-    let other = presets::synth_sunset();
+    let other = presets::named("Synth Sunset");
     if let Some(s) = p.sequence.scenes.iter_mut().find(|s| s.id == b) {
         s.layers = other.layers.clone();
         s.camera = other.camera.clone();
@@ -788,16 +724,10 @@ fn sequences_play_scenes_with_transitions() {
 #[test]
 fn depth_of_field_blurs() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
     let target = r.create_target(320, 180);
-    let mut p = presets::gold_room();
+    let mut p = presets::named("Gold Kaleido Room");
     p.post.grade.grain = Param::new(0.0);
     let sharp_project = p.clone();
     p.post.dof = DepthOfField {
@@ -833,16 +763,10 @@ fn depth_of_field_blurs() {
 #[test]
 fn feedback_trails_repeat_every_loop() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(160, 90);
-    let mut p = presets::orbiting_solid();
+    let mut p = presets::named("Orbiting Solid");
     p.post.grade.grain = Param::new(0.0);
     p.timing.loop_beats = 4; // 2 s
     p.post.feedback = Feedback {
@@ -904,13 +828,7 @@ fn feedback_trails_repeat_every_loop() {
 #[test]
 fn raymarched_objects_loop_and_cast_shadows() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(240, 136);
     let mut p = presets::empty();
@@ -984,13 +902,7 @@ fn raymarched_objects_loop_and_cast_shadows() {
 #[test]
 fn morph_blends_two_shapes() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(160, 160);
     let mut p = presets::empty();
@@ -1072,13 +984,7 @@ fn morph_blends_two_shapes() {
 #[test]
 fn sprites_play_sheets_and_loop() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(240, 136);
     let mut plain = presets::empty();
@@ -1160,13 +1066,7 @@ fn sprites_play_sheets_and_loop() {
 #[test]
 fn electric_arcs_strike_and_loop() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(240, 136);
     let mut plain = presets::empty();
@@ -1244,13 +1144,7 @@ fn electric_arcs_strike_and_loop() {
 #[test]
 fn gpu_copies_match_the_cpu_and_loop() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     if !r.gpu_swarms() {
         eprintln!("no compute shaders here: CPU swarms only");
@@ -1426,13 +1320,7 @@ fn gpu_copies_match_the_cpu_and_loop() {
 #[test]
 fn logos_show_where_placed_and_loop() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 4);
     let (w, h) = (320u32, 180u32);
     let target = r.create_target(w, h);
@@ -1556,13 +1444,7 @@ fn logos_show_where_placed_and_loop() {
 #[test]
 fn logos_stay_sharp_under_depth_of_field() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(320, 180);
     let mut p = presets::empty();
@@ -1613,13 +1495,7 @@ fn logos_stay_sharp_under_depth_of_field() {
 #[test]
 fn lit_logos_follow_the_light_and_glint_loops() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(320, 180);
     let mut plain = presets::empty();
@@ -1700,13 +1576,7 @@ fn lit_logos_follow_the_light_and_glint_loops() {
 #[test]
 fn logo_field_effects_show_and_loop() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(320, 180);
     let mut plain = presets::empty();
@@ -1841,13 +1711,7 @@ fn logo_field_effects_show_and_loop() {
 #[test]
 fn logo_morph_image_has_its_own_mask() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(240, 136);
     let mut plain = presets::empty();
@@ -1893,13 +1757,7 @@ fn logo_morph_image_has_its_own_mask() {
 #[test]
 fn logo_rasters_and_distortion_loop() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(320, 180);
     let mut plain = presets::empty();
@@ -1978,13 +1836,7 @@ fn logo_rasters_and_distortion_loop() {
 #[test]
 fn logos_attach_to_the_screen_and_each_other() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let (w, h) = (320.0f32, 180.0f32);
     let target = r.create_target(w as u32, h as u32);
@@ -2087,13 +1939,7 @@ fn logos_attach_to_the_screen_and_each_other() {
 fn logo_retro_looks_show_and_loop() {
     use ez_core::palette::PaletteId;
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(320, 180);
     let mut plain = presets::empty();
@@ -2192,13 +2038,7 @@ fn logo_retro_looks_show_and_loop() {
 #[test]
 fn logos_meet_the_scene() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(320, 180);
     let mut plain = presets::empty();
@@ -2286,16 +2126,10 @@ fn logos_meet_the_scene() {
 #[test]
 fn color_scheme_recolours_and_loops() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(320, 180);
-    let mut p = presets::neon_arena();
+    let mut p = presets::named("Neon Arena");
     p.post.grade.grain = Param::new(0.0);
     let at = |p: &Project, phase: f32| EvalCtx::new(&p.timing, phase, None);
     let mut render = |p: &Project, phase: f32| r.render_image(p, &at(p, phase), &target);
@@ -2344,17 +2178,11 @@ fn color_scheme_recolours_and_loops() {
 #[test]
 fn battle_backgrounds_and_retro_effects_loop() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(160, 90);
     let dir = snapshot_dir();
-    let base = presets::battle_screen();
+    let base = presets::named("Battle Screen");
     let mut failures: Vec<String> = Vec::new();
     let check = |r: &mut Renderer, p: &Project, name: &str, failures: &mut Vec<String>| {
         let at = |phase: f32| EvalCtx::new(&p.timing, phase, None);
@@ -2364,7 +2192,7 @@ fn battle_backgrounds_and_retro_effects_loop() {
         a.save(dir.join(format!("battle_{name}.png"))).unwrap();
         let seam = mean_abs_diff(a.as_raw(), b.as_raw());
         let motion = mean_abs_diff(a.as_raw(), mid.as_raw());
-        let lum = a.as_raw().iter().map(|v| *v as f32).sum::<f32>() / a.as_raw().len() as f32;
+        let lum = lum(&a);
         eprintln!("{name:<28} seam {seam:.3}  motion {motion:.2}  lum {lum:.1}");
         if seam > 0.6 || motion < 1.0 || lum < 3.0 {
             failures.push(format!("{name}: seam {seam} motion {motion} lum {lum}"));
@@ -2417,17 +2245,11 @@ fn battle_backgrounds_and_retro_effects_loop() {
 #[test]
 fn lens_and_mirrored_tiling() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
     let target = r.create_target(160, 90);
     let dir = snapshot_dir();
-    let base = presets::battle_screen();
+    let base = presets::named("Battle Screen");
     let at = |p: &Project, phase: f32| EvalCtx::new(&p.timing, phase, None);
     let plain = r.render_image(&base, &at(&base, 0.2), &target);
     for amount in [0.8, -0.8] {
@@ -2500,6 +2322,7 @@ fn lens_and_mirrored_tiling() {
         path: path.to_string_lossy().to_string(),
         retro: None,
         mirror: false,
+        clip: None,
     }];
     let (jump_repeat, _) = seam_jump(&mut r, &p, "mirror_off");
     p.textures[0].mirror = true;
@@ -2522,14 +2345,8 @@ fn lens_and_mirrored_tiling() {
 fn flocks_bake_fly_and_loop() {
     use ez_core::sim::Flock;
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
-    let mut p = presets::starling_dusk();
+    let gpu = gpu_or_skip!();
+    let mut p = presets::named("Starling Dusk");
     for l in &mut p.layers {
         if let Some(Instancer::Flock { flock, .. }) = l.kind.instancer_mut() {
             **flock = Flock {
@@ -2594,14 +2411,8 @@ fn flocks_bake_fly_and_loop() {
 #[test]
 fn cloth_waves_and_loops() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
-    let mut p = presets::banners();
+    let gpu = gpu_or_skip!();
+    let mut p = presets::named("Banners");
     for l in &mut p.layers {
         if let LayerKind::Mesh(MeshLayer {
             source: MeshSource::Cloth { cloth, .. },
@@ -2671,14 +2482,8 @@ fn cloth_waves_and_loops() {
 #[test]
 fn rigid_bodies_fall_and_loop() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
-    let p = presets::beat_demolition();
+    let gpu = gpu_or_skip!();
+    let p = presets::named("Beat Demolition");
     let mut bare = p.clone();
     bare.layers.retain(|l| l.kind.instancer().is_none());
     let at = |phase: f32| EvalCtx::new(&p.timing, phase, None);
@@ -2731,13 +2536,7 @@ fn rigid_bodies_fall_and_loop() {
 #[test]
 fn environment_maps_light_the_scene() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let dir = snapshot_dir().join("ibl");
     std::fs::create_dir_all(&dir).unwrap();
     // Panoramas as .hdr files, read back like a user's.
@@ -2942,13 +2741,7 @@ fn environment_maps_light_the_scene() {
 #[test]
 fn physical_materials_keep_energy() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let dir = snapshot_dir().join("pbr");
     std::fs::create_dir_all(&dir).unwrap();
     let write_hdr = |name: &str, f: &dyn Fn(glam::Vec3) -> [f32; 3]| {
@@ -3216,13 +3009,7 @@ fn physical_materials_keep_energy() {
 #[test]
 fn screen_space_reflections_show_neighbours() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let dir = snapshot_dir().join("ssr");
     std::fs::create_dir_all(&dir).unwrap();
     let scene = |ssr: bool, with_box: bool| {
@@ -3343,13 +3130,7 @@ fn screen_space_reflections_show_neighbours() {
 #[test]
 fn light_shafts_follow_the_sun_shadows() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let dir = snapshot_dir().join("shafts");
     std::fs::create_dir_all(&dir).unwrap();
     let scene = |shafts: bool, fog: f32| {
@@ -3463,13 +3244,7 @@ fn light_shafts_follow_the_sun_shadows() {
 fn liquid_draws_and_loops() {
     use ez_core::sim::{Container, Fluid};
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let dir = snapshot_dir().join("liquid");
     std::fs::create_dir_all(&dir).unwrap();
     let scene = |surface: bool, wall: bool| {
@@ -3591,13 +3366,7 @@ fn liquid_draws_and_loops() {
 #[test]
 fn retro_3d_is_chunky_wobbly_and_loops() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let dir = snapshot_dir().join("retro3d");
     std::fs::create_dir_all(&dir).unwrap();
     let scene = |retro: Retro3d, subdivide: u32, filter: TexFilter| {
@@ -3800,13 +3569,7 @@ fn retro_3d_is_chunky_wobbly_and_loops() {
 #[test]
 fn retro_console_quirks_show_and_loop() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let dir = snapshot_dir().join("retro_quirks");
     std::fs::create_dir_all(&dir).unwrap();
     // A box `dist` away from a still camera, over the fog colour (no
@@ -4056,13 +3819,7 @@ fn retro_console_quirks_show_and_loop() {
 #[test]
 fn quake_features_show_and_loop() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let dir = snapshot_dir().join("quake");
     std::fs::create_dir_all(&dir).unwrap();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
@@ -4096,9 +3853,6 @@ fn quake_features_show_and_loop() {
             }),
         )
         .scaled(1.3)
-    };
-    let lum = |img: &image::RgbaImage| {
-        img.as_raw().iter().map(|v| *v as f32).sum::<f32>() / img.as_raw().len() as f32
     };
     // "az": dark for the first half of the loop, twice as bright after.
     let az = LightStyle {
@@ -4341,13 +4095,7 @@ fn quake_features_show_and_loop() {
 #[test]
 fn stepped_motion_and_mode7_floor() {
     use ez_core::*;
-    let gpu = match Gpu::headless() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("skipping GPU test: {e:#}");
-            return;
-        }
-    };
+    let gpu = gpu_or_skip!();
     let dir = snapshot_dir().join("group4");
     std::fs::create_dir_all(&dir).unwrap();
     let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
@@ -4488,4 +4236,624 @@ fn stepped_motion_and_mode7_floor() {
     eprintln!("cube under the floor changes {d_under:.3}, above it {d_over:.3}");
     assert!(d_under < 0.05, "the floor doesn't hide what is under it");
     assert!(d_over > 0.1, "a cube above the floor does not show");
+}
+
+/// The whole screen at an old machine's resolution: the border is the
+/// border colour, inside only the palette's colours in machine-sized
+/// (wide) pixels, colour cubes keep their levels, and it loops.
+#[test]
+fn console_screens_and_palettes() {
+    use ez_core::palette::PaletteId;
+    use ez_core::*;
+    let gpu = gpu_or_skip!();
+    let dir = snapshot_dir().join("screens");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let (w, h) = (640u32, 360u32);
+    let target = r.create_target(w, h);
+    let scene = || {
+        let mut p = presets::empty();
+        p.post.grade.vignette = Param::new(0.0);
+        p.post.grade.grain = Param::new(0.0);
+        p.post.bloom.enabled = false;
+        if let LayerKind::Mesh(m) = &mut p.layers[2].kind {
+            m.material.texture = Some("plasma".into());
+        }
+        p
+    };
+    let rgb = |c: u32| [(c >> 16) as u8, (c >> 8) as u8, c as u8];
+    let near =
+        |p: &image::Rgba<u8>, c: [u8; 3]| (0..3).all(|k| (p[k] as i32 - c[k] as i32).abs() <= 2);
+
+    // C64 multicolour on a 4:3 TV inside a 16:9 output.
+    let mut p = scene();
+    ScreenPreset::C64Multicolour.apply(&mut p.retro, &mut p.post.palette);
+    let img = r.render_image(&p, &EvalCtx::new(&p.timing, 0.3, None), &target);
+    img.save(dir.join("c64.png")).unwrap();
+    let border = rgb(0x6c5eb5);
+    let pal: Vec<[u8; 3]> = PaletteId::C64.colors().iter().map(|c| rgb(*c)).collect();
+    let (x0, x1) = (w / 8, w - w / 8);
+    let mut bad_border = 0;
+    let mut off_palette = 0;
+    let mut changes = 0u32;
+    for y in 0..h {
+        for x in 0..w {
+            let px = img.get_pixel(x, y);
+            if x < x0 - 1 || x > x1 {
+                bad_border += !near(px, border) as u32;
+            } else if x > x0 && x < x1 - 1 {
+                off_palette += !pal.iter().any(|c| near(px, *c)) as u32;
+            }
+        }
+        // Colour changes along a row: at most one per machine pixel (160
+        // across), in the busiest row.
+        // Inside the picture (the C64 has a border all round too).
+        let r = p.retro.screen.rect((w, h));
+        let (px0, px1) = (
+            (r[0] * w as f32) as u32 + 1,
+            ((r[0] + r[2]) * w as f32) as u32 - 1,
+        );
+        let mut n = 0;
+        for x in px0..px1 - 1 {
+            n += (img.get_pixel(x, y) != img.get_pixel(x + 1, y)) as u32;
+        }
+        changes = changes.max(n);
+    }
+    eprintln!("C64: {bad_border} border pixels off, {off_palette} pixels off the palette, {changes} changes in the busiest row");
+    assert_eq!(bad_border, 0, "the border isn't the border colour");
+    assert_eq!(off_palette, 0, "colours outside the C64 palette");
+    assert!(changes <= 160, "finer than 160 pixels across: {changes}");
+    assert!(changes > 10, "the picture is flat");
+
+    // Loops.
+    let a = r.render_image(&p, &EvalCtx::new(&p.timing, 0.0, None), &target);
+    let b = r.render_image(&p, &EvalCtx::new(&p.timing, 1.0, None), &target);
+    assert!(
+        mean_abs_diff(a.as_raw(), b.as_raw()) < 0.6,
+        "the C64 screen doesn't loop"
+    );
+
+    // Game Boy: square pixels, 10:9, four greens.
+    let mut p = scene();
+    ScreenPreset::GameBoy.apply(&mut p.retro, &mut p.post.palette);
+    let img = r.render_image(&p, &EvalCtx::new(&p.timing, 0.3, None), &target);
+    img.save(dir.join("gameboy.png")).unwrap();
+    let greens: Vec<[u8; 3]> = PaletteId::GameBoy
+        .colors()
+        .iter()
+        .map(|c| rgb(*c))
+        .collect();
+    assert!(
+        img.pixels().all(|px| greens.iter().any(|c| near(px, *c))),
+        "Game Boy colours"
+    );
+
+    // Palettes over the full picture: the NES list and the Amiga cube.
+    let mut p = scene();
+    p.post.palette.enabled = true;
+    p.post.palette.palette = PaletteId::Nes;
+    let img = r.render_image(&p, &EvalCtx::new(&p.timing, 0.3, None), &target);
+    img.save(dir.join("nes.png")).unwrap();
+    let nes: Vec<[u8; 3]> = PaletteId::Nes.colors().iter().map(|c| rgb(*c)).collect();
+    let used = img
+        .pixels()
+        .map(|px| [px[0], px[1], px[2]])
+        .collect::<std::collections::HashSet<_>>();
+    assert!(
+        used.iter().all(|u| nes
+            .iter()
+            .any(|c| (0..3).all(|k| (u[k] as i32 - c[k] as i32).abs() <= 2))),
+        "NES colours"
+    );
+    assert!(used.len() > 8, "only {} NES colours used", used.len());
+    for (pal, levels) in [(PaletteId::Amiga, 16u32), (PaletteId::AmstradCpc, 3)] {
+        p.post.palette.palette = pal;
+        let img = r.render_image(&p, &EvalCtx::new(&p.timing, 0.3, None), &target);
+        let step = 255.0 / (levels - 1) as f32;
+        let ok = img.as_raw().chunks(4).all(|px| {
+            (0..3).all(|k| {
+                let v = px[k] as f32 / step;
+                (v - v.round()).abs() * step <= 2.0
+            })
+        });
+        assert!(ok, "{pal:?} has channels off its {levels} levels");
+    }
+}
+
+/// A tape loading on the Spectrum screen: red/cyan pilot stripes over a
+/// black picture, then blue/yellow data stripes while the picture arrives
+/// in black and white, then the finished picture in its border; it loops.
+/// And a letterbox: black bars above and below a picture.
+#[test]
+fn loading_stripes_and_letterbox() {
+    use ez_core::*;
+    let gpu = gpu_or_skip!();
+    let dir = snapshot_dir().join("loading");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let (w, h) = (640u32, 360u32);
+    let target = r.create_target(w, h);
+    let mut p = presets::empty();
+    p.post.grade.vignette = Param::new(0.0);
+    p.post.grade.grain = Param::new(0.0);
+    p.post.bloom.enabled = false;
+    ScreenPreset::ZxSpectrum.apply(&mut p.retro, &mut p.post.palette);
+    p.retro.screen.stripes.mode = StripeMode::Loading;
+    let rect = p.retro.screen.rect((w, h));
+    let (x0, y0) = (
+        (rect[0] * w as f32) as u32 + 2,
+        (rect[1] * h as f32) as u32 + 2,
+    );
+    let (x1, y1) = (
+        ((rect[0] + rect[2]) * w as f32) as u32 - 2,
+        ((rect[1] + rect[3]) * h as f32) as u32 - 2,
+    );
+    let inside = |x: u32, y: u32| x >= x0 && x < x1 && y >= y0 && y < y1;
+    let outside = |x: u32, y: u32| x + 3 < x0 || x > x1 + 3 || y + 3 < y0 || y > y1 + 3;
+    let rgb = |c: u32| [(c >> 16) as u8, (c >> 8) as u8, c as u8];
+    let near =
+        |p: &image::Rgba<u8>, c: [u8; 3]| (0..3).all(|k| (p[k] as i32 - c[k] as i32).abs() <= 3);
+    let shot = |phase: f32, r: &mut Renderer, name: &str| {
+        let img = r.render_image(&p, &EvalCtx::new(&p.timing, phase, None), &target);
+        img.save(dir.join(format!("{name}.png"))).unwrap();
+        img
+    };
+    // Share of border pixels of each colour, and the picture's colours.
+    let survey = |img: &image::RgbaImage, cols: [u32; 2]| {
+        let (mut a, mut b, mut other, mut n) = (0, 0, 0, 0);
+        let mut pic = std::collections::HashSet::new();
+        for (x, y, px) in img.enumerate_pixels() {
+            if outside(x, y) {
+                n += 1;
+                if near(px, rgb(cols[0])) {
+                    a += 1;
+                } else if near(px, rgb(cols[1])) {
+                    b += 1;
+                } else {
+                    other += 1;
+                }
+            } else if inside(x, y) {
+                pic.insert([px[0], px[1], px[2]]);
+            }
+        }
+        (a as f32 / n as f32, b as f32 / n as f32, other, pic)
+    };
+
+    let pilot = shot(0.05, &mut r, "pilot");
+    let (red, cyan, other, pic) = survey(&pilot, [0xff0000, 0x00ffff]);
+    eprintln!("pilot: red {red:.2}, cyan {cyan:.2}, other {other}, picture colours {pic:?}");
+    assert!(red > 0.2 && cyan > 0.2 && other == 0, "pilot stripes");
+    assert!(
+        pic.iter().all(|c| c.iter().all(|v| *v <= 3)),
+        "the picture isn't black during the pilot"
+    );
+
+    let data = shot(0.5, &mut r, "data");
+    let (blue, yellow, other, pic) = survey(&data, [0x0000ff, 0xffff00]);
+    eprintln!(
+        "data: blue {blue:.2}, yellow {yellow:.2}, other {other}, picture colours {}",
+        pic.len()
+    );
+    assert!(blue > 0.2 && yellow > 0.2 && other == 0, "data stripes");
+    assert!(
+        pic.iter()
+            .all(|c| c.iter().all(|v| *v <= 3) || c.iter().all(|v| *v >= 252)),
+        "the picture isn't black and white while its lines load"
+    );
+    assert!(pic.len() == 2, "no lines have arrived yet, or all have");
+
+    let done = shot(0.95, &mut r, "done");
+    let (border, _, other, pic) = survey(&done, [0x0000ff, 0x0000fe]);
+    eprintln!(
+        "done: border {border:.2}, other {other}, picture colours {}",
+        pic.len()
+    );
+    assert!(border > 0.99, "the border isn't its colour once loaded");
+    assert!(pic.len() > 2, "the finished picture has no colours");
+
+    let a = shot(0.0, &mut r, "first");
+    let b = r.render_image(&p, &EvalCtx::new(&p.timing, 1.0, None), &target);
+    assert!(
+        mean_abs_diff(a.as_raw(), b.as_raw()) < 0.01,
+        "the load doesn't loop"
+    );
+
+    // Letterbox: black bars above and below.
+    let mut q = presets::empty();
+    q.post.grade.vignette = Param::new(0.0);
+    q.post.grade.grain = Param::new(0.0);
+    q.retro.enabled = true;
+    q.retro.screen = ConsoleScreen {
+        enabled: true,
+        size: [320, 136],
+        frame: ScreenFrame::Fill,
+        inset: [0.0, 0.12],
+        ..Default::default()
+    };
+    let img = r.render_image(&q, &EvalCtx::new(&q.timing, 0.3, None), &target);
+    img.save(dir.join("letterbox.png")).unwrap();
+    let bar = (h as f32 * 0.12) as u32 - 1;
+    let black_bars = (0..w).all(|x| {
+        (0..bar)
+            .chain(h - bar..h)
+            .all(|y| near(img.get_pixel(x, y), [0, 0, 0]))
+    });
+    let lit_middle = (0..w).any(|x| !near(img.get_pixel(x, h / 2), [0, 0, 0]));
+    assert!(black_bars && lit_middle, "letterbox bars");
+}
+
+/// Translucency lets the sun behind a shape shine through it; transparency
+/// shows what is behind; library textures load by name.
+#[test]
+fn translucency_transparency_and_library_textures() {
+    use ez_core::*;
+    let gpu = gpu_or_skip!();
+    let dir = snapshot_dir();
+    let ball = |mat: Material, z: f32, size: f32| {
+        let mut l = Layer::new(
+            "Ball",
+            LayerKind::Mesh(MeshLayer {
+                source: MeshSource::Primitive(Primitive::Sphere { detail: 4 }),
+                material: mat,
+                ..Default::default()
+            }),
+        );
+        l.transform.position = [0.0, 0.0, z];
+        l.transform.scale = Param::new(size);
+        l
+    };
+    let white = || Material {
+        base_color: [0.8; 3],
+        rim: Param::new(0.0),
+        ..Default::default()
+    };
+    let scene = |front: Material| {
+        let mut p = Project::default();
+        p.layers.clear();
+        p.camera = Camera {
+            mode: CameraMode::Static,
+            target: [0.0, 0.0, 0.0],
+            distance: Param::new(5.0),
+            height: Param::new(0.0),
+            fov: Param::new(40.0),
+            ..Default::default()
+        };
+        // The sun straight behind the shapes (shining towards the camera).
+        p.environment.light_dir = [0.0, 0.2, -1.0];
+        p.environment.ambient = Param::new(0.1);
+        p.environment.fog_density = Param::new(0.0);
+        p.layers.push(ball(
+            Material {
+                base_color: [1.0, 0.0, 0.0],
+                emissive_color: [1.0, 0.0, 0.0],
+                emissive: Param::new(1.0),
+                ..white()
+            },
+            -4.0,
+            2.5,
+        ));
+        p.layers.push(ball(front, 0.0, 1.0));
+        p
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let (w, h) = (128u32, 128u32);
+    let target = r.create_target(w, h);
+    let ctx = EvalCtx::at(0.0);
+    let centre = |img: &image::RgbaImage| {
+        let p = img.get_pixel(w / 2, h / 2);
+        [p[0] as f32, p[1] as f32, p[2] as f32]
+    };
+
+    let solid = r.render_image(&scene(white()), &ctx, &target);
+    let mut glow = white();
+    glow.translucency.amount = Param::new(1.0);
+    let lit = r.render_image(&scene(glow), &ctx, &target);
+    let mut clear = white();
+    clear.translucency.transparency = Param::new(0.7);
+    let seen = r.render_image(&scene(clear), &ctx, &target);
+    assert!(r.errors.is_empty(), "{:?}", r.errors);
+    solid.save(dir.join("translucency_off.png")).unwrap();
+    lit.save(dir.join("translucency_on.png")).unwrap();
+    seen.save(dir.join("transparency.png")).unwrap();
+    let (s, l, c) = (centre(&solid), centre(&lit), centre(&seen));
+    eprintln!("solid {s:?}, translucent {l:?}, see-through {c:?}");
+    let sum = |c: [f32; 3]| c[0] + c[1] + c[2];
+    assert!(
+        sum(l) > sum(s) + 30.0,
+        "the sun shines through: {s:?} -> {l:?}"
+    );
+    assert!(
+        c[0] - c[1] > s[0] - s[1] + 40.0,
+        "the red ball behind shows through: {s:?} -> {c:?}"
+    );
+
+    // A PBR material and a low-res texture from the library.
+    let lib = ez_core::texlib::library().expect("texture library");
+    for kind in [texlib::Kind::Pbr, texlib::Kind::Tile] {
+        let e = lib.entries.iter().find(|e| e.kind == kind).unwrap();
+        let mut m = white();
+        m.texture = Some(texlib::color_name(&e.id));
+        if kind == texlib::Kind::Pbr {
+            m.relief.texture = Some(texlib::normal_name(&e.id));
+            m.relief.mode = ReliefMode::NormalMap;
+            m.relief.bump = Param::new(1.0);
+            m.pbr.orm_map = Some(texlib::orm_name(&e.id));
+        }
+        let img = r.render_image(&scene(m), &ctx, &target);
+        assert!(r.errors.is_empty(), "{}: {:?}", e.id, r.errors);
+        assert_ne!(centre(&img), s, "{} changes the ball", e.id);
+    }
+}
+
+/// An animation (a frame sheet from a GIF or video) plays by itself on a
+/// shape and as a sprite sheet in an image layer, and loops.
+#[test]
+fn animated_pictures_play() {
+    use ez_core::*;
+    let gpu = gpu_or_skip!();
+    let colours = [[255u8, 0, 0], [0, 255, 0], [0, 0, 255], [255, 255, 0]];
+    let frames = ez_render::clip::Frames {
+        images: colours
+            .iter()
+            .map(|c| image::RgbaImage::from_pixel(16, 16, image::Rgba([c[0], c[1], c[2], 255])))
+            .collect(),
+        seconds: 1.0,
+    };
+    let (sheet, clip) = ez_render::clip::build_sheet(frames).unwrap();
+    let dir = snapshot_dir();
+    let path = dir.join("clip_sheet.png");
+    sheet.save(&path).unwrap();
+
+    let mut p = Project::default();
+    p.layers.clear();
+    p.timing.bpm = 120.0;
+    p.timing.loop_beats = 8; // 4 s: the 1 s clip plays 4 times.
+    p.camera = Camera {
+        mode: CameraMode::Static,
+        target: [0.0, 0.0, 0.0],
+        distance: Param::new(4.0),
+        height: Param::new(0.0),
+        fov: Param::new(40.0),
+        ..Default::default()
+    };
+    p.environment.fog_density = Param::new(0.0);
+    p.textures.push(UserTexture {
+        name: "clip".into(),
+        path: path.to_string_lossy().to_string(),
+        clip: Some(clip.clone()),
+        ..Default::default()
+    });
+    let mut cube = Layer::new(
+        "Cube",
+        LayerKind::Mesh(MeshLayer {
+            source: MeshSource::Primitive(Primitive::Cube),
+            material: Material {
+                base_color: [1.0; 3],
+                texture: Some("clip".into()),
+                emissive: Param::new(1.0),
+                emissive_color: [1.0; 3],
+                emissive_mode: EmissiveMode::Texture,
+                rim: Param::new(0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        }),
+    );
+    cube.transform.position = [-0.8, 0.0, 0.0];
+    cube.transform.scale = Param::new(0.5);
+    p.layers.push(cube);
+    let mut sprite = Layer::new(
+        "Clip",
+        LayerKind::Sprite(SpriteLayer {
+            image: Some("clip".into()),
+            facing: SpriteFacing::Camera,
+            blend: SpriteBlend::Cutout,
+            size: Param::new(0.8),
+            ..Default::default()
+        }),
+    );
+    if let LayerKind::Sprite(sp) = &mut sprite.kind {
+        sp.columns = clip.columns;
+        sp.rows = clip.rows;
+        sp.frames = clip.frames;
+        sp.cycles = clip.cycles_per_loop(p.timing.loop_seconds());
+        assert_eq!(sp.cycles, 4);
+    }
+    sprite.transform.position = [0.8, 0.0, 0.0];
+    p.layers.push(sprite);
+
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let (w, h) = (160u32, 90u32);
+    let target = r.create_target(w, h);
+    let at = |phase: f32| EvalCtx::new(&p.timing, phase, None);
+    let shot = |r: &mut Renderer, phase: f32| {
+        let img = r.render_image(&p, &at(phase), &target);
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+        let px = |x: u32| {
+            let c = img.get_pixel(x, h / 2);
+            // The strongest channel: 0 red, 1 green, 2 blue.
+            (0..3).max_by_key(|&i| c[i]).unwrap()
+        };
+        (px(w * 3 / 10), px(w * 7 / 10), img)
+    };
+    // Frame k of 4 plays over [k/16, (k+1)/16) of the loop.
+    let (cube0, sprite0, img0) = shot(&mut r, 0.02);
+    let (cube1, sprite1, img1) = shot(&mut r, 0.02 + 1.0 / 16.0);
+    let (cube_end, sprite_end, _) = shot(&mut r, 1.02);
+    img0.save(dir.join("clip_0.png")).unwrap();
+    img1.save(dir.join("clip_1.png")).unwrap();
+    assert_eq!((cube0, sprite0), (0, 0), "first frame red");
+    assert_eq!((cube1, sprite1), (1, 1), "second frame green");
+    assert_eq!((cube_end, sprite_end), (cube0, sprite0), "it loops");
+}
+
+/// The OpenGL backend (what the desktop app falls back to, and the same
+/// GLSL as WebGL2): the renderer starts (the retro upscale once failed to
+/// compile there) and patterns wrapped over negative cells loop (signed
+/// `%` is undefined in GLSL). Skipped where there is no OpenGL.
+#[test]
+fn opengl_backend_starts_and_loops() {
+    use ez_core::*;
+    let gpu = match Gpu::headless_on(wgpu::Backends::GL) {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("skipping OpenGL test: {e:#}");
+            return;
+        }
+    };
+    eprintln!("adapter: {}", gpu.adapter_name());
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let target = r.create_target(160, 90);
+    for mut p in [
+        presets::named("Lava World"),
+        presets::named("PSX Crypt"),
+        presets::named("Rainbow Falls"),
+    ] {
+        // Film grain changes every frame on purpose.
+        p.post.grade.grain = Param::new(0.0);
+        let at = |phase: f32| EvalCtx::new(&p.timing, phase, None);
+        let mut step = |phase: f32| {
+            let before = r.render_image(&p, &at(phase - 2e-5), &target);
+            let after = r.render_image(&p, &at(phase), &target);
+            mean_abs_diff(before.as_raw(), after.as_raw())
+        };
+        let baseline = step(0.3);
+        let seam = step(1.0);
+        eprintln!(
+            "{:<20} loop point {seam:.3} (elsewhere {baseline:.3})",
+            p.name
+        );
+        assert!(
+            seam < baseline + 0.6,
+            "{} jumps at the loop point: {seam}",
+            p.name
+        );
+    }
+    assert!(r.errors.is_empty(), "{:?}", r.errors);
+}
+
+/// Numbers in text: a logo and a text layer counting up with a one-shot
+/// ramp change on screen while the count runs, then hold.
+#[test]
+fn text_numbers_count_and_hold() {
+    use ez_core::*;
+    let gpu = gpu_or_skip!();
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let target = r.create_target(320, 180);
+    let mut plain = presets::empty();
+    plain.post.grade.grain = Param::new(0.0);
+    plain
+        .layers
+        .retain(|l| matches!(l.kind, LayerKind::Backdrop(_)));
+    // A still camera: only the number may change.
+    plain.camera.mode = CameraMode::Static;
+    let mut count = Param::new(0.0);
+    count.ramp = Ramp {
+        start: 0.0,
+        length: 8.0,
+        by: 987650.0,
+        ease: Ease::Linear,
+    };
+    let value = TextValue {
+        value: count,
+        group: true,
+        ..Default::default()
+    };
+    let at = |p: &Project, phase: f32| EvalCtx::new(&p.timing, phase, None);
+    let mut logo = plain.clone();
+    logo.layers.push(Layer::new(
+        "Score",
+        LayerKind::Logo(LogoLayer {
+            text: "SCORE {0}".into(),
+            values: vec![value.clone()],
+            ..Default::default()
+        }),
+    ));
+    let mut text = plain.clone();
+    text.layers.push(Layer::new(
+        "Score",
+        LayerKind::Text(TextLayer {
+            text: "{0}".into(),
+            values: vec![value],
+            size: 1.2,
+            ..Default::default()
+        }),
+    ));
+    for (name, p) in [("logo", &logo), ("text", &text)] {
+        // 16 beats a loop: the count runs over the first half.
+        let early = r.render_image(p, &at(p, 0.1), &target);
+        let later = r.render_image(p, &at(p, 0.3), &target);
+        let done = r.render_image(p, &at(p, 0.6), &target);
+        let still = r.render_image(p, &at(p, 0.9), &target);
+        later
+            .save(snapshot_dir().join(format!("count_{name}.png")))
+            .unwrap();
+        let counting = mean_abs_diff(early.as_raw(), later.as_raw());
+        let held = mean_abs_diff(done.as_raw(), still.as_raw());
+        eprintln!("{name}: counting {counting:.3}, held {held:.4}");
+        assert!(counting > 0.05, "{name}: the number doesn't change");
+        assert!(held < 0.01, "{name}: the number doesn't hold");
+    }
+    // A live logo bakes each number once: many frames of counting keep
+    // working (and are dropped from the cache as they go by).
+    for i in 0..60 {
+        let img = r.render_image(&logo, &at(&logo, i as f32 / 120.0), &target);
+        assert!(lum(&img) > 0.0);
+    }
+}
+
+/// A logo attached to a 3D layer sits against where that layer shows and
+/// follows it as the camera orbits; behind the camera it disappears.
+#[test]
+fn logos_follow_3d_layers() {
+    use ez_core::*;
+    let gpu = gpu_or_skip!();
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let (w, h) = (320.0, 180.0);
+    let mut p = presets::empty();
+    p.post.grade.grain = Param::new(0.0);
+    let cube = p.layers.iter().position(|l| l.name == "Cube").unwrap();
+    p.layers[cube].transform.position = [2.0, 1.0, 0.0];
+    p.layers.push(Layer::new(
+        "Label",
+        LayerKind::Logo(LogoLayer {
+            text: "CUBE".into(),
+            size: Param::new(0.08),
+            attach_to: "Cube".into(),
+            attach_point: LogoAnchor::Top,
+            anchor: LogoAnchor::Bottom,
+            x: Param::new(0.0),
+            y: Param::new(0.01),
+            ..Default::default()
+        }),
+    ));
+    let label = p.layers.len() - 1;
+    let mut xs = Vec::new();
+    for phase in [0.1f32, 0.35] {
+        let ctx = EvalCtx::new(&p.timing, phase, None);
+        let b = p.locate_layer("Cube", &ctx, w / h).unwrap();
+        let rect = r.logo_rects(&p, &ctx, [w, h])[label].unwrap();
+        let top_mid = b.point([0.5, 1.0]);
+        let bottom_mid = [(rect[0] + rect[2]) / 2.0, rect[1]];
+        eprintln!("phase {phase}: cube top {top_mid:?}, label bottom {bottom_mid:?}");
+        assert!((bottom_mid[0] - top_mid[0]).abs() < 1e-3);
+        assert!((bottom_mid[1] - (top_mid[1] + 0.01)).abs() < 1e-3);
+        xs.push(bottom_mid[0]);
+    }
+    assert!(
+        (xs[0] - xs[1]).abs() > 0.02,
+        "the label doesn't follow: {xs:?}"
+    );
+    // Move the cube behind the camera: the label goes with it.
+    let ctx = EvalCtx::new(&p.timing, 0.0, None);
+    let cam = p.camera.eval(&ctx);
+    let behind = cam.eye + (cam.eye - cam.target).normalize() * 6.0;
+    p.layers[cube].transform.position = behind.into();
+    p.layers[cube].transform.scale = Param::new(0.5);
+    assert!(p.locate_layer("Cube", &ctx, w / h).is_none());
+    assert!(r.logo_rects(&p, &ctx, [w, h])[label].is_none());
+    // It renders.
+    let target = r.create_target(320, 180);
+    let img = r.render_image(&p, &EvalCtx::new(&p.timing, 0.1, None), &target);
+    assert!(lum(&img) > 0.0);
 }

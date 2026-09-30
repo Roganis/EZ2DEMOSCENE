@@ -320,7 +320,7 @@ mod tests {
             return;
         };
         let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
-        let mut p = presets::orbiting_solid();
+        let mut p = presets::named("Orbiting Solid");
         p.timing.bpm = 240.0;
         p.timing.loop_beats = 2; // 0.5 s -> 6 frames at 12 fps
 
@@ -364,7 +364,7 @@ mod tests {
             eprintln!("no GPU, skipping");
             return;
         };
-        let mut p = presets::starling_dusk();
+        let mut p = presets::named("Starling Dusk");
         p.timing.bpm = 240.0;
         p.timing.loop_beats = 2; // 0.5 s -> 6 frames at 12 fps
         p.post.grade.grain = ez_core::Param::new(0.0);
@@ -420,7 +420,7 @@ mod tests {
             return;
         };
         let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
-        let mut p = presets::orbiting_solid();
+        let mut p = presets::named("Orbiting Solid");
         p.timing.bpm = 240.0;
         p.timing.loop_beats = 2;
         p.post.grade.grain = ez_core::Param::new(0.0);
@@ -467,7 +467,7 @@ mod tests {
             return;
         };
         let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
-        let mut p = presets::orbiting_solid();
+        let mut p = presets::named("Orbiting Solid");
         p.timing.bpm = 240.0;
         p.timing.loop_beats = 2;
         p.post.grade.grain = ez_core::Param::new(0.0);

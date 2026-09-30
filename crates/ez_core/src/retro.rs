@@ -6,44 +6,29 @@
 //! geometry is, and the low resolution only changes how finely it is drawn.
 
 use crate::param::Param;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-/// The resolution the 3D scene is drawn at before being blown up with
-/// chunky, unsmoothed pixels.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum RetroRes {
-    /// The output's own resolution (no chunky pixels).
-    #[default]
-    Full,
-    /// 256 × 224: SNES, Saturn and many PS1 games.
-    R256x224,
-    /// 320 × 240: most PS1 and N64 games.
-    R320x240,
-    /// 640 × 480: PS1 and N64 high-resolution modes.
-    R640x480,
-    /// Your own size (see [`Retro3d::custom`]).
-    Custom,
+labeled_enum! {
+    /// The resolution the 3D scene is drawn at before being blown up with
+    /// chunky, unsmoothed pixels.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+    pub enum RetroRes {
+        /// The output's own resolution (no chunky pixels).
+        #[default]
+        Full => "Full (output size)",
+        /// 256 × 224: SNES, Saturn and many PS1 games.
+        R256x224 => "256 × 224",
+        /// 320 × 240: most PS1 and N64 games.
+        R320x240 => "320 × 240",
+        /// 640 × 480: PS1 and N64 high-resolution modes.
+        R640x480 => "640 × 480",
+        /// Your own size (see [`Retro3d::custom`]).
+        Custom => "Custom",
+    }
 }
 
 impl RetroRes {
-    pub const ALL: [RetroRes; 5] = [
-        RetroRes::Full,
-        RetroRes::R256x224,
-        RetroRes::R320x240,
-        RetroRes::R640x480,
-        RetroRes::Custom,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            RetroRes::Full => "Full (output size)",
-            RetroRes::R256x224 => "256 × 224",
-            RetroRes::R320x240 => "320 × 240",
-            RetroRes::R640x480 => "640 × 480",
-            RetroRes::Custom => "Custom",
-        }
-    }
-
     /// The size on a 4:3 screen, or `None` for full resolution.
     pub fn size(self, custom: [u32; 2]) -> Option<[u32; 2]> {
         match self {
@@ -71,41 +56,23 @@ pub fn fit_to_output(size: [u32; 2], out: (u32, u32)) -> (u32, u32) {
     (w.min(out.0.max(1)), h)
 }
 
-/// One-click looks: each turns on the matching bundle of settings.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RetroStyle {
-    /// Everything off.
-    Modern,
-    /// Wobbly vertices, warped textures, square texture pixels, 15-bit
-    /// dithered colour, chunky pixels at 320 × 240.
-    Ps1,
-    /// Like the PlayStation but steadier warp, 320 × 224 and no dither.
-    Saturn,
-    /// Soft 3-point filtered textures, thick fog close to the camera,
-    /// dithered 15-bit colour smoothed by the video blur.
-    N64,
-    /// Software-rendered Quake: 320 × 200, square texture pixels, light
-    /// stepping through a 256-colour palette with glowing fullbrights.
-    Quake,
-}
-
-impl RetroStyle {
-    pub const ALL: [RetroStyle; 5] = [
-        RetroStyle::Modern,
-        RetroStyle::Ps1,
-        RetroStyle::Saturn,
-        RetroStyle::N64,
-        RetroStyle::Quake,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            RetroStyle::Modern => "Modern (off)",
-            RetroStyle::Ps1 => "PlayStation",
-            RetroStyle::Saturn => "Saturn",
-            RetroStyle::N64 => "Nintendo 64",
-            RetroStyle::Quake => "Quake (software)",
-        }
+labeled_enum! {
+    /// One-click looks: each turns on the matching bundle of settings.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum RetroStyle {
+        /// Everything off.
+        Modern => "Modern (off)",
+        /// Wobbly vertices, warped textures, square texture pixels, 15-bit
+        /// dithered colour, chunky pixels at 320 × 240.
+        Ps1 => "PlayStation",
+        /// Like the PlayStation but steadier warp, 320 × 224 and no dither.
+        Saturn => "Saturn",
+        /// Soft 3-point filtered textures, thick fog close to the camera,
+        /// dithered 15-bit colour smoothed by the video blur.
+        N64 => "Nintendo 64",
+        /// Software-rendered Quake: 320 × 200, square texture pixels, light
+        /// stepping through a 256-colour palette with glowing fullbrights.
+        Quake => "Quake (software)",
     }
 }
 
@@ -113,7 +80,7 @@ impl RetroStyle {
 /// straight line to solid fog at `far` (distances from the camera, in
 /// world units). Replaces the scene's distance fog while on; the fog
 /// colour stays the scene's.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct N64Fog {
     pub enabled: bool,
@@ -134,7 +101,7 @@ impl Default for N64Fog {
 }
 
 /// The quirks of 5th-generation 3D, for the whole scene.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Retro3d {
     pub enabled: bool,
@@ -177,6 +144,9 @@ pub struct Retro3d {
     pub near_cull: Param,
     /// Lighting that steps through a palette's colours (Quake).
     pub colormap: Colormap,
+    /// The whole picture (text, logos and effects too) at an 8- or 16-bit
+    /// machine's resolution, pixels as wide as they were.
+    pub screen: ConsoleScreen,
 }
 
 impl Default for Retro3d {
@@ -197,6 +167,7 @@ impl Default for Retro3d {
             vi_blur: Param::new(0.0),
             near_cull: Param::new(0.0),
             colormap: Colormap::default(),
+            screen: ConsoleScreen::default(),
         }
     }
 }
@@ -297,45 +268,297 @@ impl Retro3d {
                 || self.color_15bit
                 || on(&self.vi_blur)
                 || on(&self.near_cull)
-                || self.colormap.enabled)
+                || self.colormap.enabled
+                || self.screen.enabled)
     }
 }
 
-/// How a texture is smoothed between its pixels.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum TexFilter {
-    /// Smooth, with smaller copies further away (modern).
-    #[default]
-    Smooth,
-    /// Square pixels (PlayStation, Saturn, Quake).
-    Nearest,
-    /// Blended between the four nearest pixels, without smaller copies
-    /// (so it shimmers in the distance).
-    Bilinear,
-    /// The Nintendo 64's cheaper blend of three pixels: soft, with a
-    /// faint diagonal grain.
-    ThreePoint,
+labeled_enum! {
+    /// How a texture is smoothed between its pixels.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+    pub enum TexFilter {
+        /// Smooth, with smaller copies further away (modern).
+        #[default]
+        Smooth => "Smooth",
+        /// Square pixels (PlayStation, Saturn, Quake).
+        Nearest => "Nearest (PS1)",
+        /// Blended between the four nearest pixels, without smaller copies
+        /// (so it shimmers in the distance).
+        Bilinear => "Bilinear, no mipmaps",
+        /// The Nintendo 64's cheaper blend of three pixels: soft, with a
+        /// faint diagonal grain.
+        ThreePoint => "3-point (N64)",
+    }
 }
 
 impl TexFilter {
-    pub const ALL: [TexFilter; 4] = [
-        TexFilter::Smooth,
-        TexFilter::Nearest,
-        TexFilter::Bilinear,
-        TexFilter::ThreePoint,
-    ];
+    pub fn index(self) -> u32 {
+        TexFilter::ALL.iter().position(|f| *f == self).unwrap_or(0) as u32
+    }
+}
 
-    pub fn label(self) -> &'static str {
+// ---------------------------------------------------------------------------
+// The whole screen at an old machine's resolution
+
+labeled_enum! {
+    /// How the console's picture sits on the output.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+    pub enum ScreenFrame {
+        /// Stretched over the whole output (pixels as wide as that makes them).
+        Fill => "Fill the output",
+        /// On a 4:3 television, with the border colour at the sides: pixels
+        /// as wide as they were (a C64's 160 × 200 pixels are twice as wide
+        /// as tall).
+        #[default]
+        Tv => "4:3 television",
+        /// Square pixels (handhelds: the Game Boy's 160 × 144 screen).
+        SquarePixels => "Square pixels",
+    }
+}
+
+/// The whole picture at an old machine's resolution: sampled once per
+/// console pixel (after everything else is drawn), so pixels can be wider
+/// than tall, inside an optional border.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(default)]
+pub struct ConsoleScreen {
+    pub enabled: bool,
+    /// Pixels across and down.
+    pub size: [u32; 2],
+    pub frame: ScreenFrame,
+    /// Colour around the picture.
+    pub border: crate::color::Rgb,
+    /// Border inside the frame on each side, as a share of its width and
+    /// height (0 = the picture fills the frame). Spectrum: a wide border
+    /// all round; top and bottom only: a letterbox.
+    #[serde(skip_serializing_if = "is_zero2")]
+    pub inset: [f32; 2],
+    /// Stripes in the border while a tape loads (ZX Spectrum).
+    #[serde(skip_serializing_if = "is_default")]
+    pub stripes: BorderStripes,
+}
+
+fn is_zero2(v: &[f32; 2]) -> bool {
+    *v == [0.0, 0.0]
+}
+
+fn is_default<T: Default + PartialEq>(v: &T) -> bool {
+    *v == T::default()
+}
+
+impl Default for ConsoleScreen {
+    fn default() -> Self {
+        ConsoleScreen {
+            enabled: false,
+            size: [320, 200],
+            frame: ScreenFrame::Tv,
+            border: [0.0; 3],
+            inset: [0.0, 0.0],
+            stripes: BorderStripes::default(),
+        }
+    }
+}
+
+labeled_enum! {
+    /// What the border shows while a tape loads.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+    pub enum StripeMode {
+        #[default]
+        Off => "Off",
+        /// The pilot tone: broad red and cyan bands rolling.
+        Pilot => "Pilot tone (red / cyan)",
+        /// Data: thin, jittering blue and yellow bands.
+        Data => "Data (blue / yellow)",
+        /// The whole load over the loop: pilot, then the picture's lines
+        /// arriving in the Spectrum's memory order in black and white, then its
+        /// colours by character rows, then a moment finished.
+        Loading => "Loading screen (whole load)",
+    }
+}
+
+/// Border stripes of a loading tape (ZX Spectrum style).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(default)]
+pub struct BorderStripes {
+    pub mode: StripeMode,
+    /// Pilot bands down the frame.
+    pub bands: f32,
+    /// Pairs of pilot bands rolling past per loop (a whole number).
+    pub speed: u32,
+}
+
+impl Default for BorderStripes {
+    fn default() -> Self {
+        BorderStripes {
+            mode: StripeMode::Off,
+            bands: 14.0,
+            speed: 24,
+        }
+    }
+}
+
+/// The border stripes and the picture's loading at one moment.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StripeState {
+    /// 0 none, 1 pilot, 2 data.
+    pub mode: u32,
+    /// Bands down the frame.
+    pub bands: f32,
+    /// How far the pilot bands have rolled (bands; whole pairs per loop).
+    pub offset: f32,
+    /// Changes a whole number of times per loop: the data bands' pattern.
+    pub seed: u32,
+    /// The picture's loading: 0 shown in full; 0.5 black (pilot); 1..2 its
+    /// lines arriving (black and white); 2..3 its colours arriving.
+    pub reveal: f32,
+}
+
+/// Where a whole load is at `phase`: pilot, bitmap, colours, finished.
+const LOAD_PILOT: f32 = 0.12;
+const LOAD_BITMAP: f32 = 0.8;
+const LOAD_COLOURS: f32 = 0.92;
+
+impl BorderStripes {
+    pub fn at(&self, phase: f32, loop_beats: u32) -> StripeState {
+        let p = phase.rem_euclid(1.0);
+        let steps = (loop_beats.max(1) * 12) as f32;
+        let mut st = StripeState {
+            mode: 0,
+            bands: self.bands.max(1.0),
+            offset: (p * 2.0 * self.speed as f32).rem_euclid(2.0),
+            seed: (p * steps).floor() as u32,
+            reveal: 0.0,
+        };
+        match self.mode {
+            StripeMode::Off => {}
+            StripeMode::Pilot => st.mode = 1,
+            StripeMode::Data => st.mode = 2,
+            StripeMode::Loading => {
+                if p < LOAD_PILOT {
+                    st.mode = 1;
+                    st.reveal = 0.5;
+                } else if p < LOAD_BITMAP {
+                    st.mode = 2;
+                    st.reveal = 1.0 + (p - LOAD_PILOT) / (LOAD_BITMAP - LOAD_PILOT);
+                } else if p < LOAD_COLOURS {
+                    st.mode = 2;
+                    st.reveal = 2.0 + (p - LOAD_BITMAP) / (LOAD_COLOURS - LOAD_BITMAP);
+                }
+            }
+        }
+        st
+    }
+}
+
+impl ConsoleScreen {
+    /// The picture's rectangle on an output of `out` pixels, in 0..1 of
+    /// the output (left, top, width, height).
+    pub fn rect(&self, out: (u32, u32)) -> [f32; 4] {
+        let f = self.frame_rect(out);
+        let ix = self.inset[0].clamp(0.0, 0.45);
+        let iy = self.inset[1].clamp(0.0, 0.45);
+        [
+            f[0] + f[2] * ix,
+            f[1] + f[3] * iy,
+            f[2] * (1.0 - 2.0 * ix),
+            f[3] * (1.0 - 2.0 * iy),
+        ]
+    }
+
+    /// The whole frame (picture and border) on the output, as `rect`.
+    pub fn frame_rect(&self, out: (u32, u32)) -> [f32; 4] {
+        let a = out.0.max(1) as f32 / out.1.max(1) as f32;
+        let ix = self.inset[0].clamp(0.0, 0.45);
+        let iy = self.inset[1].clamp(0.0, 0.45);
+        let d = match self.frame {
+            ScreenFrame::Fill => a,
+            ScreenFrame::Tv => 4.0 / 3.0,
+            // Square pixels in the picture: the frame grows round it.
+            ScreenFrame::SquarePixels => {
+                self.size[0].max(1) as f32 / self.size[1].max(1) as f32 * (1.0 - 2.0 * iy)
+                    / (1.0 - 2.0 * ix)
+            }
+        };
+        if d < a {
+            let w = d / a;
+            [(1.0 - w) * 0.5, 0.0, w, 1.0]
+        } else {
+            let h = a / d;
+            [0.0, (1.0 - h) * 0.5, 1.0, h]
+        }
+    }
+}
+
+labeled_enum! {
+    /// Old machines' screens, with their palettes.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum ScreenPreset {
+        C64Multicolour => "C64 multicolour 160×200",
+        C64Hires => "C64 hi-res 320×200",
+        ZxSpectrum => "ZX Spectrum 256×192",
+        AmstradMode0 => "Amstrad CPC mode 0 160×200",
+        Cga => "PC CGA 320×200",
+        MsDosVga => "MS-DOS VGA 320×200",
+        AmigaLores => "Amiga lo-res 320×256",
+        Nes => "NES 256×240",
+        MasterSystem => "Master System 256×192",
+        MegaDrive => "Mega Drive 320×224",
+        GameBoy => "Game Boy 160×144",
+        VirtualBoy => "Virtual Boy 384×224",
+        Macintosh => "Macintosh 512×342",
+    }
+}
+
+impl ScreenPreset {
+    /// Border inside the frame (share of width, height per side): the
+    /// machines whose picture sat inside a wide border.
+    pub fn inset(self) -> [f32; 2] {
         match self {
-            TexFilter::Smooth => "Smooth",
-            TexFilter::Nearest => "Nearest (PS1)",
-            TexFilter::Bilinear => "Bilinear, no mipmaps",
-            TexFilter::ThreePoint => "3-point (N64)",
+            // 256 × 192 inside a 352 × 296 display.
+            ScreenPreset::ZxSpectrum => [0.136, 0.176],
+            // 320 × 200 inside roughly 384 × 272.
+            ScreenPreset::C64Multicolour | ScreenPreset::C64Hires => [0.083, 0.132],
+            ScreenPreset::AmstradMode0 => [0.083, 0.132],
+            _ => [0.0, 0.0],
         }
     }
 
-    pub fn index(self) -> u32 {
-        TexFilter::ALL.iter().position(|f| *f == self).unwrap_or(0) as u32
+    /// Size, frame, border (sRGB) and palette.
+    pub fn spec(self) -> ([u32; 2], ScreenFrame, u32, crate::palette::PaletteId) {
+        use crate::palette::PaletteId as P;
+        use ScreenFrame::*;
+        match self {
+            ScreenPreset::C64Multicolour => ([160, 200], Tv, 0x6c5eb5, P::C64),
+            ScreenPreset::C64Hires => ([320, 200], Tv, 0x6c5eb5, P::C64),
+            ScreenPreset::ZxSpectrum => ([256, 192], Tv, 0x0000ff, P::Spectrum),
+            ScreenPreset::AmstradMode0 => ([160, 200], Tv, 0x000080, P::AmstradCpc),
+            ScreenPreset::Cga => ([320, 200], Tv, 0x000000, P::Cga),
+            ScreenPreset::MsDosVga => ([320, 200], Tv, 0x000000, P::Vga),
+            ScreenPreset::AmigaLores => ([320, 256], Tv, 0x000000, P::Amiga),
+            ScreenPreset::Nes => ([256, 240], Tv, 0x000000, P::Nes),
+            ScreenPreset::MasterSystem => ([256, 192], Tv, 0x000000, P::MasterSystem),
+            ScreenPreset::MegaDrive => ([320, 224], Tv, 0x000000, P::MegaDrive),
+            ScreenPreset::GameBoy => ([160, 144], SquarePixels, 0x8bac0f, P::GameBoy),
+            ScreenPreset::VirtualBoy => ([384, 224], SquarePixels, 0x000000, P::VirtualBoy),
+            ScreenPreset::Macintosh => ([512, 342], SquarePixels, 0x000000, P::OneBit),
+        }
+    }
+
+    /// Turn the screen and its palette on (the palette reduction post
+    /// effect, dithered).
+    pub fn apply(self, retro: &mut Retro3d, palette: &mut crate::scene::PaletteFx) {
+        let (size, frame, border, pal) = self.spec();
+        retro.enabled = true;
+        retro.screen = ConsoleScreen {
+            enabled: true,
+            size,
+            frame,
+            border: crate::color::hex(border),
+            inset: self.inset(),
+            stripes: BorderStripes::default(),
+        };
+        palette.enabled = true;
+        palette.palette = pal;
     }
 }
 
@@ -346,7 +569,7 @@ impl TexFilter {
 /// styles work: 'a' is dark, 'm' normal and 'z' about twice as bright;
 /// one letter after the other, the whole string `plays` times per loop
 /// (a whole number, so the loop stays seamless).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct LightStyle {
     /// Letters a..z; empty = steady.
@@ -405,47 +628,23 @@ impl LightStyle {
     }
 }
 
-/// Ready-made light styles.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LightStylePreset {
-    Steady,
-    Flicker,
-    Candle,
-    Pulse,
-    SlowPulse,
-    Strobe,
-    SlowStrobe,
-    Fluorescent,
-    Torch,
+labeled_enum! {
+    /// Ready-made light styles.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum LightStylePreset {
+        Steady => "Steady",
+        Flicker => "Flicker",
+        Candle => "Candle",
+        Pulse => "Pulse",
+        SlowPulse => "Slow pulse",
+        Strobe => "Strobe",
+        SlowStrobe => "Slow strobe",
+        Fluorescent => "Broken fluorescent",
+        Torch => "Torch",
+    }
 }
 
 impl LightStylePreset {
-    pub const ALL: [LightStylePreset; 9] = [
-        LightStylePreset::Steady,
-        LightStylePreset::Flicker,
-        LightStylePreset::Candle,
-        LightStylePreset::Pulse,
-        LightStylePreset::SlowPulse,
-        LightStylePreset::Strobe,
-        LightStylePreset::SlowStrobe,
-        LightStylePreset::Fluorescent,
-        LightStylePreset::Torch,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            LightStylePreset::Steady => "Steady",
-            LightStylePreset::Flicker => "Flicker",
-            LightStylePreset::Candle => "Candle",
-            LightStylePreset::Pulse => "Pulse",
-            LightStylePreset::SlowPulse => "Slow pulse",
-            LightStylePreset::Strobe => "Strobe",
-            LightStylePreset::SlowStrobe => "Slow strobe",
-            LightStylePreset::Fluorescent => "Broken fluorescent",
-            LightStylePreset::Torch => "Torch",
-        }
-    }
-
     pub fn pattern(self) -> &'static str {
         match self {
             LightStylePreset::Steady => "",
@@ -474,7 +673,7 @@ impl LightStylePreset {
 
 /// Quake's turbulent warp for liquids: each texture coordinate wobbles by
 /// a sine of the other, `cycles` whole times per loop.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Turbulence {
     /// How far the texture wobbles, in tiles (0 = off; animatable).
@@ -502,7 +701,7 @@ impl Turbulence {
 }
 
 /// Which palette the colormap lighting shades through.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 pub enum ColormapPalette {
     /// Our own 256 colours in 16 ramps of 16 shades, the last 32 glowing
     /// (fullbright), in the style of 90s software 3D.
@@ -524,21 +723,10 @@ impl ColormapPalette {
     pub fn colors(self) -> Vec<[u8; 3]> {
         match self {
             ColormapPalette::Software256 => software_palette(),
-            ColormapPalette::Retro(crate::palette::PaletteId::Vga) => {
-                let lv = [0u8, 51, 102, 153, 204, 255];
-                let mut v = Vec::with_capacity(216);
-                for r in lv {
-                    for g in lv {
-                        for b in lv {
-                            v.push([r, g, b]);
-                        }
-                    }
-                }
-                v
-            }
             ColormapPalette::Retro(p) => p
-                .colors()
+                .all_colors()
                 .iter()
+                .take(256)
                 .map(|c| [(c >> 16) as u8, (c >> 8) as u8, *c as u8])
                 .collect(),
         }
@@ -606,7 +794,7 @@ pub fn software_palette() -> Vec<[u8; 3]> {
 
 /// Palette-space lighting ("colormap"): lit colours step through the
 /// palette's own colours, like Quake's software renderer.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Colormap {
     pub enabled: bool,
@@ -789,6 +977,56 @@ mod tests {
             .map(|c| (lit[c] as i32 - pal[40][c] as i32).abs())
             .sum();
         assert!(d < 40, "normal light moves the colour: {d}");
+    }
+
+    #[test]
+    fn screens_keep_their_shape() {
+        let mut s = ConsoleScreen {
+            enabled: true,
+            size: [160, 200],
+            ..Default::default()
+        };
+        // 4:3 on 16:9: pillarboxed to three quarters of the width.
+        let r = s.rect((1920, 1080));
+        assert!((r[2] - 0.75).abs() < 1e-6 && (r[0] - 0.125).abs() < 1e-6 && r[3] == 1.0);
+        // Game Boy: square pixels, 10:9.
+        s.size = [160, 144];
+        s.frame = ScreenFrame::SquarePixels;
+        let r = s.rect((1920, 1080));
+        assert!((r[2] * 1920.0 / 160.0 - 1080.0 / 144.0).abs() < 1e-3);
+        // Taller output than the picture: bars above and below.
+        s.frame = ScreenFrame::Tv;
+        let r = s.rect((1080, 1920));
+        assert!(r[2] == 1.0 && r[3] < 1.0 && r[1] > 0.0);
+        s.frame = ScreenFrame::Fill;
+        assert_eq!(s.rect((1920, 1080)), [0.0, 0.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn borders_and_loading() {
+        let s = ConsoleScreen {
+            enabled: true,
+            size: [256, 192],
+            inset: [0.1, 0.2],
+            ..Default::default()
+        };
+        let (f, r) = (s.frame_rect((1920, 1080)), s.rect((1920, 1080)));
+        assert!((r[3] - f[3] * 0.6).abs() < 1e-6 && (r[1] - (f[1] + f[3] * 0.2)).abs() < 1e-6);
+        // A load: pilot, bitmap, colours, done; the same at both ends.
+        let b = BorderStripes {
+            mode: StripeMode::Loading,
+            ..Default::default()
+        };
+        let (a, z) = (b.at(0.0, 16), b.at(1.0, 16));
+        assert_eq!(
+            (a.mode, a.reveal, a.seed, a.offset),
+            (z.mode, z.reveal, z.seed, z.offset)
+        );
+        assert_eq!(a.mode, 1);
+        assert_eq!(b.at(0.5, 16).mode, 2);
+        assert!((1.0..2.0).contains(&b.at(0.5, 16).reveal));
+        assert!((2.0..3.0).contains(&b.at(0.85, 16).reveal));
+        assert_eq!((b.at(0.95, 16).mode, b.at(0.95, 16).reveal), (0, 0.0));
     }
 
     #[test]

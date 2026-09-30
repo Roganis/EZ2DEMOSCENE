@@ -16,29 +16,23 @@
 use crate::audio::{AudioEnvelope, Curve, HitKind, CURVES, HITS, SPECTRUM_BANDS};
 use crate::clock::Timing;
 use crate::param::Wave;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum MusicMode {
-    /// A loop-length window of the song, played as a seamless loop.
-    #[default]
-    LoopWindow,
-    /// The whole song; exports last as long as the song.
-    FullTrack,
-}
-
-impl MusicMode {
-    pub const ALL: [MusicMode; 2] = [MusicMode::LoopWindow, MusicMode::FullTrack];
-    pub fn label(self) -> &'static str {
-        match self {
-            MusicMode::LoopWindow => "Loop a part of the song",
-            MusicMode::FullTrack => "Whole song",
-        }
+labeled_enum! {
+    /// How the music relates to the loop.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+    pub enum MusicMode {
+        /// A loop-length window of the song, played as a seamless loop.
+        #[default]
+        LoopWindow => "Loop a part of the song",
+        /// The whole song; exports last as long as the song.
+        FullTrack => "Whole song",
     }
 }
 
 /// Something in the music a value can react to.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 pub enum AudioSource {
     Level,
     #[default]
@@ -139,7 +133,7 @@ impl AudioSource {
 }
 
 /// A link from the music to one value.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct MusicMod {
     pub source: AudioSource,
@@ -208,7 +202,7 @@ impl MusicMod {
 }
 
 /// Time warp: motion speeds up (or slows down) with the music.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct TimeWarp {
     pub source: AudioSource,
@@ -227,7 +221,7 @@ impl Default for TimeWarp {
 }
 
 /// Music settings saved with the project.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct MusicSettings {
     pub mode: MusicMode,

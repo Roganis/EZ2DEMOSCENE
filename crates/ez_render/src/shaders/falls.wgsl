@@ -34,7 +34,7 @@ fn f_noise(p: vec2<f32>, py: i32, seed: u32) -> f32 {
     let f = p - i;
     let s = f * f * (3.0 - 2.0 * f);
     let x0 = i32(i.x);
-    let y0 = ((i32(i.y) % py) + py) % py;
+    let y0 = wrap_i(i32(i.y), py);
     let y1 = (y0 + 1) % py;
     let a = hash1(hash_u(u32(x0 + 4096) * 0x8da6b343u) ^ hash_u(u32(y0) * 0xd8163841u) ^ seed);
     let b = hash1(hash_u(u32(x0 + 4097) * 0x8da6b343u) ^ hash_u(u32(y0) * 0xd8163841u) ^ seed);

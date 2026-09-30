@@ -12,8 +12,19 @@ pub struct Gpu {
 impl Gpu {
     /// Create a device without a window. Honours `WGPU_BACKEND` etc.
     pub fn headless() -> Result<Gpu> {
-        let instance =
-            wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+        Self::headless_with(wgpu::InstanceDescriptor::new_without_display_handle_from_env())
+    }
+
+    /// Create a device without a window on one of `backends` only (tests
+    /// of a particular backend, such as OpenGL).
+    pub fn headless_on(backends: wgpu::Backends) -> Result<Gpu> {
+        let mut desc = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
+        desc.backends = backends;
+        Self::headless_with(desc)
+    }
+
+    fn headless_with(desc: wgpu::InstanceDescriptor) -> Result<Gpu> {
+        let instance = wgpu::Instance::new(desc);
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             force_fallback_adapter: false,

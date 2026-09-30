@@ -26,6 +26,23 @@ use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::Arc;
 
+/// Load a scene from a project file, an `.ez2pack` (unpacked to a temporary
+/// folder) or the name of a built-in preset.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn load_scene(scene: &str) -> Result<Project> {
+    let p = Path::new(scene);
+    if p.exists() {
+        if ez_core::assets::is_pack(p) {
+            let dest = std::env::temp_dir().join(format!("ez2-pack-{}", std::process::id()));
+            return ez_core::assets::unpack(p, &dest).with_context(|| format!("unpacking {scene}"));
+        }
+        return Project::load(p).with_context(|| format!("loading {scene}"));
+    }
+    ez_core::presets::find(scene)
+        .map(|pr| pr.project)
+        .with_context(|| format!("'{scene}' is neither a file nor a preset"))
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExportFormat {
     Mp4,
@@ -836,7 +853,7 @@ mod tests {
             eprintln!("no GPU, skipping");
             return;
         }
-        let mut p = presets::orbiting_solid();
+        let mut p = presets::named("Orbiting Solid");
         p.timing.bpm = 240.0;
         p.timing.loop_beats = 2; // 0.5 s
         let cancel = AtomicBool::new(false);
@@ -907,7 +924,7 @@ mod tests {
             .collect();
         let wav = tmp("beat.wav");
         write_wav(&wav, &samples, rate);
-        let mut p = presets::orbiting_solid();
+        let mut p = presets::named("Orbiting Solid");
         p.timing.bpm = 240.0;
         p.timing.loop_beats = 2; // 0.5 s
         p.audio = Some(wav.to_string_lossy().to_string());
@@ -969,7 +986,7 @@ mod tests {
             .collect();
         let path = tmp("job.wav");
         write_wav(&path, &samples, rate);
-        let mut project = presets::orbiting_solid();
+        let mut project = presets::named("Orbiting Solid");
         project.audio = Some(path.to_string_lossy().to_string());
         let whole = load_music(&project).unwrap().unwrap();
 

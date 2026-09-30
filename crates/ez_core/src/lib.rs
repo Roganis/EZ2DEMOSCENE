@@ -6,6 +6,9 @@
 //! of the loop *phase* (0..1) with integer cycle counts, which makes every
 //! scene seamlessly loopable by construction.
 
+#[macro_use]
+mod macros;
+
 pub mod analysis;
 pub mod assets;
 pub mod audio;
@@ -23,19 +26,21 @@ pub mod randomize;
 pub mod retro;
 pub mod rng;
 pub mod scene;
+pub mod screen;
 pub mod sequence;
 pub mod signal;
 pub mod sim;
 pub mod store;
 pub mod terrain;
+pub mod texlib;
 
 pub use audio::AudioEnvelope;
 pub use clock::{EvalCtx, Timing};
 pub use music::{AudioSource, MusicFrame, MusicMod, MusicMode, MusicSettings, TimeWarp};
-pub use param::{Curve, EnvPoint, EnvRef, Envelope, Param, Stamp, Wave, WAVE_GROUPS};
+pub use param::{Curve, Ease, EnvPoint, EnvRef, Envelope, Param, Ramp, Stamp, Wave, WAVE_GROUPS};
 pub use retro::{
-    Colormap, ColormapPalette, LightStyle, LightStylePreset, N64Fog, Retro3d, RetroRes, RetroStyle,
-    TexFilter, Turbulence,
+    BorderStripes, Colormap, ColormapPalette, ConsoleScreen, LightStyle, LightStylePreset, N64Fog,
+    Retro3d, RetroRes, RetroStyle, ScreenFrame, ScreenPreset, StripeMode, TexFilter, Turbulence,
 };
 pub use scene::*;
 

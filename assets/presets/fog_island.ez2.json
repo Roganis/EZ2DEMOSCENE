@@ -360,6 +360,7 @@
       "symmetry": {
         "type": "None"
       },
+      "step_fps": 12.0,
       "kind": {
         "type": "Mesh",
         "source": {
@@ -498,6 +499,19 @@
       "palette": "Software256",
       "levels": 32,
       "fullbrights": true
+    },
+    "screen": {
+      "enabled": false,
+      "size": [
+        320,
+        200
+      ],
+      "frame": "Tv",
+      "border": [
+        0.0,
+        0.0,
+        0.0
+      ]
     }
   }
 }

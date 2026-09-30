@@ -1,0 +1,3 @@
+# Bundled project files are compared byte for byte with what the program
+# writes (LF line endings), so keep them LF on every checkout.
+*.ez2.json text eol=lf

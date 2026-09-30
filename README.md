@@ -62,7 +62,12 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   - Text: still text, scrollers, sine scrollers, typewriters and greetings
     lists, in a crisp pixel font, Mono, Sans or your own TTF/OTF, with
     gradients, glow, outline, drop shadow and chrome (signed-distance
-    atlas). Shapes can also be **3D text**: extruded logos (voxel letters
+    atlas). **Logos can follow 3D layers**: attached to a shape, a logo
+    stays against the area it covers on screen as the camera moves (a
+    label under a gem, a title above the moon). **Numbers in text**: `{0}`, `{1}`… show animatable numbers
+    (padded, with decimals or thousands commas), for timers counting down,
+    scores counting up or a combo following the music; logos too. Shapes
+    can also be **3D text**: extruded logos (voxel letters
     with the pixel font) with every material option.
     **Raymarched shapes** (metaballs, gyroid, fractal bulb, melting box)
     are drawn per pixel inside a box: smooth, depth-correct against
@@ -70,7 +75,11 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   - **Sprites**: billboards, upright or fixed image planes with alpha,
     additive or cutout blending and any copy layout; sprite sheets play a
     whole number of times per loop (built-in explosion, flame, coin and
-    sparkle sheets).
+    sparkle sheets). **Animated GIFs and videos** (MP4, WebM, MOV…) import
+    as animations: image layers play them at their own speed, looped a
+    whole number of times, and as a texture anywhere else they play by
+    themselves (videos: the first 30 s, up to 240 frames; read with ffmpeg
+    on desktop and by the browser on the web).
   - **Copies on the GPU**: every copy layout (grid, ring, scatter, orbit,
     wall, spiral, curve, big swarms of up to 250,000 in orbits, a cloud,
     a shell or a spiral galaxy) is placed with its variation by a compute
@@ -160,7 +169,10 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   split-sum reflections with multiple scattering, so rough metals keep
   their energy), clearcoat, sheen and glass, occlusion/roughness/metal and
   glow maps, and nine one-click presets (gold, copper, chrome, brushed
-  steel, rubber, car paint, glass, velvet, ceramic). glTF models bring
+  steel, rubber, car paint, glass, velvet, ceramic). **Translucency** lets
+  light shine through leaves, paper, wax or skin from behind, in its own
+  colour; **transparency** blends a shape over what is behind it (animate
+  it to fade shapes in and out). glTF models bring
   their own PBR material and pictures (Classic keeps the original fake
   studio reflections). Flat-shaded facets, rim light, and neon glow on
   the whole surface, along
@@ -175,6 +187,13 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   CRT phosphors…). Imported images can be *retro-ized*: downscaled,
   palette-reduced and dithered, and tiled *mirrored* so photos repeat
   without seams.
+- **Texture library.** About 880 seamless CC0 textures picked from tiles
+  with previews: **135 PBR materials** (brick, wood, bark, metal, rock,
+  paving, roofing, fabric, concrete, ground; by Poly Haven) that set a
+  shape's colour, normal map and roughness/metal in one click, and **740
+  low-res textures** (at most 64 × 64: brick, stone, wood, metal, floor
+  tiles, roofs, liquids, patterns, blocks…; by Screaming Brain Studios and
+  Kenney) for the retro look.
 - **Retro 3D (5th-generation consoles).** Draw the whole 3D scene like
   a PlayStation: at **320 × 240, 256 × 224, 640 × 480** or your own size
   with native aliasing and square-pixel upscaling (text and logos can
@@ -199,8 +218,19 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   smooth.
 - **Mode 7 floor.** A SNES / Saturn VDP2 style endless textured plane
   with a hard horizon that turns and scrolls whole turns and tiles per
-  loop (a race-track texture included). A **Retro console** preset group
-  has PlayStation, Saturn, Nintendo 64, Quake and 16-bit scenes.
+  loop (a race-track texture included).
+- **Whole-screen machine resolutions and palettes.** The whole picture at
+  a C64's 160 × 200 double-wide pixels, a Spectrum's 256 × 192, a Game
+  Boy's 160 × 144 and ten more, on a 4:3 TV or with square pixels inside
+  the machine's border colour (wide borders all round, or a letterbox,
+  and ZX Spectrum **tape-loading stripes** with the picture arriving line
+  by line in memory order), with its palette: NES, 1-bit, Virtual Boy
+  red, and the Amstrad, Master System, Mega Drive and Amiga colour cubes
+  join EGA, CGA, C64, Game Boy, PICO-8, Spectrum and VGA.
+- **Presets in five groups**: Consoles & arcade, PC era, Home computers &
+  handhelds, Demoscene and Engine showcases, from the Amiga ball and a
+  C64 cracktro to Star Fox, Space Harrier, Virtua Racing, Quake, Elite,
+  glenz vectors, a rotozoomer and a 1993 demo on a timeline.
 - **Post FX.** Bloom, **god rays** (light shafts from the sun or the
   picture centre) with lens flare, **heat haze**, **depth of field**
   (auto focus, round bokeh), **feedback trails** (zoom/turn/hue-drifting
@@ -217,7 +247,10 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
   beat fades (pulse, exponential and linear fades in/out, swell) or random
   (sample & hold, smooth random, drunken walk). The ♩ menu syncs it to
   every beat, bar or loop, a live graph previews the curve, and it can
-  follow the **music**. Layers can also **shake** on the beat.
+  follow the **music**. Layers can also **shake** on the beat. A
+  **once** ramp changes a value one time and holds it (seven eases, from
+  the start of each timeline clip): menus sliding in, a title dropping,
+  a grade stamping down.
 - **Scenes & timeline.** Several scenes (each with its own layers, camera,
   light and effects) played by a timeline of clips with transitions:
   crossfade, wipe, iris, flash, glitch or a cut on the next kick. The
@@ -336,11 +369,52 @@ Shortcuts: `Space` play/pause · `Ctrl+S` save · `Ctrl+O` open · `Ctrl+E` expo
 ez2demoscene --list-presets
 ez2demoscene --render "Neon Arena" still.png --phase 0.25 --size 1920x1080
 ez2demoscene --export "Gold Kaleido Room" loop.mp4 --size 1920x1080 --fps 60 --repeats 4
-ez2demoscene --export "Orbiting Solid" smooth.mp4 --fps 30 --motion-blur 8   # film-like motion blur
+ez2demoscene --export "Tesla Swarm" smooth.mp4 --fps 30 --motion-blur 8   # film-like motion blur
 ez2demoscene --export my.ez2.json frames/        # PNG sequence
-ez2demoscene --write-presets assets/presets
+ez2demoscene --write-presets my_presets/        # the built-in presets as project files
+ez2demoscene --write-schema ez2.schema.json     # JSON Schema of project files (for editors)
 ez2demoscene --write-textures assets/textures
+ez2demoscene --write-preset-thumbs assets/presets/thumbnails.zip   # after changing a preset
 ```
+
+### AI assistants (MCP)
+
+`ez2demoscene --mcp` runs a [Model Context Protocol](https://modelcontextprotocol.io)
+server on stdin/stdout, so an AI assistant can build scenes with you: it
+reads the presets as examples, writes scene JSON, looks at renders of it and
+exports the loop. Add it to Claude Code with
+
+```sh
+claude mcp add ez2demoscene -- /path/to/ez2demoscene --mcp
+```
+
+or to any MCP client that launches servers as a command (for example
+`"command": "/path/to/ez2demoscene", "args": ["--mcp"]`). It needs a GPU,
+like the editor; video and GIF export need ffmpeg.
+
+| Tool | What it does |
+|---|---|
+| `list_presets` | The built-in presets with their group and description. |
+| `scene_schema` | The scene format from its JSON Schema: an index of every type, or one type's fields, allowed values and defaults. |
+| `get_scene` | A preset, project file or pack as project JSON. |
+| `check_scene` | Validates a scene: errors name the field at fault, and it lists fields that were ignored. |
+| `render_frame` | One frame as a PNG image, at any point of the loop. |
+| `preview_loop` | A contact sheet of frames across the loop, plus a check that the loop point is seamless. |
+| `locate` | Where layers show on screen (in the units logos use), logo rectangles and which overlap, at one moment or over the whole loop; projects world points too. |
+| `save_scene` | Saves an `.ez2.json` project the editor opens (never overwrites unless asked). |
+| `export_loop` | Renders the loop to MP4, WebM, GIF or PNGs. |
+
+Scenes are passed as a preset name, a file path or a whole project object.
+The server speaks protocol revision 2026-07-28 and, through `initialize`,
+the earlier ones back to 2024-11-05.
+
+### Changing a built-in preset
+
+The presets are ordinary project files in `assets/presets/`. Open one in
+the editor, change it and save it back over the file, then refresh its
+gallery picture with `--write-preset-thumbs` (above). A new preset also
+needs a line in the table in `crates/ez_core/src/presets.rs`; the tests
+check that every file is listed and loads.
 
 ## Project layout
 
@@ -348,13 +422,14 @@ ez2demoscene --write-textures assets/textures
 |---|---|
 | `crates/ez_core` | Scene model (serde), loop clock, animatable `Param`s, camera/instancing/symmetry math, presets, randomizer, node graph compiler. No GPU dependencies. |
 | `tools/model_library.py` | Builds `assets/models/library.zip`, the bundled model library, from Kenney's CC0 packs. |
+| `tools/texture_library.py` | Builds `assets/textures/texture_library.zip`, the bundled texture library, from Poly Haven, Screaming Brain Studios and Kenney (CC0). |
 | `crates/ez_render` | wgpu renderer: procedural meshes, glTF/OBJ import, texture generator, WGSL shaders (SDF backdrops, lit instanced meshes, analytic particles, mirror floor, bloom, kaleido, retro post). |
 | `crates/ez_export` | Offline loop rendering to PNG / ffmpeg (MP4, WebM, GIF), plus the audio envelope analysis. |
 | `crates/ez_app` | The egui editor (`ez2demoscene` binary) and the CLI. On wasm it swaps in `library_web.rs` (IndexedDB), `audio_web.rs` (HTML audio) and `export_web.rs` (WebCodecs/GIF/PNG zip). |
-| `web/` | Trunk entry point for the web build: `index.html`, PWA manifest, service worker, the WebCodecs bridge (`ez2_video.js`) and vendored MIT muxers. |
+| `web/` | Trunk entry point for the web build: `index.html`, PWA manifest, service worker, the WebCodecs bridge (`ez2_video.js`), the video frame reader for importing videos (`ez2_clip.js`) and vendored MIT muxers. |
 | `android-app/` | Capacitor wrapper that packages the web build as an Android app. |
-| `assets/presets` | Built-in presets as project files (generated). |
-| `assets/textures` | The built-in retro texture pack as PNGs (generated, CC0). |
+| `assets/presets` | The built-in presets: project files bundled into the program, listed with their gallery group and description in `crates/ez_core/src/presets.rs`. `extra/` holds scenes the tests use that are not in the gallery. |
+| `assets/textures` | The built-in retro texture pack as PNGs (generated, CC0) and the texture library (`texture_library.zip`, CC0; see `TEXTURE_LIBRARY_LICENSE.txt`). |
 
 ### How the loop guarantee works
 
@@ -422,4 +497,5 @@ is enough to run the tests and exports.
 ## License
 
 GPL-3.0-or-later. The generated texture pack in `assets/textures` is released
-under CC0.
+under CC0. The model and texture libraries are CC0 works by Kenney, Poly Haven
+and Screaming Brain Studios (see the licence files next to them).

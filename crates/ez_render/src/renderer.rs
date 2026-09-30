@@ -18,6 +18,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
+use crate::lazy::{lazy, Collect, Lazy, Module, Pipe, WarmList};
+
 pub const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 /// Format of the final image: sRGB-encoded bytes (read back as-is for
@@ -341,6 +343,8 @@ enum Cmd {
         gpu: bool,
         /// Where GPU-placed copies can be (for culling; none = always drawn).
         bounds: Option<(Vec3, f32)>,
+        /// See-through: blended over what is behind, after the solids.
+        clear: bool,
     },
     Particles {
         slot: u32,
@@ -421,14 +425,17 @@ enum Cmd {
     },
 }
 
-/// Place logo `i` (see `Renderer::place_logos`): measured from the screen
-/// or from a point of the logo it is attached to, placed first. A missing
-/// target or a loop of attachments falls back to the screen.
+/// Place logo `i` (see `Renderer::place_logos`): measured from the screen,
+/// from a point of the logo it is attached to (placed first), or from a
+/// point of where the 3D layer it is attached to shows (`boxes`; hidden
+/// while that is behind the camera). A missing target or a loop of
+/// attachments falls back to the screen.
 #[allow(clippy::too_many_arguments)]
 fn place_logo(
     i: usize,
     layers: &[Layer],
     fits: &[Option<LogoFit>],
+    boxes: &[Option<ez_core::screen::ScreenBox>],
     ctx: &EvalCtx,
     w: f32,
     h: f32,
@@ -452,10 +459,29 @@ fn place_logo(
             })
         })
         .flatten();
+    // A 3D layer of that name: measured from where it shows.
+    let shape = (target.is_none() && !g.attach_to.is_empty())
+        .then(|| {
+            layers.iter().position(|l| {
+                l.enabled && l.name == g.attach_to && !matches!(l.kind, LayerKind::Logo(_))
+            })
+        })
+        .flatten();
+    if let Some(j) = shape {
+        let Some(b) = boxes[j] else {
+            // Behind the camera: nothing to label.
+            state[i] = 2;
+            return;
+        };
+        let [bx, by] = b.point([px, py]);
+        out[i] = Some(Vec2::new(bx * w, by * h) + Vec2::new(g.x.eval(ctx) * w, g.y.eval(ctx) * h));
+        state[i] = 2;
+        return;
+    }
     let origin = match target {
         // Not while it is being placed itself (a loop).
         Some(j) if state[j] != 1 => {
-            place_logo(j, layers, fits, ctx, w, h, out, state);
+            place_logo(j, layers, fits, boxes, ctx, w, h, out, state);
             match (&layers[j].kind, out[j], &fits[j]) {
                 (LayerKind::Logo(t), Some(at), Some(fit)) => {
                     let th = t.size.eval(ctx).max(0.0) * h;
@@ -680,10 +706,10 @@ struct PassPipes<'a> {
 /// Single-sample versions of the main pass's own pipelines, for the retro
 /// low-resolution pass (it draws the scene without antialiasing).
 struct LowPipes {
-    floor: wgpu::RenderPipeline,
-    contact: wgpu::RenderPipeline,
-    bg_up: wgpu::RenderPipeline,
-    liquid: wgpu::RenderPipeline,
+    floor: Pipe,
+    contact: Pipe,
+    bg_up: Pipe,
+    liquid: Pipe,
 }
 
 /// The retro low-resolution scene of a render target: colour and depth,
@@ -701,28 +727,32 @@ const GLOBALS_LOW: usize = 3;
 struct ScenePipes {
     /// MSAA samples (picks the matching background pipeline).
     samples: u32,
-    mesh: wgpu::RenderPipeline,
-    particles: wgpu::RenderPipeline,
-    terrain: wgpu::RenderPipeline,
-    lasers: wgpu::RenderPipeline,
-    weather: wgpu::RenderPipeline,
-    sky_mul: wgpu::RenderPipeline,
-    sky_add: wgpu::RenderPipeline,
-    spots: wgpu::RenderPipeline,
-    falls: wgpu::RenderPipeline,
-    text: wgpu::RenderPipeline,
-    sdf: wgpu::RenderPipeline,
+    mesh: Pipe,
+    /// See-through meshes: their depth first (the picture unchanged), so
+    /// only their nearest surface shows, then blended over.
+    mesh_depth: Pipe,
+    mesh_clear: Pipe,
+    particles: Pipe,
+    terrain: Pipe,
+    lasers: Pipe,
+    weather: Pipe,
+    sky_mul: Pipe,
+    sky_add: Pipe,
+    spots: Pipe,
+    falls: Pipe,
+    text: Pipe,
+    sdf: Pipe,
     /// Mode 7 floors.
-    mode7: wgpu::RenderPipeline,
+    mode7: Pipe,
     /// Sprites: alpha, additive, cutout.
-    sprite: [wgpu::RenderPipeline; 3],
-    arcs: wgpu::RenderPipeline,
+    sprite: [Pipe; 3],
+    arcs: Pipe,
 }
 
 /// Copies of shapes placed by a compute shader (`copies.wgsl`) straight
 /// into a vertex buffer; absent where there are no compute shaders (WebGL2).
 struct SwarmGpu {
-    pipe: wgpu::ComputePipeline,
+    pipe: Arc<Lazy<wgpu::ComputePipeline>>,
     bgl: wgpu::BindGroupLayout,
     params: wgpu::Buffer,
     params_cap: u64,
@@ -994,14 +1024,16 @@ impl SwarmGpu {
             bind_group_layouts: &[Some(&bgl)],
             immediate_size: 0,
         });
-        let pipe = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("swarm"),
-            layout: Some(&layout),
-            module: &module,
-            entry_point: Some("cs_main"),
-            compilation_options: Default::default(),
-            cache: None,
-        });
+        let pipe = lazy!(device, layout, module => device.create_compute_pipeline(
+            &wgpu::ComputePipelineDescriptor {
+                label: Some("swarm"),
+                layout: Some(&layout),
+                module: &module,
+                entry_point: Some("cs_main"),
+                compilation_options: Default::default(),
+                cache: None,
+            }
+        ));
         let (params_cap, out_cap, locals_cap) = (4, 1024, 64);
         let params = Self::make_params(device, params_cap);
         let out = Self::make_out(device, out_cap);
@@ -1128,23 +1160,23 @@ pub struct Renderer {
 
     globals_buf: [wgpu::Buffer; 4],
     globals_bg: [wgpu::BindGroup; 4],
-    shadow_mesh_pipe: wgpu::RenderPipeline,
-    shadow_sdf_pipe: wgpu::RenderPipeline,
+    shadow_mesh_pipe: Pipe,
+    shadow_sdf_pipe: Pipe,
     swarm: Option<SwarmGpu>,
-    contact_pipe: wgpu::RenderPipeline,
+    contact_pipe: Pipe,
     /// Background pipelines specialised per kind, built when first used:
     /// (kind, samples, low resolution).
     bg_pipes: HashMap<(i32, u32, bool), wgpu::RenderPipeline>,
-    bg_module: wgpu::ShaderModule,
+    bg_module: Module,
     scene_layout: wgpu::PipelineLayout,
     /// Upscale of the low-resolution background.
-    bg_up_pipe: wgpu::RenderPipeline,
-    shadow_terrain_pipe: wgpu::RenderPipeline,
+    bg_up_pipe: Pipe,
+    shadow_terrain_pipe: Pipe,
     /// Depth of field: distance-to-camera passes for meshes and terrain.
-    dof_mesh_pipe: wgpu::RenderPipeline,
-    dof_sdf_pipe: wgpu::RenderPipeline,
-    dof_terrain_pipe: wgpu::RenderPipeline,
-    dof_floor_pipe: wgpu::RenderPipeline,
+    dof_mesh_pipe: Pipe,
+    dof_sdf_pipe: Pipe,
+    dof_terrain_pipe: Pipe,
+    dof_floor_pipe: Pipe,
     shadow_bg: wgpu::BindGroup,
     /// The environment map in use (the black one while the colours light
     /// the scene).
@@ -1164,25 +1196,25 @@ pub struct Renderer {
 
     main_pipes: ScenePipes,
     refl_pipes: ScenePipes,
-    floor_pipe: wgpu::RenderPipeline,
+    floor_pipe: Pipe,
     /// Retro 3D: the main pass's own pipelines without antialiasing, the
     /// upscale, and the low-resolution scene per target (by target id).
     low_pipes: LowPipes,
     bgl_retro_up: wgpu::BindGroupLayout,
-    retro_up_pipe: wgpu::RenderPipeline,
+    retro_up_pipe: Pipe,
     retro_targets: HashMap<u64, RetroTarget>,
-    blur_pipe: wgpu::RenderPipeline,
-    warp_pipe: wgpu::RenderPipeline,
-    bloom_down_pipe: wgpu::RenderPipeline,
-    bloom_up_pipe: wgpu::RenderPipeline,
-    final_pipe: wgpu::RenderPipeline,
-    rays_pipe: wgpu::RenderPipeline,
-    rays_add_pipe: wgpu::RenderPipeline,
+    blur_pipe: Pipe,
+    warp_pipe: Pipe,
+    bloom_down_pipe: Pipe,
+    bloom_up_pipe: Pipe,
+    final_pipe: Pipe,
+    rays_pipe: Pipe,
+    rays_add_pipe: Pipe,
     /// Screen-space reflections (`ssr.wgsl`) and its inputs' layout.
-    ssr_pipe: wgpu::RenderPipeline,
-    ssr_add_pipe: wgpu::RenderPipeline,
+    ssr_pipe: Pipe,
+    ssr_add_pipe: Pipe,
     /// Light shafts through the fog (`shafts.wgsl`).
-    shafts_pipe: wgpu::RenderPipeline,
+    shafts_pipe: Pipe,
     liquid_pipes: LiquidPipes,
     bgl_ssr: wgpu::BindGroupLayout,
 
@@ -1217,26 +1249,31 @@ pub struct Renderer {
     env_matcap: Option<(String, [f32; 11])>,
     /// Asset loading problems (shown in the UI), keyed by asset.
     pub errors: HashMap<String, String>,
+    /// Loop phase and loop length of the frame being drawn (animated
+    /// pictures play by them).
+    clip_time: (f32, f32),
+    /// Decoded frame sheets of animated pictures, by texture key.
+    clip_sheets: HashMap<String, std::sync::Arc<RgbaImage>>,
 
     /// Instances of layers that don't animate, keyed by layer hash, with
     /// the frame number they were last used.
     instance_cache: HashMap<u64, (u64, Vec<InstanceRaw>)>,
     /// Scene transitions: the two pictures, and the mixing pass.
     seq_targets: Option<SeqTargets>,
-    feedback_pipe: wgpu::RenderPipeline,
+    feedback_pipe: Pipe,
     /// Feedback history per target: (history to read next, last phase).
     feedback: HashMap<u64, FeedbackState>,
-    compose_pipe: wgpu::RenderPipeline,
+    compose_pipe: Pipe,
     compose_buf: wgpu::Buffer,
     /// Font atlases by texture key.
     fonts: HashMap<String, std::sync::Arc<crate::text::FontAtlas>>,
-    logo_pipe: wgpu::RenderPipeline,
+    logo_pipe: Pipe,
     bgl_logo: wgpu::BindGroupLayout,
     /// The picture behind the logos (for glass and shadow rays), at least
     /// as big as the target being drawn: texture, view, size.
     logo_backdrop: (wgpu::Texture, wgpu::TextureView, u32, u32),
     /// Logos drawn as a rays source cutting their shadow out.
-    logo_shadow_pipe: wgpu::RenderPipeline,
+    logo_shadow_pipe: Pipe,
     /// Logo rays' source pictures by target, made when first needed.
     logo_rays_src: HashMap<u64, LogoRaysSource>,
     /// Logo effect settings (two slots of the draw buffer).
@@ -1267,6 +1304,8 @@ pub struct Renderer {
     inexact: bool,
     /// Per simulated layer (by name), how its bake is doing.
     sim_status: HashMap<String, SimStatus>,
+    /// Pipelines and shaders not built yet, for the warm-up.
+    warm: WarmList,
 }
 
 /// How a simulated layer's bake is doing (for the inspector).
@@ -1366,11 +1405,11 @@ fn c4(c: [f32; 3], w: f32) -> [f32; 4] {
 /// Liquid surfaces (`liquid.wgsl`): splatting droplets, blurring, and
 /// shading the surface onto the picture.
 struct LiquidPipes {
-    splat_dist: wgpu::RenderPipeline,
-    splat_thick: wgpu::RenderPipeline,
-    blur_h: wgpu::RenderPipeline,
-    blur_v: wgpu::RenderPipeline,
-    composite: wgpu::RenderPipeline,
+    splat_dist: Pipe,
+    splat_thick: Pipe,
+    blur_h: Pipe,
+    blur_v: Pipe,
+    composite: Pipe,
     layout: wgpu::BindGroupLayout,
 }
 
@@ -1502,6 +1541,13 @@ const MULTIPLY: wgpu::BlendState = wgpu::BlendState {
     },
 };
 
+/// Leaves the picture as it is (a pass that only writes depth).
+const KEEP: wgpu::BlendComponent = wgpu::BlendComponent {
+    src_factor: wgpu::BlendFactor::Zero,
+    dst_factor: wgpu::BlendFactor::One,
+    operation: wgpu::BlendOperation::Add,
+};
+
 const ADDITIVE: wgpu::BlendState = wgpu::BlendState {
     color: wgpu::BlendComponent {
         src_factor: wgpu::BlendFactor::One,
@@ -1515,21 +1561,31 @@ const ADDITIVE: wgpu::BlendState = wgpu::BlendState {
     },
 };
 
-fn shader(device: &wgpu::Device, label: &str, src: &str, with_common: bool) -> wgpu::ShaderModule {
+/// Vertices of meshes (see [`Vertex`]).
+static VERTEX_ATTRS: [wgpu::VertexAttribute; 4] =
+    wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2, 3 => Float32];
+/// Per-copy matrix and colour (see [`InstanceRaw`]).
+static INSTANCE_ATTRS: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![4 => Float32x4, 5 => Float32x4, 6 => Float32x4, 7 => Float32x4, 8 => Float32x4];
+
+/// A shader module, parsed when a pipeline first needs it.
+fn shader(device: &wgpu::Device, label: &'static str, src: &str, with_common: bool) -> Module {
     let code = if with_common {
         format!("{}\n{}", include_str!("shaders/common.wgsl"), src)
     } else {
         src.to_string()
     };
-    device.create_shader_module(wgpu::ShaderModuleDescriptor {
+    lazy!(device, code => device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some(label),
-        source: wgpu::ShaderSource::Wgsl(Cow::Owned(code)),
-    })
+        source: wgpu::ShaderSource::Wgsl(Cow::Owned(code.clone())),
+    }))
 }
 
 impl Renderer {
     /// `msaa` must be 1 or 4.
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, msaa: u32) -> Renderer {
+        // Pipelines and shaders are built when first used; this lists them
+        // for the optional warm-up (see `warm_up_in_background`).
+        let collect = Collect::start();
         let msaa = if msaa >= 4 { 4 } else { 1 };
         let globals_size = std::mem::size_of::<GlobalsRaw>() as u64;
         let bgl_globals = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -1799,12 +1855,12 @@ impl Renderer {
         let vertex_layout = wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<Vertex>() as u64,
             step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2, 3 => Float32],
+            attributes: &VERTEX_ATTRS,
         };
         let instance_layout = wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<InstanceRaw>() as u64,
             step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &wgpu::vertex_attr_array![4 => Float32x4, 5 => Float32x4, 6 => Float32x4, 7 => Float32x4, 8 => Float32x4],
+            attributes: &INSTANCE_ATTRS,
         };
         let mesh_buffers = [Some(vertex_layout), Some(instance_layout.clone())];
         // Letters: one instance each, the quad comes from the vertex index.
@@ -1848,7 +1904,7 @@ impl Renderer {
         });
         // A logo cutting its shadow out of the light behind it:
         // picture × (1 - coverage).
-        let logo_shadow_pipe = make_pipeline(
+        let logo_shadow_pipe = lazy!(device, logo_layout, sh_logo => make_pipeline(
             device,
             PipeDesc {
                 label: "logo shadow",
@@ -1868,8 +1924,8 @@ impl Renderer {
                     alpha: wgpu::BlendComponent::OVER,
                 }),
             },
-        );
-        let logo_pipe = make_pipeline(
+        ));
+        let logo_pipe = lazy!(device, logo_layout, sh_logo => make_pipeline(
             device,
             PipeDesc {
                 label: "logo",
@@ -1882,11 +1938,11 @@ impl Renderer {
                 depth: None,
                 blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
             },
-        );
+        ));
 
         let scene_pipes = |samples: u32| ScenePipes {
             samples,
-            arcs: make_pipeline(
+            arcs: lazy!(device, particle_layout, sh_arcs, glyph_buffers => make_pipeline(
                 device,
                 PipeDesc {
                     label: "arcs",
@@ -1899,14 +1955,14 @@ impl Renderer {
                     depth: Some((false, wgpu::CompareFunction::Less)),
                     blend: Some(ADDITIVE),
                 },
-            ),
+            )),
             sprite: [
                 (Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING), false),
                 (Some(ADDITIVE), false),
                 (None, true),
             ]
             .map(|(blend, write)| {
-                make_pipeline(
+                lazy!(device, scene_layout, sh_sprite, glyph_buffers => make_pipeline(
                     device,
                     PipeDesc {
                         label: "sprite",
@@ -1919,9 +1975,9 @@ impl Renderer {
                         depth: Some((write, wgpu::CompareFunction::Less)),
                         blend,
                     },
-                )
+                ))
             }),
-            mode7: make_pipeline(
+            mode7: lazy!(device, scene_layout, sh_mode7 => make_pipeline(
                 device,
                 PipeDesc {
                     label: "mode 7",
@@ -1934,8 +1990,8 @@ impl Renderer {
                     depth: Some((true, wgpu::CompareFunction::Less)),
                     blend: None,
                 },
-            ),
-            sdf: make_pipeline(
+            )),
+            sdf: lazy!(device, mesh_lit_layout, sh_sdf, mesh_buffers => make_pipeline(
                 device,
                 PipeDesc {
                     label: "sdf",
@@ -1948,8 +2004,8 @@ impl Renderer {
                     depth: Some((true, wgpu::CompareFunction::Less)),
                     blend: None,
                 },
-            ),
-            mesh: make_pipeline(
+            )),
+            mesh: lazy!(device, mesh_lit_layout, sh_mesh, mesh_buffers => make_pipeline(
                 device,
                 PipeDesc {
                     label: "mesh",
@@ -1962,8 +2018,39 @@ impl Renderer {
                     depth: Some((true, wgpu::CompareFunction::Less)),
                     blend: None,
                 },
-            ),
-            particles: make_pipeline(
+            )),
+            mesh_depth: lazy!(device, mesh_lit_layout, sh_mesh, mesh_buffers => make_pipeline(
+                device,
+                PipeDesc {
+                    label: "mesh depth (see-through)",
+                    layout: &mesh_lit_layout,
+                    module: &sh_mesh,
+                    fs: "fs_main",
+                    buffers: &mesh_buffers,
+                    format: HDR_FORMAT,
+                    samples,
+                    depth: Some((true, wgpu::CompareFunction::Less)),
+                    blend: Some(wgpu::BlendState {
+                        color: KEEP,
+                        alpha: KEEP,
+                    }),
+                },
+            )),
+            mesh_clear: lazy!(device, mesh_lit_layout, sh_mesh, mesh_buffers => make_pipeline(
+                device,
+                PipeDesc {
+                    label: "mesh (see-through)",
+                    layout: &mesh_lit_layout,
+                    module: &sh_mesh,
+                    fs: "fs_clear",
+                    buffers: &mesh_buffers,
+                    format: HDR_FORMAT,
+                    samples,
+                    depth: Some((false, wgpu::CompareFunction::LessEqual)),
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                },
+            )),
+            particles: lazy!(device, particle_layout, sh_particles => make_pipeline(
                 device,
                 PipeDesc {
                     label: "particles",
@@ -1978,8 +2065,8 @@ impl Renderer {
                     // smoke outputs its coverage.
                     blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                 },
-            ),
-            terrain: make_pipeline(
+            )),
+            terrain: lazy!(device, terrain_layout, sh_terrain => make_pipeline(
                 device,
                 PipeDesc {
                     label: "terrain",
@@ -1992,8 +2079,8 @@ impl Renderer {
                     depth: Some((true, wgpu::CompareFunction::Less)),
                     blend: None,
                 },
-            ),
-            lasers: make_pipeline(
+            )),
+            lasers: lazy!(device, particle_layout, sh_lasers => make_pipeline(
                 device,
                 PipeDesc {
                     label: "lasers",
@@ -2006,8 +2093,8 @@ impl Renderer {
                     depth: Some((false, wgpu::CompareFunction::Less)),
                     blend: Some(ADDITIVE),
                 },
-            ),
-            weather: make_pipeline(
+            )),
+            weather: lazy!(device, particle_layout, sh_weather => make_pipeline(
                 device,
                 PipeDesc {
                     label: "weather",
@@ -2020,8 +2107,8 @@ impl Renderer {
                     depth: Some((false, wgpu::CompareFunction::Less)),
                     blend: Some(ADDITIVE),
                 },
-            ),
-            sky_mul: make_pipeline(
+            )),
+            sky_mul: lazy!(device, particle_layout, sh_skyfx => make_pipeline(
                 device,
                 PipeDesc {
                     label: "sky fx mul",
@@ -2034,8 +2121,8 @@ impl Renderer {
                     depth: Some((false, wgpu::CompareFunction::Always)),
                     blend: Some(MULTIPLY),
                 },
-            ),
-            sky_add: make_pipeline(
+            )),
+            sky_add: lazy!(device, particle_layout, sh_skyfx => make_pipeline(
                 device,
                 PipeDesc {
                     label: "sky fx add",
@@ -2048,8 +2135,8 @@ impl Renderer {
                     depth: Some((false, wgpu::CompareFunction::Always)),
                     blend: Some(ADDITIVE),
                 },
-            ),
-            spots: make_pipeline(
+            )),
+            spots: lazy!(device, particle_layout, sh_spots => make_pipeline(
                 device,
                 PipeDesc {
                     label: "spots",
@@ -2062,8 +2149,8 @@ impl Renderer {
                     depth: Some((false, wgpu::CompareFunction::Less)),
                     blend: Some(ADDITIVE),
                 },
-            ),
-            falls: make_pipeline(
+            )),
+            falls: lazy!(device, particle_layout, sh_falls => make_pipeline(
                 device,
                 PipeDesc {
                     label: "falls",
@@ -2076,8 +2163,8 @@ impl Renderer {
                     depth: Some((false, wgpu::CompareFunction::Less)),
                     blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                 },
-            ),
-            text: make_pipeline(
+            )),
+            text: lazy!(device, scene_layout, sh_text, glyph_buffers => make_pipeline(
                 device,
                 PipeDesc {
                     label: "text",
@@ -2090,44 +2177,45 @@ impl Renderer {
                     depth: Some((false, wgpu::CompareFunction::Less)),
                     blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                 },
-            ),
+            )),
         };
         // Depth-only passes from the sun (vertex stage only).
-        let depth_pipe = |label: &str,
-                          layout: &wgpu::PipelineLayout,
-                          module: &wgpu::ShaderModule,
-                          buffers: &[Option<wgpu::VertexBufferLayout>]| {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(label),
-                layout: Some(layout),
-                vertex: wgpu::VertexState {
-                    module,
-                    entry_point: Some("vs_main"),
-                    compilation_options: Default::default(),
-                    buffers,
-                },
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleList,
-                    cull_mode: None,
-                    ..Default::default()
-                },
-                depth_stencil: Some(wgpu::DepthStencilState {
-                    format: DEPTH_FORMAT,
-                    depth_write_enabled: Some(true),
-                    depth_compare: Some(wgpu::CompareFunction::Less),
-                    stencil: Default::default(),
-                    bias: wgpu::DepthBiasState {
-                        constant: 2,
-                        slope_scale: 2.0,
-                        clamp: 0.0,
+        let depth_pipe =
+            |label: &'static str,
+             layout: &wgpu::PipelineLayout,
+             module: &Module,
+             buffers: Vec<Option<wgpu::VertexBufferLayout<'static>>>| {
+                lazy!(device, layout, module => device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some(label),
+                    layout: Some(&layout),
+                    vertex: wgpu::VertexState {
+                        module: &module,
+                        entry_point: Some("vs_main"),
+                        compilation_options: Default::default(),
+                        buffers: &buffers,
                     },
-                }),
-                multisample: Default::default(),
-                fragment: None,
-                multiview_mask: None,
-                cache: None,
-            })
-        };
+                    primitive: wgpu::PrimitiveState {
+                        topology: wgpu::PrimitiveTopology::TriangleList,
+                        cull_mode: None,
+                        ..Default::default()
+                    },
+                    depth_stencil: Some(wgpu::DepthStencilState {
+                        format: DEPTH_FORMAT,
+                        depth_write_enabled: Some(true),
+                        depth_compare: Some(wgpu::CompareFunction::Less),
+                        stencil: Default::default(),
+                        bias: wgpu::DepthBiasState {
+                            constant: 2,
+                            slope_scale: 2.0,
+                            clamp: 0.0,
+                        },
+                    }),
+                    multisample: Default::default(),
+                    fragment: None,
+                    multiview_mask: None,
+                    cache: None,
+                }))
+            };
         let sh_contact = shader(
             device,
             "contact",
@@ -2137,9 +2225,9 @@ impl Renderer {
         let contact_instances = [Some(wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<InstanceRaw>() as u64,
             step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &wgpu::vertex_attr_array![4 => Float32x4, 5 => Float32x4, 6 => Float32x4, 7 => Float32x4, 8 => Float32x4],
+            attributes: &INSTANCE_ATTRS,
         })];
-        let contact_pipe = make_pipeline(
+        let contact_pipe = lazy!(device, particle_layout, sh_contact, contact_instances => make_pipeline(
             device,
             PipeDesc {
                 label: "contact shadows",
@@ -2152,14 +2240,14 @@ impl Renderer {
                 depth: Some((false, wgpu::CompareFunction::Less)),
                 blend: Some(MULTIPLY),
             },
-        );
+        ));
         let sh_bgup = shader(
             device,
             "bg upscale",
             include_str!("shaders/bgup.wgsl"),
             true,
         );
-        let bg_up_pipe = make_pipeline(
+        let bg_up_pipe = lazy!(device, scene_layout, sh_bgup => make_pipeline(
             device,
             PipeDesc {
                 label: "bg upscale",
@@ -2172,11 +2260,13 @@ impl Renderer {
                 depth: Some((false, wgpu::CompareFunction::Always)),
                 blend: None,
             },
-        );
-        let shadow_mesh_pipe = depth_pipe("shadow mesh", &mesh_layout, &sh_mesh, &mesh_buffers);
-        let shadow_terrain_pipe = depth_pipe("shadow terrain", &scene_layout, &sh_terrain, &[]);
+        ));
+        let shadow_mesh_pipe =
+            depth_pipe("shadow mesh", &mesh_layout, &sh_mesh, mesh_buffers.to_vec());
+        let shadow_terrain_pipe =
+            depth_pipe("shadow terrain", &scene_layout, &sh_terrain, Vec::new());
         // Raymarched objects write their own depth from the fragment stage.
-        let shadow_sdf_pipe = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let shadow_sdf_pipe = lazy!(device, mesh_layout, sh_sdf, mesh_buffers => device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("shadow sdf"),
             layout: Some(&mesh_layout),
             vertex: wgpu::VertexState {
@@ -2206,59 +2296,65 @@ impl Renderer {
             }),
             multiview_mask: None,
             cache: None,
-        });
-        let dof_pipe = |label: &str,
-                        layout: &wgpu::PipelineLayout,
-                        module: &wgpu::ShaderModule,
-                        buffers: &[Option<wgpu::VertexBufferLayout>]| {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(label),
-                layout: Some(layout),
-                vertex: wgpu::VertexState {
-                    module,
-                    entry_point: Some("vs_main"),
-                    compilation_options: Default::default(),
-                    buffers,
-                },
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleList,
-                    cull_mode: None,
-                    ..Default::default()
-                },
-                depth_stencil: Some(wgpu::DepthStencilState {
-                    format: DEPTH_FORMAT,
-                    depth_write_enabled: Some(true),
-                    depth_compare: Some(wgpu::CompareFunction::Less),
-                    stencil: Default::default(),
-                    bias: Default::default(),
-                }),
-                multisample: Default::default(),
-                fragment: Some(wgpu::FragmentState {
-                    module,
-                    entry_point: Some("fs_depth"),
-                    compilation_options: Default::default(),
-                    // Distance, then the G-buffer for screen-space
-                    // reflections (see `DistOut` in common.wgsl).
-                    targets: &[
-                        Some(wgpu::ColorTargetState {
-                            format: DOF_FORMAT,
-                            blend: None,
-                            write_mask: wgpu::ColorWrites::ALL,
-                        }),
-                        Some(HDR_FORMAT.into()),
-                        Some(HDR_FORMAT.into()),
-                        Some(HDR_FORMAT.into()),
-                    ],
-                }),
-                multiview_mask: None,
-                cache: None,
-            })
-        };
+        }));
+        let dof_pipe =
+            |label: &'static str,
+             layout: &wgpu::PipelineLayout,
+             module: &Module,
+             buffers: Vec<Option<wgpu::VertexBufferLayout<'static>>>| {
+                lazy!(device, layout, module => device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some(label),
+                    layout: Some(&layout),
+                    vertex: wgpu::VertexState {
+                        module: &module,
+                        entry_point: Some("vs_main"),
+                        compilation_options: Default::default(),
+                        buffers: &buffers,
+                    },
+                    primitive: wgpu::PrimitiveState {
+                        topology: wgpu::PrimitiveTopology::TriangleList,
+                        cull_mode: None,
+                        ..Default::default()
+                    },
+                    depth_stencil: Some(wgpu::DepthStencilState {
+                        format: DEPTH_FORMAT,
+                        depth_write_enabled: Some(true),
+                        depth_compare: Some(wgpu::CompareFunction::Less),
+                        stencil: Default::default(),
+                        bias: Default::default(),
+                    }),
+                    multisample: Default::default(),
+                    fragment: Some(wgpu::FragmentState {
+                        module: &module,
+                        entry_point: Some("fs_depth"),
+                        compilation_options: Default::default(),
+                        // Distance, then the G-buffer for screen-space
+                        // reflections (see `DistOut` in common.wgsl).
+                        targets: &[
+                            Some(wgpu::ColorTargetState {
+                                format: DOF_FORMAT,
+                                blend: None,
+                                write_mask: wgpu::ColorWrites::ALL,
+                            }),
+                            Some(HDR_FORMAT.into()),
+                            Some(HDR_FORMAT.into()),
+                            Some(HDR_FORMAT.into()),
+                        ],
+                    }),
+                    multiview_mask: None,
+                    cache: None,
+                }))
+            };
         // What surfaces reflect needs the split-sum table (group 3).
-        let dof_mesh_pipe = dof_pipe("dof mesh", &mesh_lit_layout, &sh_mesh, &mesh_buffers);
-        let dof_sdf_pipe = dof_pipe("dof sdf", &mesh_lit_layout, &sh_sdf, &mesh_buffers);
-        let dof_terrain_pipe = dof_pipe("dof terrain", &scene_layout, &sh_terrain, &[]);
-        let dof_floor_pipe = dof_pipe("dof floor", &particle_layout, &sh_floor, &[]);
+        let dof_mesh_pipe = dof_pipe(
+            "dof mesh",
+            &mesh_lit_layout,
+            &sh_mesh,
+            mesh_buffers.to_vec(),
+        );
+        let dof_sdf_pipe = dof_pipe("dof sdf", &mesh_lit_layout, &sh_sdf, mesh_buffers.to_vec());
+        let dof_terrain_pipe = dof_pipe("dof terrain", &scene_layout, &sh_terrain, Vec::new());
+        let dof_floor_pipe = dof_pipe("dof floor", &particle_layout, &sh_floor, Vec::new());
         let shadow_view = device
             .create_texture(&wgpu::TextureDescriptor {
                 label: Some("sun shadow map"),
@@ -2350,7 +2446,7 @@ impl Renderer {
         let shadow_bg = Self::make_group3(device, &group3, &env_none);
         let main_pipes = scene_pipes(msaa);
         let refl_pipes = scene_pipes(1);
-        let floor_pipe = make_pipeline(
+        let floor_pipe = lazy!(device, floor_layout, sh_floor => make_pipeline(
             device,
             PipeDesc {
                 label: "floor",
@@ -2365,7 +2461,7 @@ impl Renderer {
                 // into them at the horizon.
                 blend: Some(wgpu::BlendState::ALPHA_BLENDING),
             },
-        );
+        ));
         // Retro 3D: the low-resolution scene blown up with its depth.
         let bgl_retro_up = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("retro upscale"),
@@ -2412,7 +2508,7 @@ impl Renderer {
             include_str!("shaders/retro_up.wgsl"),
             false,
         );
-        let retro_up_pipe = make_pipeline(
+        let retro_up_pipe = lazy!(device, retro_up_layout, sh_retro_up => make_pipeline(
             device,
             PipeDesc {
                 label: "retro upscale",
@@ -2425,9 +2521,12 @@ impl Renderer {
                 depth: Some((true, wgpu::CompareFunction::Always)),
                 blend: None,
             },
-        );
-        let post_pipe = |label: &str, fs: &str, format, blend| {
-            make_pipeline(
+        ));
+        let post_pipe = |label: &'static str,
+                         fs: &'static str,
+                         format: wgpu::TextureFormat,
+                         blend: Option<wgpu::BlendState>| {
+            lazy!(device, post_layout, sh_post => make_pipeline(
                 device,
                 PipeDesc {
                     label,
@@ -2440,7 +2539,7 @@ impl Renderer {
                     depth: None,
                     blend,
                 },
-            )
+            ))
         };
         let blur_pipe = post_pipe("blur", "fs_blur", HDR_FORMAT, None);
         let warp_pipe = post_pipe("warp", "fs_warp", HDR_FORMAT, None);
@@ -2473,7 +2572,7 @@ impl Renderer {
         // Light shafts read the distances (group 2 as the reflections'),
         // the fog in the globals and the shadow map (group 3).
         let sh_shafts = shader(device, "shafts", include_str!("shaders/shafts.wgsl"), true);
-        let shafts_pipe = make_pipeline(
+        let shafts_pipe = lazy!(device, ssr_layout, sh_shafts => make_pipeline(
             device,
             PipeDesc {
                 label: "light shafts",
@@ -2486,7 +2585,7 @@ impl Renderer {
                 depth: None,
                 blend: None,
             },
-        );
+        ));
         // Liquid surfaces: droplet splats, blurs and the composite, all
         // with the droplet layer's material (group 1) and the environment
         // (group 3).
@@ -2508,14 +2607,15 @@ impl Renderer {
         let splat_buffers = [Some(wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<InstanceRaw>() as u64,
             step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &wgpu::vertex_attr_array![4 => Float32x4, 5 => Float32x4, 6 => Float32x4, 7 => Float32x4, 8 => Float32x4],
+            attributes: &INSTANCE_ATTRS,
         })];
-        let liquid_pipe = |label: &str,
-                           vs: &str,
-                           fs: &str,
-                           buffers: &[Option<wgpu::VertexBufferLayout>],
+        let liquid_pipe = |label: &'static str,
+                           vs: &'static str,
+                           fs: &'static str,
+                           buffers: Vec<Option<wgpu::VertexBufferLayout<'static>>>,
                            blend: Option<wgpu::BlendState>,
                            scene_samples: u32| {
+            lazy!(device, liquid_layout, sh_liquid => {
             // Drawn in the scene's pass (with its samples) or on its own.
             let scene = scene_samples > 0;
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -2525,7 +2625,7 @@ impl Renderer {
                     module: &sh_liquid,
                     entry_point: Some(vs),
                     compilation_options: Default::default(),
-                    buffers,
+                    buffers: &buffers,
                 },
                 primitive: wgpu::PrimitiveState {
                     topology: wgpu::PrimitiveTopology::TriangleList,
@@ -2558,6 +2658,7 @@ impl Renderer {
                 multiview_mask: None,
                 cache: None,
             })
+            })
         };
         // The nearest droplet wins.
         let nearest = wgpu::BlendState {
@@ -2576,7 +2677,7 @@ impl Renderer {
             "liquid composite (retro)",
             "vs_full",
             "fs_composite",
-            &[],
+            Vec::new(),
             Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
             1,
         );
@@ -2585,7 +2686,7 @@ impl Renderer {
                 "liquid splat distance",
                 "vs_splat",
                 "fs_splat_dist",
-                &splat_buffers,
+                splat_buffers.to_vec(),
                 Some(nearest),
                 0,
             ),
@@ -2593,24 +2694,24 @@ impl Renderer {
                 "liquid splat thickness",
                 "vs_splat",
                 "fs_splat_thick",
-                &splat_buffers,
+                splat_buffers.to_vec(),
                 Some(ADDITIVE),
                 0,
             ),
-            blur_h: liquid_pipe("liquid blur h", "vs_full", "fs_blur_h", &[], None, 0),
-            blur_v: liquid_pipe("liquid blur v", "vs_full", "fs_blur_v", &[], None, 0),
+            blur_h: liquid_pipe("liquid blur h", "vs_full", "fs_blur_h", Vec::new(), None, 0),
+            blur_v: liquid_pipe("liquid blur v", "vs_full", "fs_blur_v", Vec::new(), None, 0),
             composite: liquid_pipe(
                 "liquid composite",
                 "vs_full",
                 "fs_composite",
-                &[],
+                Vec::new(),
                 Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                 msaa,
             ),
             layout: bgl_liquid,
         };
         let low_pipes = LowPipes {
-            floor: make_pipeline(
+            floor: lazy!(device, floor_layout, sh_floor => make_pipeline(
                 device,
                 PipeDesc {
                     label: "floor (retro)",
@@ -2623,8 +2724,8 @@ impl Renderer {
                     depth: Some((true, wgpu::CompareFunction::Less)),
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                 },
-            ),
-            contact: make_pipeline(
+            )),
+            contact: lazy!(device, particle_layout, sh_contact, contact_instances => make_pipeline(
                 device,
                 PipeDesc {
                     label: "contact shadows (retro)",
@@ -2637,8 +2738,8 @@ impl Renderer {
                     depth: Some((false, wgpu::CompareFunction::Less)),
                     blend: Some(MULTIPLY),
                 },
-            ),
-            bg_up: make_pipeline(
+            )),
+            bg_up: lazy!(device, scene_layout, sh_bgup => make_pipeline(
                 device,
                 PipeDesc {
                     label: "bg upscale (retro)",
@@ -2651,10 +2752,10 @@ impl Renderer {
                     depth: Some((false, wgpu::CompareFunction::Always)),
                     blend: None,
                 },
-            ),
+            )),
             liquid: low_liquid,
         };
-        let ssr_pipe = make_pipeline(
+        let ssr_pipe = lazy!(device, ssr_layout, sh_ssr => make_pipeline(
             device,
             PipeDesc {
                 label: "ssr",
@@ -2667,11 +2768,11 @@ impl Renderer {
                 depth: None,
                 blend: None,
             },
-        );
+        ));
         let bloom_down_pipe = post_pipe("bloom down", "fs_bloom_down", HDR_FORMAT, None);
         let bloom_up_pipe = post_pipe("bloom up", "fs_bloom_up", HDR_FORMAT, Some(ADDITIVE));
         // The final pass writes the export image and the display image.
-        let final_pipe = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let final_pipe = lazy!(device, post_layout, sh_post => device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("final"),
             layout: Some(&post_layout),
             vertex: wgpu::VertexState {
@@ -2702,8 +2803,8 @@ impl Renderer {
             }),
             multiview_mask: None,
             cache: None,
-        });
-        let compose_pipe = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        }));
+        let compose_pipe = lazy!(device, post_layout, sh_post => device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("compose"),
             layout: Some(&post_layout),
             vertex: wgpu::VertexState {
@@ -2734,7 +2835,7 @@ impl Renderer {
             }),
             multiview_mask: None,
             cache: None,
-        });
+        }));
         let compose_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("compose params"),
             size: POST_SLOT,
@@ -2881,6 +2982,8 @@ impl Renderer {
             draw_mesh_bg,
             env_matcap: None,
             errors: HashMap::new(),
+            clip_time: (0.0, 1.0),
+            clip_sheets: HashMap::new(),
             instance_cache: HashMap::new(),
             seq_targets: None,
             feedback_pipe,
@@ -2909,10 +3012,34 @@ impl Renderer {
             wait_for_bakes: false,
             inexact: false,
             sim_status: HashMap::new(),
+            warm: collect.finish(),
         };
         let white = RgbaImage::from_pixel(1, 1, image::Rgba([255, 255, 255, 255]));
         r.upload_texture("__white".into(), &white);
         r
+    }
+
+    /// Build the pipelines and shaders not used yet ahead of use, so the
+    /// first use of an effect doesn't stall a frame, then call `done`
+    /// (from any thread). Only the first call builds anything; in the
+    /// browser nothing is built ahead and `done` is called at once.
+    ///
+    /// They are built on a thread, except with OpenGL: its one context
+    /// would hold up the frames meanwhile, so there they are built one per
+    /// [`Renderer::warm_up_step`] instead.
+    pub fn warm_up_in_background(&mut self, done: impl FnOnce() + Send + 'static) {
+        if self.device.adapter_info().backend == wgpu::Backend::Gl {
+            self.warm.start_steps(done);
+        } else {
+            self.warm.spawn(done);
+        }
+    }
+
+    /// Call once per frame: builds the next pipeline when the warm-up goes
+    /// a step at a time (OpenGL). Returns whether there is more to build
+    /// (keep the frames coming).
+    pub fn warm_up_step(&mut self) -> bool {
+        self.warm.step()
     }
 
     pub fn msaa(&self) -> u32 {
@@ -3136,9 +3263,24 @@ impl Renderer {
 
     /// A logo layer's baked texture, uploaded, and how it fits; `None` when
     /// there is nothing to draw (no text, no image, an empty mask).
-    fn logo_texture(&mut self, project: &Project, g: &LogoLayer) -> Option<(String, LogoFit)> {
+    fn logo_texture(
+        &mut self,
+        project: &Project,
+        g: &LogoLayer,
+        ctx: &EvalCtx,
+    ) -> Option<(String, LogoFit)> {
+        // Text with numbers can change every frame: bake it quicker, and
+        // forget each version as soon as it is no longer shown.
+        let live = g.source == LogoSource::Text && !g.values.is_empty();
+        let text = ez_core::format_text(&g.text, &g.values, ctx);
         let key = match g.source {
-            LogoSource::Text => format!("__logo:text:{:?}:{:?}:{}", g.font, g.font_file, g.text),
+            LogoSource::Text => format!(
+                "__logo:{}:{:?}:{:?}:{}",
+                if live { "live" } else { "text" },
+                g.font,
+                g.font_file,
+                text
+            ),
             LogoSource::Image => {
                 format!("__logo:image:{}:{:?}", self.image_id(project, g)?, g.mask)
             }
@@ -3171,7 +3313,12 @@ impl Renderer {
                         }
                     }
                 });
-                crate::logo::bake_text(&g.text, g.font, bytes.as_deref())
+                let budget = if live {
+                    crate::logo::Budget::LIVE
+                } else {
+                    crate::logo::Budget::FULL
+                };
+                crate::logo::bake_text_with(&text, g.font, bytes.as_deref(), budget)
             }
             LogoSource::Image => {
                 let name = g.image.as_deref().unwrap_or_default();
@@ -3216,7 +3363,14 @@ impl Renderer {
         let stale: Vec<String> = self
             .logos
             .iter()
-            .filter(|(_, (used, _))| frame - *used > 240)
+            .filter(|(k, (used, _))| {
+                let keep = if k.starts_with("__logo:live:") {
+                    2
+                } else {
+                    240
+                };
+                frame - *used > keep
+            })
             .map(|(k, _)| k.clone())
             .collect();
         for k in stale {
@@ -3307,7 +3461,7 @@ impl Renderer {
         flash: f32,
         fade: f32,
     ) -> Option<LogoDraw> {
-        let (tex, fit) = self.logo_texture(project, g)?;
+        let (tex, fit) = self.logo_texture(project, g, ctx)?;
         let mut blk: Block = Zeroable::zeroed();
         blk[0] = c4(g.color_top, g.glow.eval(ctx).max(0.0) * flash);
         blk[1] = c4(g.color_bottom, g.outline.eval(ctx));
@@ -3392,7 +3546,7 @@ impl Renderer {
                 mask: g.morph_mask.unwrap_or(g.mask),
                 ..g.clone()
             };
-            self.logo_texture(project, &other)
+            self.logo_texture(project, &other, ctx)
         } else {
             None
         };
@@ -3447,12 +3601,12 @@ impl Renderer {
             margin = margin.max(g.contour_reach.max(0.01) * 3.0);
         }
         if g.stack > 0 {
-            let w = g.stack_width.base.abs() + g.stack_width.amp.abs();
+            let w = g.stack_width.reach();
             margin = margin.max(g.stack.min(16) as f32 * (w + g.stack_gap.max(0.0)));
         }
-        margin = margin.max(g.extrude.base.abs() + g.extrude.amp.abs());
+        margin = margin.max(g.extrude.reach());
         // Distortion moves the picture around.
-        let reach = |p: &Param| p.base.abs() + p.amp.abs();
+        let reach = |p: &Param| p.reach();
         margin += reach(&g.wobble_x).max(reach(&g.wobble_y))
             + reach(&g.glitch)
             + reach(&g.chroma)
@@ -3507,7 +3661,11 @@ impl Renderer {
         ];
         // Retro looks; the palette in a third block.
         let mut e3: Block = Zeroable::zeroed();
-        let mut colors: Vec<[f32; 3]> = match g.palette {
+        // Logos take lists of up to 16 colours and the VGA cube.
+        let palette = g
+            .palette
+            .filter(|p| p.levels().is_none_or(|n| n == 6) && p.colors().len() <= 16);
+        let mut colors: Vec<[f32; 3]> = match palette {
             Some(pal) => pal.colors_f32(),
             None => Vec::new(),
         };
@@ -3519,7 +3677,7 @@ impl Renderer {
         for (i, c) in colors.iter().enumerate() {
             e3[i] = c4(*c, 0.0);
         }
-        let count = match g.palette {
+        let count = match palette {
             Some(PaletteId::Vga) => 216.0,
             Some(_) => colors.len() as f32,
             None => 0.0,
@@ -3586,14 +3744,30 @@ impl Renderer {
         let fits: Vec<Option<LogoFit>> = layers
             .iter()
             .map(|l| match &l.kind {
-                LayerKind::Logo(g) if l.enabled => self.logo_texture(project, g).map(|(_, f)| f),
+                LayerKind::Logo(g) if l.enabled => {
+                    self.logo_texture(project, g, ctx).map(|(_, f)| f)
+                }
                 _ => None,
+            })
+            .collect();
+        // Where the 3D layers that logos are attached to show.
+        let cam = project.camera.eval(ctx);
+        let boxes: Vec<Option<ez_core::screen::ScreenBox>> = layers
+            .iter()
+            .map(|l| {
+                let wanted = !matches!(l.kind, LayerKind::Logo(_))
+                    && layers.iter().any(|o| {
+                        matches!(&o.kind, LayerKind::Logo(g) if o.enabled && g.attach_to == l.name)
+                    });
+                wanted
+                    .then(|| ez_core::screen::layer_box(l, ctx, &cam, w / h.max(1.0)))
+                    .flatten()
             })
             .collect();
         let mut out = vec![None; layers.len()];
         let mut state = vec![0u8; layers.len()];
         for i in 0..layers.len() {
-            place_logo(i, layers, &fits, ctx, w, h, &mut out, &mut state);
+            place_logo(i, layers, &fits, &boxes, ctx, w, h, &mut out, &mut state);
         }
         out
     }
@@ -3610,6 +3784,36 @@ impl Renderer {
         self.place_logos(project, &layers, ctx, size[0], size[1])
             .into_iter()
             .map(|p| p.map(|p| [p.x / size[0].max(1.0), p.y / size[1].max(1.0)]))
+            .collect()
+    }
+
+    /// The rectangles the logo layers take on a picture of `size`, as
+    /// fractions from the bottom left: [left, bottom, right, top]
+    /// (unrotated, without glows or effects reaching past the letters).
+    /// `None` for other layers and logos with nothing to draw.
+    pub fn logo_rects(
+        &mut self,
+        project: &Project,
+        ctx: &EvalCtx,
+        size: [f32; 2],
+    ) -> Vec<Option<[f32; 4]>> {
+        let layers = project.scene_layers(ctx);
+        let places = self.place_logos(project, &layers, ctx, size[0], size[1]);
+        let (w, h) = (size[0].max(1.0), size[1].max(1.0));
+        layers
+            .iter()
+            .zip(places)
+            .map(|(l, at)| {
+                let (LayerKind::Logo(g), Some(at)) = (&l.kind, at) else {
+                    return None;
+                };
+                let (_, fit) = self.logo_texture(project, g, ctx)?;
+                let lh = g.size.eval(ctx).max(0.0) * h;
+                let lw = lh * fit.aspect;
+                let [ax, ay] = g.anchor.point();
+                let (x0, y0) = (at.x - ax * lw, at.y - ay * lh);
+                Some([x0 / w, y0 / h, (x0 + lw) / w, (y0 + lh) / h])
+            })
             .collect()
     }
 
@@ -3654,14 +3858,18 @@ impl Renderer {
         if texgen::is_builtin(name) {
             return Ok(texgen::generate(name));
         }
-        let (path, retro) = match project.find_texture(name) {
-            Some(t) => (t.path.clone(), t.retro.clone()),
-            None => (name.to_string(), None),
+        let (path, retro, clip) = match project.find_texture(name) {
+            Some(t) => (t.path.clone(), t.retro.clone(), t.clip.clone()),
+            None => (name.to_string(), None, None),
         };
         let bytes = ez_core::store::read(&path).map_err(|e| e.to_string())?;
-        let img = image::load_from_memory(&bytes)
+        let mut img = image::load_from_memory(&bytes)
             .map_err(|e| e.to_string())?
             .to_rgba8();
+        // An animation's first frame.
+        if let Some(c) = &clip {
+            img = crate::clip::frame(&img, c, 0);
+        }
         Ok(match &retro {
             Some(r) => texgen::retroize(&img, r),
             None => img,
@@ -3716,6 +3924,65 @@ impl Renderer {
     /// Like [`Self::texture_key`]; `linear` pictures hold data (such as
     /// roughness), not colours, and are read without sRGB decoding.
     fn texture_key_as(&mut self, project: &Project, name: Option<&str>, linear: bool) -> String {
+        self.texture_key_impl(project, name, linear, false)
+    }
+
+    /// Like [`Self::texture_key`], but an animation's whole frame sheet
+    /// (for sprites, which pick the frame themselves).
+    fn texture_key_sheet(&mut self, project: &Project, name: Option<&str>) -> String {
+        self.texture_key_impl(project, name, false, true)
+    }
+
+    /// An animation's frame playing now (for everything but sprites): cut
+    /// out of its sheet and kept, one texture per frame.
+    fn clip_frame_key(
+        &mut self,
+        base: &str,
+        path: &str,
+        t: &UserTexture,
+        linear: bool,
+    ) -> Option<String> {
+        let clip = t.clip.as_ref()?;
+        let (phase, loop_s) = self.clip_time;
+        let k = clip.frame_at(phase, clip.cycles_per_loop(loop_s));
+        // The mirror marker stays at the end (it picks the sampler).
+        let key = match base.strip_suffix(MIRROR_KEY) {
+            Some(b) => format!("{b}#f{k}{MIRROR_KEY}"),
+            None => format!("{base}#f{k}"),
+        };
+        if self.textures.contains_key(&key) {
+            return Some(key);
+        }
+        let sheet = match self.clip_sheets.get(base) {
+            Some(s) => s.clone(),
+            None => {
+                let bytes = ez_core::store::read(path).ok()?;
+                let mut img = image::load_from_memory(&bytes).ok()?.to_rgba8();
+                if let Some(r) = &t.retro {
+                    img = texgen::retroize(&img, r);
+                }
+                let img = std::sync::Arc::new(img);
+                self.clip_sheets.insert(base.to_string(), img.clone());
+                img
+            }
+        };
+        let img = crate::clip::frame(&sheet, clip, k);
+        let format = if linear {
+            wgpu::TextureFormat::Rgba8Unorm
+        } else {
+            wgpu::TextureFormat::Rgba8UnormSrgb
+        };
+        self.upload_texture_as(key.clone(), &img, format);
+        Some(key)
+    }
+
+    fn texture_key_impl(
+        &mut self,
+        project: &Project,
+        name: Option<&str>,
+        linear: bool,
+        sheet: bool,
+    ) -> String {
         let Some(name) = name.filter(|n| !n.is_empty()) else {
             return "__white".into();
         };
@@ -3742,6 +4009,13 @@ impl Renderer {
             "u:{path}:{retro:?}{lin}{}",
             if mirror { MIRROR_KEY } else { "" }
         );
+        if !sheet {
+            if let Some(t) = project.find_texture(name).filter(|t| t.clip.is_some()) {
+                if let Some(k) = self.clip_frame_key(&key, &path, &t.clone(), linear) {
+                    return k;
+                }
+            }
+        }
         if self.textures.contains_key(&key) {
             return key;
         }
@@ -3758,6 +4032,9 @@ impl Renderer {
                 self.upload_texture_as(key.clone(), &img, format);
                 key
             }
+            // A library texture on the web while the library is fetched:
+            // plain white until it arrives (then it loads, as it isn't kept).
+            Err(_) if texlib::is_lib(&path) && texlib::loaded().is_none() => "__white".into(),
             Err(e) => {
                 self.errors
                     .insert(key.clone(), format!("texture '{name}' ({path}): {e}"));
@@ -3776,21 +4053,25 @@ impl Renderer {
         if texgen::is_builtin(name) {
             return Some(texgen::generate(name));
         }
-        let (path, retro) = match project.find_texture(name) {
-            Some(t) => (t.path.clone(), t.retro.clone()),
-            None => (name.to_string(), None),
+        let (path, retro, clip) = match project.find_texture(name) {
+            Some(t) => (t.path.clone(), t.retro.clone(), t.clip.clone()),
+            None => (name.to_string(), None, None),
         };
         let decoded = ez_core::store::read(&path)
             .map_err(|e| e.to_string())
             .and_then(|b| image::load_from_memory(&b).map_err(|e| e.to_string()));
         match decoded {
             Ok(img) => {
-                let img = img.to_rgba8();
+                let mut img = img.to_rgba8();
+                if let Some(c) = &clip {
+                    img = crate::clip::frame(&img, c, 0);
+                }
                 Some(match &retro {
                     Some(r) => texgen::retroize(&img, r),
                     None => img,
                 })
             }
+            Err(_) if texlib::is_lib(&path) && texlib::loaded().is_none() => None,
             Err(e) => {
                 self.errors
                     .insert(format!("sky:{name}"), format!("sky picture '{name}': {e}"));
@@ -4843,6 +5124,12 @@ impl Renderer {
         self.bakes.progress()
     }
 
+    /// Progress of the bakes the last render asked for (0..1), `None` when
+    /// what it drew has all its simulations baked.
+    pub fn scene_bake_progress(&self) -> Option<f32> {
+        self.bakes.asked_progress()
+    }
+
     /// Whether a simulation was drawn from an old bake (or not at all)
     /// since the last call; clears the flag.
     pub fn take_inexact(&mut self) -> bool {
@@ -5326,6 +5613,7 @@ impl Renderer {
 
     /// Render one scene (no sequence).
     fn render_scene(&mut self, project: &Project, ctx: &EvalCtx, target: &RenderTarget) {
+        self.clip_time = (ctx.phase, project.timing.loop_seconds());
         self.ensure_colormap(project);
         let mut layers = project.scene_layers(ctx);
         self.link_sims(project, ctx, &mut layers);
@@ -5493,7 +5781,9 @@ impl Renderer {
                         // Its relief slot holds the two distance fields.
                         self.morph_texture(&m.source, &m.morph.target)
                     } else if relief_on {
-                        self.texture_key(project, relief_name)
+                        // Normal maps hold directions, not colours.
+                        let linear = rel.mode == ReliefMode::NormalMap;
+                        self.texture_key_as(project, relief_name, linear)
                     } else {
                         "__white".to_string()
                     };
@@ -5759,11 +6049,18 @@ impl Renderer {
                         sdf,
                         gpu,
                         bounds,
+                        clear: !sdf && !morph && !liquid && mat.translucency.see_through(),
                     });
                     blocks.push(blk);
                     let mut pb = pbr_block(mat, smooth);
                     pb[3][0] = filter.index() as f32;
                     pb[3][1] = mat.mesh.eval(ctx).clamp(0.0, 1.0);
+                    let tl = &mat.translucency;
+                    let amount = tl.amount.eval(smooth).clamp(0.0, 1.0);
+                    pb[5] = c4(
+                        tl.color.map(|c| c * amount),
+                        tl.transparency.eval(ctx).clamp(0.0, 1.0),
+                    );
                     let tb = &mat.turbulence;
                     if tb.is_on() {
                         pb[4] = [
@@ -6225,7 +6522,7 @@ impl Renderer {
                     blocks.push(blk);
                 }
                 LayerKind::Sprite(sp) => {
-                    let tex = self.texture_key(project, sp.image.as_deref());
+                    let tex = self.texture_key_sheet(project, sp.image.as_deref());
                     self.tex_bind_group(&tex, sp.pixelated);
                     scratch.clear();
                     copies_with(layer, &sp.instancer, &sp.variation, ctx, None, &mut scratch);
@@ -6383,6 +6680,7 @@ impl Renderer {
                         sdf: false,
                         gpu: false,
                         bounds: None,
+                        clear: false,
                     });
                     blocks.push(blk);
                     blocks.push(Zeroable::zeroed());
@@ -7083,10 +7381,10 @@ impl Renderer {
                 None => true,
             })
             .collect();
-        let (solid, clear): (Vec<Cmd>, Vec<Cmd>) = rest.into_iter().partition(|c| {
+        let (solid, mut clear): (Vec<Cmd>, Vec<Cmd>) = rest.into_iter().partition(|c| {
             matches!(
                 c,
-                Cmd::Mesh { .. }
+                Cmd::Mesh { clear: false, .. }
                     | Cmd::Mode7 { .. }
                     | Cmd::Terrain { .. }
                     | Cmd::Sprite {
@@ -7095,6 +7393,19 @@ impl Renderer {
                     }
             )
         });
+        // See-through shapes last, the farthest first, so each blends over
+        // everything behind it (particles and sprites behind them too).
+        let eye = cam.eye;
+        let dist = |c: &Cmd| {
+            self.cmd_bounds(c, &blocks)
+                .map_or(0.0, |(centre, _)| centre.distance_squared(eye))
+        };
+        let (mut glass, rest_clear): (Vec<Cmd>, Vec<Cmd>) = clear
+            .into_iter()
+            .partition(|c| matches!(c, Cmd::Mesh { clear: true, .. }));
+        glass.sort_by(|a, b| dist(b).total_cmp(&dist(a)));
+        clear = rest_clear;
+        clear.extend(glass);
         // Retro 3D at a low resolution: the scene is drawn small, then
         // blown up; text can stay sharp, drawn after at full size.
         let low = retro_size.and_then(|_| self.retro_targets.get(&target.id));
@@ -7967,6 +8278,7 @@ impl Renderer {
                     sdf,
                     gpu,
                     liquid,
+                    clear,
                     ..
                 } => {
                     // A liquid surface is drawn by its own passes (its
@@ -7975,15 +8287,24 @@ impl Renderer {
                         continue;
                     }
                     let m = &self.meshes[mesh];
-                    pass.set_pipeline(if *sdf { &pipes.sdf } else { &pipes.mesh });
-                    pass.set_bind_group(0, &self.globals_bg[globals], &[]);
-                    pass.set_bind_group(1, &self.draw_mesh_bg, &mesh_offsets(*slot));
-                    pass.set_bind_group(2, &self.mesh_tex_bgs[texs], &[]);
-                    pass.set_bind_group(3, &self.shadow_bg, &[]);
-                    pass.set_vertex_buffer(0, m.vbuf.slice(..));
-                    pass.set_vertex_buffer(1, self.mesh_instances(*gpu).slice(..));
-                    pass.set_index_buffer(m.ibuf.slice(..), wgpu::IndexFormat::Uint32);
-                    pass.draw_indexed(0..m.count, 0, *first..*first + *count);
+                    let steps: &[&wgpu::RenderPipeline] = if *sdf {
+                        &[&pipes.sdf]
+                    } else if *clear {
+                        &[&pipes.mesh_depth, &pipes.mesh_clear]
+                    } else {
+                        &[&pipes.mesh]
+                    };
+                    for pipe in steps {
+                        pass.set_pipeline(pipe);
+                        pass.set_bind_group(0, &self.globals_bg[globals], &[]);
+                        pass.set_bind_group(1, &self.draw_mesh_bg, &mesh_offsets(*slot));
+                        pass.set_bind_group(2, &self.mesh_tex_bgs[texs], &[]);
+                        pass.set_bind_group(3, &self.shadow_bg, &[]);
+                        pass.set_vertex_buffer(0, m.vbuf.slice(..));
+                        pass.set_vertex_buffer(1, self.mesh_instances(*gpu).slice(..));
+                        pass.set_index_buffer(m.ibuf.slice(..), wgpu::IndexFormat::Uint32);
+                        pass.draw_indexed(0..m.count, 0, *first..*first + *count);
+                    }
                 }
                 Cmd::Particles { slot, count } => {
                     pass.set_pipeline(&pipes.particles);
@@ -8274,12 +8595,16 @@ impl Renderer {
         } else {
             0.0
         };
+        // A colour cube is a quantiser (-levels per channel); a list is
+        // packed four colours per slot as 0xRRGGBB (exact in a float),
+        // up to 64.
         let (count, cols) = if post.palette.enabled {
-            if post.palette.palette == PaletteId::Vga {
-                (-1.0, vec![])
-            } else {
-                let c = post.palette.palette.colors_f32();
-                (c.len().min(16) as f32, c)
+            match post.palette.palette.levels() {
+                Some(n) => (-(n as f32), vec![]),
+                None => {
+                    let c = post.palette.palette.colors();
+                    (c.len().min(64) as f32, c.to_vec())
+                }
             }
         } else {
             (0.0, vec![])
@@ -8294,8 +8619,8 @@ impl Renderer {
         let frames = ctx.loop_beats as f32 * 6.0;
         let frame_id = (ctx.beat_phase * frames).floor().rem_euclid(frames);
         f[5] = [ctx.beat_frac(), frame_id, ctx.loop_beats as f32, 0.0];
-        for (i, c) in cols.iter().take(16).enumerate() {
-            f[8 + i] = c4(*c, 1.0);
+        for (i, c) in cols.iter().take(64).enumerate() {
+            f[8 + i / 4][i % 4] = *c as f32;
         }
         let vhs = &post.vhs;
         if vhs.enabled {
@@ -8331,6 +8656,33 @@ impl Renderer {
                     .unwrap_or_else(|| ez_core::retro::fit_to_output([320, 240], out));
                 slots[SLOT_FINAL as usize][25] = [vi, 1.0 / cw as f32, 1.0 / ch as f32, 0.0];
             }
+        }
+        // Retro 3D whole screen: the console's pixels and its rectangle.
+        let sc = &project.retro.screen;
+        if project.retro.enabled && sc.enabled {
+            let f = &mut slots[SLOT_FINAL as usize];
+            // A loading tape: stripes in the border, the picture arriving.
+            let st = sc.stripes.at(ctx.phase, ctx.loop_beats);
+            f[26] = [
+                sc.size[0].max(1) as f32,
+                sc.size[1].max(1) as f32,
+                1.0,
+                st.reveal,
+            ];
+            f[27] = sc.rect((target.width, target.height));
+            f[28] = c4(project.scene_color(sc.border, ctx), 0.0);
+            f[29] = [
+                st.mode as f32,
+                st.bands,
+                st.offset,
+                (st.seed % 65536) as f32,
+            ];
+            let (a, b) = match st.mode {
+                1 => (0xff0000, 0x00ffff),
+                _ => (0x0000ff, 0xffff00),
+            };
+            f[30] = c4(ez_core::color::hex(a), 0.0);
+            f[31] = c4(ez_core::color::hex(b), 0.0);
         }
         for (i, s) in slots.iter().enumerate() {
             self.queue

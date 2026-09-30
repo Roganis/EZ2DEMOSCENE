@@ -1,0 +1,14 @@
+The textures in texture_library.zip are released under Creative Commons Zero
+(CC0): http://creativecommons.org/publicdomain/zero/1.0/
+
+PBR materials: Poly Haven (polyhaven.com)
+Low-resolution textures:
+  Screaming Brain Studios: Tiny Texture Pack
+  Screaming Brain Studios: Tiny Texture Pack 2
+  Screaming Brain Studios: Synthetic Texture Pack
+  Screaming Brain Studios: Horror Texture Pack
+  Screaming Brain Studios: 200 Tile Floor Textures
+  Screaming Brain Studios: 150 Roof Textures
+  Screaming Brain Studios: 140 Liquid Textures
+  Kenney: Voxel Pack
+  Kenney: Pattern Pack (Pixel)

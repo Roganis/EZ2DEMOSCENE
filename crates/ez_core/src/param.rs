@@ -8,13 +8,14 @@ use crate::clock::EvalCtx;
 use crate::music::{AudioSource, MusicMod};
 use crate::rng::hash2;
 use crate::sim::math as sim_math;
+use schemars::JsonSchema;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Oscillator shape.
 ///
 /// LFO and random shapes swing both ways (-1..1). The fades run 0..1 once
 /// per cycle, so with "×/loop" = beats per loop they fire on every beat.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 pub enum Wave {
     #[default]
     Sine,
@@ -208,41 +209,25 @@ impl Wave {
     }
 }
 
-/// How an envelope goes from one point to the next.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum Curve {
-    /// Straight line.
-    #[default]
-    Linear,
-    /// Eases out of one point and into the next.
-    Smooth,
-    /// Starts slowly, arrives fast.
-    EaseIn,
-    /// Starts fast, arrives slowly.
-    EaseOut,
-    /// Stays, then jumps at the next point.
-    Hold,
+labeled_enum! {
+    /// How an envelope goes from one point to the next.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+    pub enum Curve {
+        /// Straight line.
+        #[default]
+        Linear => "Straight",
+        /// Eases out of one point and into the next.
+        Smooth => "Smooth",
+        /// Starts slowly, arrives fast.
+        EaseIn => "Ease in (slow start)",
+        /// Starts fast, arrives slowly.
+        EaseOut => "Ease out (slow end)",
+        /// Stays, then jumps at the next point.
+        Hold => "Hold, then jump",
+    }
 }
 
 impl Curve {
-    pub const ALL: [Curve; 5] = [
-        Curve::Linear,
-        Curve::Smooth,
-        Curve::EaseIn,
-        Curve::EaseOut,
-        Curve::Hold,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Curve::Linear => "Straight",
-            Curve::Smooth => "Smooth",
-            Curve::EaseIn => "Ease in (slow start)",
-            Curve::EaseOut => "Ease out (slow end)",
-            Curve::Hold => "Hold, then jump",
-        }
-    }
-
     /// Progress 0..1 along a segment shaped by the curve.
     fn shape(self, u: f32) -> f32 {
         let u = u.clamp(0.0, 1.0);
@@ -258,7 +243,7 @@ impl Curve {
 
 /// One point of an envelope: where in the cycle (0..1), how high (0..1),
 /// and how it goes on to the next point.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct EnvPoint {
     pub t: f32,
     pub v: f32,
@@ -356,41 +341,25 @@ impl Envelope {
     }
 }
 
-/// A shape drawn into one cell of the envelope's grid (the editor's shape
-/// tools), from the bottom up to a height.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Stamp {
-    /// Flat across the cell.
-    Step,
-    /// High for the first half, low for the second.
-    Square,
-    /// Rises across the cell, then drops.
-    RampUp,
-    /// Jumps up, then falls across the cell.
-    RampDown,
-    /// Up and back down.
-    Triangle,
+labeled_enum! {
+    /// A shape drawn into one cell of the envelope's grid (the editor's shape
+    /// tools), from the bottom up to a height.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Stamp {
+        /// Flat across the cell.
+        Step => "Step: flat at the height you click",
+        /// High for the first half, low for the second.
+        Square => "Square: high, then low",
+        /// Rises across the cell, then drops.
+        RampUp => "Ramp up: rises, then drops",
+        /// Jumps up, then falls across the cell.
+        RampDown => "Ramp down: jumps up, then falls",
+        /// Up and back down.
+        Triangle => "Triangle: up and down",
+    }
 }
 
 impl Stamp {
-    pub const ALL: [Stamp; 5] = [
-        Stamp::Step,
-        Stamp::Square,
-        Stamp::RampUp,
-        Stamp::RampDown,
-        Stamp::Triangle,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Stamp::Step => "Step: flat at the height you click",
-            Stamp::Square => "Square: high, then low",
-            Stamp::RampUp => "Ramp up: rises, then drops",
-            Stamp::RampDown => "Ramp down: jumps up, then falls",
-            Stamp::Triangle => "Triangle: up and down",
-        }
-    }
-
     /// The shape in a unit cell at height 1: its points (t, v, curve on to
     /// the next), and the value it arrives at by the end of the cell.
     pub fn outline(self) -> (&'static [(f32, f32, Curve)], f32) {
@@ -619,6 +588,125 @@ impl<'de> Deserialize<'de> for EnvRef {
     }
 }
 
+labeled_enum! {
+    /// The shape of a one-shot ramp, from its start to its end.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+    pub enum Ease {
+        /// Constant speed.
+        Linear => "Linear",
+        /// Starts slowly, arrives fast.
+        In => "Ease in",
+        /// Starts fast, settles gently (the usual choice for things arriving).
+        #[default]
+        Out => "Ease out",
+        /// Slow at both ends.
+        InOut => "Ease in-out",
+        /// Overshoots a little, then settles.
+        Back => "Overshoot",
+        /// Lands and bounces.
+        Bounce => "Bounce",
+        /// Holds, then jumps at the end.
+        Step => "Jump at end",
+    }
+}
+
+impl Ease {
+    /// Progress 0..1 for time 0..1 (Back goes a little past 1).
+    pub fn apply(self, t: f32) -> f32 {
+        let t = t.clamp(0.0, 1.0);
+        match self {
+            Ease::Linear => t,
+            Ease::In => t * t * t,
+            Ease::Out => 1.0 - (1.0 - t).powi(3),
+            Ease::InOut => {
+                if t < 0.5 {
+                    4.0 * t * t * t
+                } else {
+                    1.0 - (-2.0 * t + 2.0).powi(3) / 2.0
+                }
+            }
+            Ease::Back => {
+                let (c1, c3) = (1.70158, 2.70158);
+                1.0 + c3 * (t - 1.0).powi(3) + c1 * (t - 1.0).powi(2)
+            }
+            Ease::Bounce => {
+                let (n, d) = (7.5625, 2.75);
+                if t < 1.0 / d {
+                    n * t * t
+                } else if t < 2.0 / d {
+                    let t = t - 1.5 / d;
+                    n * t * t + 0.75
+                } else if t < 2.5 / d {
+                    let t = t - 2.25 / d;
+                    n * t * t + 0.9375
+                } else {
+                    let t = t - 2.625 / d;
+                    n * t * t + 0.984375
+                }
+            }
+            Ease::Step => {
+                if t >= 1.0 {
+                    1.0
+                } else {
+                    0.0
+                }
+            }
+        }
+    }
+}
+
+/// A change that happens once: the value moves by `by` from beat `start`
+/// to beat `start + length` of the timeline clip it plays in, then holds.
+/// Outside a timeline the beats count from the start of the loop, so the
+/// ramp plays again every loop (and the loop point shows the jump back).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(default)]
+pub struct Ramp {
+    /// Beat of the clip where the change begins.
+    pub start: f32,
+    /// How many beats it takes (0 = at once).
+    pub length: f32,
+    /// How much the value changes (0 = no ramp).
+    pub by: f32,
+    pub ease: Ease,
+}
+
+impl Ramp {
+    pub const OFF: Ramp = Ramp {
+        start: 0.0,
+        length: 2.0,
+        by: 0.0,
+        ease: Ease::Out,
+    };
+
+    pub fn is_off(&self) -> bool {
+        self.by == 0.0
+    }
+
+    /// What the ramp adds `clip_beats` into the clip.
+    pub fn eval(&self, clip_beats: f32) -> f32 {
+        if self.is_off() {
+            return 0.0;
+        }
+        let t = if self.length <= 0.0 {
+            if clip_beats >= self.start {
+                1.0
+            } else {
+                0.0
+            }
+        } else {
+            (clip_beats - self.start) / self.length
+        };
+        self.by * self.ease.apply(t)
+    }
+}
+
+impl Default for Ramp {
+    fn default() -> Self {
+        Ramp::OFF
+    }
+}
+
 /// An animatable number.
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct Param {
@@ -638,6 +726,8 @@ pub struct Param {
     pub music: MusicMod,
     /// The points of the `Envelope` wave.
     pub env: EnvRef,
+    /// A one-shot change at the start of the clip.
+    pub ramp: Ramp,
 }
 
 impl Param {
@@ -658,6 +748,7 @@ impl Param {
                 length: 0.5,
             },
             env: EnvRef(0),
+            ramp: Ramp::OFF,
         }
     }
 
@@ -687,7 +778,12 @@ impl Param {
     }
 
     pub fn is_animated(&self) -> bool {
-        self.amp != 0.0 || self.audio != 0.0 || self.music.amount != 0.0
+        self.amp != 0.0 || self.audio != 0.0 || self.music.amount != 0.0 || !self.ramp.is_off()
+    }
+
+    /// The farthest the value gets from 0 without the music (for sizing).
+    pub fn reach(&self) -> f32 {
+        self.base.abs() + self.amp.abs() + self.ramp.by.abs()
     }
 
     /// True when the value depends on the music.
@@ -723,6 +819,7 @@ impl Param {
             v += self.audio * ctx.audio;
         }
         v += self.music.eval(&ctx.music, ctx.beat_seconds);
+        v += self.ramp.eval(ctx.clip_beats());
         v
     }
 }
@@ -734,19 +831,63 @@ impl From<f32> for Param {
 }
 
 // Serialize static params as plain numbers to keep project files readable.
-#[derive(Serialize, Deserialize)]
+/// An animated value: `base` plus an oscillator (and optionally music).
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
+#[schemars(rename = "AnimatedParam")]
 struct ParamFull {
+    /// Value when not animated.
     base: f32,
+    /// Oscillator amplitude (0 = static).
     amp: f32,
     wave: Wave,
+    /// Whole cycles per loop (negative runs backwards). Must be a whole
+    /// number so the loop closes.
     cycles: i32,
+    /// Phase offset of the oscillator in cycles (0..1).
     offset: f32,
+    /// Amount of audio level added (0 = none). Older projects; new ones
+    /// use `music`.
     audio: f32,
+    /// Link to the music (kick, bass, hits, pitch…).
     #[serde(skip_serializing_if = "music_off")]
     music: MusicMod,
+    /// The points of the `Envelope` wave.
     #[serde(skip_serializing_if = "EnvRef::is_default")]
     env: EnvRef,
+    /// A one-shot change at the start of the clip (in a timeline) or the
+    /// loop: e.g. `{"start": 0, "length": 2, "by": -1, "ease": "Out"}`.
+    #[serde(skip_serializing_if = "Ramp::is_off")]
+    ramp: Ramp,
+}
+
+impl JsonSchema for Param {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "Param".into()
+    }
+
+    fn json_schema(g: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        let animated = g.subschema_for::<ParamFull>();
+        schemars::json_schema!({
+            "description": "An animatable number: a plain number when it holds still, \
+                or an object that animates it over the loop.",
+            "anyOf": [{ "type": "number" }, animated]
+        })
+    }
+}
+
+impl JsonSchema for EnvRef {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "Envelope".into()
+    }
+
+    fn json_schema(g: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        let points = g.subschema_for::<Vec<EnvPoint>>();
+        schemars::json_schema!({
+            "description": "The points of a drawn envelope, in order through the cycle.",
+            "allOf": [points]
+        })
+    }
 }
 
 fn music_off(m: &MusicMod) -> bool {
@@ -765,11 +906,12 @@ impl Default for ParamFull {
             audio: p.audio,
             music: p.music,
             env: p.env,
+            ramp: p.ramp,
         }
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, JsonSchema)]
 #[serde(untagged)]
 enum ParamRepr {
     Const(f32),
@@ -790,6 +932,7 @@ impl Serialize for Param {
                 audio: self.audio,
                 music: self.music,
                 env: self.env,
+                ramp: self.ramp,
             }
             .serialize(s)
         }
@@ -809,6 +952,7 @@ impl<'de> Deserialize<'de> for Param {
                 audio: f.audio,
                 music: f.music,
                 env: f.env,
+                ramp: f.ramp,
             },
         })
     }
@@ -1053,5 +1197,61 @@ mod tests {
         let s = serde_json::to_string(&a).unwrap();
         let back: Param = serde_json::from_str(&s).unwrap();
         assert_eq!(a, back);
+    }
+
+    #[test]
+    fn eases_start_at_0_and_end_at_1() {
+        for e in Ease::ALL {
+            assert_eq!(e.apply(0.0), 0.0, "{e:?}");
+            assert!((e.apply(1.0) - 1.0).abs() < 1e-5, "{e:?}");
+            assert!((e.apply(-3.0)).abs() < 1e-6 && (e.apply(9.0) - 1.0).abs() < 1e-5);
+        }
+        assert!(Ease::Out.apply(0.5) > 0.5 && Ease::In.apply(0.5) < 0.5);
+        assert!((0..100).any(|i| Ease::Back.apply(i as f32 / 100.0) > 1.0));
+        assert_eq!(Ease::Step.apply(0.99), 0.0);
+    }
+
+    #[test]
+    fn a_ramp_changes_once_then_holds() {
+        let mut p = Param::new(10.0);
+        p.ramp = Ramp {
+            start: 4.0,
+            length: 2.0,
+            by: -10.0,
+            ease: Ease::Linear,
+        };
+        let at_ = |p: &Param, beats: f32| {
+            let mut c = EvalCtx::at(0.0);
+            c.clip_base = beats;
+            p.eval(&c)
+        };
+        assert_eq!(at_(&p, 0.0), 10.0);
+        assert_eq!(at_(&p, 4.0), 10.0);
+        assert!((at_(&p, 5.0) - 5.0).abs() < 1e-5);
+        assert_eq!(at_(&p, 6.0), 0.0);
+        assert_eq!(at_(&p, 100.0), 0.0);
+        // Length 0: a jump at `start`.
+        p.ramp.length = 0.0;
+        assert_eq!((at_(&p, 3.9), at_(&p, 4.0)), (10.0, 0.0));
+        // Outside a timeline, beats count from the start of the loop.
+        p.ramp.length = 16.0;
+        p.ramp.start = 0.0;
+        assert!((p.eval(&EvalCtx::at(0.25)) - 7.5).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_ramp_makes_a_param_animated_and_round_trips() {
+        let mut p = Param::new(2.0);
+        assert!(!p.is_animated());
+        p.ramp.by = 3.0;
+        assert!(p.is_animated());
+        assert_eq!(p.reach(), 5.0);
+        let s = serde_json::to_string(&p).unwrap();
+        assert!(s.contains("\"ramp\""), "{s}");
+        assert_eq!(serde_json::from_str::<Param>(&s).unwrap(), p);
+        // Absent: off, and not written.
+        let plain: Param = serde_json::from_str(r#"{"base": 1.0, "amp": 0.5}"#).unwrap();
+        assert!(plain.ramp.is_off());
+        assert!(!serde_json::to_string(&plain).unwrap().contains("ramp"));
     }
 }
