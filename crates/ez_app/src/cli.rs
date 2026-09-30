@@ -16,6 +16,7 @@ USAGE:
                  [--motion-blur 8] [--shutter 0.5]
                  (OUT: .mp4 .webm .gif, or a folder for a PNG sequence)
     ez2demoscene --list-presets
+    ez2demoscene --mcp                           serve the Model Context Protocol on stdin/stdout
     ez2demoscene --write-presets DIR              save built-in presets as projects
     ez2demoscene --write-textures DIR             save the built-in texture pack as PNGs
     ez2demoscene --write-preset-thumbs OUT.zip    render the gallery pictures of the built-in presets
@@ -69,6 +70,7 @@ pub fn run(args: &[String]) -> Result<Option<i32>> {
         "-h" | "--help" => {
             print!("{HELP}");
         }
+        "--mcp" => crate::mcp::serve()?,
         "--list-presets" => {
             for p in presets::all() {
                 println!("{:<22} {}", p.name, p.description);

@@ -368,6 +368,35 @@ ez2demoscene --write-textures assets/textures
 ez2demoscene --write-preset-thumbs assets/presets/thumbnails.zip   # after changing a preset
 ```
 
+### AI assistants (MCP)
+
+`ez2demoscene --mcp` runs a [Model Context Protocol](https://modelcontextprotocol.io)
+server on stdin/stdout, so an AI assistant can build scenes with you: it
+reads the presets as examples, writes scene JSON, looks at renders of it and
+exports the loop. Add it to Claude Code with
+
+```sh
+claude mcp add ez2demoscene -- /path/to/ez2demoscene --mcp
+```
+
+or to any MCP client that launches servers as a command (for example
+`"command": "/path/to/ez2demoscene", "args": ["--mcp"]`). It needs a GPU,
+like the editor; video and GIF export need ffmpeg.
+
+| Tool | What it does |
+|---|---|
+| `list_presets` | The built-in presets with their group and description. |
+| `get_scene` | A preset, project file or pack as project JSON. |
+| `check_scene` | Validates a scene: errors name the field at fault, and it lists fields that were ignored. |
+| `render_frame` | One frame as a PNG image, at any point of the loop. |
+| `preview_loop` | A contact sheet of frames across the loop, plus a check that the loop point is seamless. |
+| `save_scene` | Saves an `.ez2.json` project the editor opens (never overwrites unless asked). |
+| `export_loop` | Renders the loop to MP4, WebM, GIF or PNGs. |
+
+Scenes are passed as a preset name, a file path or a whole project object.
+The server speaks protocol revision 2026-07-28 and, through `initialize`,
+the earlier ones back to 2024-11-05.
+
 ### Changing a built-in preset
 
 The presets are ordinary project files in `assets/presets/`. Open one in

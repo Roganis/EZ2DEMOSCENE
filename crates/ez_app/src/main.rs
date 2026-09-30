@@ -15,6 +15,8 @@ mod inspector;
 #[cfg_attr(target_arch = "wasm32", path = "library_web.rs")]
 mod library;
 mod live;
+#[cfg(not(target_arch = "wasm32"))]
+mod mcp;
 mod music_task;
 mod nodes;
 mod platform;
