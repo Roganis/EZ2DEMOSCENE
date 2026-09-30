@@ -9,6 +9,7 @@
 pub mod analysis;
 pub mod assets;
 pub mod audio;
+pub mod channels;
 pub mod clock;
 pub mod color;
 pub mod eval;
@@ -30,6 +31,7 @@ pub mod store;
 pub mod terrain;
 
 pub use audio::AudioEnvelope;
+pub use channels::{ChannelDef, ChannelFrame, ChannelInput, ChannelKind};
 pub use clock::{EvalCtx, Timing};
 pub use music::{AudioSource, MusicFrame, MusicMod, MusicMode, MusicSettings, TimeWarp};
 pub use param::{Curve, EnvPoint, EnvRef, Envelope, Param, Stamp, Wave, WAVE_GROUPS};

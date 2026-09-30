@@ -787,12 +787,15 @@ pub fn param(
 fn music_row(ui: &mut Ui, id: egui::Id, p: &mut Param, span: f32) -> bool {
     use ez_core::AudioSource;
     let mut changed = false;
+    // The project's live channels, named as it declares them.
+    let settings = music(ui).map(|mp| mp.settings).unwrap_or_default();
+    let (chan_follow, chan_hits) = AudioSource::channels(&settings);
     let m = &mut p.music;
     ui.horizontal(|ui| {
         let text = if m.amount == 0.0 {
             "🎵 music: off".to_string()
         } else {
-            format!("🎵 {}", m.source.label())
+            format!("🎵 {}", m.source.label_in(&settings))
         };
         egui::ComboBox::from_id_salt(id.with("music"))
             .selected_text(text)
@@ -806,12 +809,20 @@ fn music_row(ui: &mut Ui, id: egui::Id, p: &mut Param, span: f32) -> bool {
                 for (title, list) in [
                     ("Follow", &AudioSource::FOLLOW[..]),
                     ("On each hit", &AudioSource::HITS[..]),
+                    ("Live channels", &chan_follow[..]),
+                    ("On each live channel hit", &chan_hits[..]),
                 ] {
+                    if list.is_empty() {
+                        continue;
+                    }
                     ui.separator();
                     ui.label(RichText::new(title).small().weak());
                     for src in list {
                         let r = ui
-                            .selectable_label(m.amount != 0.0 && m.source == *src, src.label())
+                            .selectable_label(
+                                m.amount != 0.0 && m.source == *src,
+                                src.label_in(&settings),
+                            )
                             .on_hover_text(src.description());
                         if r.clicked() {
                             m.source = *src;
@@ -828,7 +839,9 @@ fn music_row(ui: &mut Ui, id: egui::Id, p: &mut Param, span: f32) -> bool {
                 }
             })
             .response
-            .on_hover_text("React to the music (needs a music file, MIDI notes or live input)");
+            .on_hover_text(
+                "React to the music (needs a music file, MIDI notes or live input) or to a live channel",
+            );
         if m.amount != 0.0 {
             changed |= ui
                 .add(

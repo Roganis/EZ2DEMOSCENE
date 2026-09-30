@@ -134,6 +134,12 @@ impl EvalCtx {
         self
     }
 
+    /// Add the live channels a host (or the preview) is feeding.
+    pub fn with_channels(mut self, channels: crate::channels::ChannelFrame) -> Self {
+        self.music.channels = channels;
+        self
+    }
+
     /// Context with only a phase (no audio), handy for tests and thumbnails.
     pub fn at(phase: f32) -> Self {
         EvalCtx {

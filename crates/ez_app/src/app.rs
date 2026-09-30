@@ -100,6 +100,9 @@ pub struct EzApp {
     /// Microphone / line-in driving the preview.
     live: Option<crate::live::LiveInput>,
     live_frame: Option<ez_core::MusicFrame>,
+    /// The live channels as the preview's controls set them (never saved;
+    /// exports see the channels silent).
+    channels_preview: ez_core::ChannelInput,
 
     presets_open: bool,
     /// Open the preset gallery when the app starts.
@@ -259,6 +262,7 @@ impl EzApp {
             audio_cache: None,
             live: None,
             live_frame: None,
+            channels_preview: ez_core::ChannelInput::default(),
             presets_open: false,
             presets_on_startup: platform::load_setting(PRESETS_ON_STARTUP).as_deref() != Some("no"),
             thumbs: Vec::new(),
@@ -347,9 +351,14 @@ impl EzApp {
     /// Everything animated values depend on right now.
     fn eval_ctx(&self) -> EvalCtx {
         let ctx = self.project.ctx_at(self.time, self.audio_env.as_deref());
-        match self.live_frame {
+        let ctx = match self.live_frame {
             Some(f) => ctx.with_frame(f),
             None => ctx,
+        };
+        if self.project.music.channels.is_empty() {
+            ctx
+        } else {
+            ctx.with_channels(self.channels_preview.frame())
         }
     }
 
@@ -1749,9 +1758,93 @@ impl EzApp {
             );
         });
         ui.add_space(6.0);
+        ui.add_space(6.0);
+        self.channels_ui(ui);
+        ui.add_space(6.0);
         let frame = self.eval_ctx().music;
         widgets::section(ui, "Meters", true, |ui| music_meters(ui, &frame));
         self.live_ui(ui);
+    }
+
+    /// The project's live channels: declare them, and poke them to see the
+    /// preview react (a host program feeds them for real).
+    fn channels_ui(&mut self, ui: &mut Ui) {
+        let mut remove = None;
+        let preview = &mut self.channels_preview;
+        let channels = &mut self.project.music.channels;
+        let open = !channels.is_empty();
+        widgets::section(ui, "Live channels", open, |ui| {
+            ui.label(
+                RichText::new(
+                    "Named values and hits another program feeds while the project plays \
+                     (a controller, a game, OSC…). Link any value to one in its 🎵 row. \
+                     The controls here only try them in the preview; exports see them silent.",
+                )
+                .weak()
+                .small(),
+            );
+            for (i, d) in channels.iter_mut().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut d.name)
+                            .desired_width(96.0)
+                            .hint_text("name"),
+                    )
+                    .on_hover_text("The name the feeding program uses");
+                    egui::ComboBox::from_id_salt(("channel kind", i))
+                        .selected_text(d.kind.label())
+                        .width(56.0)
+                        .show_ui(ui, |ui| {
+                            for k in ez_core::ChannelKind::ALL {
+                                ui.selectable_value(&mut d.kind, k, k.label());
+                            }
+                        });
+                    match d.kind {
+                        ez_core::ChannelKind::Value => {
+                            let mut v = preview.value(i);
+                            if ui
+                                .add(egui::Slider::new(&mut v, 0.0..=1.0).show_value(false))
+                                .on_hover_text("Try a value in the preview")
+                                .changed()
+                            {
+                                preview.set(i, v);
+                            }
+                        }
+                        ez_core::ChannelKind::Hit => {
+                            if ui
+                                .button("hit")
+                                .on_hover_text("Try a hit in the preview")
+                                .clicked()
+                            {
+                                preview.hit(i, 1.0);
+                            }
+                        }
+                    }
+                    if ui
+                        .small_button("🗑")
+                        .on_hover_text("Remove the channel (values linked to it stop following)")
+                        .clicked()
+                    {
+                        remove = Some(i);
+                    }
+                });
+            }
+            let full = channels.len() >= ez_core::channels::MAX_CHANNELS;
+            if ui
+                .add_enabled(!full, egui::Button::new("+ Add channel"))
+                .clicked()
+            {
+                channels.push(ez_core::ChannelDef {
+                    name: format!("Channel {}", channels.len() + 1),
+                    kind: ez_core::ChannelKind::Value,
+                });
+            }
+        });
+        if let Some(i) = remove {
+            ez_core::channels::remove_channel(&mut self.project, i);
+            // The preview's values were by position too.
+            self.channels_preview.reset();
+        }
     }
 
     fn live_ui(&mut self, ui: &mut Ui) {
@@ -2788,6 +2881,7 @@ impl eframe::App for EzApp {
                 ctx.request_repaint();
             }
         }
+        self.channels_preview.advance(dt as f32);
         // Live input: analyse, and let a time warp speed up the clock.
         self.live_frame = None;
         if let Some(live) = &mut self.live {

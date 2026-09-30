@@ -240,6 +240,11 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     run through the **whole song**; video exports mux the matching audio.
   - **MIDI files** give exact drum hits and melody; **live input**
     (microphone / line-in) drives the preview for VJ sets.
+  - **Live channels**: named values and hits that another program feeds
+    while the project plays (a controller, a game, OSC glue). Declare them
+    in *Timing & music*, link any value to one in its 🎵 row like the kick,
+    and try them with the preview's sliders and hit buttons. Exports see
+    them silent, so they stay repeatable.
 - **Randomize / Surprise me.** Seeded, harmonious mutations (one global hue
   rotation, bounded counts, loop-safe motion), and every change can be
   undone.

@@ -12,8 +12,13 @@
 //! **Time warp.** Motion runs faster while the chosen source is strong. The
 //! warped time is rescaled so a full loop still ends exactly where it
 //! started, so anything with whole cycles per loop still loops.
+//!
+//! **Live channels** ([`crate::channels`]) are named values and hits fed
+//! from outside while the project plays; a value links to one exactly as
+//! it links to the kick.
 
 use crate::audio::{AudioEnvelope, Curve, HitKind, CURVES, HITS, SPECTRUM_BANDS};
+use crate::channels::{ChannelDef, ChannelFrame, ChannelKind, MAX_CHANNELS};
 use crate::clock::Timing;
 use crate::param::Wave;
 use serde::{Deserialize, Serialize};
@@ -53,6 +58,11 @@ pub enum AudioSource {
     HatHit,
     AnyHit,
     NoteHit,
+    /// Live channel `n` of the project's [`MusicSettings::channels`],
+    /// followed like a curve.
+    Channel(u8),
+    /// Every hit on live channel `n`.
+    ChannelHit(u8),
 }
 
 impl AudioSource {
@@ -87,7 +97,42 @@ impl AudioSource {
             AudioSource::HatHit => "Each hi-hat",
             AudioSource::AnyHit => "Each hit (any)",
             AudioSource::NoteHit => "Each new note",
+            AudioSource::Channel(_) => "Live channel",
+            AudioSource::ChannelHit(_) => "Each live channel hit",
         }
+    }
+
+    /// The label with a live channel's own name, as the project declares it.
+    pub fn label_in(self, s: &MusicSettings) -> String {
+        match self {
+            AudioSource::Channel(i) | AudioSource::ChannelHit(i) => {
+                let name = s
+                    .channels
+                    .get(i as usize)
+                    .map(|d| d.name.as_str())
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or("?");
+                if matches!(self, AudioSource::ChannelHit(_)) {
+                    format!("Each {name}")
+                } else {
+                    name.to_string()
+                }
+            }
+            _ => self.label().to_string(),
+        }
+    }
+
+    /// The project's live channels as sources: values to follow, then hits.
+    pub fn channels(s: &MusicSettings) -> (Vec<AudioSource>, Vec<AudioSource>) {
+        let mut follow = Vec::new();
+        let mut hits = Vec::new();
+        for (i, d) in s.channels.iter().enumerate().take(MAX_CHANNELS) {
+            match d.kind {
+                ChannelKind::Value => follow.push(AudioSource::Channel(i as u8)),
+                ChannelKind::Hit => hits.push(AudioSource::ChannelHit(i as u8)),
+            }
+        }
+        (follow, hits)
     }
 
     pub fn description(self) -> &'static str {
@@ -106,6 +151,12 @@ impl AudioSource {
             AudioSource::HatHit => "Plays the shape on every hi-hat",
             AudioSource::AnyHit => "Plays the shape on every onset",
             AudioSource::NoteHit => "Plays the shape on every new note",
+            AudioSource::Channel(_) => {
+                "Follows a live channel fed while the project plays (silent in exports)"
+            }
+            AudioSource::ChannelHit(_) => {
+                "Plays the shape on every hit of a live channel (silent in exports)"
+            }
         }
     }
 
@@ -134,7 +185,7 @@ impl AudioSource {
     }
 
     pub fn is_hit(self) -> bool {
-        self.hit().is_some()
+        self.hit().is_some() || matches!(self, AudioSource::ChannelHit(_))
     }
 }
 
@@ -175,7 +226,32 @@ impl MusicMod {
 
     /// Contribution at this moment.
     pub fn eval(&self, m: &MusicFrame, beat_seconds: f32) -> f32 {
-        if self.amount == 0.0 || !m.active {
+        if self.amount == 0.0 {
+            return 0.0;
+        }
+        // Live channels answer whether or not there is music.
+        match self.source {
+            AudioSource::Channel(i) => {
+                let c = &m.channels;
+                let i = i as usize;
+                if !c.active || i >= MAX_CHANNELS {
+                    return 0.0;
+                }
+                let v = if self.smooth { c.smooth[i] } else { c.fast[i] };
+                let t = self.threshold.clamp(0.0, 0.99);
+                return self.amount * ((v - t) / (1.0 - t)).max(0.0);
+            }
+            AudioSource::ChannelHit(i) => {
+                let c = &m.channels;
+                let i = i as usize;
+                if !c.active || i >= MAX_CHANNELS {
+                    return 0.0;
+                }
+                return self.hit_shape(c.hits[i], beat_seconds);
+            }
+            _ => {}
+        }
+        if !m.active {
             return 0.0;
         }
         if let Some(c) = self.source.curve() {
@@ -192,7 +268,14 @@ impl MusicMod {
             };
             return self.amount * v;
         }
-        let h = m.hits[self.source.hit().map(|k| k as usize).unwrap_or(0)];
+        self.hit_shape(
+            m.hits[self.source.hit().map(|k| k as usize).unwrap_or(0)],
+            beat_seconds,
+        )
+    }
+
+    /// The shape played on a hit, `h.since` seconds ago.
+    fn hit_shape(&self, h: HitState, beat_seconds: f32) -> f32 {
         let len = (self.length * beat_seconds).max(1e-3);
         if h.since < 0.0 || h.since >= len {
             return 0.0;
@@ -238,6 +321,10 @@ pub struct MusicSettings {
     /// Shift of the MIDI notes against the audio (seconds).
     pub midi_offset: f32,
     pub warp: TimeWarp,
+    /// Live channels this project reacts to, found by name (see
+    /// [`crate::channels`]).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub channels: Vec<ChannelDef>,
 }
 
 impl Default for MusicSettings {
@@ -248,6 +335,7 @@ impl Default for MusicSettings {
             midi: None,
             midi_offset: 0.0,
             warp: TimeWarp::default(),
+            channels: Vec::new(),
         }
     }
 }
@@ -281,6 +369,8 @@ pub struct MusicFrame {
     pub hits: [HitState; HITS],
     pub spectrum: [f32; SPECTRUM_BANDS],
     pub chroma: [f32; 12],
+    /// The live channels (inactive unless something feeds them).
+    pub channels: ChannelFrame,
 }
 
 impl MusicFrame {
@@ -526,6 +616,68 @@ mod tests {
         let max = speeds[1..].iter().cloned().fold(0.0, f32::max);
         let min = speeds[1..].iter().cloned().fold(1.0, f32::min);
         assert!(max > min * 2.0, "no surge: {min} .. {max}");
+    }
+
+    #[test]
+    fn live_channels_answer_without_music() {
+        use crate::channels::{ChannelDef, ChannelInput, ChannelKind};
+        let beat = timing().beat_seconds();
+        let mut input = ChannelInput::default();
+        input.set(0, 0.8);
+        input.hit(1, 1.0);
+        input.advance(0.05);
+        let frame = MusicFrame {
+            channels: input.frame(),
+            ..Default::default()
+        };
+        assert!(!frame.active, "no music file");
+        let follow = MusicMod {
+            source: AudioSource::Channel(0),
+            amount: 2.0,
+            ..Default::default()
+        };
+        assert!((follow.eval(&frame, beat) - 1.6).abs() < 0.01);
+        let hit = MusicMod {
+            source: AudioSource::ChannelHit(1),
+            amount: 1.0,
+            length: 0.5,
+            ..Default::default()
+        };
+        // A channel hit plays exactly what a kick at the same moment plays.
+        let mut kick_frame = MusicFrame {
+            active: true,
+            ..Default::default()
+        };
+        kick_frame.hits[HitKind::Kick as usize] = frame.channels.hits[1];
+        let kick = MusicMod {
+            source: AudioSource::KickHit,
+            ..hit
+        };
+        let v = hit.eval(&frame, beat);
+        assert!(v > 0.0, "just hit");
+        assert!((v - kick.eval(&kick_frame, beat)).abs() < 1e-6);
+        // Nothing feeding the channels (an export): silent.
+        assert_eq!(follow.eval(&MusicFrame::default(), beat), 0.0);
+        assert_eq!(hit.eval(&MusicFrame::default(), beat), 0.0);
+
+        // Saved and read back as names in the project, sources by position.
+        let s = MusicSettings {
+            channels: vec![ChannelDef {
+                name: "Crowd".into(),
+                kind: ChannelKind::Value,
+            }],
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&(s.clone(), follow)).unwrap();
+        let back: (MusicSettings, MusicMod) = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.0, s);
+        assert_eq!(back.1.source, AudioSource::Channel(0));
+        assert_eq!(AudioSource::Channel(0).label_in(&s), "Crowd");
+        assert_eq!(AudioSource::ChannelHit(4).label_in(&s), "Each ?");
+        // A project without channels saves exactly as before.
+        assert!(!serde_json::to_string(&MusicSettings::default())
+            .unwrap()
+            .contains("channels"));
     }
 
     #[test]
