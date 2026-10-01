@@ -4,7 +4,7 @@ members = ["crates/ez_core", "crates/ez_render", "crates/ez_export", "crates/ez_
 default-members = ["crates/ez_app"]
 
 [workspace.package]
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 rust-version = "1.95"
 license = "GPL-3.0-or-later"
