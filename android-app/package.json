@@ -1,7 +1,7 @@
 {
   "name": "ez2demoscene-android",
   "private": true,
-  "version": "0.3.0",
+  "version": "1.0.0",
   "description": "Android wrapper (Capacitor) around the EZ2DEMOSCENE web build",
   "scripts": {
     "sync": "cap sync android",

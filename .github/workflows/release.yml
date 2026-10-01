@@ -3,7 +3,8 @@ name: Release
 # Builds installable archives for every platform. Windows and Linux archives
 # include ffmpeg (GPL build from BtbN/FFmpeg-Builds) so video/GIF export works
 # out of the box.
-#   push a tag like v0.2.0   attached to that GitHub release
+#   push a tag like v1.2.0   attached to that GitHub release, with the
+#                            tag's CHANGELOG.md section as its text
 #   push to main             published as the rolling `desktop-latest` prerelease
 #   run by hand              kept as workflow artifacts only
 on:
@@ -64,7 +65,7 @@ jobs:
           # The model and texture libraries are built into the executable
           # (their licences stay).
           rm -f "$D/assets/models/library.zip" "$D/assets/textures/texture_library.zip"
-          cp README.md LICENSE "$D/"
+          cp README.md LICENSE CHANGELOG.md "$D/"
           cp docs/manual/EZ2DEMOSCENE_User_Manual.pdf "$D/"
       - name: Bundle ffmpeg (Linux)
         if: runner.os == 'Linux'
@@ -113,10 +114,21 @@ jobs:
         with:
           name: EZ2DEMOSCENE-${{ matrix.name }}
           path: dist/EZ2DEMOSCENE-${{ matrix.name }}.*
+      # The release text is the tag's section of CHANGELOG.md
+      # (`## [1.2.3]` for the tag v1.2.3).
+      - name: Release notes
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v h="## [$VERSION]" 'index($0, h) == 1 { on = 1; next } on && /^## / { exit } on' CHANGELOG.md > RELEASE_NOTES.md
+          [ -s RELEASE_NOTES.md ] || echo "EZ2DEMOSCENE $GITHUB_REF_NAME" > RELEASE_NOTES.md
       - name: Attach to release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          name: EZ2DEMOSCENE ${{ github.ref_name }}
+          body_path: RELEASE_NOTES.md
           files: dist/EZ2DEMOSCENE-${{ matrix.name }}.*
 
   # Newest build of main, at a fixed download link.

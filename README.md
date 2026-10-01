@@ -318,6 +318,10 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
 
 ## Downloads
 
+**Latest release: [v1.0.0](https://github.com/roganis/ez2demoscene/releases/latest)**
+(Windows, Linux, macOS and Android builds; see the [changelog](CHANGELOG.md)).
+The links below are rolling builds of the newest code.
+
 - **Web app:** <https://roganis.github.io/ez2demoscene/>. Runs in Chrome, Edge or
   Firefox on desktop and in Chrome on Android. It can be installed as a PWA and
   works offline after the first visit.
