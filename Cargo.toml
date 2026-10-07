@@ -33,6 +33,7 @@ pollster = "0.4"
 anyhow = "1"
 log = "0.4"
 zip = { version = "8", default-features = false, features = ["deflate"] }
+flate2 = "1"
 directories = "6"
 env_logger = "0.11"
 

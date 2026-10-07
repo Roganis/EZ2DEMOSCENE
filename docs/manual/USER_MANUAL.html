@@ -462,7 +462,9 @@ search and a preview of every model.</figcaption></figure>
   (<i>Simulating…</i> in the viewport bar; until then the cloth hangs at rest, and exports wait). The picture on the cloth is the
   material's texture, stretched once over the sheet; every material, copies, shadows and depth of field apply, so a Grid of one flag
   makes a row of flags. The <b>Banners</b> preset has five.</td></tr>
-  <tr><td>3D model file</td><td>Your own <code>.gltf</code>, <code>.glb</code> or <code>.obj</code>. It is centred and scaled to fit automatically.
+  <tr><td>3D model file</td><td>Your own <code>.gltf</code>, <code>.glb</code>, <code>.obj</code>, <code>.stl</code>, <code>.ply</code>,
+  <code>.off</code> or <code>.3mf</code>. It is centred and scaled to fit automatically. STL and 3MF files (3D printing) are Z up and
+  are stood up the way the others are; files without normals get smooth ones that stay sharp across edges (a box stays a box).
   A glTF model brings its own material: colour, metal, roughness, glow and glass, and its pictures (colour, occlusion/roughness/metal,
   glow) are added to <span class="ui">Your images</span>, with <b>Physical</b> shading. Change any of it afterwards. OBJ models use the
   layer's material.</td></tr>
@@ -869,7 +871,33 @@ with <span class="ui">+ Add → 🏁 Mode 7 floor</span>.</p>
 treats it as far away. With <span class="ui">Animate on</span> it turns and scrolls in steps. The <b>Mode 7 Circuit</b> preset
 races over a turning track at 256 × 224.</p>
 
-<div class="keep"><h2>5.16 Placing objects in the viewport</h2>
+<h2>5.16 Gaussian splats</h2>
+<p>A captured object or place, made of millions of soft coloured blobs (<b>3D Gaussian splatting</b>), as phone apps and
+scanning tools make them. Add it with <span class="ui">+ Add → ☁ Gaussian splats</span> and choose its file, or open the file with
+<span class="ui">+ Add → 📦 3D model or splat file…</span> (or drop it on the window): <code>.ply</code> (as the training tools
+write it), <code>.spz</code> (Niantic's compressed format, about ten times smaller) or <code>.splat</code>. A PLY file can hold a
+mesh or splats; its contents decide which layer it becomes. Without a file the layer shows a small built-in galaxy.</p>
+<table>
+  <tr><th style="width:24%">Setting</th><th>What it does</th></tr>
+  <tr><td>File</td><td>The splat file; <span class="ui">Built-in</span> goes back to the galaxy.</td></tr>
+  <tr><td>Up</td><td>Which way is up in the file. <b>As the format says</b> knows that PLY and .splat files keep their camera's
+  upside-down frame and SPZ is Y up; pick another if the splats lie on their side.</td></tr>
+  <tr><td>Fit to size</td><td>Centres the splats and fits them into the layer's <span class="ui">Size</span>, like a model (stray splats
+  far out are ignored). Off keeps the file's own units and origin: for a captured room or garden, turn it off and put the camera
+  inside.</td></tr>
+  <tr><td>Tint, Brightness, Opacity</td><td>Colour multiplied in, brightness (above 1 glows) and opacity, all animatable.</td></tr>
+  <tr><td>Splat size</td><td>The size of every splat: 1 as captured, smaller turns the scene into dots (animatable: it dissolves
+  and comes back).</td></tr>
+  <tr><td>Scatter</td><td>Moves every splat out from the centre; animate it for a scene that bursts apart and comes back
+  together on the beat.</td></tr>
+  <tr><td>Most splats</td><td>The most drawn; above it the faintest and smallest are left out. Fewer is faster.</td></tr>
+</table>
+<p>The layer's placement, spin, copies by <span class="ui">Symmetry</span>, blink and steps work as for any layer, so a captured
+statue can turn once per loop. Splats are see-through, drawn back to front after the solid shapes; they show in the mirror floor
+and fog, but cast no shadows, depth of field blurs them as much as what is behind them, and only the base colour of each splat
+is used (not the colours that change with the viewing angle). <code>.ksplat</code> and SOG files aren't read: convert them to PLY or SPZ.</p>
+
+<div class="keep"><h2>5.17 Placing objects in the viewport</h2>
 <figure><img src="img/gizmo.jpg"><figcaption>The Dodecahedron is selected: the Move handles appear on it, and the ground grid is on.</figcaption></figure></div>
 <ul>
   <li><b>Select</b> a shape or particle layer by clicking it in the viewport, or in the layer list.</li>

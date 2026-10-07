@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Gaussian splat layers** (+ Add → ☁ Gaussian splats): captured objects
+  and places from `.ply`, `.spz` (versions 1 to 3) or `.splat` files,
+  drawn back to front as soft ellipses, on desktop and on the web. Up
+  axis, fit to size, tint, brightness, opacity, splat size, scatter and a
+  splat budget; a small built-in galaxy until a file is chosen.
+- More model formats for shapes: **STL, PLY, OFF and 3MF**, besides
+  glTF/GLB and OBJ. STL and 3MF are stood Y up; files without normals get
+  smooth ones kept sharp across edges.
+- "3D model or splat file…" and dropping a file on the window pick the
+  layer from the file: a PLY file becomes a shape or splats depending on
+  what it holds.
+
 ## [1.0.0] - 2026-10-01
 
 The first public release of EZ2DEMOSCENE: a desktop (Windows, Linux, macOS),

@@ -1084,6 +1084,7 @@ dependencies = [
  "bytemuck",
  "epaint_default_fonts",
  "ez_core",
+ "flate2",
  "glam",
  "gltf",
  "image",
@@ -1094,6 +1095,7 @@ dependencies = [
  "skrifa",
  "tobj",
  "wgpu",
+ "zip",
 ]
 
 [[package]]

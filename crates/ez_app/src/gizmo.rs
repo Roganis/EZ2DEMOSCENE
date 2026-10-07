@@ -140,6 +140,7 @@ fn pick_points(layer: &Layer, index: usize, ctx: &EvalCtx, proj: &Projector) -> 
         | LayerKind::Text(_)
         | LayerKind::Arcs(_)
         | LayerKind::Mode7(_)
+        | LayerKind::Splat(_)
         | LayerKind::Falls(_) => pts.extend(proj.to_screen(pos)),
         LayerKind::Logo(g) => pts.push(proj.logo_point(index, g)),
         LayerKind::Mirror(_) | LayerKind::Backdrop(_) | LayerKind::Weather(_) => {}

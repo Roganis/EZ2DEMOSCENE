@@ -3,7 +3,7 @@
 use crate::audio::AudioPlayer;
 use crate::export_ui::ExportUi;
 use crate::gizmo::{self, Gizmo, GizmoMode, Projector};
-use crate::inspector::{self, IMAGE_EXTENSIONS, MODEL_EXTENSIONS};
+use crate::inspector::{self, IMAGE_EXTENSIONS};
 use crate::library::Library;
 use crate::nodes::NodeEditor;
 use crate::platform::slug;
@@ -214,6 +214,27 @@ const LAYER_CLIPBOARD_TAG: &str = "EZ2DEMOSCENE layer";
 const PRESETS_ON_STARTUP: &str = "presets_on_startup";
 /// Layer load above which the layer list shows a warning.
 const HEAVY_LAYER: f32 = 1.0;
+
+/// Whether a picked or dropped file holds Gaussian splats rather than a
+/// model (a PLY file can be either: its header says).
+fn holds_splats(path: &str) -> bool {
+    let ext = ez_core::store::extension(path);
+    if ext != "ply" {
+        return ez_render::splats::is_splat_file(&ext, &[]);
+    }
+    let head: Option<Vec<u8>> = if ez_core::store::is_mem(path) || cfg!(target_arch = "wasm32") {
+        ez_core::store::read(path).ok().map(|b| b.to_vec())
+    } else {
+        // The header is at the start; splat files can be hundreds of MB.
+        use std::io::Read;
+        let mut head = Vec::new();
+        std::fs::File::open(path)
+            .and_then(|f| f.take(1 << 16).read_to_end(&mut head))
+            .ok()
+            .map(|_| head)
+    };
+    head.is_some_and(|b| ez_render::splats::is_splat_file("ply", &b))
+}
 
 fn human(n: u64) -> String {
     match n {
@@ -888,7 +909,7 @@ impl EzApp {
                 Purpose::Dropped => {
                     if ext == "json" || ext == ez_core::assets::PACK_EXTENSION {
                         Purpose::OpenProject
-                    } else if MODEL_EXTENSIONS.contains(&ext.as_str()) {
+                    } else if inspector::SCENE_FILE_EXTENSIONS.contains(&ext.as_str()) {
                         Purpose::AddModelLayer
                     } else if IMAGE_EXTENSIONS.contains(&ext.as_str())
                         || crate::clip_import::is_animation(&ext)
@@ -929,6 +950,18 @@ impl EzApp {
             }
             match purpose {
                 Purpose::OpenProject => self.open_asset(&p.path, &p.name),
+                Purpose::AddModelLayer if holds_splats(&p.path) => {
+                    self.project
+                        .layers
+                        .push(inspector::splat_layer(Some(&p.path)));
+                    self.selection = Selection::Layer(self.project.layers.len() - 1);
+                    self.set_status(format!("Added splats {}", p.name), false);
+                }
+                Purpose::SetSplats(lref) => {
+                    if let Some(LayerKind::Splat(s)) = self.layer_for(lref).map(|l| &mut l.kind) {
+                        s.file = Some(p.path.clone());
+                    }
+                }
                 Purpose::AddModelLayer => {
                     self.project.layers.push(inspector::model_layer(&p.path));
                     let i = self.project.layers.len() - 1;
@@ -1443,9 +1476,10 @@ impl EzApp {
                                 if st.load > HEAVY_LAYER {
                                     ui.label(RichText::new("⚠").color(Color32::from_rgb(255, 170, 60)))
                                         .on_hover_text(format!(
-                                            "Heavy layer: {} triangles, {} particles. Lower the count, detail or trail if playback stutters.",
+                                            "Heavy layer: {} triangles, {} particles, {} splats. Lower the count, detail or trail if playback stutters.",
                                             human(st.triangles),
-                                            human(st.particles)
+                                            human(st.particles),
+                                            human(st.splats)
                                         ));
                                 }
                             }
@@ -2214,6 +2248,9 @@ impl EzApp {
                         ui.label(format!("Frame time: {:.1} ms", self.frame_ms));
                         ui.label(format!("Triangles: {}", human(st.triangles)));
                         ui.label(format!("Particles: {}", human(st.particles)));
+                        if st.splats > 0 {
+                            ui.label(format!("Splats: {}", human(st.splats)));
+                        }
                         ui.label(format!("Draw calls: {}", st.draw_calls));
                         ui.label(format!(
                             "Mirror reflection pass: {}",

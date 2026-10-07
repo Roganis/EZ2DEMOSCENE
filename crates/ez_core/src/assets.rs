@@ -80,6 +80,11 @@ fn layer_paths(l: &mut Layer, f: &mut impl FnMut(&mut String)) {
                 f(path);
             }
         }
+        LayerKind::Splat(s) => {
+            if let Some(path) = &mut s.file {
+                f(path);
+            }
+        }
         _ => {}
     }
 }
