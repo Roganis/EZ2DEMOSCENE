@@ -415,6 +415,14 @@ enum Cmd {
         /// Needs the picture behind it (glass).
         glass: bool,
     },
+    /// Gaussian splats: `count` splats of the cloud `cloud`, in the order
+    /// held by `self.splat_orders[order]` (back to front).
+    Splats {
+        slot: u32,
+        cloud: String,
+        order: usize,
+        count: u32,
+    },
     /// Contact shadows under the copies `first..first + count` of a mesh.
     Contact {
         slot: u32,
@@ -591,6 +599,7 @@ pub struct LayerStats {
     pub name: String,
     pub triangles: u64,
     pub particles: u64,
+    pub splats: u64,
     pub draws: u32,
     /// Rough relative GPU cost (1.0 ≈ a heavy layer on a mid-range GPU).
     pub load: f32,
@@ -602,6 +611,7 @@ pub struct FrameStats {
     pub layers: Vec<LayerStats>,
     pub triangles: u64,
     pub particles: u64,
+    pub splats: u64,
     pub draw_calls: u32,
     pub reflection: bool,
     /// Layers whose instances came from the cache.
@@ -747,6 +757,7 @@ struct ScenePipes {
     /// Sprites: alpha, additive, cutout.
     sprite: [Pipe; 3],
     arcs: Pipe,
+    splats: Pipe,
 }
 
 /// Copies of shapes placed by a compute shader (`copies.wgsl`) straight
@@ -1249,6 +1260,11 @@ pub struct Renderer {
     env_matcap: Option<(String, [f32; 11])>,
     /// Asset loading problems (shown in the UI), keyed by asset.
     pub errors: HashMap<String, String>,
+    bgl_splat: wgpu::BindGroupLayout,
+    /// Gaussian splat clouds, by file and how they are prepared.
+    splat_clouds: HashMap<String, GpuSplats>,
+    /// Splat drawing orders of the frame (one per splat draw), reused.
+    splat_orders: Vec<wgpu::Buffer>,
     /// Loop phase and loop length of the frame being drawn (animated
     /// pictures play by them).
     clip_time: (f32, f32),
@@ -1567,6 +1583,19 @@ static VERTEX_ATTRS: [wgpu::VertexAttribute; 4] =
 /// Per-copy matrix and colour (see [`InstanceRaw`]).
 static INSTANCE_ATTRS: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![4 => Float32x4, 5 => Float32x4, 6 => Float32x4, 7 => Float32x4, 8 => Float32x4];
 
+/// A splat's index (see `splat.wgsl`), one per instance.
+static SPLAT_ATTRS: [wgpu::VertexAttribute; 1] = wgpu::vertex_attr_array![0 => Uint32];
+
+/// A Gaussian splat cloud on the GPU (see [`crate::splats`]).
+struct GpuSplats {
+    _texture: wgpu::Texture,
+    bg: wgpu::BindGroup,
+    /// Centres, for sorting each frame.
+    centres: Vec<Vec3>,
+    /// Distance of the farthest splat from the cloud's origin.
+    radius: f32,
+}
+
 /// A shader module, parsed when a pipeline first needs it.
 fn shader(device: &wgpu::Device, label: &'static str, src: &str, with_common: bool) -> Module {
     let code = if with_common {
@@ -1793,6 +1822,25 @@ impl Renderer {
             bind_group_layouts: &[Some(&bgl_globals), Some(&bgl_draw)],
             immediate_size: 0,
         });
+        // Gaussian splats read their cloud from an integer texture.
+        let bgl_splat = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("splats"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Uint,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            }],
+        });
+        let splat_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("splats"),
+            bind_group_layouts: &[Some(&bgl_globals), Some(&bgl_draw), Some(&bgl_splat)],
+            immediate_size: 0,
+        });
         let floor_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("floor"),
             bind_group_layouts: &[
@@ -1870,6 +1918,12 @@ impl Renderer {
         let sh_sprite = shader(device, "sprite", include_str!("shaders/sprite.wgsl"), true);
         let sh_mode7 = shader(device, "mode 7", include_str!("shaders/mode7.wgsl"), true);
         let sh_arcs = shader(device, "arcs", include_str!("shaders/arcs.wgsl"), true);
+        let sh_splat = shader(device, "splats", include_str!("shaders/splat.wgsl"), true);
+        let splat_buffers = [Some(wgpu::VertexBufferLayout {
+            array_stride: 4,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &SPLAT_ATTRS,
+        })];
         let sh_logo = shader(device, "logo", include_str!("shaders/logo.wgsl"), true);
         // Logos go on the picture after depth of field (no depth, no MSAA:
         // the distance field antialiases).
@@ -1942,6 +1996,21 @@ impl Renderer {
 
         let scene_pipes = |samples: u32| ScenePipes {
             samples,
+            // Back to front over what is behind, not writing depth.
+            splats: lazy!(device, splat_layout, sh_splat, splat_buffers => make_pipeline(
+                device,
+                PipeDesc {
+                    label: "splats",
+                    layout: &splat_layout,
+                    module: &sh_splat,
+                    fs: "fs_main",
+                    buffers: &splat_buffers,
+                    format: HDR_FORMAT,
+                    samples,
+                    depth: Some((false, wgpu::CompareFunction::Less)),
+                    blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                },
+            )),
             arcs: lazy!(device, particle_layout, sh_arcs, glyph_buffers => make_pipeline(
                 device,
                 PipeDesc {
@@ -2982,6 +3051,9 @@ impl Renderer {
             draw_mesh_bg,
             env_matcap: None,
             errors: HashMap::new(),
+            bgl_splat,
+            splat_clouds: HashMap::new(),
+            splat_orders: Vec::new(),
             clip_time: (0.0, 1.0),
             clip_sheets: HashMap::new(),
             instance_cache: HashMap::new(),
@@ -4445,6 +4517,88 @@ impl Renderer {
         }
     }
 
+    /// The splat cloud a layer shows, loaded and uploaded on first use; its
+    /// key in `splat_clouds`, or `None` if the file can't be read (the
+    /// problem is in `errors`).
+    fn splat_cloud(&mut self, sp: &ez_core::SplatLayer) -> Option<String> {
+        // As many splats as the tallest texture holds.
+        let rows = self.device.limits().max_texture_dimension_2d.max(1);
+        let max = sp
+            .max_splats
+            .min(rows.saturating_mul(crate::splats::PER_ROW));
+        let file = sp.file.as_deref().filter(|f| !f.is_empty());
+        let name = file.unwrap_or(":sample");
+        let key = format!("{name}|{:?}|{}|{max}", sp.up, sp.fit);
+        if self.splat_clouds.contains_key(&key) {
+            return Some(key);
+        }
+        let err_key = format!("splats:{name}");
+        // A file that failed stays failed until the assets are reloaded.
+        if self.errors.contains_key(&err_key) {
+            return None;
+        }
+        let (splats, ext) = match file {
+            // The built-in cloud is Y up, as SPZ files are.
+            None => (crate::splats::sample(), "spz".to_string()),
+            Some(path) => match crate::splats::load_splats_asset(path) {
+                Ok(s) => (s, ez_core::store::extension(path)),
+                Err(e) => {
+                    self.errors.insert(err_key, format!("splats {path}: {e:#}"));
+                    return None;
+                }
+            },
+        };
+        let prepared = crate::splats::prepare(&splats, sp.up.matrix(&ext), sp.fit, max);
+        let (w, h) = prepared.size;
+        let size = wgpu::Extent3d {
+            width: w,
+            height: h,
+            depth_or_array_layers: 1,
+        };
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("splats"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba32Uint,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        self.queue.write_texture(
+            texture.as_image_copy(),
+            bytemuck::cast_slice(&prepared.texels),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(w * 16),
+                rows_per_image: Some(h),
+            },
+            size,
+        );
+        let view = texture.create_view(&Default::default());
+        let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("splats"),
+            layout: &self.bgl_splat,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&view),
+            }],
+        });
+        // The same file prepared another way isn't needed any more.
+        let prefix = format!("{name}|");
+        self.splat_clouds.retain(|k, _| !k.starts_with(&prefix));
+        self.splat_clouds.insert(
+            key.clone(),
+            GpuSplats {
+                _texture: texture,
+                bg,
+                centres: prepared.centres,
+                radius: prepared.radius,
+            },
+        );
+        Some(key)
+    }
+
     /// Geometry of a neon ribbon, generated on first use.
     fn ribbon_key(&mut self, r: &Ribbon) -> String {
         let key = format!(
@@ -4495,6 +4649,7 @@ impl Renderer {
         self.tex_bgs.retain(|(k, _), _| !k.starts_with("u:"));
         self.logos.clear();
         self.errors.clear();
+        self.splat_clouds.clear();
         self.floor_bg_cache = None;
     }
 
@@ -5653,6 +5808,9 @@ impl Renderer {
         if wants_backdrop {
             self.ensure_logo_backdrop(w, h);
         }
+        // Splat draws so far (each has its own drawing order).
+        let mut splat_draws = 0usize;
+        let mut splat_order: Vec<u32> = Vec::new();
         for (li, layer) in layers.iter().enumerate().filter(|(_, l)| l.enabled) {
             // Blinking layers can be hidden right now; flashing ones glow more.
             let Some(flash) = layer.blink.eval(ctx.beat_phase) else {
@@ -6071,6 +6229,66 @@ impl Renderer {
                         ];
                     }
                     blocks.push(pb);
+                }
+                LayerKind::Splat(sp) => {
+                    if let Some(key) = self.splat_cloud(sp) {
+                        let lm = layer_matrix(&layer.transform, ctx);
+                        let syms = symmetry_matrices(&layer.symmetry);
+                        let count = self.splat_clouds[&key].centres.len() as u32;
+                        ls.splats = count as u64 * syms.len() as u64;
+                        ls.draws = syms.len() as u32;
+                        ls.load = 0.02 + ls.splats as f32 / 600_000.0;
+                        for sym in syms {
+                            let model = sym * lm;
+                            // Farthest first, as seen from the camera.
+                            crate::splats::sort_back_to_front(
+                                &self.splat_clouds[&key].centres,
+                                view * model,
+                                &mut splat_order,
+                            );
+                            let bytes = count as u64 * 4;
+                            if self
+                                .splat_orders
+                                .get(splat_draws)
+                                .is_none_or(|b| b.size() < bytes)
+                            {
+                                let buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+                                    label: Some("splat order"),
+                                    size: bytes.max(4),
+                                    usage: wgpu::BufferUsages::VERTEX
+                                        | wgpu::BufferUsages::COPY_DST,
+                                    mapped_at_creation: false,
+                                });
+                                if splat_draws < self.splat_orders.len() {
+                                    self.splat_orders[splat_draws] = buf;
+                                } else {
+                                    self.splat_orders.push(buf);
+                                }
+                            }
+                            self.queue.write_buffer(
+                                &self.splat_orders[splat_draws],
+                                0,
+                                bytemuck::cast_slice(&splat_order),
+                            );
+                            let mut blk: Block = Zeroable::zeroed();
+                            blk[0] = [
+                                sp.brightness.eval(smooth).max(0.0) * flash,
+                                sp.opacity.eval(ctx).clamp(0.0, 1.0),
+                                sp.splat_size.eval(ctx).max(0.0),
+                                sp.scatter.eval(ctx),
+                            ];
+                            blk[1] = c4(sp.tint, 0.0);
+                            blk[8..12].copy_from_slice(&m4(model));
+                            cmds.push(Cmd::Splats {
+                                slot: blocks.len() as u32,
+                                cloud: key.clone(),
+                                order: splat_draws,
+                                count,
+                            });
+                            blocks.push(blk);
+                            splat_draws += 1;
+                        }
+                    }
                 }
                 LayerKind::Particles(p) => {
                     let lm = layer_matrix(&layer.transform, ctx);
@@ -6869,6 +7087,7 @@ impl Renderer {
             l.load *= refl_k;
             stats.triangles += l.triangles;
             stats.particles += l.particles;
+            stats.splats += l.splats;
             stats.draw_calls += l.draws;
             stats.load += l.load;
         }
@@ -8040,6 +8259,14 @@ impl Renderer {
                 let len = blocks[*slot as usize][0][3];
                 Some((m.w_axis.truncate(), len * scale(&m) * 1.3 + 1.0))
             }
+            Cmd::Splats { slot, cloud, .. } => {
+                let m = model(*slot);
+                let b = &blocks[*slot as usize];
+                // Splats grow with their size setting and move out with scatter.
+                let r =
+                    self.splat_clouds.get(cloud)?.radius * b[0][2].max(1.0) + b[0][3].abs() * 1.5;
+                Some((m.w_axis.truncate(), r * scale(&m) + 0.5))
+            }
             _ => None,
         }
     }
@@ -8310,6 +8537,24 @@ impl Renderer {
                     pass.set_pipeline(&pipes.particles);
                     pass.set_bind_group(0, &self.globals_bg[globals], &[]);
                     pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                    pass.draw(0..6, 0..*count);
+                }
+                Cmd::Splats {
+                    slot,
+                    cloud,
+                    order,
+                    count,
+                } => {
+                    let (Some(c), Some(buf)) =
+                        (self.splat_clouds.get(cloud), self.splat_orders.get(*order))
+                    else {
+                        continue;
+                    };
+                    pass.set_pipeline(&pipes.splats);
+                    pass.set_bind_group(0, &self.globals_bg[globals], &[]);
+                    pass.set_bind_group(1, &self.draw_bg, &[slot * DRAW_SLOT as u32]);
+                    pass.set_bind_group(2, &c.bg, &[]);
+                    pass.set_vertex_buffer(0, buf.slice(..*count as u64 * 4));
                     pass.draw(0..6, 0..*count);
                 }
                 Cmd::Terrain {

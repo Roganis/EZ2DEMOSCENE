@@ -699,6 +699,7 @@ mod color_scheme_tests {
             LayerKind::Sprite(SpriteLayer::default()),
             LayerKind::Arcs(ArcLayer::default()),
             LayerKind::Logo(LogoLayer::default()),
+            LayerKind::Splat(SplatLayer::default()),
         ]
         .into_iter()
         .map(|k| Layer::new("L", k))

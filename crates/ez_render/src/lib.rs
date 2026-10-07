@@ -11,8 +11,10 @@ pub mod import;
 mod lazy;
 pub mod logo;
 pub mod mesh;
+pub mod ply;
 mod renderer;
 pub mod sdf_bake;
+pub mod splats;
 pub mod texgen;
 pub mod text;
 

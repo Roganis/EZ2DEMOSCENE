@@ -174,6 +174,7 @@ impl Layer {
             LayerKind::Arcs(_) => "Electric arcs",
             LayerKind::Logo(_) => "Logo",
             LayerKind::Mode7(_) => "Mode 7 floor",
+            LayerKind::Splat(_) => "Gaussian splats",
         }
     }
 }
@@ -204,6 +205,8 @@ pub enum LayerKind {
     /// A logo made of an image or text, with retro effects.
     Logo(LogoLayer),
     Mode7(Mode7Floor),
+    /// Gaussian splats: a captured object or place from a splat file.
+    Splat(SplatLayer),
 }
 
 /// A SNES "Mode 7" / Saturn VDP2 floor: an endless flat picture at the
@@ -301,6 +304,7 @@ impl LayerKind {
             LayerKind::Sprite(sp) => f(&mut sp.tint),
             LayerKind::Arcs(a) => f(&mut a.color),
             LayerKind::Mode7(m) => f(&mut m.tint),
+            LayerKind::Splat(s) => f(&mut s.tint),
             LayerKind::Logo(g) => {
                 for c in [
                     &mut g.tint,

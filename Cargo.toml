@@ -4,7 +4,7 @@ members = ["crates/ez_core", "crates/ez_render", "crates/ez_export", "crates/ez_
 default-members = ["crates/ez_app"]
 
 [workspace.package]
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 rust-version = "1.95"
 license = "GPL-3.0-or-later"
@@ -33,6 +33,7 @@ pollster = "0.4"
 anyhow = "1"
 log = "0.4"
 zip = { version = "8", default-features = false, features = ["deflate"] }
+flate2 = "1"
 directories = "6"
 env_logger = "0.11"
 

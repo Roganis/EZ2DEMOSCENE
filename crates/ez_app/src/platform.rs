@@ -44,6 +44,8 @@ pub enum Purpose {
     SetModel(LayerRef),
     /// A model file for the shape a layer morphs into.
     SetMorphModel(LayerRef),
+    /// The file of a Gaussian splat layer.
+    SetSplats(LayerRef),
     AddImages,
     SetTexture(LayerRef, TexSlot),
     LoadMusic,
@@ -59,9 +61,14 @@ impl Purpose {
     fn filter(self) -> (&'static str, &'static [&'static str]) {
         match self {
             Purpose::OpenProject => ("EZ2 project or pack", &["json", "ez2pack"]),
-            Purpose::AddModelLayer | Purpose::SetModel(_) | Purpose::SetMorphModel(_) => {
+            Purpose::AddModelLayer => (
+                "3D models and Gaussian splats",
+                crate::inspector::SCENE_FILE_EXTENSIONS,
+            ),
+            Purpose::SetModel(_) | Purpose::SetMorphModel(_) => {
                 ("3D models", crate::inspector::MODEL_EXTENSIONS)
             }
+            Purpose::SetSplats(_) => ("Gaussian splats", ez_render::splats::SPLAT_EXTENSIONS),
             Purpose::AddImages | Purpose::SetTexture(..) => (
                 "Images, GIFs and videos",
                 crate::inspector::PICTURE_EXTENSIONS,

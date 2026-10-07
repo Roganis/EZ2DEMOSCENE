@@ -7,7 +7,12 @@ use ez_core::palette::PaletteId;
 use ez_core::*;
 use ez_render::texgen;
 
-pub const MODEL_EXTENSIONS: &[&str] = &["gltf", "glb", "obj"];
+pub const MODEL_EXTENSIONS: &[&str] = ez_render::import::MESH_EXTENSIONS;
+/// What "3D model file…" opens: models and Gaussian splats (a PLY file can
+/// be either; its contents decide).
+pub const SCENE_FILE_EXTENSIONS: &[&str] = &[
+    "gltf", "glb", "obj", "stl", "ply", "off", "3mf", "spz", "splat",
+];
 pub const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "bmp", "gif", "tga"];
 /// Images and the videos that import as animations
 /// (see [`crate::clip_import::VIDEO_EXTENSIONS`]).
@@ -1703,6 +1708,7 @@ pub fn layer_ui(ui: &mut Ui, layer: &mut Layer, textures: &[UserTexture], lref: 
         LayerKind::Arcs(a) => arcs_ui(ui, a),
         LayerKind::Logo(g) => logo_ui(ui, g, &layer.name, textures, lref),
         LayerKind::Mode7(f) => mode7_ui(ui, f, textures),
+        LayerKind::Splat(s) => splat_ui(ui, s, lref),
     }
     let is_mesh_like = matches!(
         layer.kind,
@@ -4683,11 +4689,125 @@ pub fn add_layer_menu(ui: &mut Ui, templates: &[Layer]) -> Option<Layer> {
             LayerKind::Mirror(MirrorFloor::default()),
         ));
     }
-    if ui.button("📦 3D model file…").clicked() {
+    if ui
+        .button("☁ Gaussian splats")
+        .on_hover_text(
+            "A captured object or place made of soft coloured blobs, from a .ply, .spz or \
+             .splat file (choose it in the layer)",
+        )
+        .clicked()
+    {
+        out = Some(splat_layer(None));
+        ui.close();
+    }
+    if ui
+        .button("📦 3D model or splat file…")
+        .on_hover_text("glTF / GLB, OBJ, STL, PLY, OFF or 3MF models; PLY, SPZ or .splat splats")
+        .clicked()
+    {
         platform::pick(Purpose::AddModelLayer);
         ui.close();
     }
     out
+}
+
+/// A new splat layer showing the file at asset `path` (none: the built-in
+/// cloud).
+pub fn splat_layer(path: Option<&str>) -> Layer {
+    let name = path
+        .map(ez_core::store::file_name)
+        .map(|f| f.rsplit_once('.').map(|(s, _)| s).unwrap_or(f).to_string())
+        .unwrap_or_else(|| "Gaussian splats".into());
+    Layer::new(
+        name,
+        LayerKind::Splat(SplatLayer {
+            file: path.map(str::to_string),
+            ..Default::default()
+        }),
+    )
+    .at([0.0, 1.5, 0.0])
+    .scaled(2.0)
+}
+
+fn splat_ui(ui: &mut Ui, s: &mut SplatLayer, lref: LayerRef) {
+    section(ui, "Gaussian splats", true, |ui| {
+        ui.label(
+            RichText::new(
+                "A captured object or place made of millions of soft blobs (3D Gaussian \
+                 splatting), from a .ply, .spz or .splat file. Place, turn and spin it with \
+                 Placement & motion.",
+            )
+            .weak()
+            .small(),
+        );
+        row(ui, "File", "The splat file (.ply, .spz or .splat)", |ui| {
+            let shown = s
+                .file
+                .as_deref()
+                .map(ez_core::store::file_name)
+                .unwrap_or("Built-in galaxy");
+            ui.label(shown);
+            if ui.button("Choose…").clicked() {
+                platform::pick(Purpose::SetSplats(lref));
+            }
+            if s.file.is_some() && ui.button("Built-in").clicked() {
+                s.file = None;
+            }
+        });
+        combo(
+            ui,
+            "Up",
+            "Which way is up in the file. Change it if the splats lie on their side or upside \
+             down.",
+            &mut s.up,
+            &SplatUp::ALL,
+            SplatUp::label,
+        );
+        check(
+            ui,
+            "Fit to size",
+            "Centre the splats and fit them into the layer's size (strays far out ignored); off \
+             keeps the file's own units and origin",
+            &mut s.fit,
+        );
+        color(ui, "Tint", "Multiplies the colours", &mut s.tint);
+        param(
+            ui,
+            "Brightness",
+            "Above 1 glows",
+            &mut s.brightness,
+            0.0..=3.0,
+        );
+        param(ui, "Opacity", "", &mut s.opacity, 0.0..=1.0);
+        param(
+            ui,
+            "Splat size",
+            "Size of every splat: 1 as captured, smaller turns the scene into dots",
+            &mut s.splat_size,
+            0.0..=3.0,
+        );
+        param(
+            ui,
+            "Scatter",
+            "Moves every splat out from the centre: animate it for a scene that bursts apart \
+             and comes back together",
+            &mut s.scatter,
+            0.0..=3.0,
+        );
+        row(
+            ui,
+            "Most splats",
+            "The most splats drawn; above it the faintest and smallest are left out (fewer is \
+             faster)",
+            |ui| {
+                ui.add(
+                    egui::DragValue::new(&mut s.max_splats)
+                        .range(10_000..=ez_render::splats::MAX_SPLATS)
+                        .speed(10_000.0),
+                )
+            },
+        );
+    });
 }
 
 /// A new mesh layer showing the model at asset `path`.
@@ -4727,6 +4847,7 @@ pub fn layer_icon(l: &Layer) -> &'static str {
         LayerKind::Logo(_) => "🏷",
         LayerKind::Arcs(_) => "⚡",
         LayerKind::Mode7(_) => "🏁",
+        LayerKind::Splat(_) => "☁",
     }
 }
 

@@ -1139,6 +1139,143 @@ fn electric_arcs_strike_and_loop() {
     }
 }
 
+/// Gaussian splats: the built-in cloud and a file show, spin seamlessly
+/// with the layer, sit behind a shape in front of them, and scatter.
+#[test]
+fn gaussian_splats_show_and_loop() {
+    use ez_core::*;
+    let gpu = gpu_or_skip!();
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, 1);
+    let target = r.create_target(240, 136);
+    let mut plain = presets::empty();
+    plain.post.grade.grain = Param::new(0.0);
+    plain
+        .layers
+        .retain(|l| !matches!(l.kind, LayerKind::Mesh(_)));
+    let at = |p: &Project, phase: f32| EvalCtx::new(&p.timing, phase, None);
+
+    // A file: a ring of splats around +z (Z up, as tools that write PLY
+    // with Z up do), written as the usual PLY.
+    let dir = std::env::temp_dir().join("ez2_splat_render_test");
+    std::fs::create_dir_all(&dir).unwrap();
+    let names = [
+        "x", "y", "z", "f_dc_0", "f_dc_1", "f_dc_2", "opacity", "scale_0", "scale_1", "scale_2",
+        "rot_0", "rot_1", "rot_2", "rot_3",
+    ];
+    let n = 600;
+    let mut ply =
+        format!("ply\nformat binary_little_endian 1.0\nelement vertex {n}\n").into_bytes();
+    for name in names {
+        ply.extend(format!("property float {name}\n").bytes());
+    }
+    ply.extend(b"end_header\n");
+    for i in 0..n {
+        let a = i as f32 / n as f32 * std::f32::consts::TAU;
+        let row = [
+            a.cos() * 3.0,
+            a.sin() * 3.0,
+            (i % 7) as f32 * 0.1,
+            1.5,
+            -1.0,
+            0.5,
+            3.0,
+            -2.0,
+            -2.0,
+            -2.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+        ];
+        for v in row {
+            ply.extend(v.to_le_bytes());
+        }
+    }
+    let file = dir.join("ring.ply");
+    std::fs::write(&file, ply).unwrap();
+
+    for (name, splats) in [
+        ("sample", SplatLayer::default()),
+        (
+            "file",
+            SplatLayer {
+                file: Some(file.to_string_lossy().into_owned()),
+                up: SplatUp::ZUp,
+                ..Default::default()
+            },
+        ),
+    ] {
+        let mut p = plain.clone();
+        p.layers.push(
+            Layer::new("Splats", LayerKind::Splat(splats.clone()))
+                .at([0.0, 1.5, 0.0])
+                .scaled(2.0)
+                .spin([0, 1, 0]),
+        );
+        let a = r.render_image(&p, &at(&p, 0.0), &target);
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+        assert!(r.stats().splats > 0);
+        let b = r.render_image(&p, &at(&p, 1.0), &target);
+        let mid = r.render_image(&p, &at(&p, 0.3), &target);
+        let reference = r.render_image(&plain, &at(&p, 0.0), &target);
+        mid.save(snapshot_dir().join(format!("splats_{name}.png")))
+            .unwrap();
+        let seam = mean_abs_diff(a.as_raw(), b.as_raw());
+        let shown = mean_abs_diff(a.as_raw(), reference.as_raw());
+        let turned = mean_abs_diff(a.as_raw(), mid.as_raw());
+        eprintln!("{name}: seam {seam:.3}, visible {shown:.2}, turned {turned:.2}");
+        assert!(seam < 0.6, "{name} splats don't loop");
+        assert!(shown > 0.3, "{name} splats barely visible");
+        assert!(turned > 0.05, "{name} splats don't spin");
+
+        // Scattered, they spread over more of the picture.
+        let mut burst = p.clone();
+        if let LayerKind::Splat(s) = &mut burst.layers.last_mut().unwrap().kind {
+            s.scatter = Param::new(1.5);
+        }
+        let spread = r.render_image(&burst, &at(&p, 0.0), &target);
+        assert!(
+            mean_abs_diff(spread.as_raw(), a.as_raw()) > 0.1,
+            "{name} doesn't scatter"
+        );
+
+        // A wall in front hides them (they test depth).
+        let mut hidden = p.clone();
+        hidden.layers.push(
+            Layer::new(
+                "Wall",
+                LayerKind::Mesh(MeshLayer {
+                    source: MeshSource::Primitive(Primitive::Cube),
+                    ..Default::default()
+                }),
+            )
+            .at([0.0, 1.5, 4.0])
+            .stretched([6.0, 4.0, 0.1]),
+        );
+        let mut wall_only = plain.clone();
+        wall_only.layers.push(hidden.layers.last().unwrap().clone());
+        let behind = r.render_image(&hidden, &at(&p, 0.0), &target);
+        let wall = r.render_image(&wall_only, &at(&p, 0.0), &target);
+        let leak = mean_abs_diff(behind.as_raw(), wall.as_raw());
+        assert!(
+            leak < shown * 0.3,
+            "{name} splats show through a wall ({leak:.2})"
+        );
+    }
+
+    // A file that can't be read is reported, and nothing is drawn.
+    let mut broken = plain.clone();
+    broken.layers.push(Layer::new(
+        "Missing",
+        LayerKind::Splat(SplatLayer {
+            file: Some(dir.join("missing.spz").to_string_lossy().into_owned()),
+            ..Default::default()
+        }),
+    ));
+    r.render_image(&broken, &at(&broken, 0.0), &target);
+    assert!(r.errors.values().any(|e| e.contains("missing.spz")));
+}
+
 /// Every copy layout: the compute shader and the CPU fallback draw the
 /// same picture, the copies loop, and 100k copies render.
 #[test]

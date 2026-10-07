@@ -71,7 +71,7 @@ fn every_library_model_bakes() {
             pts.iter().filter(|p| g.sample(**p).abs() > 1.5 * h).count() as f32 / pts.len() as f32;
         let inside = g.d.iter().filter(|d| **d < 0.0).count() as f32 / g.d.len() as f32;
         let score = off
-            + if inside < 0.0005 || inside > 0.6 {
+            + if !(0.0005..=0.6).contains(&inside) {
                 1.0
             } else {
                 0.0

@@ -616,6 +616,7 @@ pub fn set_layer_color(l: &mut Layer, c: Rgb) {
         LayerKind::Arcs(a) => a.color = c,
         LayerKind::Logo(g) => g.color_bottom = c,
         LayerKind::Mode7(f) => f.tint = c,
+        LayerKind::Splat(s) => s.tint = c,
     }
 }
 
@@ -673,6 +674,10 @@ pub fn tint_layer(l: &mut Layer, hue: f32, glow: f32) {
         LayerKind::Mode7(f) => {
             f.brightness.base *= glow;
             f.brightness.amp *= glow;
+        }
+        LayerKind::Splat(s) => {
+            s.brightness.base *= glow;
+            s.brightness.amp *= glow;
         }
         LayerKind::Logo(g) => {
             g.glow.base *= glow;

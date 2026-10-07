@@ -37,7 +37,7 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     gems, hearts, a Möbius strip, a Menger sponge…), a **library of about
     1,000 low-poly models** (spaceships, vehicles, trees, food, buildings,
     characters… by Kenney, CC0) picked from tiles with previews, and your
-    own **glTF/GLB/OBJ** models.
+    own **glTF/GLB, OBJ, STL, PLY, OFF and 3MF** models.
   - **Cloth**: flags, curtains, banners or a sheet draped over a ball,
     blown by a wind that can turn and gust on the beat. Position-based
     dynamics simulated ahead of time into a loop (like flocks), drawn as a
@@ -72,6 +72,11 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
     **Raymarched shapes** (metaballs, gyroid, fractal bulb, melting box)
     are drawn per pixel inside a box: smooth, depth-correct against
     everything else, with sun shadows and the usual material.
+  - **Gaussian splats**: captured objects and places (3D Gaussian
+    splatting) from **PLY, SPZ or .splat** files, drawn back to front as
+    soft ellipses on every backend, WebGL2 included, and placed, spun
+    and copied like any layer; animatable brightness, opacity, splat
+    size and a scatter that bursts the scene apart on the beat.
   - **Sprites**: billboards, upright or fixed image planes with alpha,
     additive or cutout blending and any copy layout; sprite sheets play a
     whole number of times per loop (built-in explosion, flame, coin and
@@ -318,7 +323,7 @@ MP4, WebM, GIF or PNG sequence that loops with no visible seam.
 
 ## Downloads
 
-**Latest release: [v1.0.0](https://github.com/roganis/ez2demoscene/releases/latest)**
+**Latest release: [v1.1.0](https://github.com/roganis/ez2demoscene/releases/latest)**
 (Windows, Linux, macOS and Android builds; see the [changelog](CHANGELOG.md)).
 The links below are rolling builds of the newest code.
 
