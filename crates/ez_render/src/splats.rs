@@ -159,7 +159,7 @@ fn read_splat(bytes: &[u8]) -> Result<Splats> {
         bail!("not a .splat file (its size isn't a multiple of 32 bytes)");
     }
     let mut out = Splats::with_capacity(bytes.len() / 32);
-    for r in bytes.chunks_exact(32) {
+    for r in bytes.as_chunks::<32>().0 {
         let f = |k: usize| f32::from_le_bytes(r[k * 4..k * 4 + 4].try_into().unwrap());
         let q = |k: usize| (r[28 + k] as f32 - 128.0) / 128.0;
         out.push(

@@ -324,7 +324,7 @@ fn stl_to_mesh(bytes: &[u8]) -> Result<MeshData> {
         // A binary file is exactly its header, count and 50 bytes a triangle
         // (some start with "solid" too).
         Some(n) if bytes.len() == 84 + 50 * n => {
-            for t in bytes[84..].chunks_exact(50) {
+            for t in bytes[84..].as_chunks::<50>().0 {
                 let f = |k: usize| f32::from_le_bytes(t[k * 4..k * 4 + 4].try_into().unwrap());
                 let base = soup.positions.len() as u32;
                 for c in 0..3 {
