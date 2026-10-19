@@ -2,7 +2,7 @@
 
 use anyhow::{anyhow, bail, Context, Result};
 use ez_core::{presets, Project};
-use ez_export::{ExportFormat, ExportSettings};
+use ez_export::{ExportFormat, ExportSettings, GifOptions};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 
@@ -13,8 +13,9 @@ USAGE:
     ez2demoscene [PROJECT.ez2.json]              open the editor
     ez2demoscene --render SCENE OUT.png [--phase 0.25] [--size 1920x1080]
     ez2demoscene --export SCENE OUT [--size WxH] [--fps 60] [--repeats 1]
-                 [--motion-blur 8] [--shutter 0.5]
-                 (OUT: .mp4 .webm .gif, or a folder for a PNG sequence)
+                 [--motion-blur 8] [--shutter 0.5] [--colors 256] [--no-dither]
+                 (OUT: .mp4 .webm .gif, or a folder for a PNG sequence;
+                 --colors and --no-dither are for GIFs)
     ez2demoscene --list-presets
     ez2demoscene --mcp                           serve the Model Context Protocol on stdin/stdout
     ez2demoscene --write-presets DIR              save built-in presets as projects
@@ -128,6 +129,10 @@ pub fn run(args: &[String]) -> Result<Option<i32>> {
                 repeats: flag_or(args, "--repeats", 1)?,
                 motion_blur: flag_or(args, "--motion-blur", 1)?,
                 shutter: flag_or(args, "--shutter", 0.5)?,
+                gif: GifOptions {
+                    colors: flag_or(args, "--colors", 256u16)?.clamp(2, 256),
+                    dither: !args.iter().any(|a| a == "--no-dither"),
+                },
                 output: out,
                 ..Default::default()
             };

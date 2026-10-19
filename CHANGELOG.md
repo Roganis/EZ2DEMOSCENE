@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Smaller GIFs for the web.** The export size presets have a "For the
+  web" group (640×360, 320×180, square 360×360 and 240×240, vertical
+  360×640), and Half size / Quarter size shrink the current size keeping
+  its shape. GIFs can be 10, 12.5, 15 or 20 fps, and have 16 to 256
+  colours per frame, with dithering on or off. On the command line:
+  `--colors N` and `--no-dither`.
+
+### Changed
+
+- GIFs exported on the web are dithered like the desktop ones (turn
+  Dither off for the old look).
+
 ## [1.1.0] - 2026-10-07
 
 Gaussian splats and more model formats.

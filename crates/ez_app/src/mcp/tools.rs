@@ -2,7 +2,7 @@
 
 use anyhow::{bail, Context, Result};
 use ez_core::{presets, EvalCtx, LayerKind, Project};
-use ez_export::{ExportFormat, ExportSettings};
+use ez_export::{ExportFormat, ExportSettings, GifOptions};
 use ez_render::gpu::Gpu;
 use ez_render::{RenderTarget, Renderer};
 use image::RgbaImage;
@@ -269,7 +269,9 @@ impl Tools {
                         "height": { "type": "integer", "minimum": 16, "maximum": 4320, "default": 720 },
                         "fps": { "type": "number", "minimum": 1, "maximum": 240, "default": 30 },
                         "repeats": { "type": "integer", "minimum": 1, "maximum": 100, "default": 1, "description": "How many times the loop plays in the file." },
-                        "motion_blur": { "type": "integer", "minimum": 1, "maximum": 64, "default": 1, "description": "Samples per frame; above 1 blurs fast motion like film." }
+                        "motion_blur": { "type": "integer", "minimum": 1, "maximum": 64, "default": 1, "description": "Samples per frame; above 1 blurs fast motion like film." },
+                        "gif_colors": { "type": "integer", "minimum": 2, "maximum": 256, "default": 256, "description": "GIF only: colours per frame; fewer make a smaller file." },
+                        "dither": { "type": "boolean", "default": true, "description": "GIF only: smooth gradients with a fine pattern (off: flat bands, smaller file)." }
                     },
                     "required": ["scene", "output"],
                     "additionalProperties": false
@@ -936,6 +938,10 @@ fn export_loop(args: &Value) -> Result<ToolOutput> {
         fps: num(args, "fps", 30.0)? as f32,
         repeats: int(args, "repeats", 1, 1, 100)?,
         motion_blur: int(args, "motion_blur", 1, 1, 64)?,
+        gif: GifOptions {
+            colors: int(args, "gif_colors", 256, 2, 256)? as u16,
+            dither: args["dither"].as_bool().unwrap_or(true),
+        },
         output,
         ..Default::default()
     };

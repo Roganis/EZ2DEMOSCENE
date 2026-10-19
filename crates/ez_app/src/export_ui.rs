@@ -1,5 +1,6 @@
 //! Export dialog and the background export job.
 
+use crate::export_common::{frame_rates, gif_defaults, gif_rows, size_presets};
 use egui::{RichText, Ui};
 use ez_core::{AudioEnvelope, Project};
 use ez_export::{ExportFormat, ExportSettings, Progress};
@@ -105,10 +106,8 @@ impl ExportUi {
                                 } else {
                                     s.output = s.output.with_extension(f.extension());
                                 }
-                                if f == ExportFormat::Gif && s.width > 800 {
-                                    s.width = 480;
-                                    s.height = 270;
-                                    s.fps = 30.0;
+                                if f == ExportFormat::Gif {
+                                    gif_defaults(&mut s.width, &mut s.height, &mut s.fps);
                                 }
                             }
                         }
@@ -120,25 +119,21 @@ impl ExportUi {
                     ui.add(egui::DragValue::new(&mut s.width).range(16..=7680));
                     ui.label("×");
                     ui.add(egui::DragValue::new(&mut s.height).range(16..=4320));
-                    ui.menu_button("Presets", |ui| {
-                        for (name, w, h) in RESOLUTIONS {
-                            if ui.button(*name).clicked() {
-                                s.width = *w;
-                                s.height = *h;
-                                ui.close();
-                            }
-                        }
-                    });
+                    size_presets(ui, RESOLUTIONS, &mut s.width, &mut s.height);
                 });
                 ui.end_row();
 
                 ui.label("Frame rate");
                 ui.horizontal(|ui| {
-                    for f in [24.0, 25.0, 30.0, 50.0, 60.0] {
+                    let gif = s.format == ExportFormat::Gif;
+                    for f in frame_rates(gif, &[24.0, 25.0, 30.0, 50.0, 60.0]) {
                         ui.selectable_value(&mut s.fps, f, format!("{f}"));
                     }
                 });
                 ui.end_row();
+                if s.format == ExportFormat::Gif {
+                    gif_rows(ui, &mut s.gif);
+                }
 
                 ui.label("Motion blur");
                 ui.horizontal(|ui| {

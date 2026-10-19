@@ -3,10 +3,11 @@
 //! encoder written in Rust, or to the browser's WebCodecs video encoder for
 //! MP4 / WebM. The finished file is downloaded.
 
+use crate::export_common::{frame_rates, gif_defaults, gif_rows, size_presets};
 use crate::platform::slug;
 use egui::{RichText, Ui};
 use ez_core::{AudioEnvelope, Project};
-use ez_export::{ExportJob, FrameSink, GifSink, JobState, PngZipSink};
+use ez_export::{ExportJob, FrameSink, GifOptions, GifSink, JobState, PngZipSink};
 use ez_render::Renderer;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -136,6 +137,7 @@ pub struct ExportUi {
     repeats: u32,
     motion_blur: u32,
     shutter: f32,
+    gif: GifOptions,
     running: Option<Running>,
     request: Option<(Project, Option<AudioEnvelope>)>,
     file_name: String,
@@ -159,6 +161,7 @@ impl Default for ExportUi {
             repeats: 1,
             motion_blur: 1,
             shutter: 0.5,
+            gif: GifOptions::default(),
             running: None,
             request: None,
             file_name: String::new(),
@@ -220,8 +223,12 @@ impl ExportUi {
                                 );
                                 if r.clicked() {
                                     self.format = f;
-                                    if f == WebFormat::Gif && self.width > 800 {
-                                        (self.width, self.height, self.fps) = (480, 270, 25.0);
+                                    if f == WebFormat::Gif {
+                                        gif_defaults(
+                                            &mut self.width,
+                                            &mut self.height,
+                                            &mut self.fps,
+                                        );
                                     }
                                 }
                                 if !enabled {
@@ -237,29 +244,31 @@ impl ExportUi {
                         ui.add(egui::DragValue::new(&mut self.width).range(16..=3840));
                         ui.label("×");
                         ui.add(egui::DragValue::new(&mut self.height).range(16..=2160));
-                        ui.menu_button("Presets", |ui| {
-                            for (n, w, h) in [
+                        size_presets(
+                            ui,
+                            &[
                                 ("720p", 1280, 720),
                                 ("1080p", 1920, 1080),
                                 ("Square 1080", 1080, 1080),
                                 ("Vertical 1080×1920", 1080, 1920),
                                 ("GIF small 480×270", 480, 270),
-                            ] {
-                                if ui.button(n).clicked() {
-                                    (self.width, self.height) = (w, h);
-                                    ui.close();
-                                }
-                            }
-                        });
+                            ],
+                            &mut self.width,
+                            &mut self.height,
+                        );
                     });
                     ui.end_row();
                     ui.label("Frame rate");
                     ui.horizontal(|ui| {
-                        for f in [24.0, 25.0, 30.0, 60.0] {
+                        let gif = self.format == WebFormat::Gif;
+                        for f in frame_rates(gif, &[24.0, 25.0, 30.0, 60.0]) {
                             ui.selectable_value(&mut self.fps, f, format!("{f}"));
                         }
                     });
                     ui.end_row();
+                    if self.format == WebFormat::Gif {
+                        gif_rows(ui, &mut self.gif);
+                    }
                     ui.label("Motion blur");
                     ui.horizontal(|ui| {
                         for (k, label) in [(1u32, "off"), (4, "4×"), (8, "8×"), (16, "16×")] {
@@ -381,7 +390,7 @@ impl ExportUi {
                 return;
             }
             let sink: Box<dyn FrameSink> = match self.format {
-                WebFormat::Gif => match GifSink::new(self.fps) {
+                WebFormat::Gif => match GifSink::new(self.fps, self.gif) {
                     Ok(s) => Box::new(s),
                     Err(e) => {
                         self.status = Some(Err(e.to_string()));

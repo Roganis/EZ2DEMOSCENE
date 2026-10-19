@@ -1679,8 +1679,14 @@ drops the Drive nodes (settings keep their own values).</p>
   <tr><th style="width:24%">Option</th><th>Notes</th></tr>
   <tr><td>Format</td><td><b>MP4 (H.264)</b> works everywhere. <b>WebM (VP9)</b> is for the web. <b>Animated GIF</b> is for chats and forums.
   <b>PNG sequence</b> writes one PNG per frame into a folder and needs no ffmpeg; it is ideal for video editors and VJ software.</td></tr>
-  <tr><td>Size</td><td>Type a size or use <span class="ui">Presets</span>: 720p, 1080p, 1440p, 4K, Square, Vertical (phone), GIF small, Retro 4:3.</td></tr>
-  <tr><td>Frame rate</td><td>24, 25, 30, 50 or 60 fps. The dialog shows how many frames one loop needs.</td></tr>
+  <tr><td>Size</td><td>Type a size or use <span class="ui">Presets</span>: 720p, 1080p, 1440p, 4K, Square, Vertical (phone), GIF small, Retro 4:3,
+  and small sizes <b>for the web</b>: 640×360, 320×180, square 360×360 and 240×240, vertical 360×640. <span class="ui">Half size</span> and
+  <span class="ui">Quarter size</span> shrink whatever size is set and keep its shape.</td></tr>
+  <tr><td>Frame rate</td><td>24, 25, 30, 50 or 60 fps; for GIFs 10, 12.5, 15, 20, 25 or 30 fps. The dialog shows how many frames one loop
+  needs.</td></tr>
+  <tr><td>Colours <i>(GIF)</i></td><td>16, 32, 64, 128 or 256 colours per frame. Fewer colours make a smaller file and a more retro look.</td></tr>
+  <tr><td>Dither <i>(GIF)</i></td><td>On, gradients are smoothed with a fine pattern of dots. Off, they become flat bands of colour, and the
+  file is smaller.</td></tr>
   <tr><td>Motion blur</td><td>Averages 4, 8 or 16 in-between moments per frame for smooth, film-like motion (fast spins and flying debris
   smear instead of stepping). <span class="ui">Shutter</span> sets how much of the time between frames is blurred. The export takes that many
   times longer, and the video still loops perfectly.</td></tr>
@@ -1690,8 +1696,10 @@ drops the Drive nodes (settings keep their own values).</p>
 </table>
 <p>Press <span class="ui">⏺ Export</span>. A progress bar shows the frames being rendered, and you can keep working or press <span class="ui">Cancel</span>.
 Export renders every frame at full quality (anti-aliasing and full-resolution effects) even if your preview is set lower.</p>
-<div class="tip"><b>GIF tips</b>GIFs get big quickly. Use 480×270 at 25–30 fps, keep loops short (8 beats), and avoid
-film grain, which makes GIFs much larger.</div>
+<div class="tip"><b>GIF tips</b>GIFs get big quickly. For a web page or a chat, try a web size such as 320×180 at 15 fps with
+64 colours and <span class="ui">Dither</span> off: that makes a GIF about six times smaller than 480×270 at 25 fps. The smaller size alone
+halves the file, and 15 fps and 64 colours each take off about a third; dither off saves most with few colours. Keep loops short
+(8 beats), and avoid film grain, which makes GIFs much larger.</div>
 <div class="note"><b>"ffmpeg not found"?</b>Install ffmpeg, then either make sure <code>ffmpeg</code> runs in a terminal or paste the path to the
 <code>ffmpeg</code> program into the box in the export dialog and press <span class="ui">Check</span>.</div>
 <h2>Stills</h2>
@@ -1704,6 +1712,7 @@ ez2demoscene --render "Neon Arena" still.png --phase 0.25 --size 1920x1080
 ez2demoscene --export "Gold Kaleido Room" loop.mp4 --size 1920x1080 --fps 60 --repeats 4
 ez2demoscene --export "Tesla Swarm" smooth.mp4 --fps 30 --motion-blur 8 --shutter 0.5
 ez2demoscene --export my.ez2.json frames/          # PNG sequence into a folder
+ez2demoscene --export "Neon Arena" web.gif --size 320x180 --fps 15 --colors 64 --no-dither   # small GIF
 ez2demoscene --write-presets my_presets/           # presets as editable project files
 ez2demoscene --write-textures my_textures/         # the retro texture pack as PNGs</pre>
 <p><code>--phase</code> is a position in the loop from 0 to 1 (0.5 is the middle).</p>
@@ -1795,7 +1804,8 @@ compact timeline sits above a <b>tab bar</b> with three tabs:</p>
   <tr><td>MP4 / WebM video</td><td>Encoded by the browser's own video encoder (WebCodecs, hardware-accelerated on most phones). Loops stay frame-exact.
   MP4 uses H.264 where available, otherwise VP9 or AV1. <b>The web version exports video without the music track</b>; use the desktop app for
   videos with sound.</td></tr>
-  <tr><td>GIF</td><td>Works everywhere; loops forever by itself. Keep it small (e.g. 480×270) for sharing.</td></tr>
+  <tr><td>GIF</td><td>Works everywhere; loops forever by itself. Keep it small for sharing: pick a size under
+  <span class="ui">Presets → For the web</span>, a lower frame rate and fewer colours.</td></tr>
   <tr><td>PNG frames (.zip)</td><td>Every frame as a lossless PNG, for editing elsewhere.</td></tr>
 </table>
 <p>The preview pauses while exporting so the device can concentrate on the frames. Phones are slower than desktop PCs, so start with 720p or

@@ -6,6 +6,7 @@
 //! needs no external tool.
 
 mod job;
+mod quant;
 pub use job::{ExportJob, FrameSink, GifSink, JobState, PngZipSink};
 
 use anyhow::{bail, Context, Result};
@@ -97,6 +98,48 @@ impl ExportFormat {
     }
 }
 
+/// How a GIF is coloured.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GifOptions {
+    /// Colours per frame (2 to 256): fewer make smaller files and a more
+    /// retro look.
+    pub colors: u16,
+    /// Ordered (Bayer) dithering: smoother gradients, bigger files.
+    pub dither: bool,
+}
+
+impl Default for GifOptions {
+    fn default() -> Self {
+        GifOptions {
+            colors: 256,
+            dither: true,
+        }
+    }
+}
+
+impl GifOptions {
+    /// The colour counts offered in the export dialogs.
+    pub const COLORS: [u16; 5] = [16, 32, 64, 128, 256];
+
+    pub fn colors(self) -> usize {
+        self.colors.clamp(2, 256) as usize
+    }
+
+    /// Strength of the dithering, as ffmpeg's `bayer_scale` (1 strong, 3
+    /// gentle): fewer colours are further apart and need more of it.
+    pub fn bayer_scale(self) -> Option<u32> {
+        self.dither.then_some(match self.colors() {
+            0..=32 => 1,
+            33..=64 => 2,
+            _ => 3,
+        })
+    }
+}
+
+/// Frame rates that suit GIFs (whose frame times are whole hundredths of a
+/// second), offered when exporting one.
+pub const GIF_FRAME_RATES: [f32; 6] = [10.0, 12.5, 15.0, 20.0, 25.0, 30.0];
+
 #[derive(Clone, Debug)]
 pub struct ExportSettings {
     pub format: ExportFormat,
@@ -115,6 +158,8 @@ pub struct ExportSettings {
     pub motion_blur: u32,
     /// Motion blur shutter: 0..1 of the time between two frames.
     pub shutter: f32,
+    /// Colours and dithering of GIF exports.
+    pub gif: GifOptions,
 }
 
 impl Default for ExportSettings {
@@ -130,6 +175,7 @@ impl Default for ExportSettings {
             include_audio: true,
             motion_blur: 1,
             shutter: 0.5,
+            gif: GifOptions::default(),
         }
     }
 }
@@ -650,12 +696,18 @@ pub fn export(
                     ]);
                 }
                 ExportFormat::Gif => {
-                    cmd.args([
-                        "-filter_complex",
-                        "[0:v]split[a][b];[a]palettegen=stats_mode=full[p];[b][p]paletteuse=dither=bayer:bayer_scale=3",
-                        "-loop",
-                        "0",
-                    ]);
+                    let gif = settings.gif;
+                    let dither = match gif.bayer_scale() {
+                        Some(scale) => format!("bayer:bayer_scale={scale}"),
+                        None => "none".into(),
+                    };
+                    // Frames are opaque: no palette entry kept for
+                    // transparency.
+                    let filter = format!(
+                        "[0:v]split[a][b];[a]palettegen=stats_mode=full:max_colors={}:reserve_transparent=0[p];[b][p]paletteuse=dither={dither}",
+                        gif.colors()
+                    );
+                    cmd.args(["-filter_complex", &filter, "-loop", "0"]);
                 }
                 ExportFormat::PngSequence => unreachable!(),
             }

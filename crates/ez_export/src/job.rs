@@ -5,10 +5,10 @@
 use anyhow::{bail, Result};
 use ez_core::{AudioEnvelope, EvalCtx, Project};
 use ez_render::{Readback, RenderTarget, Renderer};
-use image::codecs::gif::{GifEncoder, Repeat};
 use std::io::Write;
 
-use crate::Progress;
+use crate::quant::Quantizer;
+use crate::{GifOptions, Progress};
 
 /// Receives rendered frames (tightly packed sRGB RGBA8).
 pub trait FrameSink {
@@ -19,36 +19,22 @@ pub trait FrameSink {
     fn extension(&self) -> &'static str;
 }
 
-/// Animated GIF encoded in pure Rust (NeuQuant palette per frame).
+/// Animated GIF encoded in pure Rust, with a palette of its own for every
+/// frame (see [`crate::quant`]).
 pub struct GifSink {
-    encoder: GifEncoder<SharedBuf>,
-    out: SharedBuf,
+    encoder: Option<gif::Encoder<Vec<u8>>>,
+    quantizer: Quantizer,
+    options: GifOptions,
     fps: f32,
     index: u32,
 }
 
-/// A `Write` target we can still read after the encoder takes ownership.
-#[derive(Clone, Default)]
-struct SharedBuf(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
-
-impl Write for SharedBuf {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.0.lock().unwrap().extend_from_slice(buf);
-        Ok(buf.len())
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
 impl GifSink {
-    pub fn new(fps: f32) -> Result<GifSink> {
-        let out = SharedBuf::default();
-        let mut encoder = GifEncoder::new_with_speed(out.clone(), 10);
-        encoder.set_repeat(Repeat::Infinite)?;
+    pub fn new(fps: f32, options: GifOptions) -> Result<GifSink> {
         Ok(GifSink {
-            encoder,
-            out,
+            encoder: None,
+            quantizer: Quantizer::default(),
+            options,
             fps: fps.max(1.0),
             index: 0,
         })
@@ -57,24 +43,46 @@ impl GifSink {
 
 impl FrameSink for GifSink {
     fn add_frame(&mut self, rgba: &[u8], width: u32, height: u32) -> Result<()> {
-        let img = image::RgbaImage::from_raw(width, height, rgba.to_vec())
-            .ok_or_else(|| anyhow::anyhow!("frame size mismatch"))?;
+        if rgba.len() != width as usize * height as usize * 4 {
+            bail!("frame size mismatch");
+        }
+        let (w, h) = (u16::try_from(width)?, u16::try_from(height)?);
+        let encoder = match &mut self.encoder {
+            Some(e) => e,
+            None => {
+                let mut e = gif::Encoder::new(Vec::new(), w, h, &[])?;
+                e.set_repeat(gif::Repeat::Infinite)?;
+                self.encoder.insert(e)
+            }
+        };
         // GIF delays are whole centiseconds: alternate them so the total
         // length is exact (e.g. 24 fps -> 4,4,4,5,4,4,4,5… cs).
         let cs = |i: u32| (i as f64 * 100.0 / self.fps as f64).round() as u32;
         let delay = cs(self.index + 1) - cs(self.index);
-        let frame =
-            image::Frame::from_parts(img, 0, 0, image::Delay::from_numer_denom_ms(delay * 10, 1));
-        self.encoder.encode_frame(frame)?;
+        let (palette, indices) = self.quantizer.quantize(
+            rgba,
+            width,
+            self.options.colors(),
+            self.options.bayer_scale(),
+        );
+        encoder.write_frame(&gif::Frame {
+            width: w,
+            height: h,
+            delay: delay as u16,
+            palette: Some(palette),
+            buffer: indices.into(),
+            ..gif::Frame::default()
+        })?;
         self.index += 1;
         Ok(())
     }
 
     fn finish(self: Box<Self>) -> Result<Vec<u8>> {
-        let GifSink { encoder, out, .. } = *self;
-        drop(encoder); // writes the GIF trailer
-        let bytes = std::mem::take(&mut *out.0.lock().unwrap());
-        Ok(bytes)
+        match self.encoder {
+            // Writes the GIF trailer.
+            Some(e) => Ok(e.into_inner()?),
+            None => bail!("no frames to put in the GIF"),
+        }
     }
 
     fn extension(&self) -> &'static str {
@@ -332,7 +340,7 @@ mod tests {
             36,
             12.0,
             1,
-            Box::new(GifSink::new(12.0).unwrap()),
+            Box::new(GifSink::new(12.0, GifOptions::default()).unwrap()),
         );
         let gif = run(&mut job, &mut r);
         let decoder = image::codecs::gif::GifDecoder::new(std::io::Cursor::new(&gif)).unwrap();
@@ -348,6 +356,26 @@ mod tests {
             .sum();
         assert_eq!(total_ms, 500, "GIF length must equal the loop length");
         assert_eq!(frames[0].buffer().dimensions(), (64, 36));
+
+        // Fewer colours: every frame keeps to them, and the file shrinks.
+        let options = GifOptions {
+            colors: 16,
+            dither: false,
+        };
+        let sink = Box::new(GifSink::new(12.0, options).unwrap());
+        let mut job = ExportJob::new(&r, p.clone(), None, 64, 36, 12.0, 1, sink);
+        let small = run(&mut job, &mut r);
+        let mut decoder = gif::DecodeOptions::new();
+        decoder.set_color_output(gif::ColorOutput::Indexed);
+        let mut decoder = decoder.read_info(std::io::Cursor::new(&small)).unwrap();
+        let mut n = 0;
+        while let Some(frame) = decoder.read_next_frame().unwrap() {
+            assert!(frame.palette.as_ref().unwrap().len() <= 16 * 3);
+            assert!(frame.buffer.iter().all(|&i| i < 16));
+            n += 1;
+        }
+        assert_eq!(n, 6);
+        assert!(small.len() < gif.len(), "{} vs {}", small.len(), gif.len());
 
         let mut job = ExportJob::new(&r, p, None, 64, 36, 12.0, 2, Box::<PngZipSink>::default());
         let zip_bytes = run(&mut job, &mut r);

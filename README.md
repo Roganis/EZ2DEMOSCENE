@@ -387,6 +387,7 @@ ez2demoscene --render "Neon Arena" still.png --phase 0.25 --size 1920x1080
 ez2demoscene --export "Gold Kaleido Room" loop.mp4 --size 1920x1080 --fps 60 --repeats 4
 ez2demoscene --export "Tesla Swarm" smooth.mp4 --fps 30 --motion-blur 8   # film-like motion blur
 ez2demoscene --export my.ez2.json frames/        # PNG sequence
+ez2demoscene --export "Neon Arena" web.gif --size 320x180 --fps 15 --colors 64 --no-dither   # small GIF for the web
 ez2demoscene --write-presets my_presets/        # the built-in presets as project files
 ez2demoscene --write-schema ez2.schema.json     # JSON Schema of project files (for editors)
 ez2demoscene --write-textures assets/textures

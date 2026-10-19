@@ -11,6 +11,7 @@ ez_core.workspace = true
 ez_render.workspace = true
 wgpu.workspace = true
 image.workspace = true
+gif.workspace = true
 anyhow.workspace = true
 log.workspace = true
 zip.workspace = true
